@@ -364,25 +364,42 @@ h1.hero-title em {
 }
 .device-body {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.62;
+  font-size: 10.5px;
+  line-height: 1.45;
   color: var(--muted);
-  min-height: 320px;
+  max-height: 460px;
+  overflow: hidden;
+  position: relative;
+  /* Soft fade at bottom so the long list feels like a live feed */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 86%, transparent 100%);
+          mask-image: linear-gradient(180deg, #000 0%, #000 86%, transparent 100%);
 }
 .chunk {
-  padding: 10px 12px;
-  border-radius: 6px;
-  margin-bottom: 8px;
+  padding: 7px 11px;
+  border-radius: 5px;
+  margin-bottom: 5px;
   background: var(--surface-2);
   border-left: 2px solid var(--line-warm);
-  animation: chunkIn 0.6s cubic-bezier(.2,.7,.2,1) forwards;
+  animation: chunkIn 0.55s cubic-bezier(.2,.7,.2,1) forwards;
   opacity: 0;
 }
-.chunk:nth-child(1) { animation-delay: 0.9s; }
-.chunk:nth-child(2) { animation-delay: 1.15s; }
-.chunk:nth-child(3) { animation-delay: 1.40s; }
-.chunk:nth-child(4) { animation-delay: 1.65s; border-left-color: var(--signal); }
-.chunk:nth-child(5) { animation-delay: 1.90s; border-left-color: var(--signal); }
+/* Stagger across 16 items (14 modules + 2 guideline flags) */
+.chunk:nth-child(1)  { animation-delay: 0.75s; }
+.chunk:nth-child(2)  { animation-delay: 0.90s; }
+.chunk:nth-child(3)  { animation-delay: 1.05s; }
+.chunk:nth-child(4)  { animation-delay: 1.20s; }
+.chunk:nth-child(5)  { animation-delay: 1.35s; }
+.chunk:nth-child(6)  { animation-delay: 1.50s; }
+.chunk:nth-child(7)  { animation-delay: 1.65s; }
+.chunk:nth-child(8)  { animation-delay: 1.80s; }
+.chunk:nth-child(9)  { animation-delay: 1.95s; }
+.chunk:nth-child(10) { animation-delay: 2.10s; }
+.chunk:nth-child(11) { animation-delay: 2.25s; }
+.chunk:nth-child(12) { animation-delay: 2.40s; }
+.chunk:nth-child(13) { animation-delay: 2.55s; }
+.chunk:nth-child(14) { animation-delay: 2.70s; }
+.chunk:nth-child(15) { animation-delay: 2.90s; border-left-color: var(--amber); }
+.chunk:nth-child(16) { animation-delay: 3.05s; border-left-color: var(--amber); }
 .chunk .label {
   display: inline-block;
   color: var(--signal);
@@ -447,24 +464,29 @@ h1.hero-title em {
   50% { opacity: 0.45; transform: scale(1.25); }
 }
 .float-tag-1 {
-  top: -20px; left: -30px;
-  animation: floatA 6s ease-in-out infinite;
+  /* Tucked inside the top-right corner of the device frame */
+  top: 18px; right: 18px;
+  z-index: 2;
+  animation: floatA 5.5s ease-in-out infinite;
 }
 .float-tag-2 {
-  bottom: 30px; right: -22px;
-  animation: floatB 7s ease-in-out infinite;
+  /* Hangs slightly off the bottom-right corner, below the caption line */
+  bottom: -14px; right: 20px;
+  z-index: 2;
+  animation: floatB 6.5s ease-in-out infinite;
 }
+/* Small-amplitude bounces kept entirely outside the chunk content region */
 @keyframes floatA {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-12px); }
+  50%      { transform: translateY(-4px); }
 }
 @keyframes floatB {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(10px); }
+  50%      { transform: translateY(6px); }
 }
 @media (max-width: 980px) {
-  .float-tag-1 { left: 10px; top: -16px; }
-  .float-tag-2 { right: 10px; }
+  .float-tag-1 { top: 14px; right: 14px; }
+  .float-tag-2 { bottom: -12px; right: 14px; }
 }
 
 /* ========== STATS STRIP ========== */
@@ -1070,6 +1092,52 @@ footer {
   transition: all 0.2s;
 }
 .foot-email:hover { border-color: var(--signal); background: rgba(198, 244, 50, 0.05); }
+
+/* ========== FOOTER SOCIAL LINKS ========== */
+.foot-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.foot-social {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 11px;
+  border: 1px solid var(--line-warm);
+  border-radius: 999px;
+  background: transparent;
+  transition: all 0.2s ease;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--cream);
+  letter-spacing: -0.005em;
+  line-height: 1;
+}
+.foot-social:hover {
+  border-color: var(--signal);
+  background: rgba(198, 244, 50, 0.05);
+  transform: translateY(-1px);
+}
+.foot-social:hover .fs-icon { color: var(--signal); }
+.fs-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transition: color 0.2s ease;
+  flex-shrink: 0;
+}
+.fs-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.fs-label em {
+  font-style: italic;
+  color: var(--signal);
+  font-weight: 400;
+  margin-left: 1px;
+}
 .foot-col h4 {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1204,7 +1272,7 @@ footer {
       </div>
     </div>
     <div class="hero-visual">
-      <div class="float-tag float-tag-1"><span class="dot"></span>INGESTING · 7 DOCS</div>
+      <div class="float-tag float-tag-1"><span class="dot"></span>RUNNING · 14 MODULES</div>
       <div class="device-frame">
         <div class="device-topbar">
           <span></span><span></span><span></span>
@@ -1212,29 +1280,73 @@ footer {
         </div>
         <div class="device-body">
           <div class="chunk">
+            <div class="label">A1 · WEBSITE INTEL</div>
+            <div class="content">meridianstructural.com · <span class="mono-data">Scope aligns w/ app · no red flags</span></div>
+          </div>
+          <div class="chunk">
             <div class="label">A2 · SUPPLEMENTAL</div>
-            <div class="content">Meridian Structural Group, LLC · 18 yrs · <span class="mono-data">Max height 62 ft · 75-unit fleet</span></div>
+            <div class="content">Meridian Structural Group · 18 yrs · <span class="mono-data">Max height 62 ft · 75-unit fleet</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A3 · SUBCONTRACTOR</div>
+            <div class="content">AI + $2M required · <span class="mono-data">Primary &amp; non-contrib · full transfer</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A4 · VENDOR</div>
+            <div class="content">Crane lease · <span class="mono-data">Borrowed-servant exposure flagged</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A5 · SAFETY MANUAL</div>
+            <div class="content">EMR 0.82 · TRIR 2.1 · <span class="mono-data">&lt; NAICS avg · OSHA 10/30 logged</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A6 · SUMMARY OF OPS</div>
+            <div class="content">Structural steel erection · <span class="mono-data">NYC / NJ / PA commercial</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A7 · CLASS CODE</div>
+            <div class="content">ISO 91580 · <span class="mono-data">Iron/steel erection &ndash; frame</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A8 · GUIDELINE</div>
+            <div class="content">In appetite · <span class="mono-data">2 referral triggers (see flags)</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A9 · EXPOSURE</div>
+            <div class="content">NY §240 severity · <span class="mono-data">&gt;$2M attachment penetration likely</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A10 · STRENGTHS</div>
+            <div class="content">18-yr tenure · <span class="mono-data">VPP Star · 4:1 sub-to-FTE oversight</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A11 · LOSS HISTORY</div>
+            <div class="content">40 claims / 5 yrs · <span class="mono-data">$487K incurred · 0 primary penetration</span></div>
           </div>
           <div class="chunk">
             <div class="label">A12 · PRIMARY GL</div>
             <div class="content">Starr · A/XV · <span class="mono-data">$1M/$2M/$2M · CG 22 94 subsidence excl.</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A11 · LOSS HISTORY</div>
-            <div class="content">40 claims / 5 yrs · <span class="mono-data">$487K incurred · 0 primary penetration</span></div>
+            <div class="label">A13 · PRIMARY AL</div>
+            <div class="content">75 units · <span class="mono-data">60 PPT / 15 trucks · 150mi radius</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A14 · EXCESS</div>
+            <div class="content">$10M xs $2M · <span class="mono-data">Follow-form · Ironshore A/XV</span></div>
           </div>
           <div class="chunk alert">
-            <div class="label">A8 · GUIDELINE FLAG</div>
-            <div class="content">Height 62 ft exceeds 40 ft referral threshold · HIE Questionnaire required</div>
+            <div class="label">◈ GUIDELINE FLAG</div>
+            <div class="content">Height 62 ft exceeds 40 ft threshold · <span class="mono-data">HIE Questionnaire required</span></div>
           </div>
           <div class="chunk alert">
-            <div class="label">A8 · GUIDELINE FLAG</div>
-            <div class="content">NY Labor Law §240/241 exposure · mandatory Senior UW referral</div>
+            <div class="label">◈ GUIDELINE FLAG</div>
+            <div class="content">NY Labor Law §240/241 exposure · <span class="mono-data">Senior UW referral</span></div>
           </div>
         </div>
-        <div class="device-caption">Generated in 47 seconds · all outputs source-cited</div>
+        <div class="device-caption">Generated in 47 seconds · all 14 modules · source-cited</div>
       </div>
-      <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK · ✓ 18/18</div>
+      <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK · ✓ 14/14</div>
     </div>
   </div>
 </section>
@@ -2472,6 +2584,28 @@ footer {
           <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="12" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M3 6 L10 12 L17 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           speedtomarketai@gmail.com
         </a>
+
+        <!-- Social links — icons + branded label, URLs hidden from visible text -->
+        <div class="foot-socials">
+          <a href="https://www.linkedin.com/in/justin-wray-a795a4404/" class="foot-social" target="_blank" rel="noopener noreferrer" aria-label="Speed to Market AI on LinkedIn">
+            <svg class="fs-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.9 1.63-1.85 3.36-1.85 3.59 0 4.27 2.36 4.27 5.44v6.3zM5.34 7.43a2.06 2.06 0 110-4.12 2.06 2.06 0 010 4.12zm1.78 13.02H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45C23.2 24 24 23.23 24 22.28V1.72C24 .77 23.2 0 22.22 0z"/>
+            </svg>
+            <span class="fs-label">Speed to Market <em>AI</em></span>
+          </a>
+          <a href="https://x.com/speedtomarketai" class="foot-social" target="_blank" rel="noopener noreferrer" aria-label="Speed to Market AI on X">
+            <svg class="fs-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            <span class="fs-label">Speed to Market <em>AI</em></span>
+          </a>
+          <a href="https://www.youtube.com/@SpeedToMarketAI" class="foot-social" target="_blank" rel="noopener noreferrer" aria-label="Speed to Market AI on YouTube">
+            <svg class="fs-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+            <span class="fs-label">Speed to Market <em>AI</em></span>
+          </a>
+        </div>
       </div>
       <div class="foot-col">
         <h4>Product</h4>
