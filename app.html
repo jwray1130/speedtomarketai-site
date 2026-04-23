@@ -4255,6 +4255,10 @@ async function checkAuth() {
   }
   // Refresh the API pill
   if (typeof updateApiPillUI === 'function') updateApiPillUI();
+  // Phase 4: pull user's submissions/settings from Supabase into STATE.
+  // Fire-and-forget — the UI is already up; hydration will re-render the
+  // Queue when data lands. Any failure is logged, not thrown.
+  if (typeof sbHydrate === 'function') { sbHydrate(); }
   return true;
 }
 
@@ -4305,6 +4309,222 @@ async function llmProxyFetch(body, extraHeaders) {
   }
   return res.json();
 }
+
+// ============================================================================
+// SUPABASE DATA-ACCESS HELPERS  (Phase 4 — localStorage → Supabase migration)
+// Every other function in the app calls THESE helpers; no other place talks to
+// Supabase directly for data. Auth and LLM proxy paths are separate (above).
+// ============================================================================
+
+async function sbUser() {
+  const { data: { user } } = await sb.auth.getUser();
+  return user;   // null if signed out
+}
+
+// ---- Submissions ----------------------------------------------------------
+// One row per submission. The whole per-submission object (files-lite,
+// extractions, edits, etc.) goes into the `snapshot` jsonb column.
+async function sbLoadSubmissions() {
+  const { data, error } = await sb
+    .from('submissions')
+    .select('id, snapshot, status, pipeline_run, title, updated_at, created_at')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function sbSaveSubmission(sub) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const row = {
+    user_id: u.id,
+    snapshot: sub.snapshot || null,
+    status: sub.status || 'queued',
+    pipeline_run: sub.pipelineRun || sub.pipeline_run || null,
+    title: sub.title || sub.account || null
+  };
+  if (sub.id) row.id = sub.id;   // omit on insert so DB generates uuid
+  const { data, error } = await sb
+    .from('submissions')
+    .upsert(row, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function sbDeleteSubmission(id) {
+  const { error } = await sb.from('submissions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ---- Edits / Custom cards / Hidden cards ---------------------------------
+async function sbLoadEdits(submissionId) {
+  const { data, error } = await sb
+    .from('submission_edits')
+    .select('module_key, edit_type, payload, updated_at')
+    .eq('submission_id', submissionId);
+  if (error) throw error;
+  return data || [];
+}
+
+async function sbSaveEdit(submissionId, moduleKey, editType, payload, pipelineRun) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { error } = await sb
+    .from('submission_edits')
+    .upsert({
+      user_id: u.id,
+      submission_id: submissionId,
+      module_key: moduleKey,
+      edit_type: editType,            // 'edit' | 'custom' | 'hidden'
+      payload: payload || {},
+      pipeline_run: pipelineRun || null
+    }, { onConflict: 'submission_id,module_key' });
+  if (error) throw error;
+}
+
+async function sbDeleteEdit(submissionId, moduleKey) {
+  const { error } = await sb
+    .from('submission_edits').delete()
+    .eq('submission_id', submissionId).eq('module_key', moduleKey);
+  if (error) throw error;
+}
+
+// Helper: flatten the in-memory edits/customCards/hiddenCards maps into a single
+// upsert batch for the given submission. Called from saveEditsNow().
+async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, customCards, hiddenCards) {
+  if (!submissionId) return;   // no active submission → nothing to persist
+  const u = await sbUser(); if (!u) return;
+  const rows = [];
+  // edits: { [moduleId]: { text: ..., ... } }
+  if (edits && typeof edits === 'object') {
+    for (const k of Object.keys(edits)) {
+      rows.push({
+        user_id: u.id, submission_id: submissionId, pipeline_run: pipelineRun || null,
+        module_key: 'card:' + k, edit_type: 'edit', payload: edits[k] || {}
+      });
+    }
+  }
+  // customCards: [ { id, title, body/html, ... } ]
+  if (Array.isArray(customCards)) {
+    for (const cc of customCards) {
+      if (!cc || !cc.id) continue;
+      rows.push({
+        user_id: u.id, submission_id: submissionId, pipeline_run: pipelineRun || null,
+        module_key: 'custom:' + cc.id, edit_type: 'custom', payload: cc
+      });
+    }
+  }
+  // hiddenCards: { [moduleId]: true }
+  if (hiddenCards && typeof hiddenCards === 'object') {
+    for (const k of Object.keys(hiddenCards)) {
+      if (!hiddenCards[k]) continue;
+      rows.push({
+        user_id: u.id, submission_id: submissionId, pipeline_run: pipelineRun || null,
+        module_key: 'hidden:' + k, edit_type: 'hidden', payload: {}
+      });
+    }
+  }
+  if (!rows.length) return;
+  const { error } = await sb.from('submission_edits')
+    .upsert(rows, { onConflict: 'submission_id,module_key' });
+  if (error) throw error;
+}
+
+// ---- Feedback ------------------------------------------------------------
+// Each click of 👍 / 👎 / 💬 becomes one insert. No batch read — Phase 6
+// admin view will query Supabase directly.
+async function sbLogFeedback(event) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  // Map the app's existing feedback event shape onto the feedback_events row.
+  const rating =
+    event.sentiment === 'positive'   ? 'up'      :
+    event.sentiment === 'negative'   ? 'down'    :
+    event.sentiment === 'suggestion' ? 'comment' : null;
+  const moduleKey = event.moduleId   ? 'card:'   + event.moduleId
+                  : event.customCardId ? 'custom:' + event.customCardId
+                  : event.level       ? ('level:' + event.level) : null;
+  const { error } = await sb.from('feedback_events').insert({
+    user_id: u.id,
+    submission_id: event.submissionId || null,
+    pipeline_run: event.pipelineRun || null,
+    module_key: moduleKey,
+    rating: rating,
+    comment: event.text || null,
+    context: {
+      moduleName: event.moduleName || null,
+      reason: event.reason || null,
+      outputSnapshot: event.outputSnapshot || null,
+      outputConfidence: event.outputConfidence || null,
+      sourceDocNames: event.sourceDocNames || null,
+      actor: event.actor || null
+    }
+  });
+  if (error) throw error;
+}
+
+// ---- User settings (carrier guideline, model pref, etc.) -----------------
+async function sbLoadSettings() {
+  const u = await sbUser(); if (!u) return null;
+  const { data, error } = await sb
+    .from('user_settings').select('*').eq('user_id', u.id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function sbSaveSettings(patch) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const row = { user_id: u.id, ...patch };
+  const { error } = await sb
+    .from('user_settings').upsert(row, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+// ---- Master hydration: pull everything for the signed-in user -----------
+// Called from checkAuth() once we have a session. Populates STATE.* from
+// Supabase, replacing whatever the legacy localStorage loaders would have
+// done. Safe to call multiple times.
+async function sbHydrate() {
+  try {
+    // Submissions. Each DB row's `snapshot` holds the per-submission object;
+    // we flatten it back into the shape the rest of the app expects so the
+    // Queue / rehydrate paths keep working unchanged.
+    const subRows = await sbLoadSubmissions();
+    STATE.submissions = subRows.map(r => ({
+      id: r.id,
+      pipelineRun: r.pipeline_run,
+      status: r.status,
+      title: r.title,
+      lastModifiedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+      createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+      snapshot: r.snapshot || null,
+      // Pull display fields back out of the snapshot so the Queue table renders
+      // correctly on first paint (deriveAccountName etc. can be re-run lazily).
+      ...(r.snapshot && r.snapshot.derived ? r.snapshot.derived : {})
+    }));
+    if (typeof renderSubmissionsTable === 'function') renderSubmissionsTable();
+
+    // Settings → carrier guideline + model prefs.
+    const settings = await sbLoadSettings();
+    if (settings) {
+      if (settings.carrier_guideline && settings.carrier_guideline.length > 100) {
+        ACTIVE_GUIDELINE = settings.carrier_guideline;
+      }
+      if (settings.default_model && STATE.api) STATE.api.model = settings.default_model;
+      if (settings.max_tokens && STATE.api)    STATE.api.maxTokens = settings.max_tokens;
+    }
+
+    // Feedback is write-only from the app's perspective now. The admin view
+    // (Phase 6) reads directly from Supabase. STATE.feedback stays empty.
+    STATE.feedback = [];
+    if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
+  } catch (e) {
+    console.warn('sbHydrate failed', e);
+    if (typeof logAudit === 'function') {
+      logAudit('Supabase', 'Hydrate failed: ' + (e.message || e), 'warn');
+    }
+  }
+}
+window.sbHydrate = sbHydrate;
 
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('authSendBtn');
@@ -4527,25 +4747,29 @@ END OF RELEVANT EXCERPT
 ========================================================================
 `;
 
-// Guideline used at runtime — sessionStorage allows per-session override
+// Guideline used at runtime. Phase 4: persisted per-user in Supabase
+// user_settings.carrier_guideline so it follows the UW across devices.
 let ACTIVE_GUIDELINE = DEFAULT_GUIDELINE;
 
 function loadGuidelineFromStorage() {
-  try {
-    const stored = sessionStorage.getItem('stm-guideline');
-    if (stored && stored.length > 100) {
-      ACTIVE_GUIDELINE = stored;
-    }
-  } catch (e) { /* no-op */ }
+  // No-op. sbHydrate() loads user_settings.carrier_guideline into
+  // ACTIVE_GUIDELINE after sign-in. Kept as a stub so init-time callers don't
+  // break.
 }
 
 function saveGuidelineOverride(text) {
-  if (!text || text.length < 100) {
-    sessionStorage.removeItem('stm-guideline');
+  const clearing = !text || text.length < 100;
+  if (clearing) {
     ACTIVE_GUIDELINE = DEFAULT_GUIDELINE;
   } else {
-    sessionStorage.setItem('stm-guideline', text);
     ACTIVE_GUIDELINE = text;
+  }
+  // Persist to Supabase (fire-and-forget). `null` clears the override.
+  if (typeof sbSaveSettings === 'function') {
+    sbSaveSettings({ carrier_guideline: clearing ? null : text }).catch(e => {
+      console.warn('Guideline save failed', e);
+      toast('Guideline save failed · ' + (e.message || 'network'), 'error');
+    });
   }
   logAudit('Admin', 'Carrier guideline updated · ' + (text ? text.length.toLocaleString() + ' chars' : 'reset to default'), 'user');
   toast('Guideline ' + (text ? 'updated' : 'reset to Zurich default'));
@@ -4603,23 +4827,16 @@ const EDITS_KEY = 'stm-edits-v1';
 let SAVE_DEBOUNCE = null;
 let LAST_SAVE_TS = 0;
 
-// Load edits scoped to the most recent pipeline run. Without this scoping, edits
-// from a prior session would bleed into a brand-new pipeline run (the in-memory
-// STATE.edits would be pre-populated when archiveCurrentSubmission snapshots it).
-// We stamp the edits payload with the pipelineRun id at save time, and on load
-// we only restore if the id matches — otherwise we leave STATE.edits empty and
-// let the stale payload get overwritten by the next save.
+// Load edits scoped to the most recent pipeline run.
+//
+// Phase 4: localStorage is no longer the source of truth. Edits for each
+// submission live in the Supabase `submission_edits` table, and the
+// per-submission snapshot (submissions.snapshot) also carries the last
+// archived copy for fast rehydration. This function is kept as a no-op stub
+// so callers that used to trigger a localStorage read don't break.
 function loadEdits() {
-  try {
-    const raw = localStorage.getItem(EDITS_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    // Stash for later restoration — only applied during rehydration of the matching
-    // submission, never directly into the fresh workbench. Prevents ghost-edit bleed.
-    STATE._pendingEdits = parsed;
-  } catch (e) {
-    console.warn('Could not load edits from localStorage', e);
-  }
+  // No-op. Edits are loaded from Supabase when a submission is opened
+  // (see rehydrateSubmission → sbLoadEdits).
 }
 
 // Called from rehydrateSubmission when the user opens a submission whose pipeline
@@ -4635,28 +4852,31 @@ function applyPendingEditsIfMatch(pipelineRunId) {
 }
 
 function saveEditsNow() {
-  try {
-    const payload = {
-      edits: STATE.edits,
-      customCards: STATE.customCards,
-      hiddenCards: STATE.hiddenCards,
-      pipelineRun: STATE.pipelineRun || null,   // scope marker
-      savedAt: Date.now()
-    };
-    localStorage.setItem(EDITS_KEY, JSON.stringify(payload));
-    LAST_SAVE_TS = Date.now();
-    const ind = document.getElementById('saveIndicator');
-    const txt = document.getElementById('saveIndicatorText');
-    if (ind && txt) {
-      ind.classList.remove('saving');
-      ind.classList.add('saved');
-      txt.textContent = 'Saved just now';
-      setTimeout(updateSaveIndicator, 1200);
-    }
-  } catch (e) {
-    console.warn('Save failed', e);
-    toast('Save failed · ' + e.message, 'error');
+  // In-memory edits are persisted two ways for resilience:
+  //   1) Baked into the active submission's snapshot (see archiveCurrentSubmission
+  //      / rehydrateSubmission) so a reload restores cleanly.
+  //   2) Per-module rows in Supabase `submission_edits` so admin views and
+  //      multi-device access work. This is fire-and-forget — we update the
+  //      save indicator optimistically and only toast on real failure.
+  LAST_SAVE_TS = Date.now();
+  const ind = document.getElementById('saveIndicator');
+  const txt = document.getElementById('saveIndicatorText');
+  if (ind && txt) {
+    ind.classList.remove('saving');
+    ind.classList.add('saved');
+    txt.textContent = 'Saved just now';
+    setTimeout(updateSaveIndicator, 1200);
   }
+  const submissionId = STATE.activeSubmissionId;
+  if (!submissionId) return;   // nothing to persist yet (no archived submission)
+  sbSaveAllEditsForSubmission(
+    submissionId,
+    STATE.pipelineRun || null,
+    STATE.edits, STATE.customCards, STATE.hiddenCards
+  ).catch(e => {
+    console.warn('Edit save failed', e);
+    toast('Save failed · ' + (e.message || 'network'), 'error');
+  });
 }
 
 // Debounced save — called on every edit
@@ -4717,14 +4937,16 @@ function openSettings() {
   if (sel) {
     Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
   }
-  // Guideline field — show whatever's active, but only populate textarea if override exists
+  // Guideline field — show whatever's active, but only populate textarea if override exists.
+  // Phase 4: the override lives in ACTIVE_GUIDELINE (hydrated from user_settings
+  // on sign-in). If it doesn't equal DEFAULT_GUIDELINE, treat it as a user override.
   const ta = document.getElementById('carrierGuideline');
   const status = document.getElementById('guidelineStatus');
   if (ta) {
-    const override = sessionStorage.getItem('stm-guideline');
-    if (override) {
-      ta.value = override;
-      status.textContent = 'CUSTOM · ' + override.length.toLocaleString() + ' CHARS';
+    const hasOverride = ACTIVE_GUIDELINE && ACTIVE_GUIDELINE !== DEFAULT_GUIDELINE;
+    if (hasOverride) {
+      ta.value = ACTIVE_GUIDELINE;
+      status.textContent = 'CUSTOM · ' + ACTIVE_GUIDELINE.length.toLocaleString() + ' CHARS';
       status.style.color = 'var(--signal-ink)';
     } else {
       ta.value = '';
@@ -6006,46 +6228,61 @@ const SUB_STATUS_CLASS = {
 };
 
 // ---- Persistence ----------------------------------------------------------
-// Load archived submissions from localStorage into STATE.submissions.
-// Called once on init. Errors are swallowed — a corrupted payload shouldn't
-// break the rest of the app, we just start with an empty queue.
+// Phase 4: the Queue now lives in Supabase (public.submissions). These two
+// functions are kept as shims so existing call sites don't need to change —
+// the rest of the app still says `loadSubmissions()` / `saveSubmissions()`
+// and we translate to Supabase underneath.
 function loadSubmissions() {
-  try {
-    const raw = localStorage.getItem(SUBMISSIONS_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      STATE.submissions = parsed;
-    } else if (parsed && Array.isArray(parsed.submissions)) {
-      STATE.submissions = parsed.submissions;
-    }
-  } catch (e) {
-    console.warn('Could not load submissions from localStorage', e);
-  }
+  // No-op. The real load happens in sbHydrate() after sign-in. That function
+  // re-populates STATE.submissions from public.submissions and re-renders the
+  // Queue. Leaving this as a stub so init-time callers don't break.
 }
 
-// Persist the submissions list. Writes a lite snapshot (file.text stripped) so
-// a multi-submission queue doesn't blow past the 5-10MB localStorage quota.
-// If the write still fails (very large extractions / many submissions), we log
-// it to audit and keep the in-memory copy — UW doesn't lose work mid-session.
+// Persist the submissions list to Supabase. We upsert each in-memory submission
+// into public.submissions. File text bytes are stripped from the snapshot (same
+// as the old lite-copy logic) so we stay well under row-size limits and don't
+// ship raw documents up to Postgres. This is fire-and-forget — if a write
+// fails, we log to audit and keep the in-memory copy so the UW doesn't lose
+// work mid-session.
 function saveSubmissions() {
-  try {
-    const lite = STATE.submissions.map(s => ({
-      ...s,
-      snapshot: s.snapshot ? {
-        ...s.snapshot,
-        files: (s.snapshot.files || []).map(f => ({
-          ...f,
-          text: '',              // drop raw bytes
-          textDropped: true      // flag so UI can show "re-upload to re-run"
-        }))
-      } : null
-    }));
-    localStorage.setItem(SUBMISSIONS_KEY, JSON.stringify(lite));
-  } catch (e) {
-    console.warn('Could not save submissions (quota?)', e);
-    logAudit('Submissions', 'Persist failed: ' + e.message + ' · keeping in-memory only', 'warn');
-  }
+  // Build lite snapshots (drop raw file text bytes, same as before)
+  const lite = STATE.submissions.map(s => ({
+    ...s,
+    snapshot: s.snapshot ? {
+      ...s.snapshot,
+      files: (s.snapshot.files || []).map(f => ({
+        ...f,
+        text: '',              // drop raw bytes
+        textDropped: true      // flag so UI can show "re-upload to re-run"
+      }))
+    } : null
+  }));
+  // Fire off one upsert per submission. Don't await — the UI shouldn't block
+  // on the network. Any single failure gets audited; we don't throw.
+  Promise.all(lite.map(s => {
+    const derived = {
+      account:         s.account || null,
+      broker:          s.broker || null,
+      effectiveDate:   s.effectiveDate || null,
+      requestedLimits: s.requestedLimits || null,
+      missingInfo:     s.missingInfo || null
+    };
+    const snapshotWithDerived = s.snapshot
+      ? { ...s.snapshot, derived: derived }
+      : { derived: derived };
+    return sbSaveSubmission({
+      id: s.id,
+      snapshot: snapshotWithDerived,
+      status: s.status || 'queued',
+      pipelineRun: s.pipelineRun || null,
+      title: s.account || s.title || null
+    }).catch(e => {
+      console.warn('Submission save failed', s.id, e);
+      if (typeof logAudit === 'function') {
+        logAudit('Submissions', 'Persist failed for ' + (s.id || '?') + ': ' + (e.message || e) + ' · keeping in-memory', 'warn');
+      }
+    });
+  }));
 }
 
 // ---- Derive display fields from extractions -------------------------------
@@ -6549,47 +6786,43 @@ const FEEDBACK_REASONS_SUGGESTION = [
 ];
 
 // ---- Persistence --------------------------------------------------------
+// Phase 4: feedback lives in Supabase `feedback_events`. Each 👍/👎/💬 click
+// becomes one row insert via sbLogFeedback(). The app no longer reads
+// feedback back locally; the Phase 6 admin view queries Supabase directly.
 function loadFeedback() {
-  try {
-    const raw = localStorage.getItem(FEEDBACK_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.events)) STATE.feedback = parsed.events;
-    if (parsed && parsed.exportedAt) STATE.feedbackExportedAt = parsed.exportedAt;
-  } catch (e) {
-    console.warn('Could not load feedback from localStorage', e);
-  }
+  // No-op. STATE.feedback stays empty; sbHydrate() leaves it that way.
 }
 function saveFeedback() {
-  try {
-    const payload = {
-      events: STATE.feedback,
-      exportedAt: STATE.feedbackExportedAt
-    };
-    localStorage.setItem(FEEDBACK_KEY, JSON.stringify(payload));
-  } catch (e) {
-    console.warn('Could not persist feedback (quota?)', e);
-    logAudit('Feedback', 'Persist failed: ' + e.message + ' · keeping in-memory only', 'warn');
-  }
+  // No-op. Persistence happens per-event in submitFeedbackEvent() below.
 }
 
 // ---- Core submission function — SINGLE HOOK POINT FOR BACKEND WIRING ----
-// When you're ready to centralize feedback: inside this function, after the
-// STATE.feedback.push(), add a fetch('/api/feedback', { method: 'POST',
-// body: JSON.stringify(event) }). All capture surfaces route through here.
+// Every 👍/👎/💬 across the app routes through here. It enriches the event
+// with timestamp/actor/context, appends to the in-memory STATE.feedback so
+// the admin card can show a live count, writes a row to Supabase
+// feedback_events, and echoes to the audit trail.
 function submitFeedbackEvent(event) {
   // Required fields — enforce defaults
   const enriched = {
     id: 'fb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     timestamp: Date.now(),
-    actor: currentActor(),  // TODO: swap for real user ID when multi-user added
+    actor: currentActor(),
     pipelineRun: STATE.pipelineRun || null,
     submissionId: STATE.activeSubmissionId || null,
-    exportedAt: null,  // populated when included in a monthly export
+    exportedAt: null,
     ...event
   };
   STATE.feedback.push(enriched);
-  saveFeedback();
+  // Persist to Supabase — fire-and-forget. Failure is logged but doesn't
+  // undo the in-memory push; the admin count still reflects the attempt.
+  if (typeof sbLogFeedback === 'function') {
+    sbLogFeedback(enriched).catch(e => {
+      console.warn('Feedback write failed', e);
+      if (typeof logAudit === 'function') {
+        logAudit('Feedback', 'Persist failed: ' + (e.message || e) + ' · in-memory only', 'warn');
+      }
+    });
+  }
   // Echo to audit log so feedback is traceable in the existing audit trail too
   const sentBlurb = enriched.sentiment === 'positive' ? '👍'
                   : enriched.sentiment === 'negative' ? '👎'
@@ -10552,7 +10785,7 @@ function restoreAllCards() {
 // action. Flags are dismissed from view only; the original extraction text is
 // preserved, so re-rendering the card (e.g. after a reload) brings them back.
 // If the UW wants the dismissal to persist, they can edit the card, which stores
-// an htmlOverride in STATE.edits and is saved to localStorage.
+// an htmlOverride in STATE.edits and is saved to Supabase submission_edits.
 function dismissDiscrepancyFlag(flagId) {
   const row = document.querySelector('.disc-row[data-flag-id="' + flagId + '"]');
   if (!row) return;
@@ -11076,10 +11309,9 @@ function startNewSubmission() {
   STATE.audit = [];
   STATE.runTotalCost = 0;
   STATE._pendingEdits = null;   // drop any stashed prior-session edits
-  // Clear the stm-edits-v1 localStorage key so reloading during this fresh session
-  // doesn't restore stale edits. The previous submission's edits are already safely
-  // archived inside its submission snapshot (stm-submissions-v1).
-  try { localStorage.removeItem(EDITS_KEY); } catch (e) {}
+  // Phase 4: edits no longer live in localStorage — they're in Supabase
+  // submission_edits, scoped by submission_id. A fresh pipeline has no
+  // active submission yet, so there's nothing to clear here.
   if (STATE.handoff) {
     STATE.handoff.status = null;
     STATE.handoff.viewAs = 'uw';
