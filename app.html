@@ -4,70 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Speed to Market AI · Product</title>
-<style id="stm-pw-hide">html.stm-locked body > *:not(#pw-gate) { display: none !important; }</style>
-<script>
-/* ============================================================
-   SITE PASSWORD GATE — shares session with marketing site
-   Password: qT7$vnK9mRx2wPzL
-   ============================================================ */
-(function() {
-  var PW_HASH = '43e934ff0a8e540d3b6219c03b8edaad85e496ea70eac5e2b6230728706949e4';
-  var SESSION_KEY = 'stm-site-auth';
-
-  try {
-    if (sessionStorage.getItem(SESSION_KEY) === 'ok') return;
-  } catch (e) {}
-
-  document.documentElement.classList.add('stm-locked');
-
-  function sha256(str) {
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function(buf) {
-      return Array.prototype.map.call(new Uint8Array(buf), function(b) {
-        return b.toString(16).padStart(2, '0');
-      }).join('');
-    });
-  }
-
-  function showGate() {
-    var overlay = document.createElement('div');
-    overlay.id = 'pw-gate';
-    overlay.style.cssText = 'position:fixed;inset:0;background:#0A0E1A;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;';
-    overlay.innerHTML =
-      '<form id="pw-form" style="background:#111724;border:1px solid #2A3449;border-radius:14px;padding:38px 34px;max-width:380px;width:90%;text-align:center;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7);">' +
-        '<div style="font-family:Georgia,serif;font-size:28px;color:#F1ECE2;font-weight:400;letter-spacing:-0.015em;margin-bottom:8px;">Speed to Market <em style="font-style:italic;color:#C6F432;font-weight:300;">AI</em></div>' +
-        '<div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#8B95A8;text-transform:uppercase;margin-bottom:24px;">Private Preview</div>' +
-        '<input type="password" id="pw-input" autocomplete="off" autofocus placeholder="Enter password" style="width:100%;padding:12px 14px;background:#1A2236;color:#F1ECE2;border:1px solid #2A3449;border-radius:8px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />' +
-        '<div id="pw-error" style="color:#FF9448;font-size:12px;min-height:16px;margin-bottom:12px;font-family:monospace;letter-spacing:0.04em;"></div>' +
-        '<button type="submit" style="width:100%;padding:12px 18px;background:#C6F432;color:#0A0E1A;border:none;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;letter-spacing:-0.01em;">Enter</button>' +
-      '</form>';
-    document.body.appendChild(overlay);
-
-    document.getElementById('pw-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      var input = document.getElementById('pw-input');
-      var errEl = document.getElementById('pw-error');
-      errEl.textContent = '';
-      sha256(input.value).then(function(hash) {
-        if (hash === PW_HASH) {
-          try { sessionStorage.setItem(SESSION_KEY, 'ok'); } catch (e) {}
-          document.documentElement.classList.remove('stm-locked');
-          overlay.remove();
-        } else {
-          errEl.textContent = 'Incorrect password';
-          input.value = '';
-          input.focus();
-        }
-      });
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', showGate);
-  } else {
-    showGate();
-  }
-})();
-</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -76,6 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/lib/index.browser.js" onerror="window.__msgReaderFailed=true"></script>
 <script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 /* ========================================================================
    SPEED TO MARKET AI — PRODUCT VISION
@@ -3628,6 +3565,20 @@ table.loss {
 </head>
 <body>
 
+<!-- ============ AUTH OVERLAY (magic link) ============ -->
+<div id="authOverlay" style="position:fixed;inset:0;background:#0A0E1A;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
+  <div style="background:#111724;padding:38px 34px;border-radius:14px;width:380px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7);border:1px solid #2A3449;text-align:center;">
+    <div style="font-family:Georgia,serif;font-size:28px;color:#F1ECE2;font-weight:400;letter-spacing:-0.015em;margin-bottom:8px;">Speed to Market <em style="font-style:italic;color:#C6F432;font-weight:300;">AI</em></div>
+    <div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#8B95A8;text-transform:uppercase;margin-bottom:24px;">Sign in with a magic link</div>
+    <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email"
+      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #2A3449;background:#1A2236;color:#F1ECE2;font-size:14px;margin-bottom:10px;outline:none;" />
+    <button id="authSendBtn"
+      style="width:100%;padding:12px 18px;border-radius:999px;border:0;background:#C6F432;color:#0A0E1A;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:-0.01em;">Send magic link</button>
+    <div id="authError" style="color:#FF9448;font-size:12px;margin-top:12px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
+    <div id="authSuccess" style="color:#C6F432;font-size:12px;margin-top:4px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
+  </div>
+</div>
+
 <!-- ============ TOP BAR ============ -->
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 22px;">
@@ -3656,8 +3607,8 @@ table.loss {
       <svg class="tt-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
     <div class="avatar">
-      <div class="avatar-circle">JW</div>
-      <div class="avatar-name">Justin Wray<br><small>Exec UW · Casualty</small></div>
+      <div class="avatar-circle">—</div>
+      <div class="avatar-name">Not signed in<br><small>—</small></div>
     </div>
   </div>
 </div>
@@ -4020,7 +3971,7 @@ table.loss {
           <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value">—</span></div>
           <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
           <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">0</span></div>
-          <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">J. Wray</span></div>
+          <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">—</span></div>
         </div>
 
       </div>
@@ -4129,36 +4080,16 @@ table.loss {
       <button class="btn-icon" onclick="closeSettings()" style="border:none;">✕</button>
     </div>
     <div class="modal-body">
-      <p style="margin-bottom: 16px;">Speed to Market AI requires an API key to process documents. Add your Anthropic, OpenAI, or local LLM key below. The pipeline will not run without a real key in this build.</p>
+      <p style="margin-bottom: 16px;">Model and token settings for the pipeline. The Anthropic API key is held server-side — you do not need to paste it here.</p>
 
-      <div class="provider-tabs" id="providerTabs">
-        <div class="provider-tab active" data-provider="anthropic" onclick="selectProvider('anthropic')">
-          <div class="provider-name">Anthropic</div>
-          <div class="provider-hint">Claude · recommended</div>
-        </div>
-        <div class="provider-tab" data-provider="openai" onclick="selectProvider('openai')">
-          <div class="provider-name">OpenAI</div>
-          <div class="provider-hint">GPT-4o / o-series</div>
-        </div>
-        <div class="provider-tab" data-provider="local" onclick="selectProvider('local')">
-          <div class="provider-name">Local</div>
-          <div class="provider-hint">LM Studio · Ollama</div>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>API Endpoint</label>
-        <input type="text" id="apiEndpoint" placeholder="https://api.anthropic.com/v1/messages">
-        <div class="form-hint" id="endpointHint">Anthropic Messages API. Browser calls include the <code>anthropic-dangerous-direct-browser-access</code> header automatically.</div>
-      </div>
-      <div class="form-group">
-        <label>API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-ant-…">
-        <div class="form-hint">Stored in <strong>sessionStorage only</strong>. Cleared when you close this tab. Never sent anywhere except the endpoint you configure.</div>
-      </div>
       <div class="form-group">
         <label>Model</label>
-        <select id="apiModel"></select>
+        <select id="apiModel">
+          <option value="claude-opus-4-7">claude-opus-4-7</option>
+          <option value="claude-sonnet-4-6" selected>claude-sonnet-4-6</option>
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+        </select>
+        <div class="form-hint">Default global model. Individual modules may override this based on reasoning / extraction preference.</div>
       </div>
       <div class="form-group">
         <label>Max output tokens</label>
@@ -4180,7 +4111,6 @@ table.loss {
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="clearApiConfig()">Clear &amp; Use Demo</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
     </div>
   </div>
@@ -4281,6 +4211,109 @@ table.loss {
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+// ============================================================================
+// SUPABASE AUTH + LLM PROXY CLIENT — runs BEFORE STATE init
+// ============================================================================
+const SUPABASE_URL = 'https://hscjnbolpxmiyujaxjyd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_V0Vdf2RcNqR-UgZD3U_6CQ_Rmj-u4p5';
+const LLM_PROXY_URL = 'https://hscjnbolpxmiyujaxjyd.supabase.co/functions/v1/llm-proxy';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+window.sb = sb;
+window.currentUser = null;
+
+async function checkAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  const overlay = document.getElementById('authOverlay');
+  if (!session) {
+    if (overlay) overlay.style.display = 'flex';
+    return false;
+  }
+  // Fetch profile row — falls back to session.user data if the row isn't there yet
+  let profile = null;
+  try {
+    const { data } = await sb.from('users').select('id,email,display_name,role').eq('id', session.user.id).single();
+    profile = data;
+  } catch (e) { /* swallow — profile row may not exist yet */ }
+  window.currentUser = profile || {
+    id: session.user.id,
+    email: session.user.email,
+    display_name: session.user.email ? session.user.email.split('@')[0] : 'User',
+    role: 'user'
+  };
+  if (overlay) overlay.style.display = 'none';
+  // Update the top-bar avatar name from the signed-in profile
+  const avatarNameEl = document.querySelector('.avatar-name');
+  if (avatarNameEl && window.currentUser.display_name) {
+    avatarNameEl.innerHTML = escapeHtml(window.currentUser.display_name) + '<br><small>Exec UW · Casualty</small>';
+  }
+  const avatarCircleEl = document.querySelector('.avatar-circle');
+  if (avatarCircleEl && window.currentUser.display_name) {
+    const initials = window.currentUser.display_name.split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
+    avatarCircleEl.textContent = initials || 'U';
+  }
+  // Refresh the API pill
+  if (typeof updateApiPillUI === 'function') updateApiPillUI();
+  return true;
+}
+
+async function sendMagicLink() {
+  const email = (document.getElementById('authEmail').value || '').trim();
+  const err = document.getElementById('authError');
+  const ok = document.getElementById('authSuccess');
+  err.textContent = ''; ok.textContent = '';
+  if (!email) { err.textContent = 'Enter your email.'; return; }
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin + window.location.pathname } });
+  if (error) { err.textContent = error.message; return; }
+  ok.textContent = 'Check your email for the sign-in link.';
+}
+
+async function signOut() {
+  await sb.auth.signOut();
+  window.location.reload();
+}
+window.signOut = signOut;
+
+// Returns the signed-in user's display_name, or 'Unknown' if nobody is signed in.
+// Used everywhere we previously had the hardcoded 'J. Wray' actor string.
+function currentActor() {
+  return (window.currentUser && window.currentUser.display_name) ? window.currentUser.display_name : 'Unknown';
+}
+window.currentActor = currentActor;
+
+// Shared helper: POST to the LLM proxy with the current session token.
+// Returns the parsed Anthropic Messages response.
+async function llmProxyFetch(body, extraHeaders) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Not signed in');
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + session.access_token
+  };
+  if (extraHeaders) {
+    for (const k in extraHeaders) headers[k] = extraHeaders[k];
+  }
+  const res = await fetch(LLM_PROXY_URL, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error('LLM proxy ' + res.status + ': ' + t.slice(0, 400));
+  }
+  return res.json();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('authSendBtn');
+  if (btn) btn.addEventListener('click', sendMagicLink);
+  const emailIn = document.getElementById('authEmail');
+  if (emailIn) emailIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendMagicLink(); } });
+  checkAuth();
+});
+</script>
 
 <script>
 // ============================================================================
@@ -4523,7 +4556,7 @@ function getActiveGuideline() {
 }
 
 const STATE = {
-  api: { provider: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', key: '', model: 'claude-opus-4-7', maxTokens: 4096 },
+  api: { model: 'claude-sonnet-4-6', maxTokens: 4096 },
   files: [],
   extractions: {},
   audit: [],
@@ -4674,39 +4707,16 @@ function clearAllEdits() {
 }
 
 // ============================================================================
-// API SETTINGS — provider config, sessionStorage persistence
+// API SETTINGS — model + max tokens only. Key held server-side in Edge Function.
 // ============================================================================
-const PROVIDER_DEFAULTS = {
-  anthropic: {
-    endpoint: 'https://api.anthropic.com/v1/messages',
-    models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-    defaultModel: 'claude-opus-4-7',
-    hint: 'Anthropic Messages API. Browser calls include the <code>anthropic-dangerous-direct-browser-access</code> header automatically.'
-  },
-  openai: {
-    endpoint: 'https://api.openai.com/v1/chat/completions',
-    models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini'],
-    defaultModel: 'gpt-4o',
-    hint: 'OpenAI Chat Completions API. Your key is sent in the Authorization header.'
-  },
-  local: {
-    endpoint: 'http://localhost:1234/v1/chat/completions',
-    models: ['local-model'],
-    defaultModel: 'local-model',
-    hint: 'LM Studio default (port 1234) or Ollama (port 11434/v1/chat/completions). No key required if server is local and open.'
-  }
-};
 
 function openSettings() {
   const m = document.getElementById('settingsModal');
-  // Populate form from current state
-  selectProvider(STATE.api.provider, false);
-  document.getElementById('apiEndpoint').value = STATE.api.endpoint;
-  document.getElementById('apiKey').value = STATE.api.key;
   document.getElementById('apiMaxTokens').value = STATE.api.maxTokens;
-  // Select current model if present
   const sel = document.getElementById('apiModel');
-  Array.from(sel.options).forEach(o => { if (o.value === STATE.api.model) o.selected = true; });
+  if (sel) {
+    Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
+  }
   // Guideline field — show whatever's active, but only populate textarea if override exists
   const ta = document.getElementById('carrierGuideline');
   const status = document.getElementById('guidelineStatus');
@@ -4729,41 +4739,16 @@ function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
 }
 
-function selectProvider(provider, changeEndpoint = true) {
-  STATE.api.provider = provider;
-  document.querySelectorAll('.provider-tab').forEach(t => t.classList.toggle('active', t.dataset.provider === provider));
-  const cfg = PROVIDER_DEFAULTS[provider];
-  // Repopulate model dropdown
-  const sel = document.getElementById('apiModel');
-  sel.innerHTML = cfg.models.map(m => `<option value="${m}">${m}</option>`).join('');
-  sel.value = cfg.defaultModel;
-  document.getElementById('endpointHint').innerHTML = cfg.hint;
-  if (changeEndpoint) {
-    document.getElementById('apiEndpoint').value = cfg.endpoint;
-  }
-}
-
 function saveSettings() {
-  const endpoint = document.getElementById('apiEndpoint').value.trim();
-  const key = document.getElementById('apiKey').value.trim();
   const model = document.getElementById('apiModel').value;
   const maxTokens = parseInt(document.getElementById('apiMaxTokens').value) || 4096;
-
-  if (!endpoint) { toast('API endpoint is required', 'error'); return; }
-
-  STATE.api = { provider: STATE.api.provider, endpoint, key, model, maxTokens };
-
-  // Persist to sessionStorage (key is cleared on tab close for safety)
-  try {
-    sessionStorage.setItem('stm-api', JSON.stringify(STATE.api));
-  } catch (e) {}
+  STATE.api = { model, maxTokens };
 
   // Save guideline override if present
   const ta = document.getElementById('carrierGuideline');
   if (ta) {
     const val = ta.value.trim();
     if (val.length === 0) {
-      // empty = use default
       saveGuidelineOverride('');
     } else if (val.length < 100) {
       toast('Guideline too short (min 100 chars) · kept existing', 'warn');
@@ -4774,7 +4759,7 @@ function saveSettings() {
 
   updateApiPillUI();
   closeSettings();
-  toast(key ? 'API configured · LIVE MODE' : 'No key set · pipeline disabled');
+  toast('Settings saved');
 }
 
 function resetGuidelineToDefault() {
@@ -4794,46 +4779,36 @@ function showDefaultGuideline() {
   document.getElementById('guidelineStatus').style.color = 'var(--warning)';
 }
 
-function clearApiConfig() {
-  STATE.api.key = '';
-  document.getElementById('apiKey').value = '';
-  try { sessionStorage.removeItem('stm-api'); } catch (e) {}
-  updateApiPillUI();
-  toast('API key cleared');
-}
-
+// Updates the API pill in the top bar to reflect signed-in state.
+// Signed in → "SIGNED IN · <name>" with a click-to-sign-out behavior
+// Not signed in → "NOT SIGNED IN"
 function updateApiPillUI() {
   const pill = document.getElementById('apiPill');
   const text = document.getElementById('apiPillText');
   const shPill = document.getElementById('shModePill');
-  if (STATE.api.key) {
+  if (!pill || !text) return;
+  if (window.currentUser) {
     pill.classList.remove('demo');
     pill.classList.add('live');
-    text.textContent = 'LIVE · ' + STATE.api.provider.toUpperCase();
-    if (shPill) { shPill.textContent = 'LIVE · ' + STATE.api.model.toUpperCase(); shPill.className = 'sub-pill signal'; }
+    text.textContent = 'SIGNED IN · ' + (window.currentUser.display_name || 'user').toUpperCase();
+    pill.title = 'Click to sign out';
+    pill.onclick = function(e) {
+      e.stopPropagation();
+      if (confirm('Sign out?')) signOut();
+    };
+    if (shPill) { shPill.textContent = 'LIVE · ' + (STATE.api.model || '').toUpperCase(); shPill.className = 'sub-pill signal'; }
   } else {
     pill.classList.remove('live');
     pill.classList.add('demo');
-    text.textContent = 'NO API KEY';
-    if (shPill) { shPill.textContent = 'API KEY REQUIRED'; shPill.className = 'sub-pill amber'; }
+    text.textContent = 'NOT SIGNED IN';
+    pill.title = 'Sign in required';
+    pill.onclick = null;
+    if (shPill) { shPill.textContent = 'SIGN IN REQUIRED'; shPill.className = 'sub-pill amber'; }
   }
-  // Keep Decision pane meta-rows in sync with current mode, even pre-pipeline
   if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
 }
 
-function loadApiFromStorage() {
-  try {
-    const stored = sessionStorage.getItem('stm-api');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      STATE.api = { ...STATE.api, ...parsed };
-    }
-  } catch (e) {}
-  updateApiPillUI();
-}
-
 // Load on init
-loadApiFromStorage();
 loadGuidelineFromStorage();
 loadEdits();
 
@@ -5381,7 +5356,7 @@ async function scrapeUrl(url, options = {}) {
 // ============================================================================
 // CLAUDE-DRIVEN CRAWL — uses server-side web_fetch via the real API. Claude
 // decides which pages to read based on actual content, not hardcoded patterns.
-// Only available when STATE.api.key is set (real API mode). Produces a richer,
+// Uses the server-side proxy to access the Anthropic API. Produces a richer,
 // more intelligently filtered scrape but costs API tokens.
 // ============================================================================
 async function scrapeUrlViaClaude(url) {
@@ -5426,23 +5401,7 @@ START CRAWLING.`;
     tools: [{ type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 25 }]
   };
 
-  const res = await fetch(STATE.api.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': STATE.api.key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'web-fetch-2025-09-10',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error('Claude API error ' + res.status + ': ' + errText.slice(0, 200));
-  }
-  const data = await res.json();
+  const data = await llmProxyFetch(body, { 'anthropic-beta': 'web-fetch-2025-09-10' });
 
   // Count fetches from the content blocks (server-side tool uses)
   const fetchCalls = (data.content || []).filter(b => b.type === 'tool_use' && b.name === 'web_fetch').length;
@@ -5498,7 +5457,7 @@ async function scrapeWebsiteFromUrl() {
   btn.disabled = true;
   try {
     // Route: Claude API crawl if key present, else browser BFS crawl
-    const useClaude = STATE.api && STATE.api.key;
+    const useClaude = !!window.currentUser;
     const result = useClaude ? await scrapeUrlViaClaude(url) : await scrapeUrl(url);
     // Turn this into a pseudo-file entry that flows through the normal pipeline.
     ingestScrapedWebsite(url, result.text, result.subPages, {
@@ -5526,9 +5485,9 @@ async function findAndScrapeWebsite() {
     setWebStatus('Enter the named insured first', 'error');
     return;
   }
-  if (!STATE.api || !STATE.api.key) {
-    // No API key — auto-search isn't available. Switch to Manual URL tab.
-    switchToManualUrlTab('<strong>Auto-find requires an API key.</strong> Add one in Settings, or enter the URL manually below.');
+  if (!window.currentUser) {
+    // Not signed in — auto-search isn't available. Switch to Manual URL tab.
+    switchToManualUrlTab('<strong>Auto-find requires sign-in.</strong> Sign in first, or enter the URL manually below.');
     return;
   }
   const btn = document.getElementById('btnFindAndScrape');
@@ -5596,21 +5555,7 @@ Return exactly one of:
     messages: [{ role: 'user', content: userPrompt }],
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]
   };
-  const res = await fetch(STATE.api.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': STATE.api.key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error('Claude API error ' + res.status + ': ' + errText.slice(0, 200));
-  }
-  const data = await res.json();
+  const data = await llmProxyFetch(body);
   // Extract the final text block (after any tool_use/tool_result turns)
   const textBlock = (data.content || []).reverse().find(b => b.type === 'text');
   if (!textBlock) throw new Error('No text response from Claude');
@@ -6298,7 +6243,7 @@ function archiveCurrentSubmission() {
       createdAt:       now,
       lastModifiedAt:  now,
       status:          'AWAITING UW REVIEW',
-      statusHistory:   [{ from: null, to: 'AWAITING UW REVIEW', at: now, actor: 'J. Wray' }],
+      statusHistory:   [{ from: null, to: 'AWAITING UW REVIEW', at: now, actor: currentActor() }],
       ...derived,
       snapshot
     };
@@ -6334,7 +6279,7 @@ function changeSubmissionStatus(submissionId, newStatus) {
   rec.status = newStatus;
   rec.lastModifiedAt = now;
   rec.statusHistory = rec.statusHistory || [];
-  rec.statusHistory.push({ from, to: newStatus, at: now, actor: 'J. Wray' });
+  rec.statusHistory.push({ from, to: newStatus, at: now, actor: currentActor() });
   saveSubmissions();
   renderQueueTable();
   updateQueueKpi();
@@ -6637,7 +6582,7 @@ function submitFeedbackEvent(event) {
   const enriched = {
     id: 'fb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     timestamp: Date.now(),
-    actor: 'J. Wray',  // TODO: swap for real user ID when multi-user added
+    actor: currentActor(),  // TODO: swap for real user ID when multi-user added
     pipelineRun: STATE.pipelineRun || null,
     submissionId: STATE.activeSubmissionId || null,
     exportedAt: null,  // populated when included in a monthly export
@@ -8910,74 +8855,26 @@ const MODULES = {
 };
 
 // ============================================================================
-// LLM CLIENT — Anthropic / OpenAI / local
+// LLM CLIENT — routes every call through the Supabase Edge Function proxy.
+// The Anthropic API key lives server-side only; browser never sees it.
 // ============================================================================
-// Accepts an optional modelOverride to route specific modules to Sonnet instead
-// of the global Opus default. If no override passed, uses STATE.api.model.
-// Returns { text, usage: { input_tokens, output_tokens, model } } so callers
-// can track per-module cost.
 async function callLLM(systemPrompt, userContent, modelOverride) {
-  if (!STATE.api.key) {
-    // DEMO MODE — return sentinel; callers look up mocks
-    await sleep(300 + Math.random() * 600);
-    return { mock: true };
-  }
-  const { provider, endpoint, key, maxTokens } = STATE.api;
-  // Respect per-module model override when Admin hasn't forced a global lock
+  const maxTokens = STATE.api.maxTokens || 4096;
   const model = (STATE.adminOverrideModel === 'forced') ? STATE.api.model : (modelOverride || STATE.api.model);
-
-  if (provider === 'anthropic') {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userContent }] })
-    });
-    if (!res.ok) throw new Error('Anthropic ' + res.status + ': ' + (await res.text()).slice(0, 200));
-    const data = await res.json();
-    return {
-      text: data.content[0].text,
-      usage: {
-        input_tokens: data.usage?.input_tokens || 0,
-        output_tokens: data.usage?.output_tokens || 0,
-        model: model
-      }
-    };
-  }
-
-  if (provider === 'openai') {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }] })
-    });
-    if (!res.ok) throw new Error('OpenAI ' + res.status + ': ' + (await res.text()).slice(0, 200));
-    const data = await res.json();
-    return {
-      text: data.choices[0].message.content,
-      usage: {
-        input_tokens: data.usage?.prompt_tokens || 0,
-        output_tokens: data.usage?.completion_tokens || 0,
-        model: model
-      }
-    };
-  }
-
-  // local / custom (LM Studio / Ollama OpenAI-compatible)
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (key || 'not-required') },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }] })
-  });
-  if (!res.ok) throw new Error('Local ' + res.status + ': ' + (await res.text()).slice(0, 200));
-  const data = await res.json();
+  const body = {
+    model: model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }]
+  };
+  const data = await llmProxyFetch(body);
   return {
-    text: data.choices?.[0]?.message?.content || data.content?.[0]?.text || JSON.stringify(data),
-    usage: { input_tokens: 0, output_tokens: 0, model: model }  // local models don't always report tokens
+    text: data.content[0].text,
+    usage: {
+      input_tokens: (data.usage && data.usage.input_tokens) || 0,
+      output_tokens: (data.usage && data.usage.output_tokens) || 0,
+      model: model
+    }
   };
 }
 
@@ -9176,7 +9073,7 @@ async function applyReclassifications() {
 
   const moduleCount = modulesToRerun.size;
   toast('Re-running ' + moduleCount + ' module' + (moduleCount === 1 ? '' : 's') + ' affected by reclassification…');
-  logAudit('Pipeline', 'Partial re-run triggered · ' + changedFiles.length + ' file reclassification(s) · ' + moduleCount + ' modules affected', STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Pipeline', 'Partial re-run triggered · ' + changedFiles.length + ' file reclassification(s) · ' + moduleCount + ' modules affected', STATE.api.model);
 
   // Re-run only the affected modules
   await rerunModules(Array.from(modulesToRerun));
@@ -9222,7 +9119,7 @@ async function incrementalProcess(newFiles) {
 
   const names = newFiles.map(f => f.name).join(', ');
   toast((newFiles.length === 1 ? 'Adding ' : 'Adding ' + newFiles.length + ' files: ') + names + ' to submission…', 'info');
-  logAudit('Incremental', 'Incremental add started: ' + names, STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Incremental', 'Incremental add started: ' + names, STATE.api.model);
 
   // === Phase 1: Classify each new file in parallel ===
   await Promise.all(newFiles.map(async f => {
@@ -9261,7 +9158,7 @@ async function incrementalProcess(newFiles) {
   const downstreamOnly = Array.from(allAffected).filter(mid => !directlyAffected.has(mid));
   const downstreamList = downstreamOnly.map(mid => MODULES[mid]?.code || mid).join(', ');
 
-  logAudit('Incremental', 'Directly affected: ' + directList + (downstreamList ? ' · Downstream: ' + downstreamList : ''), STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Incremental', 'Directly affected: ' + directList + (downstreamList ? ' · Downstream: ' + downstreamList : ''), STATE.api.model);
 
   // === Phase 3: Re-run the affected modules in wave order ===
   const updateBannerId = 'incrementalBanner';
@@ -9280,7 +9177,7 @@ async function incrementalProcess(newFiles) {
   // === Phase 5: Audit + user feedback ===
   const affectedCodes = Array.from(allAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
   toast('Incremental update complete · ' + allAffected.size + ' module' + (allAffected.size === 1 ? '' : 's') + ' refreshed (' + affectedCodes + ')', 'success');
-  logAudit('Incremental', 'Completed. Refreshed: ' + affectedCodes, STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Incremental', 'Completed. Refreshed: ' + affectedCodes, STATE.api.model);
 
   hideIncrementalBanner();
 }
@@ -9391,7 +9288,7 @@ async function rerunGuidelines() {
 
   STATE.pipelineRunning = true;
   toast('Re-running guidelines cross-reference…');
-  logAudit('Pipeline', 'Re-run guidelines triggered by user', STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Pipeline', 'Re-run guidelines triggered by user', STATE.api.model);
 
   // Clear current guideline extraction and anything that depends on it
   const modulesToRerun = ['guidelines'];
@@ -9526,11 +9423,11 @@ async function classifyFile(file) {
     const normalized = normalizeClassifierResult(parsed);
     const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
     const types = normalized.classifications.map(c => c.type).join(' + ');
-    logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.key ? STATE.api.model : 'mock');
+    logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
     // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
-    if (CLASSIFY_CONFIG.enableVerifyPass && STATE.api.key && file.text.length > 6000) {
+    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
       try {
         // Sample from MIDDLE + END of the document for verification
         const midStart = Math.floor(file.text.length * 0.4);
@@ -9634,8 +9531,8 @@ function exportAudit() {
   const payload = {
     pipeline_run: STATE.pipelineRun,
     generated_at: new Date().toISOString(),
-    model: STATE.api.key ? STATE.api.model : 'mock (demo)',
-    provider: STATE.api.key ? STATE.api.provider : 'demo',
+    model: STATE.api.model,
+    provider: 'anthropic',
     prompts_version: 'v2.4',
     events: STATE.audit
   };
@@ -9671,8 +9568,8 @@ function exportExcel() {
     [],
     ['Pipeline Run', STATE.pipelineRun || '—'],
     ['Generated', now.toISOString()],
-    ['Provider', STATE.api.key ? STATE.api.provider.toUpperCase() : 'DEMO (mocks)'],
-    ['Model', STATE.api.key ? STATE.api.model : 'mock'],
+    ['Provider', 'ANTHROPIC'],
+    ['Model', STATE.api.model],
     ['Prompts Version', 'v2.4'],
     ['Files Ingested', STATE.files.length],
     ['Modules Completed', Object.keys(STATE.extractions).length + ' / 15'],
@@ -9787,7 +9684,7 @@ function exportExcel() {
 
   const filename = 'stm_pack_' + (STATE.pipelineRun || Date.now()) + '.xlsx';
   XLSX.writeFile(wb, filename);
-  logAudit('Export', 'Exported Excel pack · ' + Object.keys(STATE.extractions).length + ' tabs · ' + filename, STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Export', 'Exported Excel pack · ' + Object.keys(STATE.extractions).length + ' tabs · ' + filename, STATE.api.model);
   toast('Excel pack downloaded · ' + filename);
 }
 
@@ -9802,7 +9699,7 @@ async function copyReferralEmail() {
   // Substitute placeholders with live values
   text = text
     .replace(/\[RUN_ID\]|\{RUN_ID\}/g, STATE.pipelineRun || 'unknown')
-    .replace(/\[MODEL\]|\{MODEL\}/g, STATE.api.key ? STATE.api.model : 'mock');
+    .replace(/\[MODEL\]|\{MODEL\}/g, STATE.api.model);
   try {
     await navigator.clipboard.writeText(text);
     logAudit('Export', 'Copied referral email to clipboard' + (STATE.edits.email ? ' (edited)' : ''), '—');
@@ -9831,8 +9728,8 @@ function exportMarkdown() {
   let md = '# SPEED TO MARKET AI — UNDERWRITING SUMMARY\n\n';
   md += '**Pipeline Run:** ' + (STATE.pipelineRun || '—') + '\n';
   md += '**Generated:** ' + new Date().toISOString() + '\n';
-  md += '**Provider:** ' + (STATE.api.key ? STATE.api.provider.toUpperCase() : 'DEMO (mocks)') + '\n';
-  md += '**Model:** ' + (STATE.api.key ? STATE.api.model : 'mock') + '\n';
+  md += '**Provider:** ' + ('ANTHROPIC') + '\n';
+  md += '**Model:** ' + (STATE.api.model) + '\n';
   md += '**Prompts Version:** v2.4\n';
   md += '**Files Ingested:** ' + STATE.files.length + '\n';
   md += '**Modules Completed:** ' + Object.keys(STATE.extractions).length + ' / 15\n';
@@ -10042,13 +9939,13 @@ async function runPipeline() {
   const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified');
   if (ready.length === 0) { toast('Upload files first to begin', 'warn'); return; }
 
-  // CLEAN BUILD — pipeline runs only with a real API key. Without one, every
-  // module would return mock (Meridian-specific) content which would be confusing
-  // when testing against real broker documents. The mocks are still in the code
-  // for a future demo path, but by default this build requires an LLM to process.
-  if (!STATE.api || !STATE.api.key) {
-    toast('API key required to run the pipeline. Click the settings gear to add one.', 'warn');
-    openSettings();
+  // Pipeline requires an authenticated user. The server-side LLM proxy will
+  // only accept calls from signed-in users; without auth the first LLM call
+  // would fail with a 401 anyway.
+  if (!window.currentUser) {
+    toast('Sign in required to run the pipeline.', 'warn');
+    const overlay = document.getElementById('authOverlay');
+    if (overlay) overlay.style.display = 'flex';
     return;
   }
 
@@ -10075,7 +9972,7 @@ async function runPipeline() {
   renderPipelineNodes();
 
   const timer = setInterval(updateTimer, 100);
-  logAudit('Pipeline', 'Started run ' + STATE.pipelineRun + ' · ' + ready.length + ' files', STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Pipeline', 'Started run ' + STATE.pipelineRun + ' · ' + ready.length + ' files', STATE.api.model);
 
   // === Stage 0: Classify all files in parallel ===
   setNodeState('[data-node="classifier"]', 'running');
@@ -10113,7 +10010,7 @@ async function runPipeline() {
   // blocking modal but still gives the underwriter a 100% safety net.
   const flagged = ready.filter(f => f.needsReview || f.classification === 'unknown');
   if (flagged.length > 0) {
-    logAudit('Classifier', flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for post-hoc review (low confidence). Pipeline continuing with AI\'s best guess.', STATE.api.key ? STATE.api.model : 'mock');
+    logAudit('Classifier', flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for post-hoc review (low confidence). Pipeline continuing with AI\'s best guess.', STATE.api.model);
     toast(flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for review — pipeline continuing · see Summary', 'warn');
   }
 
@@ -10252,7 +10149,7 @@ async function runPipeline() {
   renderSummaryCards();
   // Render the post-hoc classifier-review banner (shows flagged low-confidence files)
   if (typeof renderClassifierReview === 'function') renderClassifierReview();
-  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/14 modules · ' + finalTime + 's', STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/14 modules · ' + finalTime + 's', STATE.api.model);
   toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
   // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
   // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
@@ -10726,8 +10623,8 @@ function confirmSendToAssistant() {
   STATE.handoff.assignee = assignee;
   STATE.handoff.uwNote = note;
   STATE.handoff.sentAt = now;
-  STATE.handoff.history.push({ transition: 'uw→assistant', at: now, actor: 'J. Wray', assignee: assignee, noteLength: note.length });
-  logAudit('Handoff', 'Sent to ' + assignee + ' · note ' + note.length + ' chars', STATE.api.key ? STATE.api.model : 'mock');
+  STATE.handoff.history.push({ transition: 'uw→assistant', at: now, actor: currentActor(), assignee: assignee, noteLength: note.length });
+  logAudit('Handoff', 'Sent to ' + assignee + ' · note ' + note.length + ' chars', STATE.api.model);
   closeSendToAssistantModal();
   renderHandoffState();
   toast('Sent to ' + assignee + ' for review', 'success');
@@ -10756,7 +10653,7 @@ function confirmReturnToUw() {
   STATE.handoff.assistantNote = note;
   STATE.handoff.returnedAt = now;
   STATE.handoff.history.push({ transition: 'assistant→uw', at: now, actor: STATE.handoff.assignee || 'Assistant', noteLength: note.length });
-  logAudit('Handoff', 'Returned to UW by ' + (STATE.handoff.assignee || 'Assistant') + ' · note ' + note.length + ' chars', STATE.api.key ? STATE.api.model : 'mock');
+  logAudit('Handoff', 'Returned to UW by ' + (STATE.handoff.assignee || 'Assistant') + ' · note ' + note.length + ' chars', STATE.api.model);
   // Auto-switch back to UW view — the UW is the one who needs to see the returned note
   STATE.handoff.viewAs = 'uw';
   closeReturnToUwModal();
@@ -10857,7 +10754,7 @@ function toggleAssistantView() {
       STATE.handoff.status = 'in_review';
       STATE.handoff.openedAt = now;
       STATE.handoff.history.push({ transition: 'assistant_opened', at: now, actor: STATE.handoff.assignee || 'Assistant' });
-      logAudit('Handoff', (STATE.handoff.assignee || 'Assistant') + ' opened submission for review', STATE.api.key ? STATE.api.model : 'mock');
+      logAudit('Handoff', (STATE.handoff.assignee || 'Assistant') + ' opened submission for review', STATE.api.model);
     }
   } else {
     STATE.handoff.viewAs = 'uw';
@@ -10909,7 +10806,7 @@ function renderHandoffState() {
       banner.classList.remove('from-assistant');
       document.getElementById('hnbIcon').textContent = 'JW';
       document.getElementById('hnbEyebrow').textContent = 'Note from UW';
-      document.getElementById('hnbTitle').textContent = 'J. Wray · for ' + (h.assignee || 'assistant') + ' review';
+      document.getElementById('hnbTitle').textContent = currentActor() + ' · for ' + (h.assignee || 'assistant') + ' review';
       document.getElementById('hnbTimestamp').textContent = h.sentAt ? formatTimestamp(h.sentAt) : '';
       document.getElementById('hnbBody').textContent = h.uwNote;
     } else if (showAssistantNote) {
@@ -11016,16 +10913,16 @@ function updateDecisionPaneIdle() {
         <h4>Submission</h4>
         <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">${STATE.files.length || '—'}</span></div>
         <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">—</span></div>
-        <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">${STATE.api.key ? 'LIVE · ' + STATE.api.provider.toUpperCase() : 'DEMO'}</span></div>
+        <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">LIVE · ANTHROPIC</span></div>
       `;
     } else if (h4.textContent.trim() === 'Audit') {
       mb.innerHTML = `
         <h4>Audit</h4>
         <div class="meta-row"><span class="meta-row-label">Pipeline run</span><span class="meta-row-value">—</span></div>
-        <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">${STATE.api.key ? STATE.api.model : 'mock'}</span></div>
+        <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">${STATE.api.model}</span></div>
         <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
         <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">${STATE.audit.length}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">J. Wray</span></div>
+        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${currentActor()}</span></div>
       `;
     }
   });
@@ -11103,12 +11000,12 @@ function updateDecisionPane() {
     const title = h4.textContent.trim();
     if (title === 'Submission') {
       const runCost = STATE.runTotalCost || 0;
-      const costStr = STATE.api.key ? fmtCost(runCost) : '—';
+      const costStr = fmtCost(runCost);
       mb.innerHTML = `
         <h4>Submission</h4>
         <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">${STATE.files.length}</span></div>
         <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">${extracted.length} / 15</span></div>
-        <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">${STATE.api.key ? 'LIVE · ' + STATE.api.provider.toUpperCase() : 'DEMO'}</span></div>
+        <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">LIVE · ANTHROPIC</span></div>
         <div class="meta-row"><span class="meta-row-label">Run cost</span><span class="meta-row-value" style="font-family: var(--font-mono);">${costStr}</span></div>
       `;
     } else if (title === 'Audit') {
@@ -11118,7 +11015,7 @@ function updateDecisionPane() {
         <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">split Opus/Sonnet</span></div>
         <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
         <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">${STATE.audit.length}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">J. Wray</span></div>
+        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${currentActor()}</span></div>
       `;
     }
   });
@@ -11130,7 +11027,7 @@ function renderSubmissionSidebar() {
   const costEl = document.getElementById('sidebarRunCost');
   if (costEl) {
     const cost = STATE.runTotalCost || 0;
-    costEl.textContent = STATE.api.key ? fmtCost(cost) : '—';
+    costEl.textContent = fmtCost(cost);
   }
 }
 
