@@ -10,6 +10,73 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://speedtomarketai.com">
 <title>Speed to Market AI · Commercial Underwriting Prep, Compressed</title>
+<style id="stm-pw-hide">html.stm-locked body > *:not(#pw-gate) { display: none !important; }</style>
+<script>
+/* ============================================================
+   SITE PASSWORD GATE
+   Password: qT7$vnK9mRx2wPzL
+   To change: generate a new SHA-256 hash of your new password
+              and replace the PW_HASH value below.
+   ============================================================ */
+(function() {
+  var PW_HASH = '43e934ff0a8e540d3b6219c03b8edaad85e496ea70eac5e2b6230728706949e4';
+  var SESSION_KEY = 'stm-site-auth';
+
+  try {
+    if (sessionStorage.getItem(SESSION_KEY) === 'ok') return;
+  } catch (e) {}
+
+  // Lock the page immediately via a class on <html>. This is safe — no document.write.
+  document.documentElement.classList.add('stm-locked');
+
+  function sha256(str) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function(buf) {
+      return Array.prototype.map.call(new Uint8Array(buf), function(b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+    });
+  }
+
+  function showGate() {
+    var overlay = document.createElement('div');
+    overlay.id = 'pw-gate';
+    overlay.style.cssText = 'position:fixed;inset:0;background:#0A0E1A;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;';
+    overlay.innerHTML =
+      '<form id="pw-form" style="background:#111724;border:1px solid #2A3449;border-radius:14px;padding:38px 34px;max-width:380px;width:90%;text-align:center;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7);">' +
+        '<div style="font-family:Georgia,serif;font-size:28px;color:#F1ECE2;font-weight:400;letter-spacing:-0.015em;margin-bottom:8px;">Speed to Market <em style="font-style:italic;color:#C6F432;font-weight:300;">AI</em></div>' +
+        '<div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#8B95A8;text-transform:uppercase;margin-bottom:24px;">Private Preview</div>' +
+        '<input type="password" id="pw-input" autocomplete="off" autofocus placeholder="Enter password" style="width:100%;padding:12px 14px;background:#1A2236;color:#F1ECE2;border:1px solid #2A3449;border-radius:8px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />' +
+        '<div id="pw-error" style="color:#FF9448;font-size:12px;min-height:16px;margin-bottom:12px;font-family:monospace;letter-spacing:0.04em;"></div>' +
+        '<button type="submit" style="width:100%;padding:12px 18px;background:#C6F432;color:#0A0E1A;border:none;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;letter-spacing:-0.01em;">Enter</button>' +
+      '</form>';
+    document.body.appendChild(overlay);
+
+    document.getElementById('pw-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var input = document.getElementById('pw-input');
+      var errEl = document.getElementById('pw-error');
+      errEl.textContent = '';
+      sha256(input.value).then(function(hash) {
+        if (hash === PW_HASH) {
+          try { sessionStorage.setItem(SESSION_KEY, 'ok'); } catch (e) {}
+          document.documentElement.classList.remove('stm-locked');
+          overlay.remove();
+        } else {
+          errEl.textContent = 'Incorrect password';
+          input.value = '';
+          input.focus();
+        }
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', showGate);
+  } else {
+    showGate();
+  }
+})();
+</script>
 <script>
   // Pre-paint theme applier — runs before CSS to prevent theme flash on load
   (function() {
@@ -1249,7 +1316,7 @@ section.section {
   position: relative;
 }
 .quote::before {
-  content: "“";
+  content: "\201C";
   position: absolute;
   top: -2px; left: 14px;
   font-family: var(--font-display);
@@ -1560,7 +1627,7 @@ footer {
   <div class="announce-inner">
     <span class="tag">NEW</span>
     <span>AI underwriting prep that turns 1-2 hours of submission work into 10-15 minutes</span>
-    <a href="#how" class="announce-link">See how →</a>
+    <a href="/app" class="announce-link">Try it now &rarr;</a>
   </div>
 </div>
 
@@ -1596,8 +1663,8 @@ footer {
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
     </button>
-    <a href="#cta" class="nav-cta">
-      Request access
+    <a href="/app" class="nav-cta">
+      Launch platform
       <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
     <button class="nav-toggle" onclick="document.getElementById('navLinks').classList.toggle('open')" aria-label="Menu">
@@ -1619,94 +1686,94 @@ footer {
         <span class="line"><em>compressed.</em></span>
       </h1>
       <p class="hero-sub">
-        Every commercial submission arrives as a mess of ACORDs, loss runs, subcontracts, safety manuals, and broker emails — and underwriters spend <strong>1-2+ hours per submission</strong> wrangling it before making a single decision. <strong>Speed to Market AI</strong> compresses that to <strong>10-15 minutes</strong>. Every output cited to source. Every decision audit-logged.
+        Every commercial submission arrives as a mess of ACORDs, loss runs, subcontracts, safety manuals, and broker emails &mdash; and underwriters spend <strong>1-2+ hours per submission</strong> wrangling it before making a single decision. <strong>Speed to Market AI</strong> compresses that to <strong>10-15 minutes</strong>. Every output cited to source. Every decision audit-logged.
       </p>
       <div class="hero-ctas">
         <a href="#cta" class="btn btn-primary">
           Request access
           <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
-        <a href="#how" class="btn btn-ghost">
-          See how it works
+        <a href="/app" class="btn btn-ghost">
+          Try the platform
           <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L15 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
       </div>
     </div>
     <div class="hero-visual">
-      <div class="float-tag float-tag-1"><span class="dot"></span>RUNNING · 14 MODULES</div>
+      <div class="float-tag float-tag-1"><span class="dot"></span>RUNNING &middot; 14 MODULES</div>
       <div class="device-frame">
         <div class="device-topbar">
           <span></span><span></span><span></span>
         </div>
         <div class="device-body">
           <div class="chunk">
-            <div class="label">A1 · WEBSITE INTEL</div>
-            <div class="content">meridianstructural.com · <span class="mono-data">Scope aligns w/ app · no red flags</span></div>
+            <div class="label">A1 &middot; WEBSITE INTEL</div>
+            <div class="content">meridianstructural.com &middot; <span class="mono-data">Scope aligns w/ app &middot; no red flags</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A2 · SUPPLEMENTAL</div>
-            <div class="content">Meridian Structural Group · 18 yrs · <span class="mono-data">Max height 62 ft · 75-unit fleet</span></div>
+            <div class="label">A2 &middot; SUPPLEMENTAL</div>
+            <div class="content">Meridian Structural Group &middot; 18 yrs &middot; <span class="mono-data">Max height 62 ft &middot; 75-unit fleet</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A3 · SUBCONTRACTOR</div>
-            <div class="content">AI + $2M required · <span class="mono-data">Primary &amp; non-contrib · full transfer</span></div>
+            <div class="label">A3 &middot; SUBCONTRACTOR</div>
+            <div class="content">AI + $2M required &middot; <span class="mono-data">Primary &amp; non-contrib &middot; full transfer</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A4 · VENDOR</div>
-            <div class="content">Crane lease · <span class="mono-data">Borrowed-servant exposure flagged</span></div>
+            <div class="label">A4 &middot; VENDOR</div>
+            <div class="content">Crane lease &middot; <span class="mono-data">Borrowed-servant exposure flagged</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A5 · SAFETY MANUAL</div>
-            <div class="content">EMR 0.82 · TRIR 2.1 · <span class="mono-data">&lt; NAICS avg · OSHA 10/30 logged</span></div>
+            <div class="label">A5 &middot; SAFETY MANUAL</div>
+            <div class="content">EMR 0.82 &middot; TRIR 2.1 &middot; <span class="mono-data">&lt; NAICS avg &middot; OSHA 10/30 logged</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A6 · SUMMARY OF OPS</div>
-            <div class="content">Structural steel erection · <span class="mono-data">NYC / NJ / PA commercial</span></div>
+            <div class="label">A6 &middot; SUMMARY OF OPS</div>
+            <div class="content">Structural steel erection &middot; <span class="mono-data">NYC / NJ / PA commercial</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A7 · CLASS CODE</div>
-            <div class="content">ISO 91580 · <span class="mono-data">Iron/steel erection &ndash; frame</span></div>
+            <div class="label">A7 &middot; CLASS CODE</div>
+            <div class="content">ISO 91580 &middot; <span class="mono-data">Iron/steel erection &ndash; frame</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A8 · GUIDELINE</div>
-            <div class="content">In appetite · <span class="mono-data">2 referral triggers (see flags)</span></div>
+            <div class="label">A8 &middot; GUIDELINE</div>
+            <div class="content">In appetite &middot; <span class="mono-data">2 referral triggers (see flags)</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A9 · EXPOSURE</div>
-            <div class="content">NY §240 severity · <span class="mono-data">&gt;$2M attachment penetration likely</span></div>
+            <div class="label">A9 &middot; EXPOSURE</div>
+            <div class="content">NY &sect;240 severity &middot; <span class="mono-data">&gt;$2M attachment penetration likely</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A10 · STRENGTHS</div>
-            <div class="content">18-yr tenure · <span class="mono-data">VPP Star · 4:1 sub-to-FTE oversight</span></div>
+            <div class="label">A10 &middot; STRENGTHS</div>
+            <div class="content">18-yr tenure &middot; <span class="mono-data">VPP Star &middot; 4:1 sub-to-FTE oversight</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A11 · LOSS HISTORY</div>
-            <div class="content">40 claims / 5 yrs · <span class="mono-data">$487K incurred · 0 primary penetration</span></div>
+            <div class="label">A11 &middot; LOSS HISTORY</div>
+            <div class="content">40 claims / 5 yrs &middot; <span class="mono-data">$487K incurred &middot; 0 primary penetration</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A12 · PRIMARY GL</div>
-            <div class="content">Starr · A/XV · <span class="mono-data">$1M/$2M/$2M · CG 22 94 subsidence excl.</span></div>
+            <div class="label">A12 &middot; PRIMARY GL</div>
+            <div class="content">Starr &middot; A/XV &middot; <span class="mono-data">$1M/$2M/$2M &middot; CG 22 94 subsidence excl.</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A13 · PRIMARY AL</div>
-            <div class="content">75 units · <span class="mono-data">60 PPT / 15 trucks · 150mi radius</span></div>
+            <div class="label">A13 &middot; PRIMARY AL</div>
+            <div class="content">75 units &middot; <span class="mono-data">60 PPT / 15 trucks &middot; 150mi radius</span></div>
           </div>
           <div class="chunk">
-            <div class="label">A14 · EXCESS</div>
-            <div class="content">$10M xs $2M · <span class="mono-data">Follow-form · Ironshore A/XV</span></div>
+            <div class="label">A14 &middot; EXCESS</div>
+            <div class="content">$10M xs $2M &middot; <span class="mono-data">Follow-form &middot; Ironshore A/XV</span></div>
           </div>
           <div class="chunk alert">
-            <div class="label">◈ GUIDELINE FLAG</div>
-            <div class="content">Height 62 ft exceeds 40 ft threshold · <span class="mono-data">HIE Questionnaire required</span></div>
+            <div class="label">&#9670; GUIDELINE FLAG</div>
+            <div class="content">Height 62 ft exceeds 40 ft threshold &middot; <span class="mono-data">HIE Questionnaire required</span></div>
           </div>
           <div class="chunk alert">
-            <div class="label">◈ GUIDELINE FLAG</div>
-            <div class="content">NY Labor Law §240/241 exposure · <span class="mono-data">Senior UW referral</span></div>
+            <div class="label">&#9670; GUIDELINE FLAG</div>
+            <div class="content">NY Labor Law &sect;240/241 exposure &middot; <span class="mono-data">Senior UW referral</span></div>
           </div>
         </div>
-        <div class="device-caption">Generated in 47 seconds · all 14 modules · source-cited</div>
+        <div class="device-caption">Generated in 47 seconds &middot; all 14 modules &middot; source-cited</div>
       </div>
-      <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK · ✓ 14/14</div>
+      <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK &middot; &#10003; 14/14</div>
     </div>
   </div>
 </section>
@@ -1875,13 +1942,13 @@ footer {
     <div class="section-label">The compression</div>
     <h2 class="section-title">What took <em>an hour</em> now takes <em>ten minutes.</em></h2>
     <p class="section-lede">
-      Underwriters and clearance assistants spend 1-2+ hours per submission on the work that happens <em>before</em> a single decision gets made — document wrangling, extraction, guideline checks, workbook prep, email drafting. That's the hour the platform gives back.
+      Underwriters and clearance assistants spend 1-2+ hours per submission on the work that happens <em>before</em> a single decision gets made &mdash; document wrangling, extraction, guideline checks, workbook prep, email drafting. That's the hour the platform gives back.
     </p>
 
     <div class="ba-wrap">
       <div class="ba-col before">
         <div class="ba-label">BEFORE</div>
-        <div class="ba-stat">1–2+ <span>hrs</span></div>
+        <div class="ba-stat">1&ndash;2+ <span>hrs</span></div>
         <div class="ba-desc">Per submission. Document extraction, underlying review, exposure review, loss history review. Most of it clerical. None of it decisions.</div>
         <ul class="ba-list">
           <li>Hunt for the documents in a 20+ attachment broker email</li>
@@ -1896,8 +1963,8 @@ footer {
       </div>
       <div class="ba-col after">
         <div class="ba-label">AFTER</div>
-        <div class="ba-stat">10–15 <span>min</span></div>
-        <div class="ba-desc">Review &amp; decide. The brief is already on your desk — structured, cited, audit-logged. You spend time on the judgment, not the clerical.</div>
+        <div class="ba-stat">10&ndash;15 <span>min</span></div>
+        <div class="ba-desc">Review &amp; decide. The brief is already on your desk &mdash; structured, cited, audit-logged. You spend time on the judgment, not the clerical.</div>
         <ul class="ba-list">
           <li>Full Excel pack + summary email delivered by 8am</li>
           <li>Every field tied to source document, page, and line</li>
@@ -1914,7 +1981,7 @@ footer {
         <div class="tc-label">Time reduction per submission</div>
       </div>
       <div class="tc-card">
-        <div class="tc-num">3-5×</div>
+        <div class="tc-num">3-5&times;</div>
         <div class="tc-label">Underwriter throughput</div>
       </div>
       <div class="tc-card">
@@ -2016,7 +2083,7 @@ footer {
   color: var(--muted);
 }
 .ba-col.before .ba-list li::before {
-  content: "✕";
+  content: "\2715";
   position: absolute;
   left: 2px; top: 0;
   color: var(--muted-2);
@@ -2027,7 +2094,7 @@ footer {
   color: var(--cream);
 }
 .ba-col.after .ba-list li::before {
-  content: "✓";
+  content: "\2713";
   position: absolute;
   left: 0; top: 0;
   color: var(--signal);
@@ -2088,25 +2155,23 @@ footer {
 .tc-footnote strong { color: var(--cream); font-weight: 500; }
 </style>
 
-
-
 <!-- ========== HOW IT WORKS ========== -->
 <section class="section reveal" id="how">
   <div class="section-inner">
     <div class="section-label">The Workflow</div>
     <h2 class="section-title">The messy submission packet, <em>rewritten</em> for how underwriters actually work.</h2>
     <p class="section-lede">
-      14 stages. Each output is cited, structured, and ready for the next module to build on. No black boxes — we will work with you to edit the prompts in-session if you want to tune a module to your appetite.
+      14 stages. Each output is cited, structured, and ready for the next module to build on. No black boxes &mdash; we will work with you to edit the prompts in-session if you want to tune a module to your appetite.
     </p>
 
     <div class="workflow">
       <div class="step">
-        <span class="step-num">01 · INGEST</span>
+        <span class="step-num">01 &middot; INGEST</span>
         <div class="step-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <h3 class="step-title">Drop anything.</h3>
-        <p class="step-desc">Drag every file a broker sends — PDF, Word sub agreements, vendor agreements, Geotech reports, any contracts, Excel loss runs, Outlook .msg emails with attachments. All parsed inline.</p>
+        <p class="step-desc">Drag every file a broker sends &mdash; PDF, Word sub agreements, vendor agreements, Geotech reports, any contracts, Excel loss runs, Outlook .msg emails with attachments. All parsed inline.</p>
         <div class="step-tags">
           <span class="step-tag">PDF</span>
           <span class="step-tag">DOCX</span>
@@ -2117,12 +2182,12 @@ footer {
       </div>
 
       <div class="step">
-        <span class="step-num">02 · EXTRACT</span>
+        <span class="step-num">02 &middot; EXTRACT</span>
         <div class="step-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h10M4 18h16" stroke-linecap="round"/><circle cx="18" cy="12" r="2" fill="currentColor"/></svg>
         </div>
         <h3 class="step-title">14 specialists read it.</h3>
-        <p class="step-desc">Each module is a focused underwriting specialist — a doc/data extractor covering Website Intel, Supplemental App, Subcontractor Agreements, Vendor Agreements, Safety Manual, Loss History, GL Quotes / Policies, AL Quotes / Policies, Excess Policies, and more.</p>
+        <p class="step-desc">Each module is a focused underwriting specialist &mdash; a doc/data extractor covering Website Intel, Supplemental App, Subcontractor Agreements, Vendor Agreements, Safety Manual, Loss History, GL Quotes / Policies, AL Quotes / Policies, Excess Policies, and more.</p>
         <div class="step-tags">
           <span class="step-tag">ACORD</span>
           <span class="step-tag">Class Codes</span>
@@ -2132,12 +2197,12 @@ footer {
       </div>
 
       <div class="step">
-        <span class="step-num">03 · VERIFY</span>
+        <span class="step-num">03 &middot; VERIFY</span>
         <div class="step-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12l4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <h3 class="step-title">QC loop validates.</h3>
-        <p class="step-desc">Every output ends with a self-verification checklist — did every source bullet survive? Any field missing? Loops until 100% clean or flags the gap.</p>
+        <p class="step-desc">Every output ends with a self-verification checklist &mdash; did every source bullet survive? Any field missing? Loops until 100% clean or flags the gap.</p>
         <div class="step-tags">
           <span class="step-tag">Source Citation</span>
           <span class="step-tag">Field Coverage</span>
@@ -2146,7 +2211,7 @@ footer {
       </div>
 
       <div class="step">
-        <span class="step-num">04 · DECIDE</span>
+        <span class="step-num">04 &middot; DECIDE</span>
         <div class="step-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
         </div>
@@ -2173,7 +2238,7 @@ footer {
     <div class="modules-grid">
       <div class="module">
         <div>
-          <div class="module-tag">A1 · INTAKE</div>
+          <div class="module-tag">A1 &middot; INTAKE</div>
           <div class="module-name">Website Intelligence</div>
           <div class="module-desc">Search by insured name + ZIP or paste URL. Crawls all pages, flags scope discrepancies vs. application. Uses native <code style="color:var(--signal);font-family:var(--font-mono);font-size:11px;">web_search</code> to find the site.</div>
         </div>
@@ -2182,25 +2247,25 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A2 · INTAKE</div>
+          <div class="module-tag">A2 &middot; INTAKE</div>
           <div class="module-name">Supplemental Extractor</div>
-          <div class="module-desc">Every underwriting fact on the supplemental, field-by-field. Silent fields return "No information provided" — never inferred.</div>
+          <div class="module-desc">Every underwriting fact on the supplemental, field-by-field. Silent fields return "No information provided" &mdash; never inferred.</div>
         </div>
         <div class="module-arrow"><svg viewBox="0 0 20 20" fill="none"><path d="M6 14 L14 6 M8 6 L14 6 L14 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       </div>
 
       <div class="module">
         <div>
-          <div class="module-tag">A3 · INTAKE</div>
+          <div class="module-tag">A3 &middot; INTAKE</div>
           <div class="module-name">Subcontractor Agreement</div>
-          <div class="module-desc">Pulls risk-transfer provisions — AI status, COI requirements, indemnification, limits, waiver of subrogation, completed-ops tail.</div>
+          <div class="module-desc">Pulls risk-transfer provisions &mdash; AI status, COI requirements, indemnification, limits, waiver of subrogation, completed-ops tail.</div>
         </div>
         <div class="module-arrow"><svg viewBox="0 0 20 20" fill="none"><path d="M6 14 L14 6 M8 6 L14 6 L14 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       </div>
 
       <div class="module">
         <div>
-          <div class="module-tag">A4 · INTAKE</div>
+          <div class="module-tag">A4 &middot; INTAKE</div>
           <div class="module-name">Vendor Agreement</div>
           <div class="module-desc">Equipment lessor and supplier contracts. Flags borrowed-servant exposure on operated equipment (critical for crane / rigging).</div>
         </div>
@@ -2209,7 +2274,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A5 · INTAKE</div>
+          <div class="module-tag">A5 &middot; INTAKE</div>
           <div class="module-name">Safety Manual</div>
           <div class="module-desc">Oversight structure, training matrix, EMR/TRIR/DART benchmarked against NAICS, VPP/STEP/AISC certifications, fleet telematics, and more.</div>
         </div>
@@ -2218,7 +2283,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A6 · ANALYSIS</div>
+          <div class="module-tag">A6 &middot; ANALYSIS</div>
           <div class="module-name">Summary of Operations</div>
           <div class="module-desc">Structured third-person account summary in the exact format your referral template expects. QC loop catches every missing source bullet.</div>
         </div>
@@ -2227,7 +2292,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A7 · ANALYSIS</div>
+          <div class="module-tag">A7 &middot; ANALYSIS</div>
           <div class="module-name">Class Code Expert</div>
           <div class="module-desc">Describe the operation, get matched ISO GL class codes with rationale. Handles multi-class splits and flags appetite edge cases.</div>
         </div>
@@ -2236,7 +2301,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A8 · ANALYSIS</div>
+          <div class="module-tag">A8 &middot; ANALYSIS</div>
           <div class="module-name">Guideline Cross-Reference</div>
           <div class="module-desc">Maps operations &amp; states against your underwriting guidelines. Verbatim conflict citation, referral triggers, portfolio-in-appetite commentary.</div>
         </div>
@@ -2245,7 +2310,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A9 · ANALYSIS</div>
+          <div class="module-tag">A9 &middot; ANALYSIS</div>
           <div class="module-name">Exposure to Loss</div>
           <div class="module-desc">Severity-driven exposure analysis across Premises, Products, Completed Ops, Operations, Auto. Flags anything that could penetrate $2M+ attachments.</div>
         </div>
@@ -2254,16 +2319,16 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A10 · ANALYSIS</div>
+          <div class="module-tag">A10 &middot; ANALYSIS</div>
           <div class="module-name">Account Strengths</div>
-          <div class="module-desc">Extract compelling positives for the referral and the underwriter&rsquo;s review — expertise, safety commitment, subcontractor management, loss history, and anywhere else the insured excels.</div>
+          <div class="module-desc">Extract compelling positives for the referral and the underwriter&rsquo;s review &mdash; expertise, safety commitment, subcontractor management, loss history, and anywhere else the insured excels.</div>
         </div>
         <div class="module-arrow"><svg viewBox="0 0 20 20" fill="none"><path d="M6 14 L14 6 M8 6 L14 6 L14 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       </div>
 
       <div class="module">
         <div>
-          <div class="module-tag">A11 · UNDERLYING</div>
+          <div class="module-tag">A11 &middot; UNDERLYING</div>
           <div class="module-name">Loss History</div>
           <div class="module-desc">Claims by LOB, total incurred, total paid by policy year, large losses detailed, development trends.</div>
         </div>
@@ -2272,7 +2337,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A12 · UNDERLYING</div>
+          <div class="module-tag">A12 &middot; UNDERLYING</div>
           <div class="module-name">Primary GL Quote</div>
           <div class="module-desc">Carrier, AM Best, form, limits, SIR, classifications, every endorsement with impact annotation (narrowing / concerning / aligns).</div>
         </div>
@@ -2281,7 +2346,7 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A13 · UNDERLYING</div>
+          <div class="module-tag">A13 &middot; UNDERLYING</div>
           <div class="module-name">Primary AL Quote</div>
           <div class="module-desc">Fleet composition by class, garaging, and radius.</div>
         </div>
@@ -2290,9 +2355,9 @@ footer {
 
       <div class="module">
         <div>
-          <div class="module-tag">A14 · UNDERLYING</div>
+          <div class="module-tag">A14 &middot; UNDERLYING</div>
           <div class="module-name">Excess Policy</div>
-          <div class="module-desc">Layer analysis, attachment points, follow-form validation, and carrier rating — pulls every term that affects how the excess tower responds relative to the primary.</div>
+          <div class="module-desc">Layer analysis, attachment points, follow-form validation, and carrier rating &mdash; pulls every term that affects how the excess tower responds relative to the primary.</div>
         </div>
         <div class="module-arrow"><svg viewBox="0 0 20 20" fill="none"><path d="M6 14 L14 6 M8 6 L14 6 L14 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       </div>
@@ -2300,9 +2365,9 @@ footer {
       <!-- ===== FINAL UW SUMMARY — capstone card that ties the 14 modules together ===== -->
       <div class="module module-summary">
         <div>
-          <div class="module-tag summary-tag">SUMMARY · THE DELIVERABLE</div>
+          <div class="module-tag summary-tag">SUMMARY &middot; THE DELIVERABLE</div>
           <div class="module-name">Final UW Summary</div>
-          <div class="module-desc">All 14 modules consolidated into one decision-ready brief. Recommendation, program structure, account positives, guideline conflicts, referral triggers, open items — and an auto-drafted referral email. <strong>The 10-minute output of an hour of prep.</strong></div>
+          <div class="module-desc">All 14 modules consolidated into one decision-ready brief. Recommendation, program structure, account positives, guideline conflicts, referral triggers, open items &mdash; and an auto-drafted referral email. <strong>The 10-minute output of an hour of prep.</strong></div>
           <div class="summary-chips">
             <span class="summary-chip">Quote / Refer / Decline</span>
             <span class="summary-chip">Referral Email</span>
@@ -2323,9 +2388,9 @@ footer {
 <section class="section reveal" id="usecases">
   <div class="section-inner">
     <div class="section-label">Use Cases</div>
-    <h2 class="section-title">Built for the realities of <em>commercial insurance</em> — across every line.</h2>
+    <h2 class="section-title">Built for the realities of <em>commercial insurance</em> &mdash; across every line.</h2>
     <p class="section-lede">
-      GL, Auto, Workers' Comp, Property, Excess. Speed to Market AI was built by an underwriter who has sat in the clearance seat, the assistant seat, and the underwriter seat — across every stage of the commercial intake funnel. The use cases below are just examples but can do way more.
+      GL, Auto, Workers' Comp, Property, Excess. Speed to Market AI was built by an underwriter who has sat in the clearance seat, the assistant seat, and the underwriter seat &mdash; across every stage of the commercial intake funnel. The use cases below are just examples but can do way more.
     </p>
 
     <div class="usecases">
@@ -2339,7 +2404,7 @@ footer {
 
         <div class="uc-pane active" id="uc-1">
           <div class="uc-pane-title">The morning deliverable: a decision-ready brief on every submission.</div>
-          <p class="uc-pane-desc">AI agents run overnight against every submission in the queue. By the time the underwriter opens the laptop, a fully structured queue and summary email are waiting — strengths, exposures, class codes, limits, loss trends, guideline flags, open items. No more 7am document triage.</p>
+          <p class="uc-pane-desc">AI agents run overnight against every submission in the queue. By the time the underwriter opens the laptop, a fully structured queue and summary email are waiting &mdash; strengths, exposures, class codes, limits, loss trends, guideline flags, open items. No more 7am document triage.</p>
           <ul class="uc-pane-list">
             <li><strong>Before:</strong> 1-2+ hours of extraction and file prep per submission</li>
             <li><strong>After:</strong> 10-15 minute review of a structured brief</li>
@@ -2350,18 +2415,18 @@ footer {
 
         <div class="uc-pane" id="uc-3">
           <div class="uc-pane-title">Guideline adherence trending to 98%+.</div>
-          <p class="uc-pane-desc">Every submission cross-referenced against your underwriting guide. Prohibited, Restricted, and Referral classifications flagged with verbatim citation. The compliance team gets pre-bind flags in real time — no more post-audit surprises.</p>
+          <p class="uc-pane-desc">Every submission cross-referenced against your underwriting guide. Prohibited, Restricted, and Referral classifications flagged with verbatim citation. The compliance team gets pre-bind flags in real time &mdash; no more post-audit surprises.</p>
           <ul class="uc-pane-list">
             <li>Every operation and state cross-referenced against your guide</li>
             <li>Guideline stance: <strong>Prohibited / Restricted / Referral</strong></li>
-            <li>Verbatim citation of the conflict — defensible at audit</li>
+            <li>Verbatim citation of the conflict &mdash; defensible at audit</li>
             <li>Aggregates to portfolio-level adherence scorecard for leadership</li>
           </ul>
         </div>
 
         <div class="uc-pane" id="uc-4">
           <div class="uc-pane-title">Risk transfer you can actually defend at claim.</div>
-          <p class="uc-pane-desc">Subcontractor agreements, vendor contracts, lease agreements — the contracts that determine whether losses flow down or stay with your insured. The platform extracts every risk-transfer provision across any commercial line and flags gaps before bind.</p>
+          <p class="uc-pane-desc">Subcontractor agreements, vendor contracts, lease agreements &mdash; the contracts that determine whether losses flow down or stay with your insured. The platform extracts every risk-transfer provision across any commercial line and flags gaps before bind.</p>
           <ul class="uc-pane-list">
             <li>Full insurance article, indemnification scope, tier limits extracted</li>
             <li>Additional insured status, primary &amp; non-contributory language verified</li>
@@ -2372,7 +2437,7 @@ footer {
 
         <div class="uc-pane" id="uc-5">
           <div class="uc-pane-title">Loss history, decoded in minutes.</div>
-          <p class="uc-pane-desc">Loss runs arrive in every format carriers can produce. The platform normalizes GL, Auto, WC, Property, and Umbrella claims into a single structured view — with penetration analysis, severity trending, and fraud/edit detection built in.</p>
+          <p class="uc-pane-desc">Loss runs arrive in every format carriers can produce. The platform normalizes GL, Auto, WC, Property, and Umbrella claims into a single structured view &mdash; with penetration analysis, severity trending, and fraud/edit detection built in.</p>
           <ul class="uc-pane-list">
             <li>Parses loss runs from 40+ carrier formats (table, transaction, block, scanned)</li>
             <li>Individual claim detail for every loss above your threshold</li>
@@ -2392,7 +2457,7 @@ footer {
     <div class="section-label">Why it's different</div>
     <h2 class="section-title">Built for underwriters. <em>By</em> an underwriter.</h2>
     <p class="section-lede">
-      Generic AI underwriting tools built by ex-Google ML teams miss the texture of the job. Speed to Market AI was built by a working underwriter solving his own desk problems — 13 years across clearance, assistant, and underwriter roles. What that looks like in practice:
+      Generic AI underwriting tools built by ex-Google ML teams miss the texture of the job. Speed to Market AI was built by a working underwriter solving his own desk problems &mdash; 13 years across clearance, assistant, and underwriter roles. What that looks like in practice:
     </p>
 
     <div class="wedge-callout">
@@ -2404,24 +2469,24 @@ footer {
       <div class="diff-col us">
         <h3>Speed to Market AI <span class="chip">OURS</span></h3>
         <ul>
-          <li>Specialty depth across GL, Auto, WC, Property &amp; Excess — with line-specific knowledge (NY §240, nuclear corridors, subsidence, ALAE allocation, etc.)</li>
-          <li>BYO-API — bring your own Anthropic, OpenAI, or on-device LM Studio key. Your data never touches a third-party cloud</li>
+          <li>Specialty depth across GL, Auto, WC, Property &amp; Excess &mdash; with line-specific knowledge (NY &sect;240, nuclear corridors, subsidence, ALAE allocation, etc.)</li>
+          <li>BYO-API &mdash; bring your own Anthropic, OpenAI, or on-device LM Studio key. Your data never touches a third-party cloud</li>
           <li>10+ document formats parsed natively in-browser (PDF, DOCX, XLSX, MSG, EML, RTF, HTML, CSV)</li>
           <li>Every output source-cited with automatic QC validation loop until 100% field coverage</li>
-          <li>System prompts are visible, editable per session — transparency, not black box</li>
+          <li>System prompts are visible, editable per session &mdash; transparency, not black box</li>
           <li>Live web search via Claude-native <code style="color:var(--signal);font-family:var(--font-mono);font-size:12.5px;">web_search</code> tool for insured websites</li>
-          <li>Multi-carrier by design — not tied to any one insurer's data model</li>
+          <li>Multi-carrier by design &mdash; not tied to any one insurer's data model</li>
         </ul>
       </div>
       <div class="diff-col them">
         <h3>Most AI tools <span class="chip">THEM</span></h3>
         <ul>
-          <li>Generic P&amp;C / L&amp;H — doesn't know what a §240 claim or a subsidence exclusion means</li>
-          <li>Isolated cloud environment — your submission data processed on vendor's infrastructure</li>
-          <li>Narrow document support — usually PDFs and maybe Word, limited table / spreadsheet handling</li>
+          <li>Generic P&amp;C / L&amp;H &mdash; doesn't know what a &sect;240 claim or a subsidence exclusion means</li>
+          <li>Isolated cloud environment &mdash; your submission data processed on vendor's infrastructure</li>
+          <li>Narrow document support &mdash; usually PDFs and maybe Word, limited table / spreadsheet handling</li>
           <li>Outputs that sound confident but don't link back to source</li>
-          <li>System prompts proprietary and hidden — you can't verify or tune</li>
-          <li>No external data — only what the broker sent</li>
+          <li>System prompts proprietary and hidden &mdash; you can't verify or tune</li>
+          <li>No external data &mdash; only what the broker sent</li>
           <li>Tuned to one carrier's proprietary guidelines</li>
         </ul>
       </div>
@@ -2429,14 +2494,13 @@ footer {
   </div>
 </section>
 
-
 <!-- ========== SECURITY & COMPLIANCE ========== -->
 <section class="section reveal" id="security" style="padding-top: 40px;">
   <div class="section-inner">
     <div class="section-label">Carrier-grade trust</div>
-    <h2 class="section-title">Security, audit, and deployment — <em>handled.</em></h2>
+    <h2 class="section-title">Security, audit, and deployment &mdash; <em>handled.</em></h2>
     <p class="section-lede">
-      Every question a CISO asks — answered from day one. Every question a regulator asks — logged. Built for private VPC or on-prem deployment, with SOC 2 on the roadmap and NAIC/NYDFS-aligned vendor packages ready.
+      Every question a CISO asks &mdash; answered from day one. Every question a regulator asks &mdash; logged. Built for private VPC or on-prem deployment, with SOC 2 on the roadmap and NAIC/NYDFS-aligned vendor packages ready.
     </p>
 
     <div class="sec-grid">
@@ -2445,8 +2509,8 @@ footer {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="10" r="3"/><path d="M12 13v4M5 20s1-6 7-6 7 6 7 6" stroke-linecap="round"/></svg>
         </div>
         <div class="sec-tag">IDENTITY &amp; ACCESS</div>
-        <div class="sec-title">SSO · Okta / Azure AD</div>
-        <div class="sec-desc">Role-based access with least-privilege defaults. Inherits from your existing identity layer — no parallel user system to maintain.</div>
+        <div class="sec-title">SSO &middot; Okta / Azure AD</div>
+        <div class="sec-desc">Role-based access with least-privilege defaults. Inherits from your existing identity layer &mdash; no parallel user system to maintain.</div>
       </div>
 
       <div class="sec-card">
@@ -2463,7 +2527,7 @@ footer {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h16v14H4z"/><path d="M8 10h8M8 14h5" stroke-linecap="round"/></svg>
         </div>
         <div class="sec-tag">AUDIT TRAIL</div>
-        <div class="sec-title">Who · when · which model · which prompt</div>
+        <div class="sec-title">Who &middot; when &middot; which model &middot; which prompt</div>
         <div class="sec-desc">Every output logged with model version, prompt version, reviewer sign-off, and evidence provenance. Defensible under regulatory review. Exportable for internal audit.</div>
       </div>
 
@@ -2472,7 +2536,7 @@ footer {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M3 12h5" /></svg>
         </div>
         <div class="sec-tag">DEPLOYMENT</div>
-        <div class="sec-title">VPC · on-prem · region-pinned</div>
+        <div class="sec-title">VPC &middot; on-prem &middot; region-pinned</div>
         <div class="sec-desc">Private VPC on AWS / Azure / GCP. On-premise install. Region pinning for data residency. Whatever your CISO already signed off on last year is what we deploy into.</div>
       </div>
 
@@ -2481,7 +2545,7 @@ footer {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-0.5-8-4-8-9V7l8-4z" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="sec-tag">COMPLIANCE</div>
-        <div class="sec-title">SOC 2 · NAIC · NYDFS</div>
+        <div class="sec-title">SOC 2 &middot; NAIC &middot; NYDFS</div>
         <div class="sec-desc">SOC 2 Type I artifacts on the near-term roadmap; Type II within the year. Vendor security package aligned to NAIC and NYDFS cybersecurity requirements.</div>
       </div>
 
@@ -2715,25 +2779,25 @@ footer {
         <div class="quote-body">Brokers' number one complaint every renewal cycle is turnaround. The carrier that decides fastest binds the account. We needed something that could compress the hours we were losing on prep.</div>
         <div class="quote-author">
           <span class="name">Head of Underwriting</span>
-          <span class="role">ADVISOR CONVERSATION · U.S. COMMERCIAL CARRIER</span>
+          <span class="role">ADVISOR CONVERSATION &middot; U.S. COMMERCIAL CARRIER</span>
         </div>
       </div>
       <div class="quote">
-        <div class="quote-body">What matters to my audit team isn't that AI did the work — it's that we can trace exactly which model, which prompt, which version, and which reviewer signed off on every output. That audit trail is the difference between a pilot and a real deployment.</div>
+        <div class="quote-body">What matters to my audit team isn't that AI did the work &mdash; it's that we can trace exactly which model, which prompt, which version, and which reviewer signed off on every output. That audit trail is the difference between a pilot and a real deployment.</div>
         <div class="quote-author">
           <span class="name">Chief Underwriting Officer</span>
-          <span class="role">ADVISOR CONVERSATION · SPECIALTY BOOK</span>
+          <span class="role">ADVISOR CONVERSATION &middot; SPECIALTY BOOK</span>
         </div>
       </div>
       <div class="quote">
-        <div class="quote-body">My clearance and assistant team was drowning in the same three documents they extract every day. Automating that didn't eliminate the team — it freed them to handle the 15% of exceptions that actually need human judgment.</div>
+        <div class="quote-body">My clearance and assistant team was drowning in the same three documents they extract every day. Automating that didn't eliminate the team &mdash; it freed them to handle the 15% of exceptions that actually need human judgment.</div>
         <div class="quote-author">
           <span class="name">COO, Commercial Lines</span>
-          <span class="role">ADVISOR CONVERSATION · MID-MARKET CARRIER</span>
+          <span class="role">ADVISOR CONVERSATION &middot; MID-MARKET CARRIER</span>
         </div>
       </div>
     </div>
-    <p style="font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-2); margin-top: 22px; letter-spacing: 0.06em;">◢ QUOTES DISTILLED FROM ONGOING ADVISOR AND DESIGN-PARTNER CONVERSATIONS. NAMED ATTRIBUTIONS WILL BE ADDED AS PILOT AGREEMENTS ARE EXECUTED.</p>
+    <p style="font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-2); margin-top: 22px; letter-spacing: 0.06em;">&#9670; QUOTES DISTILLED FROM ONGOING ADVISOR AND DESIGN-PARTNER CONVERSATIONS. NAMED ATTRIBUTIONS WILL BE ADDED AS PILOT AGREEMENTS ARE EXECUTED.</p>
   </div>
 </section>
 
@@ -2745,9 +2809,9 @@ footer {
       <div class="builtby-content">
         <h3>Built by someone who has done <em>every job</em> it automates.</h3>
         <p><strong>Justin Wray, CPCU</strong> has spent <strong>13 years in underwriting</strong> &mdash; ground-up, from a clearance seat to Executive Casualty Underwriter &mdash; plus <strong>5 years applying AI</strong> to underwriting workflows and guideline automation. He carries the <strong>CPCU designation</strong> (completed 2024), the industry&rsquo;s gold-standard technical credential. Every module on this platform automates a task Justin personally performed thousands of times. Nothing ships until it would survive his own audit.</p>
-        <p>He is already leading AI underwriting work at his carrier: machine-learning models for operational summaries and exposure identification, automated business classification, and contract interpretation for indemnification, hold-harmless, and subcontractor limits. Speed to Market AI is the productization of those patterns — hardened for any carrier.</p>
+        <p>He is already leading AI underwriting work at his carrier: machine-learning models for operational summaries and exposure identification, automated business classification, and contract interpretation for indemnification, hold-harmless, and subcontractor limits. Speed to Market AI is the productization of those patterns &mdash; hardened for any carrier.</p>
         <div class="builtby-creds">
-          <span class="cred">CPCU · The Institutes</span>
+          <span class="cred">CPCU &middot; The Institutes</span>
           <span class="cred">13 Years in Underwriting</span>
           <span class="cred">5 Years Applied AI</span>
           <span class="cred">Operator-Founder</span>
@@ -2779,13 +2843,13 @@ footer {
           <div class="ct-dot"></div>
           <div class="ct-year">2023</div>
           <div class="ct-role">Associate Underwriter</div>
-          <div class="ct-note">Ran half a region's submissions through the full underwriting cycle. Built the first in-house calculators — extension, fleet, exposure, loss.</div>
+          <div class="ct-note">Ran half a region's submissions through the full underwriting cycle. Built the first in-house calculators &mdash; extension, fleet, exposure, loss.</div>
         </div>
 
         <div class="ct-item active">
           <div class="ct-dot"></div>
           <div class="ct-year">2024 TO CURRENT</div>
-          <div class="ct-role">Executive Casualty Underwriter · CPCU</div>
+          <div class="ct-role">Executive Casualty Underwriter &middot; CPCU</div>
           <div class="ct-note">Full authority on complex portfolios. Mentors junior underwriters. Leads cross-functional AI innovation. Building Speed to Market AI.</div>
         </div>
       </div>
@@ -2919,8 +2983,6 @@ footer {
 .builtby-creds { row-gap: 10px; }
 </style>
 
-
-
 <!-- ========== CTA ========== -->
 <section class="cta-section reveal" id="cta">
   <div class="section-inner">
@@ -2929,15 +2991,15 @@ footer {
       The underwriter's 4 hours, <em>given back.</em>
     </div>
     <p class="cta-sub">
-      Onboarding a small group of commercial insurance teams for the closed pilot. Tell us your book and we'll run a walk-through on your actual submissions — see the hours saved on your own accounts.
+      Onboarding a small group of commercial insurance teams for the closed pilot. Tell us your book and we'll run a walk-through on your actual submissions &mdash; see the hours saved on your own accounts.
     </p>
     <div class="cta-ctas">
       <a href="mailto:speedtomarketai@gmail.com?subject=Early%20Access%20Request" class="btn btn-primary">
         Request pilot access
         <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </a>
-      <a href="#how" class="btn btn-ghost">
-        See how it works
+      <a href="/app" class="btn btn-ghost">
+        Try the platform
       </a>
     </div>
   </div>
@@ -2958,7 +3020,7 @@ footer {
           </span>
           <span>Speed to Market <em>AI</em></span>
         </a>
-        <p>Commercial underwriting prep, compressed. What takes 1-2+ hours per submission today takes 10-15 minutes with Speed to Market AI — with every output cited and audit-logged.</p>
+        <p>Commercial underwriting prep, compressed. What takes 1-2+ hours per submission today takes 10-15 minutes with Speed to Market AI &mdash; with every output cited and audit-logged.</p>
         <a href="mailto:speedtomarketai@gmail.com" class="foot-email">
           <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="12" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M3 6 L10 12 L17 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           speedtomarketai@gmail.com
@@ -3015,8 +3077,8 @@ footer {
       </div>
     </div>
     <div class="foot-bottom">
-      <p>© 2026 SPEED TO MARKET AI · ALL RIGHTS RESERVED</p>
-      <p>BUILT FOR UNDERWRITERS · POWERED BY ANTHROPIC / OPENAI / LOCAL LLMS</p>
+      <p>&copy; 2026 SPEED TO MARKET AI &middot; ALL RIGHTS RESERVED</p>
+      <p>BUILT FOR UNDERWRITERS &middot; POWERED BY ANTHROPIC / OPENAI / LOCAL LLMS</p>
     </div>
   </div>
 </footer>
