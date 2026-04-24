@@ -6467,6 +6467,12 @@ function saveSubmissions() {
   }));
   // Fire off one upsert per submission. Don't await — the UI shouldn't block
   // on the network. Any single failure gets audited; we don't throw.
+  // Throttle success/error toasts so a rapid batch of saves (many submissions
+  // being re-upserted at once) doesn't spam the UI. We remember the last toast
+  // time per kind and skip if we fired the same kind within 2 seconds.
+  if (!window._sbSubmitToastState) window._sbSubmitToastState = { okAt: 0, errAt: 0 };
+  const toastThrottleMs = 2000;
+  let okCount = 0, failCount = 0;
   Promise.all(lite.map(s => {
     const derived = {
       account:         s.account || null,
@@ -6484,13 +6490,37 @@ function saveSubmissions() {
       status: s.status || 'queued',
       pipelineRun: s.pipelineRun || null,
       title: s.account || s.title || null
+    }).then(data => {
+      okCount++;
+      return data;
     }).catch(e => {
+      failCount++;
       console.warn('Submission save failed', s.id, e);
       if (typeof logAudit === 'function') {
         logAudit('Submissions', 'Persist failed for ' + (s.id || '?') + ': ' + (e.message || e) + ' · keeping in-memory', 'warn');
       }
+      // VISIBLE error toast so silent failures don't cost hours/money again.
+      // Throttled — only one red toast per 2s even if many saves fail at once.
+      const now = Date.now();
+      if (now - window._sbSubmitToastState.errAt > toastThrottleMs) {
+        window._sbSubmitToastState.errAt = now;
+        if (typeof toast === 'function') {
+          toast('Submission save failed · ' + (e.message || 'network error').slice(0, 80) + ' · data kept in-memory', 'error');
+        }
+      }
     });
-  }));
+  })).then(() => {
+    // Fire a single green success toast at the end of the batch, also throttled.
+    if (okCount > 0 && failCount === 0) {
+      const now = Date.now();
+      if (now - window._sbSubmitToastState.okAt > toastThrottleMs) {
+        window._sbSubmitToastState.okAt = now;
+        if (typeof toast === 'function') {
+          toast('Saved to cloud · ' + okCount + ' submission' + (okCount === 1 ? '' : 's'), 'success');
+        }
+      }
+    }
+  });
 }
 
 // ---- Derive display fields from extractions -------------------------------
@@ -7021,13 +7051,16 @@ function submitFeedbackEvent(event) {
     ...event
   };
   STATE.feedback.push(enriched);
-  // Persist to Supabase — fire-and-forget. Failure is logged but doesn't
-  // undo the in-memory push; the admin count still reflects the attempt.
+  // Persist to Supabase — fire-and-forget. Failure is logged both to the
+  // in-memory audit AND to a visible red toast so we never go silent again.
   if (typeof sbLogFeedback === 'function') {
     sbLogFeedback(enriched).catch(e => {
       console.warn('Feedback write failed', e);
       if (typeof logAudit === 'function') {
         logAudit('Feedback', 'Persist failed: ' + (e.message || e) + ' · in-memory only', 'warn');
+      }
+      if (typeof toast === 'function') {
+        toast('Feedback save failed · ' + (e.message || 'network error').slice(0, 80), 'error');
       }
     });
   }
