@@ -3517,24 +3517,26 @@ table.loss {
 
 /* Delete-submission (×) button — hidden by default, reveal on row hover */
 .queue td .sub-delete {
-  opacity: 0;
+  opacity: 0.5;
   display: inline-block;
-  margin-left: 6px;
-  padding: 1px 6px;
-  font-size: 12px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-3);
   cursor: pointer;
   transition: all 120ms ease;
   border-radius: 3px;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   vertical-align: middle;
+  background: rgba(255, 255, 255, 0.02);
 }
-.queue tbody tr.sub-row:hover .sub-delete { opacity: 0.6; }
+.queue tbody tr.sub-row:hover .sub-delete { opacity: 0.9; }
 .queue td .sub-delete:hover {
   opacity: 1;
   color: var(--danger);
-  border-color: rgba(248, 113, 113, 0.3);
-  background: rgba(248, 113, 113, 0.06);
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.1);
 }
 
 /* KPI — submission-count variant */
@@ -4431,6 +4433,54 @@ async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, cus
 }
 
 // ---- Feedback ------------------------------------------------------------
+// Load all feedback events for a given submission. Used on rehydrate so the
+// UW sees their prior 👍/👎/💬 reactions on the same cards after refresh or
+// when opening an archived submission. Empty array if none or on error.
+async function sbLoadFeedbackForSubmission(submissionId) {
+  if (!submissionId) return [];
+  const { data, error } = await sb
+    .from('feedback_events')
+    .select('*')
+    .eq('submission_id', submissionId)
+    .order('created_at', { ascending: true });
+  if (error) { console.warn('sbLoadFeedbackForSubmission failed', error); return []; }
+  // Translate DB rows back into the STATE.feedback event shape the app's
+  // existing UI code expects (sentiment, moduleId, moduleName, text, etc).
+  return (data || []).map(row => {
+    const ctx = row.context || {};
+    // rating → sentiment
+    const sentiment = row.rating === 'up'   ? 'positive'
+                    : row.rating === 'down' ? 'negative'
+                    : row.rating === 'comment' ? 'suggestion' : null;
+    // module_key → moduleId / customCardId / level
+    let moduleId = null, customCardId = null, level = null;
+    if (row.module_key) {
+      if      (row.module_key.startsWith('card:'))   moduleId     = row.module_key.slice(5);
+      else if (row.module_key.startsWith('custom:')) customCardId = row.module_key.slice(7);
+      else if (row.module_key.startsWith('level:'))  level        = row.module_key.slice(6);
+    }
+    return {
+      id: row.id,
+      timestamp: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+      actor: ctx.actor || 'unknown',
+      pipelineRun: row.pipeline_run || null,
+      submissionId: row.submission_id || null,
+      sentiment: sentiment,
+      moduleId: moduleId,
+      customCardId: customCardId,
+      level: level,
+      moduleName: ctx.moduleName || null,
+      reason: ctx.reason || null,
+      text: row.comment || null,
+      outputSnapshot: ctx.outputSnapshot || null,
+      outputConfidence: ctx.outputConfidence || null,
+      sourceDocNames: ctx.sourceDocNames || null,
+      exportedAt: null
+    };
+  });
+}
+
+// ---- Feedback (write) ----------------------------------------------------
 // Each click of 👍 / 👎 / 💬 becomes one insert. No batch read — Phase 6
 // admin view will query Supabase directly.
 async function sbLogFeedback(event) {
@@ -6902,6 +6952,27 @@ function rehydrateSubmission(submissionId) {
   STATE.pipelineDone  = true;
   STATE.pipelineRunning = false;
   STATE.activeSubmissionId = submissionId;
+  // Phase 4: rehydrate feedback events for this submission from Supabase so
+  // the UW's 👍/👎/💬 reactions show up on the cards after refresh or when
+  // opening an archived submission. Fire-and-forget with audit logging.
+  if (typeof sbLoadFeedbackForSubmission === 'function') {
+    (async () => {
+      try {
+        const events = await sbLoadFeedbackForSubmission(submissionId);
+        // Merge: keep any in-memory events for other submissions, replace
+        // this submission's events with the DB copy.
+        const othersOnly = (STATE.feedback || []).filter(e => e.submissionId !== submissionId);
+        STATE.feedback = othersOnly.concat(events);
+        if (typeof logAudit === 'function') logAudit('Feedback', 'Loaded ' + events.length + ' event(s) for ' + submissionId, 'ok');
+        // Re-render anything that shows feedback counts / per-card reactions
+        if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
+        if (typeof renderSummaryCards === 'function') renderSummaryCards();
+      } catch (err) {
+        console.warn('Feedback rehydrate failed', err);
+        if (typeof logAudit === 'function') logAudit('Feedback', 'Rehydrate failed: ' + (err.message || err), 'warn');
+      }
+    })();
+  }
   // If stm-edits-v1 was stashed on init and matches THIS pipeline run, merge its
   // edits in — they represent changes made since the last snapshot that haven't
   // been re-archived yet. Skips silently if IDs don't match (the stashed edits
@@ -7313,20 +7384,63 @@ function flashCardFeedback(targetId, sentiment) {
 //   Tab 1 — Summary: counts by module / sentiment / reason
 //   Tab 2 — All Events: every feedback record, ordered newest-first
 //   Tab 3+ — one tab per module that received feedback, with the output snapshots
-function exportFeedback() {
-  if (STATE.feedback.length === 0) {
-    toast('No feedback events yet', 'warn');
-    return;
-  }
+async function exportFeedback() {
   if (typeof XLSX === 'undefined') {
     toast('SheetJS not loaded', 'error');
     return;
   }
+  // Phase 4: pull feedback from Supabase so the export is complete across all
+  // sessions/devices, not just in-memory STATE. Falls back to STATE.feedback
+  // if the Supabase read fails (offline, rate-limited, etc).
+  let events = [];
+  try {
+    if (typeof sb !== 'undefined') {
+      const { data, error } = await sb
+        .from('feedback_events')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      // Translate DB rows into the event shape the export code expects
+      events = (data || []).map(row => {
+        const ctx = row.context || {};
+        const sentiment = row.rating === 'up'   ? 'positive'
+                        : row.rating === 'down' ? 'negative'
+                        : row.rating === 'comment' ? 'suggestion' : null;
+        let moduleId = null, customCardId = null;
+        if (row.module_key) {
+          if      (row.module_key.startsWith('card:'))   moduleId     = row.module_key.slice(5);
+          else if (row.module_key.startsWith('custom:')) customCardId = row.module_key.slice(7);
+        }
+        return {
+          timestamp: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+          actor: ctx.actor || 'unknown',
+          pipelineRun: row.pipeline_run || '',
+          submissionId: row.submission_id || '',
+          sentiment: sentiment,
+          moduleId: moduleId,
+          customCardId: customCardId,
+          moduleName: ctx.moduleName || moduleId || '(custom)',
+          reason: ctx.reason || '',
+          text: row.comment || '',
+          outputSnapshot: ctx.outputSnapshot || '',
+          outputConfidence: ctx.outputConfidence || '',
+          sourceDocNames: ctx.sourceDocNames || []
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('Feedback export: Supabase read failed, falling back to in-memory', err);
+    events = STATE.feedback || [];
+  }
+  // If nothing came back from either source, fall back to in-memory
+  if (events.length === 0 && (STATE.feedback || []).length > 0) {
+    events = STATE.feedback;
+  }
+  if (events.length === 0) {
+    toast('No feedback events yet', 'warn');
+    return;
+  }
   const now = Date.now();
-  // Mark events as exported so we can show "new since last export" counters
-  STATE.feedback.forEach(e => { if (!e.exportedAt) e.exportedAt = now; });
-  STATE.feedbackExportedAt = now;
-  saveFeedback();
 
   const wb = XLSX.utils.book_new();
 
@@ -7334,7 +7448,7 @@ function exportFeedback() {
   const byModule = {};
   const bySentiment = { positive: 0, negative: 0, suggestion: 0 };
   const byReason = {};
-  STATE.feedback.forEach(e => {
+  events.forEach(e => {
     const mk = e.moduleName || e.moduleId || '(custom)';
     byModule[mk] = byModule[mk] || { positive: 0, negative: 0, suggestion: 0 };
     if (bySentiment[e.sentiment] !== undefined) bySentiment[e.sentiment]++;
@@ -7345,10 +7459,12 @@ function exportFeedback() {
     ['FEEDBACK EXPORT'],
     [],
     ['Generated',         new Date(now).toISOString()],
-    ['Total events',      STATE.feedback.length],
+    ['Total events',      events.length],
     ['Positive (👍)',     bySentiment.positive],
     ['Negative (👎)',     bySentiment.negative],
     ['Suggestions (💬)',  bySentiment.suggestion],
+    [],
+    ['Note', 'This export pulls from cloud · tabs "All Events" and per-module sheets below contain full detail including comments'],
     [],
     ['BREAKDOWN BY MODULE'],
     ['Module', 'Positive', 'Negative', 'Suggestions', 'Total']
@@ -7366,10 +7482,10 @@ function exportFeedback() {
   summaryWS['!cols'] = [{ wch: 44 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(wb, summaryWS, 'Summary');
 
-  // Tab 2 — All Events
+  // Tab 2 — All Events (with full comment text)
   const eventHeader = ['Timestamp (ISO)', 'Actor', 'Module', 'Sentiment', 'Reason(s)', 'Comment', 'Pipeline Run', 'Submission ID', 'Source Docs', 'Output Snapshot'];
   const eventRows = [eventHeader];
-  [...STATE.feedback].sort((a, b) => b.timestamp - a.timestamp).forEach(e => {
+  [...events].sort((a, b) => b.timestamp - a.timestamp).forEach(e => {
     eventRows.push([
       new Date(e.timestamp).toISOString(),
       e.actor || '',
@@ -7380,7 +7496,7 @@ function exportFeedback() {
       e.pipelineRun || '',
       e.submissionId || '',
       (e.sourceDocNames || []).join(' · '),
-      (e.outputSnapshot || '').slice(0, 2000)
+      (e.outputSnapshot || '').toString().slice(0, 2000)
     ]);
   });
   const eventsWS = XLSX.utils.aoa_to_sheet(eventRows);
@@ -7390,7 +7506,7 @@ function exportFeedback() {
   // Tab 3+ — one tab per module that received feedback
   const addedSheets = new Set(['Summary', 'All Events']);
   Object.keys(byModule).forEach(mk => {
-    const modEvents = STATE.feedback.filter(e => (e.moduleName || e.moduleId || '(custom)') === mk);
+    const modEvents = events.filter(e => (e.moduleName || e.moduleId || '(custom)') === mk);
     if (modEvents.length === 0) return;
     const rows = [
       [mk],
@@ -7407,7 +7523,7 @@ function exportFeedback() {
         e.reason || '',
         e.text || '',
         (e.sourceDocNames || []).join(' · '),
-        (e.outputSnapshot || '').slice(0, 2000)
+        (e.outputSnapshot || '').toString().slice(0, 2000)
       ]);
     });
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -7422,8 +7538,8 @@ function exportFeedback() {
 
   const filename = 'stm_feedback_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.xlsx';
   XLSX.writeFile(wb, filename);
-  logAudit('Feedback', 'Exported ' + STATE.feedback.length + ' events · ' + filename, '—');
-  toast('Feedback exported · ' + STATE.feedback.length + ' events · ' + filename);
+  logAudit('Feedback', 'Exported ' + events.length + ' events · ' + filename, '—');
+  toast('Feedback exported · ' + events.length + ' events · ' + filename);
   updateFeedbackCount();
 }
 
@@ -11672,6 +11788,18 @@ function startNewSubmission() {
   updateRunButton();
   if (typeof renderQueueTable === 'function') renderQueueTable();
   if (typeof updateQueueKpi === 'function') updateQueueKpi();
+  // Phase 4 fix: clicking New Submission from the Queue was still showing the
+  // last-opened submission's cards because renderSummaryCards() wasn't being
+  // called after the state wipe — the cards DOM persisted from the prior view.
+  // Force a re-render of every panel so nothing stale leaks through.
+  if (typeof renderSummaryCards === 'function') renderSummaryCards();
+  if (typeof renderAuditIfOpen === 'function') renderAuditIfOpen();
+  if (typeof updateDecisionPane === 'function') updateDecisionPane();
+  if (typeof renderClassifierReview === 'function') renderClassifierReview();
+  if (typeof renderHandoffState === 'function') renderHandoffState();
+  // Make sure we land on the intake/workbench stage, not whichever stage the
+  // prior submission was on.
+  if (typeof showStage === 'function') showStage('pipe');
   switchView('submission');
 }
 
