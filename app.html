@@ -4996,27 +4996,41 @@ function clearAllEdits() {
 
 function openSettings() {
   const m = document.getElementById('settingsModal');
-  document.getElementById('apiMaxTokens').value = STATE.api.maxTokens;
-  const sel = document.getElementById('apiModel');
-  if (sel) {
-    Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
-  }
-  // Guideline field — show whatever's active, but only populate textarea if override exists.
-  // Phase 4: the override lives in ACTIVE_GUIDELINE (hydrated from user_settings
-  // on sign-in). If it doesn't equal DEFAULT_GUIDELINE, treat it as a user override.
-  const ta = document.getElementById('carrierGuideline');
-  const status = document.getElementById('guidelineStatus');
-  if (ta) {
-    const hasOverride = ACTIVE_GUIDELINE && ACTIVE_GUIDELINE !== DEFAULT_GUIDELINE;
-    if (hasOverride) {
-      ta.value = ACTIVE_GUIDELINE;
-      status.textContent = 'CUSTOM · ' + ACTIVE_GUIDELINE.length.toLocaleString() + ' CHARS';
-      status.style.color = 'var(--signal-ink)';
-    } else {
-      ta.value = '';
-      status.textContent = 'DEFAULT · ' + DEFAULT_GUIDELINE.length.toLocaleString() + ' CHARS';
-      status.style.color = 'var(--text-3)';
+  if (!m) { console.warn('openSettings: settingsModal not in DOM'); toast('Settings modal not found', 'error'); return; }
+  // Populate fields defensively — any missing element shouldn't block the
+  // modal from opening. This was a real bug: a null guidelineStatus element
+  // would throw and prevent the modal from ever showing.
+  try {
+    const maxTok = document.getElementById('apiMaxTokens');
+    if (maxTok && STATE.api) maxTok.value = STATE.api.maxTokens;
+    const sel = document.getElementById('apiModel');
+    if (sel && STATE.api) {
+      Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
     }
+    // Guideline field — show whatever's active, but only populate textarea if override exists.
+    // Phase 4: the override lives in ACTIVE_GUIDELINE (hydrated from user_settings
+    // on sign-in). If it doesn't equal DEFAULT_GUIDELINE, treat it as a user override.
+    const ta = document.getElementById('carrierGuideline');
+    const status = document.getElementById('guidelineStatus');
+    if (ta) {
+      const hasOverride = ACTIVE_GUIDELINE && ACTIVE_GUIDELINE !== DEFAULT_GUIDELINE;
+      if (hasOverride) {
+        ta.value = ACTIVE_GUIDELINE;
+        if (status) {
+          status.textContent = 'CUSTOM · ' + ACTIVE_GUIDELINE.length.toLocaleString() + ' CHARS';
+          status.style.color = 'var(--signal-ink)';
+        }
+      } else {
+        ta.value = '';
+        if (status) {
+          status.textContent = 'DEFAULT · ' + (DEFAULT_GUIDELINE ? DEFAULT_GUIDELINE.length.toLocaleString() : '?') + ' CHARS';
+          status.style.color = 'var(--text-3)';
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('openSettings field population failed', err);
+    // Non-fatal — we still open the modal below so the UW can at least see it.
   }
   m.classList.add('open');
 }
@@ -5077,10 +5091,16 @@ function updateApiPillUI() {
     pill.classList.remove('demo');
     pill.classList.add('live');
     text.textContent = 'SIGNED IN · ' + (window.currentUser.display_name || 'user').toUpperCase();
-    pill.title = 'Click to sign out';
+    pill.title = 'Click to open Settings · Right-click to sign out';
     pill.onclick = function(e) {
       e.stopPropagation();
+      if (typeof openSettings === 'function') openSettings();
+    };
+    pill.oncontextmenu = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
       if (confirm('Sign out?')) signOut();
+      return false;
     };
     if (shPill) { shPill.textContent = 'LIVE · ' + (STATE.api.model || '').toUpperCase(); shPill.className = 'sub-pill signal'; }
   } else {
@@ -5089,6 +5109,7 @@ function updateApiPillUI() {
     text.textContent = 'NOT SIGNED IN';
     pill.title = 'Sign in required';
     pill.onclick = null;
+    pill.oncontextmenu = null;
     if (shPill) { shPill.textContent = 'SIGN IN REQUIRED'; shPill.className = 'sub-pill amber'; }
   }
   if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
