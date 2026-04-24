@@ -4340,7 +4340,7 @@ async function sbSaveSubmission(sub) {
   const row = {
     user_id: u.id,
     snapshot: sub.snapshot || null,
-    status: sub.status || 'queued',
+    status: sub.status || 'AWAITING UW REVIEW',
     pipeline_run: sub.pipelineRun || sub.pipeline_run || null,
     title: sub.title || sub.account || null
   };
@@ -10919,6 +10919,97 @@ if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
 
 
 // ============================================================================
+// HTML SANITIZER — for raw HTML emitted by the Loss / Tower / Discrepancy
+// modules. Defends against prompt-injection XSS where a malicious broker
+// document could trick the model into emitting <script>, on*= handlers, or
+// javascript: URLs. We use the browser's own DOMParser (no external libs) and
+// walk the tree, allowlisting tags + attributes and dropping anything else.
+// ============================================================================
+const SAFE_TAGS = new Set([
+  'div', 'span', 'p', 'br', 'hr', 'strong', 'em', 'b', 'i', 'u', 'small', 'sub', 'sup',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
+  'figure', 'figcaption', 'blockquote', 'code', 'pre',
+  'svg', 'g', 'path', 'rect', 'circle', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'marker',
+  'a', 'abbr', 'mark', 'time'
+]);
+// Per-attribute allowlist. Keep narrow — anything not on this list is dropped.
+const SAFE_ATTRS = new Set([
+  'class', 'id', 'title', 'colspan', 'rowspan', 'datetime', 'data-mid',
+  // SVG geometry (used by tower diagrams)
+  'viewBox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+  'd', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray',
+  'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity',
+  'text-anchor', 'dominant-baseline', 'font-size', 'font-weight', 'font-family',
+  'xmlns', 'preserveAspectRatio', 'orient', 'markerWidth', 'markerHeight', 'refX', 'refY'
+]);
+
+function sanitizeModelHtml(html) {
+  if (!html || typeof html !== 'string') return '';
+  try {
+    // Parse in a sandboxed document — DOMParser does not execute scripts and
+    // does not load external resources during parsing.
+    const doc = new DOMParser().parseFromString('<div id="__root__">' + html + '</div>', 'text/html');
+    const root = doc.getElementById('__root__');
+    if (!root) return '';
+
+    // Walk every element. Strip disallowed tags entirely. For allowed tags,
+    // strip every disallowed attribute and any href that isn't http(s)/mailto/tel/relative.
+    const walk = (el) => {
+      // Snapshot children first (live NodeList changes during removal)
+      const children = Array.from(el.children);
+      for (const child of children) {
+        const tag = (child.tagName || '').toLowerCase();
+        if (!SAFE_TAGS.has(tag)) {
+          // Remove the element entirely (including descendants). We don't try
+          // to preserve text content from inside a <script> — too risky.
+          child.remove();
+          continue;
+        }
+        // Strip every attribute that isn't on the allowlist, plus any on*= handler
+        const attrs = Array.from(child.attributes);
+        for (const attr of attrs) {
+          const name = attr.name.toLowerCase();
+          // Always strip event handlers (onclick, onerror, onload, onmouseover, etc.)
+          if (name.startsWith('on')) { child.removeAttribute(attr.name); continue; }
+          // Style attributes can hide expressions or url(javascript:); drop them.
+          // (The 3 cards rely on classes from app CSS, not inline styles.)
+          if (name === 'style') { child.removeAttribute(attr.name); continue; }
+          // Anchor href — only allow safe protocols
+          if (tag === 'a' && name === 'href') {
+            const v = (attr.value || '').trim().toLowerCase();
+            const safe = v.startsWith('http://') || v.startsWith('https://') ||
+                         v.startsWith('mailto:') || v.startsWith('tel:') ||
+                         v.startsWith('/') || v.startsWith('#') || v.startsWith('?');
+            if (!safe) { child.removeAttribute(attr.name); continue; }
+            // Force noopener on external links
+            if (v.startsWith('http://') || v.startsWith('https://')) {
+              child.setAttribute('target', '_blank');
+              child.setAttribute('rel', 'noopener noreferrer');
+            }
+            continue;
+          }
+          // Any other attribute not on the allowlist → drop
+          if (!SAFE_ATTRS.has(name)) { child.removeAttribute(attr.name); continue; }
+          // Final defense: strip javascript: from any remaining attribute value
+          if (typeof attr.value === 'string' && /javascript\s*:/i.test(attr.value)) {
+            child.removeAttribute(attr.name);
+          }
+        }
+        walk(child);
+      }
+    };
+    walk(root);
+    return root.innerHTML;
+  } catch (e) {
+    console.warn('sanitizeModelHtml failed, returning escaped fallback', e);
+    // Fallback: render as escaped text so worst case is "ugly card" not "XSS"
+    return (html || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+}
+
+// ============================================================================
 // MARKDOWN → HTML RENDERER — converts extraction output to HTML
 // ============================================================================
 function renderMarkdown(md) {
@@ -11122,11 +11213,15 @@ function renderExtractionCard(mid) {
   const edit = STATE.edits[mid];
   const isEdited = !!(edit && edit.htmlOverride);
   // Losses, Tower, and Discrepancy modules emit raw HTML (purpose-built containers)
-  // — detect and inject directly, bypassing markdown pipeline which would escape all tags
+  // — detect and inject directly, bypassing markdown pipeline which would escape all tags.
+  // Phase 4 hardening: any raw HTML here is sanitized through sanitizeModelHtml() before
+  // injection so a prompt-injected broker document can't slip in <script>, onerror=,
+  // javascript: links, or other XSS vectors. The renderMarkdown() path is already safe
+  // because it escapes everything by default.
   const isPreRenderedHtml = !isEdited && ext.text && /^\s*<div class="(loss-output|tower-output|discrepancy-output)">/.test(ext.text);
   const bodyHtml = isEdited
-    ? edit.htmlOverride
-    : (isPreRenderedHtml ? ext.text : renderMarkdown(ext.text));
+    ? sanitizeModelHtml(edit.htmlOverride)
+    : (isPreRenderedHtml ? sanitizeModelHtml(ext.text) : renderMarkdown(ext.text));
   const editedBadge = isEdited ? '<span style="font-family:var(--font-mono); font-size: 9.5px; color: var(--warning); padding-left: 6px; font-weight: 700; letter-spacing: 0.08em;">· EDITED</span>' : '';
   const updatedBadge = ext.wasUpdated ? '<span class="sc-updated-badge" title="Refreshed by incremental update">UPDATED</span>' : '';
   const revertBtn = isEdited ? `<button class="sc-act" onclick="event.stopPropagation(); revertCard('${mid}')" title="Revert to original AI output">⟲</button>` : '';
