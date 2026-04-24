@@ -6725,7 +6725,44 @@ function archiveCurrentSubmission() {
     STATE.submissions.push(rec);
   }
   STATE.activeSubmissionId = rec.id;
-  saveSubmissions();
+  // Phase 4 (v2): save this one record directly — bypasses the batch
+  // saveSubmissions() path which was silently skipping all promise callbacks.
+  // This is fire-and-forget but uses explicit await inside an async IIFE so
+  // every step logs to audit, making future silent failures impossible.
+  (async () => {
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + rec.id + ' to cloud…', 'ok');
+    try {
+      if (typeof sbSaveSubmission !== 'function') {
+        throw new Error('sbSaveSubmission not defined');
+      }
+      // Build lite snapshot (drop raw file text bytes to stay under row-size limits)
+      const liteSnapshot = rec.snapshot ? {
+        ...rec.snapshot,
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        derived: {
+          account:         rec.account || null,
+          broker:          rec.broker || null,
+          effectiveDate:   rec.effective || rec.effectiveDate || null,
+          requestedLimits: rec.requested || rec.requestedLimits || null,
+          missingInfo:     rec.missingInfo || null
+        }
+      } : null;
+      const saved = await sbSaveSubmission({
+        id: rec.id,
+        snapshot: liteSnapshot,
+        status: rec.status || 'AWAITING UW REVIEW',
+        pipelineRun: rec.pipelineRun || null,
+        title: rec.account || rec.title || null
+      });
+      if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + rec.id + ' to cloud · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
+      if (typeof toast === 'function') toast('Saved to cloud · ' + rec.id.slice(0, 12));
+    } catch (err) {
+      console.error('Submission save failed', rec.id, err);
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + rec.id + ' · ' + msg + ' · kept in-memory', 'error');
+      if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80));
+    }
+  })();
   renderQueueTable();
   updateQueueKpi();
   return rec;
