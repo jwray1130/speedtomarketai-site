@@ -6792,12 +6792,43 @@ function changeSubmissionStatus(submissionId, newStatus) {
   rec.lastModifiedAt = now;
   rec.statusHistory = rec.statusHistory || [];
   rec.statusHistory.push({ from, to: newStatus, at: now, actor: currentActor() });
-  saveSubmissions();
   renderQueueTable();
   updateQueueKpi();
   logAudit('Submissions', rec.id + ' · status ' + from + ' → ' + newStatus, '—');
   toast(displayAccount(rec) + ' · ' + newStatus.toLowerCase());
   closeAllStatusMenus();
+  // Phase 4 (v2): persist the single record directly, bypassing the batch
+  // saveSubmissions() path. Fire-and-forget with verbose audit so any failure
+  // is visible instead of silent. Mirrors the pattern in archiveCurrentSubmission.
+  (async () => {
+    try {
+      if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
+      const liteSnapshot = rec.snapshot ? {
+        ...rec.snapshot,
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        derived: {
+          account:         rec.account || null,
+          broker:          rec.broker || null,
+          effectiveDate:   rec.effective || rec.effectiveDate || null,
+          requestedLimits: rec.requested || rec.requestedLimits || null,
+          missingInfo:     rec.missingInfo || null
+        }
+      } : null;
+      await sbSaveSubmission({
+        id: rec.id,
+        snapshot: liteSnapshot,
+        status: newStatus,
+        pipelineRun: rec.pipelineRun || null,
+        title: rec.account || rec.title || null
+      });
+      if (typeof logAudit === 'function') logAudit('Submissions', 'Status synced to cloud · ' + rec.id + ' · ' + newStatus, 'ok');
+    } catch (err) {
+      console.error('Status sync failed', rec.id, err);
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof logAudit === 'function') logAudit('Submissions', 'STATUS SYNC FAILED ' + rec.id + ' · ' + msg, 'error');
+      if (typeof toast === 'function') toast('Status save failed · ' + msg.slice(0, 80));
+    }
+  })();
 }
 
 function displayAccount(rec) {
@@ -6918,15 +6949,31 @@ function deleteSubmission(submissionId, confirmAlready) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
+  const label = displayAccount(rec);
   STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
   if (STATE.activeSubmissionId === submissionId) {
     STATE.activeSubmissionId = null;
   }
-  saveSubmissions();
   renderQueueTable();
   updateQueueKpi();
-  logAudit('Submissions', 'Deleted ' + rec.id + ' · ' + displayAccount(rec), '—');
-  toast('Deleted · ' + displayAccount(rec));
+  logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
+  toast('Deleted · ' + label);
+  // Phase 4 (v2): remove the row from Supabase directly. Fire-and-forget
+  // with verbose audit so the UW knows whether the delete actually synced
+  // across devices. If the cloud delete fails, the row reappears on next
+  // hydrate — which is correct behavior (source of truth is the server).
+  (async () => {
+    try {
+      if (typeof sbDeleteSubmission !== 'function') throw new Error('sbDeleteSubmission not defined');
+      await sbDeleteSubmission(submissionId);
+      if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
+    } catch (err) {
+      console.error('Cloud delete failed', submissionId, err);
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
+      if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh');
+    }
+  })();
 }
 
 // ---- Status menu (dropdown) ----------------------------------------------
