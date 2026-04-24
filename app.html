@@ -4484,7 +4484,15 @@ async function sbSaveSettings(patch) {
 // Supabase, replacing whatever the legacy localStorage loaders would have
 // done. Safe to call multiple times.
 async function sbHydrate() {
+  if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate starting…', 'ok');
   try {
+    // Defensive: if the session hasn't resolved yet, sbLoadSubmissions will
+    // hit RLS and return 0 rows silently. Wait briefly for auth to settle.
+    const sess = await sb.auth.getSession();
+    if (!sess.data.session) {
+      if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate skipped — no session yet', 'warn');
+      return;
+    }
     // Submissions. Each DB row's `snapshot` holds the per-submission object;
     // we flatten it back into the shape the rest of the app expects so the
     // Queue / rehydrate paths keep working unchanged.
@@ -4501,7 +4509,13 @@ async function sbHydrate() {
       // correctly on first paint (deriveAccountName etc. can be re-run lazily).
       ...(r.snapshot && r.snapshot.derived ? r.snapshot.derived : {})
     }));
-    if (typeof renderSubmissionsTable === 'function') renderSubmissionsTable();
+    if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrated ' + STATE.submissions.length + ' submissions', 'ok');
+    // Rerender the Queue table. The function is `renderQueueTable` in this
+    // codebase (not renderSubmissionsTable — an earlier version had the wrong
+    // name, which is why refreshes appeared to wipe the Queue visually even
+    // when STATE was populated).
+    if (typeof renderQueueTable === 'function') renderQueueTable();
+    if (typeof updateQueueKpi === 'function') updateQueueKpi();
 
     // Settings → carrier guideline + model prefs.
     const settings = await sbLoadSettings();
@@ -4520,7 +4534,7 @@ async function sbHydrate() {
   } catch (e) {
     console.warn('sbHydrate failed', e);
     if (typeof logAudit === 'function') {
-      logAudit('Supabase', 'Hydrate failed: ' + (e.message || e), 'warn');
+      logAudit('Supabase', 'Hydrate FAILED: ' + (e.message || e), 'warn');
     }
   }
 }
