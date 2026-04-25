@@ -5041,6 +5041,32 @@ async function sbHydrate() {
       const computedConfidence = extIds.length > 0
         ? extIds.reduce((sum, k) => sum + (ext[k].confidence || 0), 0) / extIds.length
         : null;
+
+      // Compute display-field values once so the missingInfo fallback can
+      // reference them without redundant work.
+      const accountVal   = r.account_name   || d.account         || null;
+      const brokerVal    = r.broker         || d.broker          || null;
+      const effectiveVal = r.effective_date || d.effectiveDate   || null;
+      const requestedVal = r.requested      || d.requestedLimits || null;
+
+      // Phase 7 step 6 (post-test fix #2): missing_info clobber-recovery.
+      // Earlier saves with the broken empty-array hydrate path overwrote
+      // BOTH the flat column AND snapshot.derived.missingInfo to []. When
+      // both sources are empty, recompute by mirroring computeMissingInfo()
+      // logic: check which extraction keys are present + which derived
+      // fields are populated. This heals clobbered rows on next save.
+      const computedMissingInfo = [];
+      if (!accountVal)               computedMissingInfo.push('Named Insured');
+      if (!brokerVal)                computedMissingInfo.push('Broker');
+      if (!effectiveVal)             computedMissingInfo.push('Effective date');
+      if (!ext.losses)               computedMissingInfo.push('Loss runs');
+      if (!ext.gl_quote)             computedMissingInfo.push('Primary GL');
+      if (!ext.al_quote)             computedMissingInfo.push('Primary AL');
+      if (requestedVal && !ext.excess) computedMissingInfo.push('Underlying excess schedule');
+      if (!ext.supplemental)         computedMissingInfo.push('Supplemental application');
+      if (!ext.safety)               computedMissingInfo.push('Safety program');
+      if (!ext.email_intel)          computedMissingInfo.push('Broker email');
+
       return {
         id: r.id,
         pipelineRun: r.pipeline_run,
@@ -5062,13 +5088,15 @@ async function sbHydrate() {
         // missingInfo: empty-array short-circuit is a real bug — a NOT NULL
         // DEFAULT '[]' column will be truthy & is-array but EMPTY, so we have
         // to length-check before using it as the source of truth.
-        account:     r.account_name   || d.account         || null,
-        broker:      r.broker         || d.broker          || null,
-        effective:   r.effective_date || d.effectiveDate   || null,
-        requested:   r.requested      || d.requestedLimits || null,
+        account:     accountVal,
+        broker:      brokerVal,
+        effective:   effectiveVal,
+        requested:   requestedVal,
         missingInfo: (Array.isArray(r.missing_info) && r.missing_info.length > 0)
           ? r.missing_info
-          : (Array.isArray(d.missingInfo) ? d.missingInfo : []),
+          : ((Array.isArray(d.missingInfo) && d.missingInfo.length > 0)
+            ? d.missingInfo
+            : computedMissingInfo),
         modulesRun:  (typeof r.modules_run === 'number') ? r.modules_run
                    : (typeof d.modulesRun === 'number') ? d.modulesRun
                    : computedModulesRun,
