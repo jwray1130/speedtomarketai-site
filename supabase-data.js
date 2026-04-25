@@ -23,11 +23,15 @@
 // when this file's scope can't see app.html's `const sb` declaration.
 // ============================================================================
 
-// Bridge: the original `const sb = ...` declaration lives in app.html and
-// is not visible to this file's scope. Re-bind `sb` here from window.sb
-// (which app.html stashes immediately after creating the client). This
-// preserves byte-for-byte equivalence in every function body below.
-const sb = window.sb;
+// Phase 8 step 3 fix #2: dropped the `const sb = window.sb` bridge entirely.
+// Reason: the previous app.html inline init already declares `const sb` at
+// top-level AND assigns `window.sb = sb`. Declaring another top-level `const
+// sb` in this file races into a SyntaxError ("Identifier 'sb' has already
+// been declared") because the global object already has the property. The
+// SyntaxError aborts the entire script before any function declarations
+// register — which is why all 26 helpers showed up undefined on first
+// deploy. Fix: reference `window.sb` directly in every helper body. No
+// shadowing, no collision, robust regardless of how the browser scopes us.
 
 // ============================================================================
 // SUPABASE DATA-ACCESS HELPERS  (Phase 4 — localStorage → Supabase migration)
@@ -36,7 +40,7 @@ const sb = window.sb;
 // ============================================================================
 
 async function sbUser() {
-  const { data: { user } } = await sb.auth.getUser();
+  const { data: { user } } = await window.sb.auth.getUser();
   return user;   // null if signed out
 }
 
@@ -44,7 +48,7 @@ async function sbUser() {
 // One row per submission. The whole per-submission object (files-lite,
 // extractions, edits, etc.) goes into the `snapshot` jsonb column.
 async function sbLoadSubmissions() {
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('submissions')
     .select('id, snapshot, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at')
     .order('updated_at', { ascending: false });
@@ -78,7 +82,7 @@ async function sbSaveSubmission(sub) {
     title: sub.title || sub.account || null
   };
   if (sub.id) row.id = sub.id;   // omit on insert so DB generates uuid
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('submissions')
     .upsert(row, { onConflict: 'id' })
     .select()
@@ -114,13 +118,13 @@ function buildSubmissionPayload(rec, liteSnapshot) {
 window.buildSubmissionPayload = buildSubmissionPayload;
 
 async function sbDeleteSubmission(id) {
-  const { error } = await sb.from('submissions').delete().eq('id', id);
+  const { error } = await window.sb.from('submissions').delete().eq('id', id);
   if (error) throw error;
 }
 
 // ---- Edits / Custom cards / Hidden cards ---------------------------------
 async function sbLoadEdits(submissionId) {
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('submission_edits')
     .select('module_key, edit_type, payload, updated_at')
     .eq('submission_id', submissionId);
@@ -130,7 +134,7 @@ async function sbLoadEdits(submissionId) {
 
 async function sbSaveEdit(submissionId, moduleKey, editType, payload, pipelineRun) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
-  const { error } = await sb
+  const { error } = await window.sb
     .from('submission_edits')
     .upsert({
       user_id: u.id,
@@ -144,7 +148,7 @@ async function sbSaveEdit(submissionId, moduleKey, editType, payload, pipelineRu
 }
 
 async function sbDeleteEdit(submissionId, moduleKey) {
-  const { error } = await sb
+  const { error } = await window.sb
     .from('submission_edits').delete()
     .eq('submission_id', submissionId).eq('module_key', moduleKey);
   if (error) throw error;
@@ -186,7 +190,7 @@ async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, cus
     }
   }
   if (!rows.length) return;
-  const { error } = await sb.from('submission_edits')
+  const { error } = await window.sb.from('submission_edits')
     .upsert(rows, { onConflict: 'submission_id,module_key' });
   if (error) throw error;
 }
@@ -197,7 +201,7 @@ async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, cus
 // when opening an archived submission. Empty array if none or on error.
 async function sbLoadFeedbackForSubmission(submissionId) {
   if (!submissionId) return [];
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('feedback_events')
     .select('*')
     .eq('submission_id', submissionId)
@@ -252,7 +256,7 @@ async function sbLogFeedback(event) {
   const moduleKey = event.moduleId   ? 'card:'   + event.moduleId
                   : event.customCardId ? 'custom:' + event.customCardId
                   : event.level       ? ('level:' + event.level) : null;
-  const { error } = await sb.from('feedback_events').insert({
+  const { error } = await window.sb.from('feedback_events').insert({
     user_id: u.id,
     submission_id: event.submissionId || null,
     pipeline_run: event.pipelineRun || null,
@@ -311,7 +315,7 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
       message:       msg,
       meta:          metaText
     };
-    const { error } = await sb.from('audit_events').insert(row);
+    const { error } = await window.sb.from('audit_events').insert(row);
     if (error) {
       // rule 2 — DO NOT call logAudit() here. Console only.
       console.warn('[audit] cloud write failed:', error.message || error);
@@ -326,7 +330,7 @@ window.sbLogAuditEvent = sbLogAuditEvent;
 // ---- User settings (carrier guideline, model pref, etc.) -----------------
 async function sbLoadSettings() {
   const u = await sbUser(); if (!u) return null;
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('user_settings').select('*').eq('user_id', u.id).maybeSingle();
   if (error) throw error;
   return data;
@@ -335,7 +339,7 @@ async function sbLoadSettings() {
 async function sbSaveSettings(patch) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
   const row = { user_id: u.id, ...patch };
-  const { error } = await sb
+  const { error } = await window.sb
     .from('user_settings').upsert(row, { onConflict: 'user_id' });
   if (error) throw error;
 }
@@ -358,8 +362,8 @@ async function sbLoadAdminUsers() {
   // For submissions we only need user_id; pulling the whole row would be
   // wasted bandwidth for what is just a per-user count.
   const [usersRes, subsRes] = await Promise.all([
-    sb.from('users').select('id, email, display_name, role, created_at'),
-    sb.from('submissions').select('user_id')
+    window.sb.from('users').select('id, email, display_name, role, created_at'),
+    window.sb.from('submissions').select('user_id')
   ]);
   if (usersRes.error) throw usersRes.error;
   if (subsRes.error)  throw subsRes.error;
@@ -442,7 +446,7 @@ window.renderAdminUsersCard = renderAdminUsersCard;
 // for non-admins (they'd see a half-broken "my own rows only" view).
 async function sbLoadFeedbackSummary() {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('feedback_events')
     .select('rating, exported_at');
   if (error) throw error;
@@ -460,7 +464,7 @@ window.sbLoadFeedbackSummary = sbLoadFeedbackSummary;
 
 async function sbLoadFeedbackRecent(limit) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('feedback_events')
     .select('id, user_id, submission_id, module_key, rating, comment, context, created_at')
     .order('created_at', { ascending: false })
@@ -568,7 +572,7 @@ async function sbLoadAuditEvents(options) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
   const opts = options || {};
   const limit = opts.limit || 50;
-  let q = sb.from('audit_events')
+  let q = window.sb.from('audit_events')
     .select('id, user_id, submission_id, category, message, meta, created_at')
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -588,7 +592,7 @@ window.sbLoadAuditEvents = sbLoadAuditEvents;
 // that we'd migrate to an RPC doing `select distinct category` server-side.
 async function sbLoadAuditCategories() {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
-  const { data, error } = await sb
+  const { data, error } = await window.sb
     .from('audit_events').select('category').limit(5000);
   if (error) throw error;
   const set = new Set((data || []).map(r => r.category).filter(Boolean));
@@ -717,7 +721,7 @@ async function sbHydrate() {
   try {
     // Defensive: if the session hasn't resolved yet, sbLoadSubmissions will
     // hit RLS and return 0 rows silently. Wait briefly for auth to settle.
-    const sess = await sb.auth.getSession();
+    const sess = await window.sb.auth.getSession();
     if (!sess.data.session) {
       if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate skipped — no session yet', 'warn');
       return;
