@@ -7405,7 +7405,43 @@ function rehydrateSubmission(submissionId) {
         pipelineRun:    STATE.pipelineRun
       };
       activeRec.lastModifiedAt = Date.now();
-      saveSubmissions();
+      // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
+      // a direct single-record save. Matches the pattern in archiveCurrentSubmission /
+      // changeSubmissionStatus / deleteSubmission. Verbose audit on every step
+      // so future silent failures become impossible to miss. No green success
+      // toast on auto-saves — would confuse UX since the user navigated away.
+      (async () => {
+        if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + activeRec.id + ' to cloud (auto · switching submissions)…', 'ok');
+        try {
+          if (typeof sbSaveSubmission !== 'function') {
+            throw new Error('sbSaveSubmission not defined');
+          }
+          const liteSnapshot = activeRec.snapshot ? {
+            ...activeRec.snapshot,
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+            derived: {
+              account:         activeRec.account || null,
+              broker:          activeRec.broker || null,
+              effectiveDate:   activeRec.effective || activeRec.effectiveDate || null,
+              requestedLimits: activeRec.requested || activeRec.requestedLimits || null,
+              missingInfo:     activeRec.missingInfo || null
+            }
+          } : null;
+          const saved = await sbSaveSubmission({
+            id: activeRec.id,
+            snapshot: liteSnapshot,
+            status: activeRec.status || 'AWAITING UW REVIEW',
+            pipelineRun: activeRec.pipelineRun || null,
+            title: activeRec.account || activeRec.title || null
+          });
+          if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + activeRec.id + ' (auto · switching submissions) · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
+        } catch (err) {
+          console.error('Submission save failed (rehydrate path)', activeRec.id, err);
+          const msg = (err && err.message) ? err.message : String(err);
+          if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · switching submissions) · ' + msg + ' · kept in-memory', 'error');
+          if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+        }
+      })();
     }
   }
   // Load target snapshot
@@ -12368,7 +12404,42 @@ function startNewSubmission() {
         pipelineRun:    STATE.pipelineRun
       };
       activeRec.lastModifiedAt = Date.now();
-      saveSubmissions();
+      // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
+      // a direct single-record save. Same pattern as the rehydrate path above.
+      // No green success toast — user clicked "new submission", we don't need
+      // to celebrate the auto-save of the previous one.
+      (async () => {
+        if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + activeRec.id + ' to cloud (auto · before new submission)…', 'ok');
+        try {
+          if (typeof sbSaveSubmission !== 'function') {
+            throw new Error('sbSaveSubmission not defined');
+          }
+          const liteSnapshot = activeRec.snapshot ? {
+            ...activeRec.snapshot,
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+            derived: {
+              account:         activeRec.account || null,
+              broker:          activeRec.broker || null,
+              effectiveDate:   activeRec.effective || activeRec.effectiveDate || null,
+              requestedLimits: activeRec.requested || activeRec.requestedLimits || null,
+              missingInfo:     activeRec.missingInfo || null
+            }
+          } : null;
+          const saved = await sbSaveSubmission({
+            id: activeRec.id,
+            snapshot: liteSnapshot,
+            status: activeRec.status || 'AWAITING UW REVIEW',
+            pipelineRun: activeRec.pipelineRun || null,
+            title: activeRec.account || activeRec.title || null
+          });
+          if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + activeRec.id + ' (auto · before new submission) · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
+        } catch (err) {
+          console.error('Submission save failed (startNew path)', activeRec.id, err);
+          const msg = (err && err.message) ? err.message : String(err);
+          if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · before new submission) · ' + msg + ' · kept in-memory', 'error');
+          if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+        }
+      })();
     }
   }
   // Fresh start — reset any lingering state from a previous submission
