@@ -1266,7 +1266,7 @@ function renderFileList() {
         <div class="file-icon">${icon}</div>
         <div class="file-meta">
           <div class="file-name">${escapeHtml(f.name)}</div>
-          <div class="file-class"><span class="tag">${stateText}</span>${extraBadge}</div>
+          <div class="file-class"><span class="tag">${escapeHtml(stateText)}</span>${extraBadge}</div>
           ${lineageHtml}
         </div>
         ${confBadge ? `<div class="file-conf">${confBadge}</div>` : ''}
@@ -1764,6 +1764,20 @@ function rehydrateSubmission(submissionId) {
   if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
     if (activeRec && STATE.pipelineDone) {
+      // Phase 8.5 round 3 fix #4: flush any pending debounced edit save
+      // BEFORE snapshotting. Without this, an edit made within the 450ms
+      // debounce window before the user clicks a different submission would
+      // race: the snapshot captures the new edit, but submission_edits still
+      // holds the OLD edit (because the debounce hasn't fired yet). Then on
+      // later rehydrate, sbLoadEdits overlays the stale cloud row on top of
+      // the fresh snapshot edit, silently losing the edit. Cancelling the
+      // timer and calling saveEditsNow() synchronously here forces the cloud
+      // edit row to match the snapshot before we move on.
+      if (SAVE_DEBOUNCE) {
+        clearTimeout(SAVE_DEBOUNCE);
+        SAVE_DEBOUNCE = null;
+        if (typeof saveEditsNow === 'function') saveEditsNow();
+      }
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
         files:          deepClone(STATE.files),
@@ -3814,14 +3828,19 @@ const SAFE_TAGS = new Set([
   'a', 'abbr', 'mark', 'time'
 ]);
 // Per-attribute allowlist. Keep narrow — anything not on this list is dropped.
+// Phase 8.5 round 3 fix #8: ALL entries lowercase. The walker lowercases
+// attr.name before the allowlist check (line ~3852), so mixed-case entries
+// like 'viewBox' / 'markerWidth' / 'refX' would never match and would be
+// stripped — breaking SVG rendering for any future card that uses them.
+// Pure rendering robustness fix; not security.
 const SAFE_ATTRS = new Set([
   'class', 'id', 'title', 'colspan', 'rowspan', 'datetime', 'data-mid',
   // SVG geometry (used by tower diagrams)
-  'viewBox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+  'viewbox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
   'd', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray',
   'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity',
   'text-anchor', 'dominant-baseline', 'font-size', 'font-weight', 'font-family',
-  'xmlns', 'preserveAspectRatio', 'orient', 'markerWidth', 'markerHeight', 'refX', 'refY'
+  'xmlns', 'preserveaspectratio', 'orient', 'markerwidth', 'markerheight', 'refx', 'refy'
 ]);
 
 function sanitizeModelHtml(html) {
@@ -4180,7 +4199,7 @@ function renderCustomCard(cc) {
           </div>
         </div>
       </div>
-      <div class="sc-body" contenteditable="true" data-editable="true" spellcheck="true">${cc.html || '<p>Start typing your note…</p>'}</div>
+      <div class="sc-body" contenteditable="true" data-editable="true" spellcheck="true">${typeof sanitizeModelHtml === 'function' ? sanitizeModelHtml(cc.html || '<p>Start typing your note…</p>') : (cc.html || '<p>Start typing your note…</p>')}</div>
     </div>
   `;
 }
@@ -4228,6 +4247,19 @@ function deleteCard(mid) {
 function revertCard(mid) {
   if (!confirm('Revert ' + (MODULES[mid] ? MODULES[mid].name : mid) + ' to original AI output? All your edits to this card will be lost.')) return;
   delete STATE.edits[mid];
+  // Phase 8.5 round 3 fix #1: also delete the cloud submission_edits row.
+  // Without this, the local revert succeeds but the cloud edit row remains
+  // and would resurrect on next rehydrate (which now overlays cloud edits
+  // on top of the snapshot). Same shape as the clearAllEdits cloud-delete
+  // fix from round 1 — applied here for the single-card revert path.
+  const sid = STATE.activeSubmissionId;
+  if (sid && typeof sbDeleteEdit === 'function') {
+    sbDeleteEdit(sid, 'card:' + mid).catch(e => {
+      console.warn('Cloud edit delete failed for', mid, e);
+      if (typeof logAudit === 'function') logAudit('Edits', 'Cloud revert FAILED for ' + mid + ' · ' + (e.message || e), 'error');
+      if (typeof toast === 'function') toast('Reverted locally, cloud cleanup failed · ' + (e.message || 'network').slice(0, 60), 'error');
+    });
+  }
   markDirty();
   renderSummaryCards();
   logAudit('Edits', 'Reverted ' + mid + ' to original', '—');
@@ -4235,10 +4267,25 @@ function revertCard(mid) {
 }
 
 function restoreAllCards() {
+  // Phase 8.5 round 3 fix #2: capture hidden IDs BEFORE clearing local state,
+  // so we can delete the matching cloud submission_edits rows. Without this,
+  // restored cards would re-hide on next rehydrate (which overlays cloud
+  // hidden:<id> rows on top of the snapshot). Same shape as the revert and
+  // clearAllEdits cloud-delete patterns.
+  const hiddenIds = Object.keys(STATE.hiddenCards || {});
   STATE.hiddenCards = {};
+  const sid = STATE.activeSubmissionId;
+  if (sid && hiddenIds.length > 0 && typeof sbDeleteEdit === 'function') {
+    hiddenIds.forEach(id => {
+      sbDeleteEdit(sid, 'hidden:' + id).catch(e => {
+        console.warn('Cloud hidden-row delete failed for', id, e);
+        if (typeof logAudit === 'function') logAudit('Edits', 'Cloud restore FAILED for hidden:' + id + ' · ' + (e.message || e), 'error');
+      });
+    });
+  }
   markDirty();
   renderSummaryCards();
-  logAudit('Edits', 'Restored all hidden cards', '—');
+  logAudit('Edits', 'Restored all hidden cards (' + hiddenIds.length + ')', '—');
   toast('All cards restored');
 }
 
@@ -4379,10 +4426,18 @@ function openManualPasteModal(fileId) {
   title.textContent = 'Paste text for: ' + entry.name;
   label.textContent = 'Document content · ' + entry.name;
 
-  // Build the warning text based on why this file landed here
+  // Build the warning text based on why this file landed here.
+  // Phase 8.5 round 3 fix #7: escape entry.warning before HTML insertion.
+  // Today entry.warning is always set by app code with hardcoded strings, but
+  // escaping is defense-in-depth: if a future code path ever pipes a filename,
+  // file extension, or other dynamic content into entry.warning, we don't want
+  // it injected as HTML.
+  const safeWarning = entry.manualReason === 'scanned'
+    ? escapeHtml(entry.warning || 'This PDF has no text layer.')
+    : escapeHtml(entry.warning || 'This format cannot be auto-extracted.');
   const reasonText = entry.manualReason === 'scanned'
-    ? '<strong style="color: var(--warning);">Scanned PDF detected.</strong> ' + (entry.warning || 'This PDF has no text layer.') + ' Paste the visible content below to feed it to the pipeline.'
-    : '<strong style="color: var(--warning);">Format not readable in-browser.</strong> ' + (entry.warning || 'This format cannot be auto-extracted.') + ' Paste the visible content below.';
+    ? '<strong style="color: var(--warning);">Scanned PDF detected.</strong> ' + safeWarning + ' Paste the visible content below to feed it to the pipeline.'
+    : '<strong style="color: var(--warning);">Format not readable in-browser.</strong> ' + safeWarning + ' Paste the visible content below.';
   warning.innerHTML = reasonText;
 
   // Reset textarea (or restore if user had previously typed something and reopened)
@@ -4617,7 +4672,7 @@ function updateDecisionPaneIdle() {
         <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">${STATE.api.model}</span></div>
         <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
         <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">${STATE.audit.length}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${currentActor()}</span></div>
+        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${escapeHtml(currentActor())}</span></div>
       `;
     }
   });
@@ -4710,7 +4765,7 @@ function updateDecisionPane() {
         <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">split Opus/Sonnet</span></div>
         <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
         <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">${STATE.audit.length}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${currentActor()}</span></div>
+        <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${escapeHtml(currentActor())}</span></div>
       `;
     }
   });
@@ -4971,6 +5026,7 @@ window.currentActor = currentActor;
 window.llmProxyFetch = llmProxyFetch;
 window.getActiveGuideline = getActiveGuideline;
 window.escapeHtml = escapeHtml;
+window.sanitizeModelHtml = sanitizeModelHtml;
 window.renderQueueTable = renderQueueTable;
 window.renderFileList = renderFileList;
 window.renderSummaryCards = renderSummaryCards;
