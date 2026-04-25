@@ -4512,6 +4512,58 @@ async function sbLogFeedback(event) {
   if (error) throw error;
 }
 
+// ---- Audit events (cloud mirror of in-app logAudit) ----------------------
+// Phase 6 step 1: every logAudit() call also writes one row to public.audit_events
+// so admin views (Phase 6 step 7) can read history across all users and devices.
+//
+// Hard rules this helper must obey:
+//   1. Fire-and-forget. Never blocks the caller, never throws upward.
+//   2. NEVER call logAudit() from inside this function — would create an
+//      infinite recursive loop if the cloud write itself fails.
+//   3. Skip the write entirely when there's no signed-in session. RLS would
+//      reject it anyway and we don't want anonymous rows in the audit table.
+//   4. category and message are NOT NULL in Postgres — default them.
+//   5. meta is text (not jsonb), so any object meta gets JSON.stringify'd
+//      before insert; otherwise Postgres throws a type error and the audit
+//      write fails silently — exactly the foundational silent-failure class
+//      of bug we're trying to prevent in this layer.
+async function sbLogAuditEvent(category, message, meta, submissionId) {
+  try {
+    const u = await sbUser(); if (!u) return;   // rule 3
+
+    // rule 4 — guard NOT NULL columns
+    const cat = (category != null && String(category).trim()) || 'info';
+    const msg = (message  != null && String(message).trim())  || '(no message)';
+
+    // rule 5 — meta is text. '—' is the legacy "no meta" placeholder used by
+    // many existing logAudit call sites; treat it as null in the cloud row
+    // so the column reflects "absent" rather than a literal em-dash.
+    let metaText = null;
+    if (meta != null && meta !== '—') {
+      metaText = (typeof meta === 'string') ? meta : JSON.stringify(meta);
+    }
+
+    const row = {
+      user_id:       u.id,
+      submission_id: submissionId
+                  || (typeof STATE !== 'undefined' && STATE.activeSubmissionId)
+                  || null,
+      category:      cat,
+      message:       msg,
+      meta:          metaText
+    };
+    const { error } = await sb.from('audit_events').insert(row);
+    if (error) {
+      // rule 2 — DO NOT call logAudit() here. Console only.
+      console.warn('[audit] cloud write failed:', error.message || error);
+    }
+  } catch (e) {
+    // rule 2 again — same reason.
+    console.warn('[audit] cloud write threw:', (e && e.message) || e);
+  }
+}
+window.sbLogAuditEvent = sbLogAuditEvent;
+
 // ---- User settings (carrier guideline, model pref, etc.) -----------------
 async function sbLoadSettings() {
   const u = await sbUser(); if (!u) return null;
@@ -10195,6 +10247,13 @@ function logAudit(actor, action, meta) {
     ts: Date.now()
   });
   renderAuditIfOpen();
+  // Phase 6 step 1: also persist to Supabase audit_events (fire-and-forget).
+  // Never blocks, never throws, silently no-ops when not signed in. See
+  // sbLogAuditEvent for the safety rules — including: this helper is
+  // forbidden from calling logAudit() itself (would recurse forever).
+  if (typeof sbLogAuditEvent === 'function') {
+    sbLogAuditEvent(actor, action, meta);
+  }
 }
 
 function renderAuditIfOpen() {
