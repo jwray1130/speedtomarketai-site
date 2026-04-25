@@ -801,6 +801,8 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 <!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
 <script src="supabase-data.js"></script>
+<!-- Phase 8 step 4: Admin operator-console renderers. Must load AFTER supabase-data.js (renderers call sb* helpers from there). -->
+<script src="admin-views.js"></script>
 
 <script>
 // ============================================================================
@@ -5530,20 +5532,7 @@ function toggleAuditLog() {
   if (container) container.classList.toggle('collapsed');
 }
 
-// Phase 6 step 7: "Clear" was renamed to "Refresh" because the log is now
-// cloud-persisted and "clearing" is misleading (nothing gets deleted). For
-// admins, re-fetch page 1 under the active filter. For non-admins, just
-// re-paint the session view (effectively a no-op but gives visual feedback).
-function refreshAudit() {
-  if (window.currentUser && window.currentUser.role === 'admin') {
-    renderAdminAuditLog({ append: false });
-    if (typeof toast === 'function') toast('Audit log refreshed');
-  } else {
-    renderAuditIfOpen();
-    if (typeof toast === 'function') toast('View refreshed');
-  }
-}
-window.refreshAudit = refreshAudit;
+// refreshAudit moved to admin-views.js (Phase 8 step 4).
 
 // Export audit log. Admin mode exports the currently-loaded cloud rows under
 // the active filter (with a marker noting what was filtered); non-admin mode
