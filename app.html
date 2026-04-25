@@ -4349,7 +4349,7 @@ async function sbUser() {
 async function sbLoadSubmissions() {
   const { data, error } = await sb
     .from('submissions')
-    .select('id, snapshot, status, pipeline_run, title, updated_at, created_at')
+    .select('id, snapshot, status, status_history, pipeline_run, title, updated_at, created_at')
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -4361,6 +4361,10 @@ async function sbSaveSubmission(sub) {
     user_id: u.id,
     snapshot: sub.snapshot || null,
     status: sub.status || 'AWAITING UW REVIEW',
+    // Phase 7 step 5: status_history is a flat jsonb column on submissions
+    // (NOT NULL default '[]'), separate from snapshot, so admin queries can
+    // reach into transition history without drilling into the snapshot blob.
+    status_history: Array.isArray(sub.statusHistory) ? sub.statusHistory : [],
     pipeline_run: sub.pipelineRun || sub.pipeline_run || null,
     title: sub.title || sub.account || null
   };
@@ -4991,6 +4995,13 @@ async function sbHydrate() {
       id: r.id,
       pipelineRun: r.pipeline_run,
       status: r.status,
+      // Phase 7 step 5: status_history flat column → in-memory statusHistory.
+      // Old rows saved before the patch may have empty arrays; in that case
+      // fall back to whatever the snapshot happened to carry (usually nothing,
+      // since pre-patch saves didn't persist it either — but safe fallback).
+      statusHistory: (r.status_history && r.status_history.length > 0)
+        ? r.status_history
+        : ((r.snapshot && r.snapshot.statusHistory) || []),
       title: r.title,
       lastModifiedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
       createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
@@ -7285,6 +7296,7 @@ function archiveCurrentSubmission() {
         id: rec.id,
         snapshot: liteSnapshot,
         status: rec.status || 'AWAITING UW REVIEW',
+        statusHistory: rec.statusHistory || [],
         pipelineRun: rec.pipelineRun || null,
         title: rec.account || rec.title || null
       });
@@ -7352,6 +7364,7 @@ function changeSubmissionStatus(submissionId, newStatus) {
         id: rec.id,
         snapshot: liteSnapshot,
         status: newStatus,
+        statusHistory: rec.statusHistory || [],
         pipelineRun: rec.pipelineRun || null,
         title: rec.account || rec.title || null
       });
@@ -7431,6 +7444,7 @@ function rehydrateSubmission(submissionId) {
             id: activeRec.id,
             snapshot: liteSnapshot,
             status: activeRec.status || 'AWAITING UW REVIEW',
+            statusHistory: activeRec.statusHistory || [],
             pipelineRun: activeRec.pipelineRun || null,
             title: activeRec.account || activeRec.title || null
           });
@@ -12470,6 +12484,7 @@ function startNewSubmission() {
             id: activeRec.id,
             snapshot: liteSnapshot,
             status: activeRec.status || 'AWAITING UW REVIEW',
+            statusHistory: activeRec.statusHistory || [],
             pipelineRun: activeRec.pipelineRun || null,
             title: activeRec.account || activeRec.title || null
           });
