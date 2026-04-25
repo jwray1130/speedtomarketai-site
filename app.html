@@ -5031,6 +5031,16 @@ async function sbHydrate() {
     const subRows = await sbLoadSubmissions();
     STATE.submissions = subRows.map(r => {
       const d = (r.snapshot && r.snapshot.derived) || {};   // fallback for pre-step-6 rows
+      // Phase 7 step 6 (post-test fix): recompute modulesRun/confidence from
+      // snapshot.extractions when the flat columns are NULL and snapshot.derived
+      // doesn't carry them either (which is the case for every row saved before
+      // step 6 — liteSnapshot.derived only ever stuffed 5 of the 7 fields).
+      const ext = (r.snapshot && r.snapshot.extractions) || {};
+      const extIds = Object.keys(ext);
+      const computedModulesRun = extIds.length > 0 ? extIds.length : null;
+      const computedConfidence = extIds.length > 0
+        ? extIds.reduce((sum, k) => sum + (ext[k].confidence || 0), 0) / extIds.length
+        : null;
       return {
         id: r.id,
         pipelineRun: r.pipeline_run,
@@ -5049,17 +5059,22 @@ async function sbHydrate() {
         // Phase 7 step 6: prefer flat columns (NEW source of truth) but fall
         // back to snapshot.derived for rows saved before the migration. Field
         // names match the in-memory rec convention (effective, not effectiveDate).
+        // missingInfo: empty-array short-circuit is a real bug — a NOT NULL
+        // DEFAULT '[]' column will be truthy & is-array but EMPTY, so we have
+        // to length-check before using it as the source of truth.
         account:     r.account_name   || d.account         || null,
         broker:      r.broker         || d.broker          || null,
         effective:   r.effective_date || d.effectiveDate   || null,
         requested:   r.requested      || d.requestedLimits || null,
-        missingInfo: (r.missing_info && Array.isArray(r.missing_info))
+        missingInfo: (Array.isArray(r.missing_info) && r.missing_info.length > 0)
           ? r.missing_info
           : (Array.isArray(d.missingInfo) ? d.missingInfo : []),
         modulesRun:  (typeof r.modules_run === 'number') ? r.modules_run
-                   : (typeof d.modulesRun === 'number' ? d.modulesRun : null),
+                   : (typeof d.modulesRun === 'number') ? d.modulesRun
+                   : computedModulesRun,
         confidence:  (typeof r.confidence === 'number')  ? r.confidence
-                   : (typeof d.confidence === 'number'  ? d.confidence  : null)
+                   : (typeof d.confidence === 'number')  ? d.confidence
+                   : computedConfidence
       };
     });
     if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrated ' + STATE.submissions.length + ' submissions', 'ok');
