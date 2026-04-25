@@ -4084,7 +4084,7 @@ table.loss {
       <span><span class="audit-chevron">▾</span>Live Audit Log<span class="audit-count" id="auditCount"></span></span>
       <span style="display: flex; gap: 6px;">
         <button onclick="event.stopPropagation(); exportAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Export JSON</button>
-        <button onclick="event.stopPropagation(); clearAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Clear</button>
+        <button onclick="event.stopPropagation(); refreshAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Refresh</button>
       </span>
     </h3>
     <div id="auditEntries"><div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">No events yet. Upload files and run the pipeline to populate the audit log.</div></div>
@@ -4817,6 +4817,158 @@ async function refreshFeedbackCard() {
 }
 window.refreshFeedbackCard = refreshFeedbackCard;
 
+// ---- Admin: cloud-backed Live Audit Log (Phase 6 step 7) ----------------
+// Payoff of step 1: every logAudit() call since 21:13:35 has been writing to
+// audit_events. Admins can now browse that history here across all users
+// and devices, filtered by category, with cursor-based pagination.
+//
+// Cursor (not offset) pagination — beforeCreatedAt filters older rows, so
+// loading page 5 is still O(log n) and new rows arriving during browsing
+// don't shift the pagination boundary.
+async function sbLoadAuditEvents(options) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const opts = options || {};
+  const limit = opts.limit || 50;
+  let q = sb.from('audit_events')
+    .select('id, user_id, submission_id, category, message, meta, created_at')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (opts.category && opts.category !== 'all') {
+    q = q.eq('category', opts.category);
+  }
+  if (opts.beforeCreatedAt) {
+    q = q.lt('created_at', opts.beforeCreatedAt);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+window.sbLoadAuditEvents = sbLoadAuditEvents;
+
+// Client-side distinct. At modest volumes (< ~5k rows) this is fine; above
+// that we'd migrate to an RPC doing `select distinct category` server-side.
+async function sbLoadAuditCategories() {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await sb
+    .from('audit_events').select('category').limit(5000);
+  if (error) throw error;
+  const set = new Set((data || []).map(r => r.category).filter(Boolean));
+  return Array.from(set).sort();
+}
+window.sbLoadAuditCategories = sbLoadAuditCategories;
+
+// Render the cloud audit log into #auditEntries. Admin-gated. Two call
+// shapes: { append: false } resets and loads page 1; { append: true } fetches
+// the next page using the oldest loaded row's created_at as the cursor.
+async function renderAdminAuditLog(opts) {
+  if (!window.currentUser || window.currentUser.role !== 'admin') return;
+  const el = document.getElementById('auditEntries');
+  const countEl = document.getElementById('auditCount');
+  if (!el) return;
+  const append = !!(opts && opts.append);
+  const state = STATE.adminAudit;
+
+  if (!append) {
+    el.innerHTML = '<div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">Loading cloud audit log…</div>';
+  }
+
+  try {
+    // First-time load: fetch the category list for the filter dropdown. Stash
+    // on state so we don't re-fetch on every page turn / filter change.
+    if (!state.categories) {
+      try { state.categories = await sbLoadAuditCategories(); }
+      catch (e) { state.categories = []; console.warn('[admin] audit categories failed:', e.message || e); }
+    }
+
+    const rows = await sbLoadAuditEvents({
+      category: state.category,
+      beforeCreatedAt: (append && state.rows.length > 0)
+        ? state.rows[state.rows.length - 1].created_at
+        : null,
+      limit: 50
+    });
+    state.hasMore = rows.length === 50;
+    state.rows = append ? state.rows.concat(rows) : rows;
+
+    if (countEl) {
+      countEl.textContent = state.rows.length > 0
+        ? '· ' + state.rows.length + ' event' + (state.rows.length === 1 ? '' : 's') + (state.hasMore ? '+' : '')
+        : '';
+    }
+
+    // Controls row: category filter dropdown + scope label. Injected at the
+    // top of #auditEntries so it's part of the scrollable area.
+    const categoryOptions = ['<option value="all">All categories</option>']
+      .concat((state.categories || []).map(c =>
+        `<option value="${escapeHtml(c)}"${c === state.category ? ' selected' : ''}>${escapeHtml(c)}</option>`
+      )).join('');
+    const controls = `
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line-warm); background: var(--surface-2); font-family: var(--font-mono); font-size: 11px;">
+        <span style="color: var(--text-3); letter-spacing: 0.04em;">FILTER:</span>
+        <select id="auditCategorySelect" onchange="onAuditCategoryChange(this.value)" style="background: var(--surface); color: var(--text); border: 1px solid var(--line-warm); border-radius: 3px; padding: 4px 8px; font-family: var(--font-mono); font-size: 11px; cursor: pointer;">
+          ${categoryOptions}
+        </select>
+        <span style="color: var(--text-3); margin-left: auto; letter-spacing: 0.04em;">CLOUD · ALL USERS · NEWEST FIRST</span>
+      </div>
+    `;
+
+    if (state.rows.length === 0) {
+      el.innerHTML = controls +
+        '<div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">No events' +
+        (state.category !== 'all' ? ' in category &quot;' + escapeHtml(state.category) + '&quot;' : '') +
+        '.</div>';
+      return;
+    }
+
+    const entriesHtml = state.rows.map(r => {
+      const t = r.created_at ? new Date(r.created_at) : null;
+      const time = t ? t.toISOString().slice(11, 19) : '';
+      const date = t ? t.toISOString().slice(0, 10) : '';
+      const metaText = r.meta || '—';
+      const metaShort = metaText.length > 40 ? metaText.slice(0, 40) + '…' : metaText;
+      // Title tooltip reveals full timestamp, user_id prefix, and submission_id
+      // on hover — useful forensic detail without cluttering the row.
+      const tooltipBits = [date + ' ' + time];
+      if (r.user_id) tooltipBits.push('user:' + r.user_id.slice(0, 8));
+      if (r.submission_id) tooltipBits.push('sub:' + r.submission_id);
+      return `
+        <div class="audit-entry" title="${escapeHtml(tooltipBits.join(' · '))}">
+          <span class="audit-time">${escapeHtml(time)}</span>
+          <span class="audit-actor">${escapeHtml(r.category || '')}</span>
+          <span class="audit-action">${escapeHtml(r.message || '')}</span>
+          <span class="audit-ver">${escapeHtml(metaShort)}</span>
+        </div>
+      `;
+    }).join('');
+
+    const loadMore = state.hasMore
+      ? `<div style="padding: 14px 18px; text-align: center; border-top: 1px solid var(--line-warm);"><button onclick="onAuditLoadOlder()" style="background: transparent; color: var(--signal-ink); border: 1px solid var(--signal); border-radius: 999px; padding: 6px 18px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase; cursor: pointer;">Load older ↓</button></div>`
+      : `<div style="padding: 14px 18px; text-align: center; color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em;">End of log</div>`;
+
+    el.innerHTML = controls + entriesHtml + loadMore;
+  } catch (e) {
+    console.warn('[admin] audit log load failed:', e.message || e);
+    el.innerHTML = '<div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">Failed to load cloud audit log: ' + escapeHtml(e.message || String(e)) + '</div>';
+    if (typeof logAudit === 'function') {
+      logAudit('Admin', 'Audit log load failed: ' + (e.message || e), 'error');
+    }
+  }
+}
+window.renderAdminAuditLog = renderAdminAuditLog;
+
+// Filter dropdown change — reset pagination, reload page 1 under new filter.
+function onAuditCategoryChange(cat) {
+  STATE.adminAudit.category = cat || 'all';
+  renderAdminAuditLog({ append: false });
+}
+window.onAuditCategoryChange = onAuditCategoryChange;
+
+// Load-older button — fetch the next page using cursor on oldest loaded row.
+function onAuditLoadOlder() {
+  renderAdminAuditLog({ append: true });
+}
+window.onAuditLoadOlder = onAuditLoadOlder;
+
 // ---- Master hydration: pull everything for the signed-in user -----------
 // Called from checkAuth() once we have a session. Populates STATE.* from
 // Supabase, replacing whatever the legacy localStorage loaders would have
@@ -5136,6 +5288,15 @@ const STATE = {
   files: [],
   extractions: {},
   audit: [],
+  // Phase 6 step 7: admin-mode audit log (cloud-backed via sbLoadAuditEvents).
+  // Non-admins use STATE.audit (session-only). This bag holds the currently-
+  // loaded page plus filter/pagination state. Reset on every tab open.
+  adminAudit: {
+    rows: [],           // currently-loaded cloud rows, newest first
+    category: 'all',    // active category filter
+    categories: null,   // cached distinct-category list (null until first fetch)
+    hasMore: true       // whether last fetch returned a full page
+  },
   pipelineRun: null,
   pipelineStart: 0,
   pipelineRunning: false,
@@ -10500,6 +10661,12 @@ function logAudit(actor, action, meta) {
 }
 
 function renderAuditIfOpen() {
+  // Phase 6 step 7: admins use renderAdminAuditLog (cloud-backed). This
+  // function only paints session-local STATE.audit for non-admin users.
+  // Admin view refreshes on Admin tab open and on explicit Refresh click —
+  // not on every logAudit() fire, to avoid hammering the DB.
+  if (window.currentUser && window.currentUser.role === 'admin') return;
+
   const el = document.getElementById('auditEntries');
   // Update the count badge in the header (shown whether collapsed or expanded —
   // the UW can see at a glance how many events there are before expanding).
@@ -10530,31 +10697,59 @@ function toggleAuditLog() {
   if (container) container.classList.toggle('collapsed');
 }
 
-function clearAudit() {
-  STATE.audit = [];
-  renderAuditIfOpen();
-  toast('Audit log cleared');
+// Phase 6 step 7: "Clear" was renamed to "Refresh" because the log is now
+// cloud-persisted and "clearing" is misleading (nothing gets deleted). For
+// admins, re-fetch page 1 under the active filter. For non-admins, just
+// re-paint the session view (effectively a no-op but gives visual feedback).
+function refreshAudit() {
+  if (window.currentUser && window.currentUser.role === 'admin') {
+    renderAdminAuditLog({ append: false });
+    if (typeof toast === 'function') toast('Audit log refreshed');
+  } else {
+    renderAuditIfOpen();
+    if (typeof toast === 'function') toast('View refreshed');
+  }
 }
+window.refreshAudit = refreshAudit;
 
-// Minimal exportAudit — Phase 5 expands to full audit pack
+// Export audit log. Admin mode exports the currently-loaded cloud rows under
+// the active filter (with a marker noting what was filtered); non-admin mode
+// exports session-local STATE.audit (legacy behavior).
 function exportAudit() {
-  if (STATE.audit.length === 0) { toast('No audit events yet', 'warn'); return; }
+  const isAdmin = !!(window.currentUser && window.currentUser.role === 'admin');
+  let rows, source, filter;
+  if (isAdmin) {
+    rows = (STATE.adminAudit.rows || []).map(r => ({
+      created_at:    r.created_at,
+      category:      r.category,
+      message:       r.message,
+      meta:          r.meta,
+      user_id:       r.user_id,
+      submission_id: r.submission_id
+    }));
+    source = 'supabase.public.audit_events';
+    filter = STATE.adminAudit.category;
+  } else {
+    rows = STATE.audit || [];
+    source = 'session_state';
+    filter = null;
+  }
+  if (rows.length === 0) { toast('No audit events to export', 'warn'); return; }
   const payload = {
-    pipeline_run: STATE.pipelineRun,
+    source: source,
+    filter_category: filter,
     generated_at: new Date().toISOString(),
-    model: STATE.api.model,
-    provider: 'anthropic',
-    prompts_version: 'v2.4',
-    events: STATE.audit
+    event_count: rows.length,
+    events: rows
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'stm_audit_' + (STATE.pipelineRun || Date.now()) + '.json';
+  a.download = 'stm_audit_' + (isAdmin ? 'cloud_' : '') + Date.now() + '.json';
   a.click();
   URL.revokeObjectURL(url);
-  toast('Audit JSON downloaded · ' + STATE.audit.length + ' events');
+  toast((isAdmin ? 'Cloud audit JSON · ' : 'Audit JSON · ') + rows.length + ' events');
 }
 
 // ============================================================================
@@ -12149,6 +12344,7 @@ function switchView(name) {
   if (name === 'admin') {
     if (typeof renderAdminUsersCard    === 'function') renderAdminUsersCard();
     if (typeof renderAdminFeedbackCard === 'function') renderAdminFeedbackCard();
+    if (typeof renderAdminAuditLog     === 'function') renderAdminAuditLog({ append: false });
   }
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
