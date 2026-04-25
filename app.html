@@ -4059,6 +4059,24 @@ table.loss {
         <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
       </div>
     </div>
+
+    <!-- Phase 6 step 6: LLM spend card. Links out to Anthropic Console because
+         per-call telemetry isn't persisted in Supabase yet (planned follow-up).
+         What's real and local: rate limits enforced by the llm-proxy Edge Function. -->
+    <div class="admin-card" id="llmSpendAdminCard">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="8"/>
+          <path d="M12 7v10 M9 10h4.5a1.5 1.5 0 0 1 0 3H9h5a1.5 1.5 0 0 1 0 3H9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="admin-card-title">LLM spend</div>
+      <div class="admin-card-desc">Token usage and cost across every Claude call from Altitude. Hourly and daily rate limits are enforced server-side at the Edge Function. Aggregate spend and per-model breakdown live in the Anthropic Console — per-call persistence in Supabase is a planned follow-up.</div>
+      <div class="admin-card-status" id="llmSpendStatus">LIMITS: 120/HR · 1000/DAY · 3 MODELS</div>
+      <div style="margin-top: 12px; display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #0A0E1A; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
+      </div>
+    </div>
   </div>
 
   <div class="audit-log collapsed" id="auditLogContainer">
