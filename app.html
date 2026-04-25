@@ -3647,7 +3647,7 @@ table.loss {
     </div>
     <div class="kpi amber">
       <div class="kpi-label">Backend</div>
-      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Browser-only</div>
+      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud-synced</div>
       <div class="kpi-sub">single-tenant prototype</div>
     </div>
   </div>
@@ -3675,7 +3675,7 @@ table.loss {
   <div class="sub-header">
     <div class="sub-header-main">
       <div class="sub-header-name" id="sh-name">New submission</div>
-      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 15 specialist modules</div>
+      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 17 specialist modules</div>
     </div>
     <div class="sub-header-pills" id="sh-pills">
       <span class="sub-pill handoff-pill" id="shHandoffPill" style="display: none;"></span>
@@ -3824,7 +3824,7 @@ table.loss {
               <div class="pipeline-done-icon">✓</div>
               <div class="pipeline-done-text">
                 <strong>Pipeline complete</strong>
-                <p>14/14 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
+                <p>17/17 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
               </div>
               <button class="btn-view-summary" onclick="showStage('sum')">
                 View Summary
@@ -3839,7 +3839,7 @@ table.loss {
       <div class="summary-view" id="summaryStage">
         <div class="summary-meta">
           <div class="summary-meta-text">
-            <strong>0/15 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
+            <strong>0/17 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
           </div>
           <div style="display: flex; gap: 10px; align-items: center;">
             <span class="save-indicator saved" id="saveIndicator"><span class="dot"></span><span id="saveIndicatorText">Ready</span></span>
@@ -4025,7 +4025,7 @@ table.loss {
       </div>
       <div class="admin-card-title">Prompt overrides</div>
       <div class="admin-card-desc">Tune extraction prompts for your book. Side-by-side evaluation on historical submissions before publishing.</div>
-      <div class="admin-card-status">14 MODULES · 3 OVERRIDDEN</div>
+      <div class="admin-card-status">17 MODULES · 3 OVERRIDDEN</div>
     </div>
 
     <div class="admin-card" onclick="toast('Integrations — O365 inbox, Guidewire write-back, SharePoint')">
@@ -4120,7 +4120,7 @@ table.loss {
 
       <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line);">
         <h3 style="font-family: var(--font-display); font-size: 16px; font-weight: 500; margin: 0 0 4px; color: var(--text);">Carrier Underwriting Guideline</h3>
-        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Paste your carrier's full underwriting guideline here. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in sessionStorage (this tab only).</p>
+        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Paste your carrier's full underwriting guideline here. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
         <div class="form-group">
           <label>Guideline text <span id="guidelineStatus" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.04em; float: right;"></span></label>
           <textarea id="carrierGuideline" rows="8" placeholder="Paste your full underwriting guideline here..." style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
@@ -7464,7 +7464,7 @@ function rehydrateSubmission(submissionId) {
     if (rec.broker)    parts.push('Broker: ' + rec.broker);
     if (rec.effective) parts.push('Effective: ' + rec.effective);
     if (rec.requested) parts.push('Requested: ' + rec.requested);
-    parts.push(rec.modulesRun + '/14 modules · ' + Math.round((rec.confidence || 0) * 100) + '% avg confidence');
+    parts.push(rec.modulesRun + '/' + Object.keys(MODULES).length + ' modules · ' + Math.round((rec.confidence || 0) * 100) + '% avg confidence');
     sm.textContent = parts.join(' · ');
   }
   // Warn if files had their bytes dropped by localStorage lite-persistence
@@ -11355,7 +11355,7 @@ async function runPipeline() {
   renderSummaryCards();
   // Render the post-hoc classifier-review banner (shows flagged low-confidence files)
   if (typeof renderClassifierReview === 'function') renderClassifierReview();
-  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/14 modules · ' + finalTime + 's', STATE.api.model);
+  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/' + Object.keys(MODULES).length + ' modules · ' + finalTime + 's', STATE.api.model);
   toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
   // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
   // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
@@ -11625,7 +11625,7 @@ function renderSummaryCards() {
       : '—';
     const editedCount = Object.keys(STATE.edits).length + STATE.customCards.length;
     const editedSuffix = editedCount > 0 ? ` · <strong style="color: var(--warning);">${editedCount} edited</strong>` : '';
-    sm.innerHTML = `<strong>${count}/14 modules</strong> · extraction time <strong>${totalTime}</strong> · avg confidence <strong>${avgConf}</strong>${editedSuffix}`;
+    sm.innerHTML = `<strong>${count}/${Object.keys(MODULES).length} modules</strong> · extraction time <strong>${totalTime}</strong> · avg confidence <strong>${avgConf}</strong>${editedSuffix}`;
   }
 
   if (extractedIds.length === 0 && STATE.customCards.length === 0) {
@@ -12396,7 +12396,7 @@ function startNewSubmission() {
   const sh = document.getElementById('sh-name');
   const sm = document.getElementById('sh-meta');
   if (sh) sh.textContent = 'New submission';
-  if (sm) sm.textContent = 'Drop broker documents to begin · classifier identifies each file · pipeline fans out across 15 specialist modules';
+  if (sm) sm.textContent = 'Drop broker documents to begin · classifier identifies each file · pipeline fans out across 17 specialist modules';
   // Clear any scrape status / website inputs from prior sessions
   const webStatus = document.getElementById('webStatus');
   if (webStatus) webStatus.style.display = 'none';
