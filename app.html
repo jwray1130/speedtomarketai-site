@@ -3991,13 +3991,14 @@ table.loss {
   </div>
 
   <div class="admin-grid">
-    <div class="admin-card" onclick="toast('Users panel — invite underwriters, assign roles')">
+    <div class="admin-card" id="usersAdminCard">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M4 20s2-6 8-6 8 6 8 6" stroke-linecap="round"/></svg>
       </div>
       <div class="admin-card-title">Users &amp; roles</div>
-      <div class="admin-card-desc">SSO via Azure AD. Role-based access: Underwriter, Sr. UW, CUO, Auditor, Admin. Least privilege by default.</div>
-      <div class="admin-card-status">12 USERS · 4 ROLES</div>
+      <div class="admin-card-desc">Active accounts on this Altitude tenant. Role and submission count per user. Sign-ups create profile rows automatically via Supabase Auth trigger.</div>
+      <div class="admin-card-status" id="usersAdminStatus">— USERS · — ROLES</div>
+      <div id="usersAdminList" style="display: none;"></div>
     </div>
 
     <div class="admin-card" onclick="toast('Guidelines — upload, version, diff, publish')">
@@ -4580,6 +4581,92 @@ async function sbSaveSettings(patch) {
     .from('user_settings').upsert(row, { onConflict: 'user_id' });
   if (error) throw error;
 }
+
+// ---- Admin: real Users & roles card (Phase 6 step 2) ---------------------
+// Reads public.users + counts submissions per user. Two RLS policies make
+// this work for admin role only:
+//   - "admins read all users" on public.users (SELECT, qual: is_admin())
+//   - "admins select all submissions" on public.submissions (SELECT)
+// Non-admins running this would see only themselves (RLS limits each user
+// to their own row), so the renderer also gates on currentUser.role to
+// avoid showing a half-broken view.
+//
+// Returns: array of { id, email, display_name, role, created_at, submission_count }
+// sorted by display_name (case-insensitive, A→Z).
+async function sbLoadAdminUsers() {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+
+  // Run both queries in parallel — neither depends on the other.
+  // For submissions we only need user_id; pulling the whole row would be
+  // wasted bandwidth for what is just a per-user count.
+  const [usersRes, subsRes] = await Promise.all([
+    sb.from('users').select('id, email, display_name, role, created_at'),
+    sb.from('submissions').select('user_id')
+  ]);
+  if (usersRes.error) throw usersRes.error;
+  if (subsRes.error)  throw subsRes.error;
+
+  // Group submissions by user_id for per-user counts. Skip null user_ids.
+  const counts = new Map();
+  (subsRes.data || []).forEach(r => {
+    if (!r.user_id) return;
+    counts.set(r.user_id, (counts.get(r.user_id) || 0) + 1);
+  });
+
+  return (usersRes.data || [])
+    .map(row => ({ ...row, submission_count: counts.get(row.id) || 0 }))
+    .sort((a, b) => (a.display_name || '').toLowerCase()
+                  .localeCompare((b.display_name || '').toLowerCase()));
+}
+window.sbLoadAdminUsers = sbLoadAdminUsers;
+
+// Render the real Users & roles admin card. Called when the Admin tab opens.
+// Silent no-op for non-admins — they keep the static placeholder visuals.
+// Errors are caught and surfaced in the card status; logAudit captures them
+// for the audit trail.
+async function renderAdminUsersCard() {
+  if (!window.currentUser || window.currentUser.role !== 'admin') return;
+  const statusEl = document.getElementById('usersAdminStatus');
+  const listEl   = document.getElementById('usersAdminList');
+  if (!statusEl || !listEl) return;
+
+  statusEl.textContent = 'LOADING…';
+  try {
+    const users = await sbLoadAdminUsers();
+    const roleCount = new Set(users.map(x => x.role)).size;
+    statusEl.textContent =
+      users.length + ' USER'  + (users.length === 1 ? '' : 'S') + ' · ' +
+      roleCount    + ' ROLE'  + (roleCount    === 1 ? '' : 'S');
+
+    listEl.style.display   = 'block';
+    listEl.style.marginTop = '12px';
+    listEl.style.maxHeight = '220px';
+    listEl.style.overflowY = 'auto';
+
+    if (users.length === 0) {
+      listEl.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-3); font-size: 11px;">No users yet.</div>';
+      return;
+    }
+
+    listEl.innerHTML = users.map(x => `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-warm); font-family: var(--font-mono); font-size: 11px;">
+        <div style="min-width: 0; flex: 1;">
+          <div style="color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(x.display_name || '(no name)')}</div>
+          <div style="color: var(--text-3); font-size: 10px; letter-spacing: 0.03em; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(x.email || '')} · ${escapeHtml(x.role || '?')}</div>
+        </div>
+        <div style="color: var(--signal-ink); font-size: 10.5px; letter-spacing: 0.05em; padding-left: 12px; white-space: nowrap;">${x.submission_count} SUB${x.submission_count === 1 ? '' : 'S'}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.warn('[admin] users load failed:', e.message || e);
+    statusEl.textContent = 'LOAD FAILED';
+    listEl.style.display = 'none';
+    if (typeof logAudit === 'function') {
+      logAudit('Admin', 'Users panel load failed: ' + (e.message || e), 'error');
+    }
+  }
+}
+window.renderAdminUsersCard = renderAdminUsersCard;
 
 // ---- Master hydration: pull everything for the signed-in user -----------
 // Called from checkAuth() once we have a session. Populates STATE.* from
@@ -11901,6 +11988,11 @@ function switchView(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
   window.scrollTo(0, 0);
+  // Phase 6 step 2: refresh admin views when Admin tab opens. Each renderer
+  // gates on currentUser.role internally, so non-admins are skipped silently.
+  if (name === 'admin' && typeof renderAdminUsersCard === 'function') {
+    renderAdminUsersCard();
+  }
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
 
