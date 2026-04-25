@@ -3637,7 +3637,7 @@ table.loss {
     </div>
     <div class="kpi">
       <div class="kpi-label">Pipeline Modules</div>
-      <div class="kpi-value"><em>14</em></div>
+      <div class="kpi-value"><em>17</em></div>
       <div class="kpi-sub">+ classifier + referral email</div>
     </div>
     <div class="kpi">
@@ -3779,7 +3779,7 @@ table.loss {
         <div class="pipeline-empty" id="pipelineEmpty">
           <div class="pipeline-empty-icon">◢</div>
           <h2>Pipeline ready</h2>
-          <p>7 documents classified and routed. Run the pipeline to fan out across 15 specialist extractors — full summary in under a minute.</p>
+          <p>7 documents classified and routed. Run the pipeline to fan out across 17 specialist modules — full summary in under a minute.</p>
         </div>
 
         <div class="pipeline-flow" id="pipelineFlow" style="display: none;">
@@ -7579,7 +7579,7 @@ function renderQueueRow(rec) {
   const broker    = rec.broker    ? escapeHtml(rec.broker)    : '<span style="color: var(--text-3);">—</span>';
   const effective = rec.effective ? escapeHtml(rec.effective) : '<span style="color: var(--text-3);">—</span>';
   const requested = rec.requested ? escapeHtml(rec.requested) : '<span style="color: var(--text-3);">—</span>';
-  const modulesText = '<strong>' + (rec.modulesRun || 0) + '</strong>/14';
+  const modulesText = '<strong>' + (rec.modulesRun || 0) + '</strong>/' + Object.keys(MODULES).length;
   const confPct = Math.round((rec.confidence || 0) * 100);
   const confClass = confPct >= 90 ? 'conf-high' : (confPct >= 75 ? 'conf-mid' : 'conf-low');
   const confText = rec.modulesRun > 0 ? confPct + '%' : '—';
@@ -8082,7 +8082,7 @@ if (typeof toast === 'undefined') {
 
 <script>
 // ============================================================================
-// EXTRACTION PROMPTS — Justin's 14-module library + classifier
+// EXTRACTION PROMPTS — Justin's 17-module library + classifier
 // ============================================================================
 const PROMPTS = {
   classifier: `You are an expert document classifier for commercial insurance underwriting submissions. You will read the ENTIRE document text (not just the beginning) plus the filename, and return a structured classification.
