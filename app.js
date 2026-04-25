@@ -412,7 +412,8 @@ const STATE = {
   pipelineStart: 0,
   pipelineRunning: false,
   pipelineDone: false,
-  // Summary editing state — all persisted to localStorage
+  // Summary editing state — Supabase-backed. Per-module rows in
+  // `submission_edits` plus a snapshot copy on `submissions.snapshot`.
   edits: {},         // moduleId -> { htmlOverride, originalText, editedAt }
   customCards: [],   // [{ id, title, html, createdAt, editedAt }]
   hiddenCards: {},   // moduleId or customId -> true  (soft-deleted cards)
@@ -431,23 +432,25 @@ const STATE = {
   // Queue-level submission tracking — once a pipeline completes, the submission
   // snapshots into this array and shows on the Queue view. UW drives status from
   // AWAITING UW REVIEW → INQUIRED / QUOTED / DECLINED / BOUND. Status never reverts
-  // automatically; only UW can change it. Persisted to localStorage (lite mode:
-  // file.text bytes are dropped to stay under quota; extractions are kept so the
-  // Summary view survives reload, but re-running requires the source files again).
+  // automatically; only UW can change it. Persisted to Supabase `submissions`
+  // table (one row per submission). Snapshot is "lite": file.text bytes are
+  // dropped to stay under DB row size limits; extractions are kept so the
+  // Summary view survives reload, but re-running requires the source files again.
   submissions: [],            // array of archived submission records
   activeSubmissionId: null,   // which submission is currently loaded in the workbench
-  // Tier 1 feedback collection — card-level reactions stored locally.
-  // Attributed (stamped with reviewer name). When you wire a backend, route
-  // `submitFeedbackEvent()` through a fetch() call in addition to the
-  // localStorage write — every feedback surface uses that one function.
+  // Tier 1 feedback collection — card-level reactions written to Supabase
+  // `feedback_events` table via submitFeedbackEvent(). Stamped with reviewer
+  // name. STATE.feedback is no longer the source of truth (Phase 4); admin
+  // views read directly from Supabase. STATE.feedback is left empty by design.
   feedback: [],               // array of FeedbackEvent records
   feedbackExportedAt: null    // timestamp of last export, drives "new since last export" counter
 };
 
 // ============================================================================
-// EDIT PERSISTENCE — localStorage-backed autosave for summary edits
+// EDIT PERSISTENCE — Supabase-backed autosave for summary edits
+// (Phase 4: migrated from localStorage. Per-module rows in `submission_edits`,
+// plus a snapshot copy on `submissions.snapshot` for fast rehydration.)
 // ============================================================================
-const EDITS_KEY = 'stm-edits-v1';
 let SAVE_DEBOUNCE = null;
 let LAST_SAVE_TS = 0;
 
@@ -516,6 +519,54 @@ function markDirty() {
   SAVE_DEBOUNCE = setTimeout(saveEditsNow, 450);
 }
 
+// Phase 8.5 Round 4 fix #2: resync the active submission's snapshot to current
+// STATE for edits/customCards/hiddenCards. Called by every function that mutates
+// edit state (clearAllEdits, revertCard, restoreAllCards, deleteCard, addCustomCard,
+// edit-commits in addEditListeners). Without this, the snapshot drifts from STATE
+// after a clear/revert/restore: cloud rows get deleted, STATE clears, but the
+// submission's snapshot.edits/customCards/hiddenCards still hold stale data. Then
+// on next rehydrate, snapshot loads first (with stale data), cloud overlay
+// (now empty) doesn't fight it, and stale data wins. Bug observed during Round 3
+// testing — RACE_TEST_MARKER_PHASE_8_5_R2 reappeared after clearAllEdits + reload.
+// This helper re-syncs the snapshot blob and triggers a single sbSaveSubmission
+// upsert with the freshly-aligned snapshot.
+function resyncActiveSnapshot(reason) {
+  const sid = STATE.activeSubmissionId;
+  if (!sid) return;
+  const rec = STATE.submissions.find(s => s.id === sid);
+  if (!rec || !rec.snapshot) return;
+  // Update the three edit-state slots in-place. Other snapshot fields
+  // (files, extractions, handoff, audit, derived) are unchanged by edit
+  // mutations, so we leave them alone.
+  rec.snapshot.edits        = deepClone(STATE.edits);
+  rec.snapshot.customCards  = deepClone(STATE.customCards);
+  rec.snapshot.hiddenCards  = deepClone(STATE.hiddenCards);
+  rec.lastModifiedAt = Date.now();
+  // Fire-and-forget cloud save with verbose audit, mirroring the pattern in
+  // changeSubmissionStatus and archiveCurrentSubmission.
+  (async () => {
+    try {
+      if (typeof sbSaveSubmission !== 'function') return;
+      const liteSnapshot = {
+        ...rec.snapshot,
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        derived: {
+          account:         rec.account || null,
+          broker:          rec.broker || null,
+          effectiveDate:   rec.effective || rec.effectiveDate || null,
+          requestedLimits: rec.requested || rec.requestedLimits || null,
+          missingInfo:     rec.missingInfo || null
+        }
+      };
+      await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+      if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resynced (' + reason + ') · ' + sid, 'ok');
+    } catch (err) {
+      console.warn('resyncActiveSnapshot save failed', sid, err);
+      if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resync FAILED (' + reason + ') · ' + sid + ' · ' + (err.message || err), 'error');
+    }
+  })();
+}
+
 function updateSaveIndicator() {
   const ind = document.getElementById('saveIndicator');
   const txt = document.getElementById('saveIndicatorText');
@@ -566,6 +617,8 @@ function clearAllEdits() {
     })();
   }
   renderSummaryCards();
+  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't resurrect old data
+  resyncActiveSnapshot('clearAllEdits');
   logAudit('Edits', 'Reset all edits, custom cards, and hidden cards', '—');
   toast('All edits reset');
 }
@@ -1339,11 +1392,11 @@ function escapeHtml(s) {
 //   queue shows the row with derived fields + missing-info chip + AWAITING UW REVIEW
 //   status. UW clicks the status pill to change it. Clicking a row rehydrates that
 //   submission back into the workbench. Clicking New Submission archives the current
-//   one (if any) before wiping. All persistence is localStorage with a lite snapshot
-//   (file bytes dropped, extractions preserved) to stay under quota.
+//   one (if any) before wiping. Persistence is Supabase `submissions` table,
+//   one row per submission, with a "lite" snapshot (file bytes dropped, extractions
+//   preserved) to stay under DB row size limits.
 // ============================================================================
 
-const SUBMISSIONS_KEY = 'stm-submissions-v1';
 const SUB_STATUSES = ['AWAITING UW REVIEW', 'INQUIRED', 'QUOTED', 'DECLINED', 'BOUND'];
 const SUB_STATUS_CLASS = {
   'AWAITING UW REVIEW': 'status-awaiting',
@@ -1607,9 +1660,9 @@ function archiveCurrentSubmission() {
     missingInfo: computeMissingInfo()
   };
   // Build the snapshot — clone just what's needed for rehydration.
-  // Note: edits/customCards/hiddenCards live on STATE but have their own
-  // localStorage key (stm-edits-v1); we include them here too so a rehydrated
-  // submission restores the exact state it was in when the UW left it.
+  // Note: edits/customCards/hiddenCards have their own per-row storage in
+  // Supabase `submission_edits`; we include them in the snapshot too so a
+  // rehydrated submission restores cleanly even before sbLoadEdits resolves.
   const snapshot = {
     files:          deepClone(STATE.files),
     extractions:    deepClone(STATE.extractions),
@@ -1911,10 +1964,13 @@ function rehydrateSubmission(submissionId) {
       }
     })();
   }
-  // If stm-edits-v1 was stashed on init and matches THIS pipeline run, merge its
-  // edits in — they represent changes made since the last snapshot that haven't
-  // been re-archived yet. Skips silently if IDs don't match (the stashed edits
-  // belonged to a different submission and will be overwritten on next save).
+  // Phase 4 leftover: the localStorage-era stash mechanism populated
+  // STATE._pendingEdits from a 'stm-edits-v1' key on init, then consumed it
+  // here once the matching submission rehydrated. The localStorage write side
+  // was removed during Phase 4 migration; the read/consume side survived
+  // because it's harmless when _pendingEdits is always null. Calling this is
+  // a no-op today. Leaving it in place rather than removing because it
+  // doesn't hurt and removing it would touch the rehydrate flow.
   if (typeof applyPendingEditsIfMatch === 'function') {
     applyPendingEditsIfMatch(STATE.pipelineRun);
   }
@@ -4241,6 +4297,10 @@ function deleteCard(mid) {
   STATE.hiddenCards[mid] = true;
   markDirty();
   renderSummaryCards();
+  // Note: no snapshot resync needed here — markDirty triggers cloud upsert of
+  // submission_edits, which on next rehydrate will overlay 'hidden:mid'=true on
+  // top of whatever snapshot held. Adds work via overlay; only DELETIONS need
+  // snapshot resync (see clearAllEdits, revertCard, restoreAllCards).
   logAudit('Edits', 'Hid card ' + mid, '—');
 }
 
@@ -4262,6 +4322,8 @@ function revertCard(mid) {
   }
   markDirty();
   renderSummaryCards();
+  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't resurrect the reverted edit
+  resyncActiveSnapshot('revertCard:' + mid);
   logAudit('Edits', 'Reverted ' + mid + ' to original', '—');
   toast('Reverted to original');
 }
@@ -4285,6 +4347,8 @@ function restoreAllCards() {
   }
   markDirty();
   renderSummaryCards();
+  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't re-hide the cards
+  resyncActiveSnapshot('restoreAllCards');
   logAudit('Edits', 'Restored all hidden cards (' + hiddenIds.length + ')', '—');
   toast('All cards restored');
 }
@@ -4622,6 +4686,7 @@ function addCustomCard() {
   });
   markDirty();
   renderSummaryCards();
+  // Note: no snapshot resync needed — overlay handles adds correctly. See deleteCard comment.
   logAudit('Edits', 'Added custom card ' + id, '—');
   // Enable relevant export buttons now that there's content
   const btnMd = document.getElementById('btnMd');

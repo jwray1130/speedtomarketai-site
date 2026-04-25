@@ -118,6 +118,20 @@ function buildSubmissionPayload(rec, liteSnapshot) {
 window.buildSubmissionPayload = buildSubmissionPayload;
 
 async function sbDeleteSubmission(id) {
+  // Phase 8.5 Round 4 fix #1: defensively delete child rows BEFORE deleting
+  // the parent submission. If the Supabase schema has ON DELETE CASCADE on
+  // submission_edits.submission_id and feedback_events.submission_id, these
+  // pre-deletes are redundant but harmless. If it doesn't have cascades,
+  // these prevent orphan rows from accumulating forever in those tables.
+  // Both are best-effort: if a child delete fails (e.g. RLS quirk), we still
+  // proceed with the parent delete so the user-visible "delete" succeeds.
+  if (!id) return;
+  try {
+    await window.sb.from('submission_edits').delete().eq('submission_id', id);
+  } catch (e) { console.warn('Pre-delete of submission_edits failed (continuing)', id, e); }
+  try {
+    await window.sb.from('feedback_events').delete().eq('submission_id', id);
+  } catch (e) { console.warn('Pre-delete of feedback_events failed (continuing)', id, e); }
   const { error } = await window.sb.from('submissions').delete().eq('id', id);
   if (error) throw error;
 }

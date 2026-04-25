@@ -33,7 +33,8 @@
 //
 // Progressive fallback chain:
 //   1. CORS proxy (corsproxy.io / allorigins.win) — works for most public sites
-//   2. Claude API web_fetch tool — if user has a real API key, server-side fetch
+//   2. Claude web_fetch tool routed through the authenticated llm-proxy Edge
+//      Function (Phase 3 moved API keys server-side; the browser never holds one)
 //   3. Prompt user to paste HTML manually via manualPasteModal
 //
 // All three paths end with the same result: a STATE.files entry of type 'website'
@@ -600,8 +601,8 @@ START CRAWLING.`;
   };
 }
 
-// Top-level flow — called from the "Scrape" button. Automatically selects
-// Claude-driven agentic crawl (if API key set) or browser BFS crawl (otherwise).
+// Top-level flow — called from the "Scrape" button. Always uses the browser
+// BFS crawler (faster, deterministic, zero token cost, more pages crawled).
 async function scrapeWebsiteFromUrl() {
   const raw = document.getElementById('webUrlInput').value;
   const url = normalizeUrl(raw);
@@ -612,11 +613,11 @@ async function scrapeWebsiteFromUrl() {
   const btn = document.getElementById('btnScrapeUrl');
   btn.disabled = true;
   try {
-    // Always use the browser BFS crawler. The Claude-driven crawl path was
-    // designed for users supplying their own API key; routed through the
-    // Edge Function proxy it can't use web_fetch tools or the tokens needed
-    // for deep traversal. Browser BFS is faster, deterministic, costs zero
-    // tokens, and crawls more pages.
+    // Always use the browser BFS crawler. The Claude-driven crawl path
+    // (scrapeUrlViaClaude) is preserved for reference but disabled — it was
+    // designed for direct-API-key access; routed through the llm-proxy Edge
+    // Function it can't use web_fetch tools effectively. Browser BFS is faster,
+    // deterministic, costs zero tokens, and crawls more pages.
     const useClaude = false;
     const result = useClaude ? await scrapeUrlViaClaude(url) : await scrapeUrl(url);
     // Turn this into a pseudo-file entry that flows through the normal pipeline.
@@ -635,9 +636,10 @@ async function scrapeWebsiteFromUrl() {
   }
 }
 
-// Find-by-name flow — primary path. Uses Claude's web_search to identify
-// the authoritative domain. If auto-find fails (no API key, no match, or any error),
-// we automatically switch to the Manual URL tab so the user can enter it directly.
+// Find-by-name flow — primary path. Uses Claude's web_search tool through the
+// authenticated llm-proxy Edge Function to identify the authoritative domain.
+// If auto-find fails (no result, tool unavailable, or any error), we
+// automatically switch to the Manual URL tab so the user can enter it directly.
 async function findAndScrapeWebsite() {
   const name = document.getElementById('webNameInput').value.trim();
   const zip = document.getElementById('webZipInput').value.trim();
