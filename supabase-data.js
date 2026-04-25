@@ -832,3 +832,40 @@ async function sbHydrate() {
   }
 }
 window.sbHydrate = sbHydrate;
+
+// ============================================================================
+// Phase 8 step 3 fix: explicit window-exports for every top-level declaration.
+// When a script contains `const` at top level (like our `const sb = window.sb`
+// bridge), browsers treat the whole script as a lexical scope and function
+// declarations DO NOT auto-attach to window. Some helpers had explicit
+// `window.X = X` lines from Phase 4/6, others relied on the legacy auto-
+// attach behavior. With the bridge in place, we now need EVERY export to
+// be explicit. Reassigning is idempotent and harmless for ones that already
+// had a `window.X = X` earlier in the file.
+// ============================================================================
+window.sbUser = sbUser;
+window.sbLoadSubmissions = sbLoadSubmissions;
+window.sbSaveSubmission = sbSaveSubmission;
+window.buildSubmissionPayload = buildSubmissionPayload;
+window.sbDeleteSubmission = sbDeleteSubmission;
+window.sbLoadEdits = sbLoadEdits;
+window.sbSaveEdit = sbSaveEdit;
+window.sbDeleteEdit = sbDeleteEdit;
+window.sbSaveAllEditsForSubmission = sbSaveAllEditsForSubmission;
+window.sbLoadFeedbackForSubmission = sbLoadFeedbackForSubmission;
+window.sbLogFeedback = sbLogFeedback;
+window.sbLogAuditEvent = sbLogAuditEvent;
+window.sbLoadSettings = sbLoadSettings;
+window.sbSaveSettings = sbSaveSettings;
+window.sbLoadAdminUsers = sbLoadAdminUsers;
+window.renderAdminUsersCard = renderAdminUsersCard;
+window.sbLoadFeedbackSummary = sbLoadFeedbackSummary;
+window.sbLoadFeedbackRecent = sbLoadFeedbackRecent;
+window.renderAdminFeedbackCard = renderAdminFeedbackCard;
+window.refreshFeedbackCard = refreshFeedbackCard;
+window.sbLoadAuditEvents = sbLoadAuditEvents;
+window.sbLoadAuditCategories = sbLoadAuditCategories;
+window.renderAdminAuditLog = renderAdminAuditLog;
+window.onAuditCategoryChange = onAuditCategoryChange;
+window.onAuditLoadOlder = onAuditLoadOlder;
+window.sbHydrate = sbHydrate;
