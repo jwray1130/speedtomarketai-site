@@ -4053,9 +4053,10 @@ table.loss {
       <div class="admin-card-title">Feedback loop</div>
       <div class="admin-card-desc">Card-level 👍 / 👎 / 💬 from underwriters. Compiled monthly to improve prompts and model behavior. Every event attributed, every comment preserved.</div>
       <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
+      <div id="feedbackAdminList" style="display: none;"></div>
       <div style="margin-top: 12px; display: flex; gap: 6px;">
         <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #0A0E1A; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
-        <button onclick="event.stopPropagation(); clearFeedback()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Clear</button>
+        <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
       </div>
     </div>
   </div>
@@ -4667,6 +4668,136 @@ async function renderAdminUsersCard() {
   }
 }
 window.renderAdminUsersCard = renderAdminUsersCard;
+
+// ---- Admin: real Feedback Loop card (Phase 6 step 3+4+5) -----------------
+// Step 3: reads public.feedback_events for totals, by-rating breakdown, and
+//         a recent-events list — replaces the session-only counter.
+// Step 4: fixes the deferred bug where #feedbackStatus showed STATE.feedback
+//         (current session) instead of cloud-truth count.
+// Step 5: Clear button was replaced with Refresh (just re-fetches). The old
+//         Clear wiped STATE.feedback only, which after Phase 4 is empty for
+//         admins anyway (sbHydrate doesn't populate it). Nothing destructive
+//         in this patch — cloud data is never touched by the admin card.
+//
+// RLS note: "admins read all feedback" policy (is_admin()) gives admin role
+// full read access. Non-admins only see their own rows via "users read own
+// feedback" — which is why renderAdminFeedbackCard gates on role and skips
+// for non-admins (they'd see a half-broken "my own rows only" view).
+async function sbLoadFeedbackSummary() {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await sb
+    .from('feedback_events')
+    .select('rating, exported_at');
+  if (error) throw error;
+  const rows = data || [];
+  let up = 0, down = 0, comment = 0, unexported = 0;
+  rows.forEach(r => {
+    if      (r.rating === 'up')      up++;
+    else if (r.rating === 'down')    down++;
+    else if (r.rating === 'comment') comment++;
+    if (!r.exported_at) unexported++;
+  });
+  return { total: rows.length, up, down, comment, unexported };
+}
+window.sbLoadFeedbackSummary = sbLoadFeedbackSummary;
+
+async function sbLoadFeedbackRecent(limit) {
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await sb
+    .from('feedback_events')
+    .select('id, user_id, submission_id, module_key, rating, comment, context, created_at')
+    .order('created_at', { ascending: false })
+    .limit(limit || 10);
+  if (error) throw error;
+  return data || [];
+}
+window.sbLoadFeedbackRecent = sbLoadFeedbackRecent;
+
+async function renderAdminFeedbackCard() {
+  if (!window.currentUser || window.currentUser.role !== 'admin') return;
+  const statusEl = document.getElementById('feedbackStatus');
+  const listEl   = document.getElementById('feedbackAdminList');
+  if (!statusEl) return;
+
+  statusEl.textContent = 'LOADING…';
+  try {
+    const [summary, recent] = await Promise.all([
+      sbLoadFeedbackSummary(),
+      sbLoadFeedbackRecent(10)
+    ]);
+
+    if (summary.total === 0) {
+      statusEl.textContent = 'NO EVENTS YET';
+      if (listEl) listEl.style.display = 'none';
+      return;
+    }
+
+    // Status line: "47 EVENTS · 32 👍 · 10 👎 · 5 💬 · 12 NEW"
+    const parts = [summary.total + ' EVENT' + (summary.total === 1 ? '' : 'S')];
+    if (summary.up)         parts.push(summary.up      + ' 👍');
+    if (summary.down)       parts.push(summary.down    + ' 👎');
+    if (summary.comment)    parts.push(summary.comment + ' 💬');
+    if (summary.unexported && summary.unexported !== summary.total) {
+      parts.push(summary.unexported + ' NEW');
+    }
+    statusEl.textContent = parts.join(' · ');
+
+    if (!listEl) return;
+    listEl.style.display   = 'block';
+    listEl.style.marginTop = '12px';
+    listEl.style.maxHeight = '260px';
+    listEl.style.overflowY = 'auto';
+
+    listEl.innerHTML = recent.map(r => {
+      const icon = r.rating === 'up'      ? '👍'
+                 : r.rating === 'down'    ? '👎'
+                 : r.rating === 'comment' ? '💬' : '·';
+      const when = r.created_at
+        ? new Date(r.created_at).toISOString().slice(0, 16).replace('T', ' ')
+        : '';
+      // module_key is stored with a prefix (card:/custom:/level:) — strip for display.
+      // Fall back to context.moduleName if the key is bare.
+      const ctx = r.context || {};
+      const moduleLabel = ctx.moduleName
+                       || (r.module_key ? r.module_key.replace(/^card:|^custom:|^level:/, '') : '(no module)');
+      const actor = ctx.actor || '';
+      const bodyRaw = r.comment || ctx.reason || '—';
+      const body = bodyRaw.length > 140 ? bodyRaw.slice(0, 140) + '…' : bodyRaw;
+      return `
+        <div style="padding: 8px 0; border-bottom: 1px solid var(--line-warm); font-family: var(--font-mono); font-size: 11px;">
+          <div style="display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px;">
+            <span style="color: var(--text); font-weight: 500;">${icon} ${escapeHtml(moduleLabel)}</span>
+            <span style="color: var(--text-3); font-size: 10px; white-space: nowrap;">${escapeHtml(when)}</span>
+          </div>
+          <div style="color: var(--text-2); font-size: 10.5px; line-height: 1.4; margin-bottom: 2px;">${escapeHtml(body)}</div>
+          ${actor ? `<div style="color: var(--text-3); font-size: 9.5px; letter-spacing: 0.04em;">${escapeHtml(actor)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.warn('[admin] feedback load failed:', e.message || e);
+    statusEl.textContent = 'LOAD FAILED';
+    if (listEl) listEl.style.display = 'none';
+    if (typeof logAudit === 'function') {
+      logAudit('Admin', 'Feedback panel load failed: ' + (e.message || e), 'error');
+    }
+  }
+}
+window.renderAdminFeedbackCard = renderAdminFeedbackCard;
+
+// Refresh dispatcher wired to the Feedback card's Refresh button. Admins re-
+// fetch cloud-truth. Non-admins fall back to updateFeedbackCount() so the
+// button still does something meaningful in a session-local context.
+async function refreshFeedbackCard() {
+  if (window.currentUser?.role === 'admin') {
+    await renderAdminFeedbackCard();
+    if (typeof toast === 'function') toast('Feedback refreshed');
+  } else if (typeof updateFeedbackCount === 'function') {
+    updateFeedbackCount();
+    if (typeof toast === 'function') toast('View refreshed');
+  }
+}
+window.refreshFeedbackCard = refreshFeedbackCard;
 
 // ---- Master hydration: pull everything for the signed-in user -----------
 // Called from checkAuth() once we have a session. Populates STATE.* from
@@ -7717,6 +7848,13 @@ function clearFeedback() {
 
 // Update the live counter on the Admin card
 function updateFeedbackCount() {
+  // Phase 6 step 4: admins always see cloud-truth, not session-only counts.
+  // Delegate to the admin renderer so a live feedback submission in-session
+  // doesn't overwrite the cloud-truth status text with a session-only number.
+  if (window.currentUser && window.currentUser.role === 'admin') {
+    if (typeof renderAdminFeedbackCard === 'function') renderAdminFeedbackCard();
+    return;
+  }
   const el = document.getElementById('feedbackStatus');
   if (!el) return;
   const total = STATE.feedback.length;
@@ -11988,10 +12126,11 @@ function switchView(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
   window.scrollTo(0, 0);
-  // Phase 6 step 2: refresh admin views when Admin tab opens. Each renderer
-  // gates on currentUser.role internally, so non-admins are skipped silently.
-  if (name === 'admin' && typeof renderAdminUsersCard === 'function') {
-    renderAdminUsersCard();
+  // Phase 6: refresh admin views when Admin tab opens. Each renderer gates on
+  // currentUser.role internally, so non-admins are skipped silently.
+  if (name === 'admin') {
+    if (typeof renderAdminUsersCard    === 'function') renderAdminUsersCard();
+    if (typeof renderAdminFeedbackCard === 'function') renderAdminFeedbackCard();
   }
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
