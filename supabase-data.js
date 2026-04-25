@@ -597,6 +597,11 @@ async function sbHydrate() {
       }
       if (settings.default_model && STATE.api) STATE.api.model = settings.default_model;
       if (settings.max_tokens && STATE.api)    STATE.api.maxTokens = settings.max_tokens;
+      // Phase 8.5 fix #5: refresh the visible model pill in the top bar so it
+      // shows the just-loaded model name immediately, not the original default.
+      // Without this the pill keeps showing the pre-hydrate model until some
+      // other UI action triggers updateApiPillUI() (e.g. opening Settings).
+      if (typeof updateApiPillUI === 'function') updateApiPillUI();
     }
 
     // Feedback is write-only from the app's perspective now. The admin view

@@ -532,7 +532,10 @@ function updateSaveIndicator() {
 }
 setInterval(updateSaveIndicator, 10000);
 
-// Clear edits only for current modules (leaves localStorage for other submissions alone)
+// Reset edits, custom cards, and hidden cards back to original AI output.
+// Clears in-memory STATE AND deletes the matching cloud submission_edits rows
+// for the active submission (so Reset is durable and survives a refresh).
+// Other submissions' edits are not touched.
 function clearAllEdits() {
   if (Object.keys(STATE.edits).length === 0 &&
       STATE.customCards.length === 0 &&
@@ -1901,10 +1904,14 @@ function rehydrateSubmission(submissionId) {
   if (typeof applyPendingEditsIfMatch === 'function') {
     applyPendingEditsIfMatch(STATE.pipelineRun);
   }
-  // Persist the rehydrated edits bucket to stm-edits-v1 so a page reload immediately
-  // after this rehydration restores the right submission's edits (not the previous
-  // active submission's). Without this save, the stale prior edits linger in storage.
-  if (typeof saveEditsNow === 'function') saveEditsNow();
+  // Phase 8.5 fix #1: do NOT call saveEditsNow() during rehydrate. The previous
+  // call here was a localStorage-era artifact (stash the rehydrated edits to
+  // stm-edits-v1 so reload picks the right submission). Now that submission_edits
+  // is the cloud source of truth and sbLoadEdits() runs above to overlay cloud
+  // rows asynchronously, calling saveEditsNow() here was a race: it could upsert
+  // the older snapshot edits over fresher cloud rows before sbLoadEdits resolved.
+  // Subsequent edits naturally trigger saveEditsNow via markDirty()/onEditCommit,
+  // so removing this call costs nothing functionally.
   document.body.classList.add('pipeline-complete-mode');
   // UI refresh — render the submission view with the rehydrated state
   const sh = document.getElementById('sh-name');
@@ -3544,7 +3551,7 @@ function exportExcel() {
     ['Model', STATE.api.model],
     ['Prompts Version', 'v2.4'],
     ['Files Ingested', STATE.files.length],
-    ['Modules Completed', Object.keys(STATE.extractions).length + ' / 15'],
+    ['Modules Completed', Object.keys(STATE.extractions).length + ' / ' + Object.keys(MODULES).length],
     ['Audit Events', STATE.audit.length],
     [],
     ['MODULES COMPLETED'],
@@ -3704,7 +3711,7 @@ function exportMarkdown() {
   md += '**Model:** ' + (STATE.api.model) + '\n';
   md += '**Prompts Version:** v2.4\n';
   md += '**Files Ingested:** ' + STATE.files.length + '\n';
-  md += '**Modules Completed:** ' + Object.keys(STATE.extractions).length + ' / 15\n';
+  md += '**Modules Completed:** ' + Object.keys(STATE.extractions).length + ' / ' + Object.keys(MODULES).length + '\n';
   const editedCount = Object.keys(STATE.edits).length;
   const customCount = STATE.customCards.filter(cc => !STATE.hiddenCards[cc.id]).length;
   if (editedCount > 0) md += '**Edited Cards:** ' + editedCount + '\n';
@@ -3910,14 +3917,26 @@ function renderMarkdown(md) {
       const parseCells = row => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
       const headers = parseCells(headerRow);
       const bodyRows = rows.map(parseCells);
+      // Phase 8.5 fix #2: escape cell content before HTML insertion. The general
+      // escape pass below runs AFTER tables are pulled into placeholders, so
+      // without per-cell escaping a markdown table cell containing raw HTML
+      // (worst case: prompt-injected <img onerror=…> from a broker doc) would
+      // render live. PROMPT_INJECTION_DEFENSE makes this unlikely; escaping here
+      // is defense-in-depth.
+      const escCell = s => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
       let tableHtml = '<div class="md-table-wrap"><table class="md-table">';
-      tableHtml += '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead>';
+      tableHtml += '<thead><tr>' + headers.map(h => `<th>${escCell(h)}</th>`).join('') + '</tr></thead>';
       tableHtml += '<tbody>' + bodyRows.map(r => {
         return '<tr>' + r.map((cell, idx) => {
           // Right-align cells that look like dollar amounts, percentages, or numbers
           const isNumeric = /^[\$\d\-—.,%()]+$/.test(cell) || /^\d+[%$]?$/.test(cell);
           const align = (isNumeric && idx > 0) ? ' style="text-align: right; font-variant-numeric: tabular-nums;"' : '';
-          return `<td${align}>${cell}</td>`;
+          return `<td${align}>${escCell(cell)}</td>`;
         }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>';
       // Replace with a placeholder so the rest of the pipeline doesn't touch it
@@ -4680,7 +4699,7 @@ function updateDecisionPane() {
       mb.innerHTML = `
         <h4>Submission</h4>
         <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">${STATE.files.length}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">${extracted.length} / 15</span></div>
+        <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">${extracted.length} / ${Object.keys(MODULES).length}</span></div>
         <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">LIVE · ANTHROPIC</span></div>
         <div class="meta-row"><span class="meta-row-label">Run cost</span><span class="meta-row-value" style="font-family: var(--font-mono);">${costStr}</span></div>
       `;
