@@ -14,8 +14,8 @@
 <script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
-<script src="prompts.js"></script>
-<link rel="stylesheet" href="app.css">
+<script src="/prompts.js"></script>
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 
@@ -54,7 +54,7 @@
   <div class="topbar-right">
     <button class="api-pill demo" id="apiPill" onclick="openSettings()">
       <span class="dot"></span>
-      <span id="apiPillText">NO API KEY</span>
+      <span id="apiPillText">SIGN IN REQUIRED</span>
     </button>
     <button class="btn-icon theme-toggle" onclick="toggleTheme()" title="Toggle theme">
       <svg class="tt-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -131,7 +131,7 @@
     </div>
     <div class="sub-header-pills" id="sh-pills">
       <span class="sub-pill handoff-pill" id="shHandoffPill" style="display: none;"></span>
-      <span class="sub-pill signal" id="shModePill">API KEY REQUIRED</span>
+      <span class="sub-pill signal" id="shModePill">SIGN IN REQUIRED</span>
     </div>
   </div>
 
@@ -550,7 +550,7 @@
 <div class="modal-backdrop" id="settingsModal" onclick="if(event.target===this) closeSettings()">
   <div class="modal">
     <div class="modal-header">
-      <h2>API Settings</h2>
+      <h2>Settings</h2>
       <button class="btn-icon" onclick="closeSettings()" style="border:none;">✕</button>
     </div>
     <div class="modal-body">
@@ -687,15 +687,15 @@
 <div class="toast-wrap" id="toastWrap"></div>
 
 <!-- Phase 8 step 7: residue extraction. Defines window.STATE, window.sb, window.MOCKS, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
-<script src="app.js"></script>
+<script src="/app.js"></script>
 <!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
-<script src="supabase-data.js"></script>
+<script src="/supabase-data.js"></script>
 <!-- Phase 8 step 4: Admin operator-console renderers. Must load AFTER supabase-data.js (renderers call sb* helpers from there). -->
-<script src="admin-views.js"></script>
+<script src="/admin-views.js"></script>
 <!-- Phase 8 step 5: Website-scraping subsystem (BFS crawler, sitemap discovery, Jina fallback). Must load AFTER the inline init script (which defines llmProxyFetch). -->
-<script src="scraper.js"></script>
+<script src="/scraper.js"></script>
 <!-- Phase 8 step 6: Pipeline subsystem (DAG, classifier, orchestrator, module fan-out). Must load AFTER prompts.js (uses PROMPTS), supabase-data.js (uses sb*), admin-views.js, scraper.js, and the inline init (uses llmProxyFetch, logAudit, etc). -->
-<script src="pipeline.js"></script>
+<script src="/pipeline.js"></script>
 
 
 </body>

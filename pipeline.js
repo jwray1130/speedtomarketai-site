@@ -96,7 +96,7 @@ function fmtCost(n) {
   return '$' + n.toFixed(2);
 }
 
-// 15 extraction modules grouped into 3 execution waves by dependencies.
+// 17 extraction modules grouped into 3 execution waves by dependencies.
 // Each module specifies a preferred `model` — default is Opus on reasoning-heavy
 // modules (guideline matching, contract parsing, loss analytics) and Sonnet on
 // extraction/reformatting modules. This cuts token spend ~40-50% with no quality

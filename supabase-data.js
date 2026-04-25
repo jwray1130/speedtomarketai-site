@@ -154,6 +154,19 @@ async function sbDeleteEdit(submissionId, moduleKey) {
   if (error) throw error;
 }
 
+// Phase 8.5 fix: bulk-delete every submission_edits row for a given submission.
+// Used by clearAllEdits() to ensure remote cleanup matches local cleanup.
+// Without this, a "Reset All Edits" click would clear local state but leave
+// orphan rows in Supabase — which would then come back on next rehydrate
+// once the rehydrate path properly reads from submission_edits.
+async function sbDeleteAllEditsForSubmission(submissionId) {
+  if (!submissionId) return;
+  const { error } = await window.sb
+    .from('submission_edits').delete()
+    .eq('submission_id', submissionId);
+  if (error) throw error;
+}
+
 // Helper: flatten the in-memory edits/customCards/hiddenCards maps into a single
 // upsert batch for the given submission. Called from saveEditsNow().
 async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, customCards, hiddenCards) {
@@ -617,6 +630,7 @@ window.sbDeleteSubmission = sbDeleteSubmission;
 window.sbLoadEdits = sbLoadEdits;
 window.sbSaveEdit = sbSaveEdit;
 window.sbDeleteEdit = sbDeleteEdit;
+window.sbDeleteAllEditsForSubmission = sbDeleteAllEditsForSubmission;
 window.sbSaveAllEditsForSubmission = sbSaveAllEditsForSubmission;
 window.sbLoadFeedbackForSubmission = sbLoadFeedbackForSubmission;
 window.sbLogFeedback = sbLogFeedback;

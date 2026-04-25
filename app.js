@@ -545,6 +545,23 @@ function clearAllEdits() {
   STATE.customCards = [];
   STATE.hiddenCards = {};
   saveEditsNow();
+  // Phase 8.5 fix: also delete remote submission_edits rows for this
+  // submission. saveEditsNow's upsert path has nothing to write when local
+  // state is empty, so without this delete the orphan rows would resurrect
+  // on next rehydrate (which now overlays cloud edits on snapshot).
+  const sid = STATE.activeSubmissionId;
+  if (sid && typeof sbDeleteAllEditsForSubmission === 'function') {
+    (async () => {
+      try {
+        await sbDeleteAllEditsForSubmission(sid);
+        if (typeof logAudit === 'function') logAudit('Edits', 'Cloud edits deleted for ' + sid, 'ok');
+      } catch (err) {
+        console.warn('sbDeleteAllEditsForSubmission failed', err);
+        if (typeof logAudit === 'function') logAudit('Edits', 'Cloud delete FAILED for ' + sid + ' · ' + (err.message || err), 'error');
+        if (typeof toast === 'function') toast('Reset locally, cloud cleanup failed · ' + (err.message || err).slice(0, 60), 'error');
+      }
+    })();
+  }
   renderSummaryCards();
   logAudit('Edits', 'Reset all edits, custom cards, and hidden cards', '—');
   toast('All edits reset');
@@ -603,6 +620,16 @@ function saveSettings() {
   const model = document.getElementById('apiModel').value;
   const maxTokens = parseInt(document.getElementById('apiMaxTokens').value) || 4096;
   STATE.api = { model, maxTokens };
+
+  // Phase 8.5 fix: persist model + max_tokens to user_settings. Previously
+  // these only updated STATE.api in-memory — sbHydrate read them on page
+  // load but saveSettings never wrote them, so changes vanished on refresh.
+  if (typeof sbSaveSettings === 'function') {
+    sbSaveSettings({ default_model: model, max_tokens: maxTokens }).catch(e => {
+      console.warn('Model/token settings save failed', e);
+      if (typeof toast === 'function') toast('Model/tokens saved locally, cloud save failed · ' + (e.message || 'network').slice(0, 60), 'warn');
+    });
+  }
 
   // Save guideline override if present
   const ta = document.getElementById('carrierGuideline');
@@ -1794,6 +1821,58 @@ function rehydrateSubmission(submissionId) {
   STATE.pipelineDone  = true;
   STATE.pipelineRunning = false;
   STATE.activeSubmissionId = submissionId;
+
+  // Phase 8.5 fix: overlay edits from submission_edits table on top of the
+  // snapshot edits. The snapshot was captured at the last save; submission_edits
+  // is the live source of truth and may be newer (e.g. user edited a card,
+  // refreshed before next snapshot save). Cloud edits win on conflict.
+  // Module keys come back prefixed: 'card:<id>' → STATE.edits[id]
+  //                                 'custom:<id>' → STATE.customCards entry
+  //                                 'hidden:<id>' → STATE.hiddenCards[id] = true
+  if (typeof sbLoadEdits === 'function') {
+    (async () => {
+      try {
+        const editRows = await sbLoadEdits(submissionId);
+        if (!editRows || editRows.length === 0) {
+          if (typeof logAudit === 'function') logAudit('Edits', 'Hydrate · ' + submissionId + ' · 0 cloud edit rows', 'ok');
+          return;
+        }
+        // Apply each row by prefix
+        const customById = new Map();
+        // Index existing customCards so we can replace entries that come back from cloud
+        for (const cc of STATE.customCards) { if (cc && cc.id) customById.set(cc.id, cc); }
+        let editCount = 0, customCount = 0, hiddenCount = 0;
+        for (const row of editRows) {
+          const key = row.module_key || '';
+          if (key.startsWith('card:')) {
+            const moduleId = key.slice(5);
+            STATE.edits[moduleId] = row.payload || {};
+            editCount++;
+          } else if (key.startsWith('custom:')) {
+            const cc = row.payload || {};
+            if (cc.id) {
+              customById.set(cc.id, cc);   // replace or insert
+              customCount++;
+            }
+          } else if (key.startsWith('hidden:')) {
+            const moduleId = key.slice(7);
+            STATE.hiddenCards[moduleId] = true;
+            hiddenCount++;
+          }
+        }
+        STATE.customCards = Array.from(customById.values());
+        if (typeof logAudit === 'function') {
+          logAudit('Edits', 'Hydrate · ' + submissionId + ' · cloud overlay: ' +
+            editCount + ' edits, ' + customCount + ' custom, ' + hiddenCount + ' hidden', 'ok');
+        }
+        // Re-render the workbench cards so the cloud-overlaid edits show
+        if (typeof renderSummaryCards === 'function') renderSummaryCards();
+      } catch (err) {
+        console.warn('sbLoadEdits failed during rehydrate', err);
+        if (typeof logAudit === 'function') logAudit('Edits', 'Hydrate FAILED · ' + submissionId + ' · ' + (err.message || err), 'error');
+      }
+    })();
+  }
   // Phase 4: rehydrate feedback events for this submission from Supabase so
   // the UW's 👍/👎/💬 reactions show up on the cards after refresh or when
   // opening an archived submission. Fire-and-forget with audit logging.
