@@ -31,14 +31,15 @@
    * works as-is — no JS changes needed.
    * ============================================================ */
 
-  /* Brand signal — Stripe purple on light */
-  --signal: #635BFF;
-  --signal-hover: #7B73FF;
-  --signal-dim: #4F46E5;
-  --signal-ink: #635BFF;
-  --signal-pale: rgba(99, 91, 255, 0.06);
-  --signal-tint: rgba(99, 91, 255, 0.14);
-  --signal-deep: #4F46E5;
+  /* Brand signal — Graphite (Round 6.2: replaces Stripe purple) */
+  --signal: #1A1A22;
+  --signal-hover: #2C2C36;
+  --signal-dim: #4A4A55;
+  --signal-ink: #1A1A22;
+  --signal-rgb: 26, 26, 34;
+  --signal-pale: rgba(26, 26, 34, 0.05);
+  --signal-tint: rgba(26, 26, 34, 0.10);
+  --signal-deep: #0F0F15;
   --signal-2: #00D4FF;
 
   --amber: #F5A623;
@@ -64,7 +65,7 @@
 
   /* Stripe-style gradients */
   --gradient-hero: linear-gradient(135deg, #635BFF 0%, #00D4FF 35%, #00C896 70%, #FFEB3B 100%);
-  --gradient-cta: linear-gradient(135deg, #635BFF 0%, #4F46E5 100%);
+  --gradient-cta: linear-gradient(135deg, #1A1A22 0%, #2C2C36 100%);
   --gradient-strip: linear-gradient(90deg, #635BFF 0%, #00D4FF 50%, #00C896 100%);
 
   --font-display: 'Inter', -apple-system, sans-serif;
@@ -137,13 +138,14 @@ html[data-theme="dark"] {
  *  is identical whether the attribute is present or absent.
  * ============================================================ */
 html[data-theme="light"] {
-  --signal: #635BFF;
-  --signal-hover: #7B73FF;
-  --signal-dim: #4F46E5;
-  --signal-ink: #635BFF;
-  --signal-pale: rgba(99, 91, 255, 0.06);
-  --signal-tint: rgba(99, 91, 255, 0.14);
-  --signal-deep: #4F46E5;
+  --signal: #1A1A22;
+  --signal-hover: #2C2C36;
+  --signal-dim: #4A4A55;
+  --signal-ink: #1A1A22;
+  --signal-rgb: 26, 26, 34;
+  --signal-pale: rgba(26, 26, 34, 0.05);
+  --signal-tint: rgba(26, 26, 34, 0.10);
+  --signal-deep: #0F0F15;
   --signal-2: #00D4FF;
 
   --amber: #F5A623;
@@ -167,7 +169,7 @@ html[data-theme="light"] {
   --grain-blend: multiply;
 
   --gradient-hero: linear-gradient(135deg, #635BFF 0%, #00D4FF 35%, #00C896 70%, #FFEB3B 100%);
-  --gradient-cta: linear-gradient(135deg, #635BFF 0%, #4F46E5 100%);
+  --gradient-cta: linear-gradient(135deg, #1A1A22 0%, #2C2C36 100%);
   --gradient-strip: linear-gradient(90deg, #635BFF 0%, #00D4FF 50%, #00C896 100%);
 
   --shadow-sm: 0 1px 2px rgba(10, 37, 64, 0.05);
@@ -214,6 +216,71 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   align-items: center;
   justify-content: space-between;
   gap: 22px;
+}
+
+/* ============================================================
+ * Round 6.2 — Gradient hero treatment for the platform
+ * Light mode only. A thin (3px) rainbow accent at the very top
+ * of the topbar PLUS a much larger blurred ambient gradient
+ * sitting BEHIND the topbar that fades into the page.
+ * Dark mode: untouched, no gradient — the existing chartreuse
+ * aesthetic carries the visual weight.
+ * ============================================================ */
+:root:not([data-theme="dark"]) .topbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-strip);
+  z-index: 1;
+}
+:root:not([data-theme="dark"]) .topbar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 280px;
+  background: var(--gradient-hero);
+  opacity: 0.35;
+  z-index: -1;
+  filter: blur(60px);
+  -webkit-mask-image: radial-gradient(ellipse 90% 100% at 50% 0%, black 0%, black 30%, transparent 75%);
+          mask-image: radial-gradient(ellipse 90% 100% at 50% 0%, black 0%, black 30%, transparent 75%);
+  pointer-events: none;
+  transform: translateY(0);
+}
+/* Make sure the topbar's backdrop is positioned to allow the ::after
+   to show through correctly. */
+:root:not([data-theme="dark"]) .topbar {
+  position: sticky;
+  isolation: isolate;
+}
+:root:not([data-theme="dark"]) main {
+  position: relative;
+}
+:root:not([data-theme="dark"]) main::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 360px;
+  background: var(--gradient-hero);
+  opacity: 0.20;
+  z-index: 0;
+  filter: blur(80px);
+  -webkit-mask-image: radial-gradient(ellipse 80% 90% at 50% 0%, black 0%, black 25%, transparent 80%);
+          mask-image: radial-gradient(ellipse 80% 90% at 50% 0%, black 0%, black 25%, transparent 80%);
+  pointer-events: none;
+  transform: translateY(-1px);
+}
+/* Ensure direct children of main render above the gradient pseudo */
+:root:not([data-theme="dark"]) main > * {
+  position: relative;
+  z-index: 1;
 }
 .brand {
   display: flex;
@@ -3727,7 +3794,7 @@ html:not([data-theme="dark"]) .btn-pill.btn-primary {
   background: var(--signal);
   color: #FFFFFF;
   border: 1px solid var(--signal);
-  box-shadow: 0 1px 2px rgba(99, 91, 255, 0.2), 0 4px 12px rgba(99, 91, 255, 0.18);
+  box-shadow: 0 1px 2px rgba(26, 26, 34, 0.20), 0 4px 12px rgba(26, 26, 34, 0.15);
 }
 html:not([data-theme="dark"]) .btn-stripe-primary:hover,
 html:not([data-theme="dark"]) .btn-pill.btn-primary:hover {
