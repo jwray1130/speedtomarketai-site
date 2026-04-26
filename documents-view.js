@@ -3807,8 +3807,8 @@ function startAnnoEngine() {
       let wrap = thumbEl.querySelector('.anno-canvas-wrap');
       if (wrap) {
         const canvas = wrap.querySelector('.anno-canvas');
-        if (canvas && thumbEl.offsetWidth > 0) {
-          resizeCanvas(canvas, thumbEl);
+        if (canvas && wrap.offsetWidth > 0) {
+          resizeCanvas(canvas, wrap);
           redrawLayers(docId, canvas);
         }
         return wrap;
@@ -3827,13 +3827,14 @@ function startAnnoEngine() {
       wrap.appendChild(canvas);
       thumbEl.appendChild(wrap);
 
-      if (thumbEl.offsetWidth > 0) {
-        resizeCanvas(canvas, thumbEl);
+      // Now wrap is laid out — measure from it directly.
+      if (wrap.offsetWidth > 0) {
+        resizeCanvas(canvas, wrap);
         redrawLayers(docId, canvas);
       } else {
         requestAnimationFrame(() => {
-          if (thumbEl.offsetWidth > 0) {
-            resizeCanvas(canvas, thumbEl);
+          if (wrap.offsetWidth > 0) {
+            resizeCanvas(canvas, wrap);
             redrawLayers(docId, canvas);
           }
         });
@@ -3844,23 +3845,18 @@ function startAnnoEngine() {
     }
 
     function resizeCanvas(canvas, container) {
-      // Size the backing buffer to the canvas's OWN displayed dimensions,
-      // not the container's. The CSS rule `.anno-canvas { width: 100% !important;
-      // height: 100% !important }` makes the canvas fill its wrap, but the
-      // wrap is `inset: 0` of doc-thumb's PADDING box (not border box), so
-      // when doc-thumb has a 1px border-bottom the wrap (and canvas) are
-      // 1px shorter than the doc-thumb's getBoundingClientRect reports.
-      // Sourcing from the canvas itself eliminates any container/canvas
-      // dimension mismatch and is robust against future CSS changes.
-      // Falls back to container only if canvas hasn't been laid out yet.
-      let rect = canvas.getBoundingClientRect();
-      if (rect.width < 10 || rect.height < 10) {
-        rect = container.getBoundingClientRect();
-        if (rect.width < 10 || rect.height < 10) return;
-      }
+      // Source dimensions from the WRAP (container), not the canvas itself.
+      // The canvas is a replaced element and its CSS sizing has browser-
+      // specific edge cases; the wrap is a regular div with explicit
+      // `position: absolute; inset: 0` so its layout is unambiguous.
+      // The canvas's CSS rule `width: 100%; height: 100%;` ensures it
+      // displays at the wrap's size, which is what we size the backing for.
+      const rect = container.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return;
       const dpr = window.devicePixelRatio || 1;
-      // Round to integer pixels so backing/display ratio is exact and
-      // strokes don't drift by sub-pixel amounts at high coordinates.
+      // Round to integer CSS pixels so the backing/display ratio is exact
+      // (an integer multiple of dpr) and strokes don't drift by sub-pixel
+      // amounts at high coordinates.
       const w = Math.round(rect.width);
       const h = Math.round(rect.height);
       canvas.width = w * dpr;
