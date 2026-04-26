@@ -5097,18 +5097,31 @@ function toast(msg) {
 }
 
 function toggleTheme() {
+  // Round 6: always set explicit data-theme attribute. Never remove.
+  // Light is the new :root default, so the prior "remove = dark" logic broke.
   const el = document.documentElement;
-  const cur = el.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const cur = el.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   const next = cur === 'dark' ? 'light' : 'dark';
-  if (next === 'light') el.setAttribute('data-theme', 'light');
-  else el.removeAttribute('data-theme');
+  el.setAttribute('data-theme', next);
   try { localStorage.setItem('stm-theme', next); } catch(e) {}
 }
 (function initTheme() {
+  // Round 6: light is the new default. Honor stored preference, else
+  // fall back to system preference, else default to light.
   try {
     const stored = localStorage.getItem('stm-theme');
-    if (stored === 'light') document.documentElement.setAttribute('data-theme', 'light');
-  } catch(e) {}
+    if (stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else if (stored === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  } catch(e) {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
 })();
 
 // ============================================================================

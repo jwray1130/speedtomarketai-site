@@ -519,6 +519,40 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   overflow: hidden;
   z-index: 2;
 }
+
+/* ============================================================
+ * Round 6 — Stripe rainbow gradient hero (LIGHT MODE ONLY).
+ * Massive blurred multi-color gradient sitting at the top of the
+ * hero, masked to fade into white. The signature Stripe move.
+ * Dark mode KEEPS its existing chartreuse ribbon (.hero-accent
+ * below) — we don't touch dark mode's hero treatment.
+ * ============================================================ */
+:root:not([data-theme="dark"]) .hero::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 720px;
+  background: var(--gradient-hero);
+  opacity: 0.55;
+  z-index: 0;
+  filter: blur(60px);
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 0%, black 35%, transparent 80%);
+          mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 0%, black 35%, transparent 80%);
+  transform: skewY(-3deg);
+  transform-origin: top left;
+  pointer-events: none;
+}
+/* Light mode hides the old chartreuse hero-accent ribbon — replaced by the gradient above */
+:root:not([data-theme="dark"]) .hero-accent {
+  display: none;
+}
+/* Light mode tones down the grid pattern so it doesn't compete with the gradient */
+:root:not([data-theme="dark"]) .hero-grid {
+  opacity: 0.25;
+}
+
 .hero-grid {
   position: absolute;
   inset: 0;
@@ -3118,20 +3152,24 @@ document.querySelectorAll('.nav-links a').forEach(a => {
   a.addEventListener('click', () => document.getElementById('navLinks').classList.remove('open'));
 });
 
-// ===== THEME TOGGLE =====
+// ===== THEME TOGGLE (Round 6: explicit attribute, never remove) =====
+// Round 6 made light the default :root, so the prior "remove attribute = dark"
+// logic stopped working. Now we ALWAYS set an explicit data-theme attribute,
+// either "light" or "dark", which makes the behavior deterministic regardless
+// of which theme is :root default.
 function applyTheme(theme) {
-  if (theme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#F7F5F0');
-  } else {
-    document.documentElement.removeAttribute('data-theme');
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A0E1A');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FFFFFF');
   }
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'light' ? 'dark' : 'light';
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   try { localStorage.setItem('stm-theme', next); } catch (e) {}
 }
@@ -3139,16 +3177,17 @@ function toggleTheme() {
 // Initialize theme on load:
 // 1. If user previously chose a theme, honor that
 // 2. Otherwise respect system preference
-// 3. Default to dark
+// 3. Default to LIGHT (Round 6 — solves "too dark" feedback for new visitors)
 (function initTheme() {
   let stored;
   try { stored = localStorage.getItem('stm-theme'); } catch (e) {}
   if (stored === 'light' || stored === 'dark') {
     applyTheme(stored);
-  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme('dark');
+  } else {
     applyTheme('light');
   }
-  // Else: stay dark (default)
 })();
 </script>
 
