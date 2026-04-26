@@ -62,7 +62,12 @@ window.initDocumentsView = function() {
       { id: 'subjectivities',  name: 'Subjectivities',  desc: 'Pending requirements',           iconId: 'alert' },
       { id: 'surplus-lines',   name: 'Surplus Lines',   desc: 'Non-admitted policies',          iconId: 'file-plus' },
     ],
-    storageKeys: { theme: 'stm_docs_theme', view: 'stm_docs_view' },
+    storageKeys: {
+      theme: 'stm_docs_theme',
+      view: 'stm_docs_view',
+      docsPanelW: 'stm_docs_panel_w',
+      tagsPanelW: 'stm_tags_panel_w',
+    },
   };
 
   const ICONS = {
@@ -3067,15 +3072,22 @@ window.initDocumentsView = function() {
   });
 
   // ══════ RESIZERS ══════
+  // The panel-width CSS variables (--docs-panel-w, --tags-panel-w) are
+  // defined on #docs-view-root (after the Phase 1 namespacing of the
+  // prototype's :root rule). Custom properties cascade DOWN, but a child's
+  // local definition shadows ancestor values. So writing the new width to
+  // <html> has no effect — #docs-view-root's local var wins. We must
+  // read AND write on the namespaced root itself.
   function attachResizer(elId, sideCol, isLeft) {
     const el = $id(elId);
     if (!el) return;
+    const root = $id('docs-view-root') || document.documentElement;
     let startX, startW;
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
       el.classList.add('active');
       startX = e.clientX;
-      const wsEl = document.querySelector('.workspace');
+      const wsEl = root.querySelector('.workspace');
       const cs = getComputedStyle(wsEl);
       const cols = cs.gridTemplateColumns.split(' ');
       startW = parseFloat(cols[sideCol]);
@@ -3085,15 +3097,18 @@ window.initDocumentsView = function() {
         const newW = isLeft ? (startW + delta) : (startW - delta);
         const vw = window.innerWidth;
         const otherPanelW = isLeft
-          ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tags-panel-w')) || 280
-          : parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--docs-panel-w')) || 300;
+          ? parseFloat(getComputedStyle(root).getPropertyValue('--tags-panel-w')) || 280
+          : parseFloat(getComputedStyle(root).getPropertyValue('--docs-panel-w')) || 300;
         const maxW = vw - otherPanelW - 200 - 8;
         const clamped = Math.max(220, Math.min(maxW, newW));
-        document.documentElement.style.setProperty(
-          isLeft ? '--docs-panel-w' : '--tags-panel-w',
-          clamped + 'px'
-        );
+        const varName = isLeft ? '--docs-panel-w' : '--tags-panel-w';
+        root.style.setProperty(varName, clamped + 'px');
         state._panelResized = true;
+        // Persist so the resize survives refresh.
+        try {
+          const key = isLeft ? CONFIG.storageKeys.docsPanelW : CONFIG.storageKeys.tagsPanelW;
+          localStorage.setItem(key, String(clamped));
+        } catch(e) {}
       };
       const onUp = () => {
         el.classList.remove('active');
@@ -3106,6 +3121,24 @@ window.initDocumentsView = function() {
   }
   attachResizer('resizer1', 0, true);
   attachResizer('resizer2', 4, false);
+
+  // Restore persisted panel widths on init. localStorage values are pixel
+  // counts (no 'px' suffix); we add it. Bounds-checking happens during
+  // resize, so we trust persisted values within reason (cap at ±50% of vw).
+  try {
+    const root = $id('docs-view-root');
+    if (root) {
+      const dw = parseFloat(localStorage.getItem(CONFIG.storageKeys.docsPanelW));
+      const tw = parseFloat(localStorage.getItem(CONFIG.storageKeys.tagsPanelW));
+      const vw = window.innerWidth || 1280;
+      if (Number.isFinite(dw) && dw >= 220 && dw <= vw * 0.6) {
+        root.style.setProperty('--docs-panel-w', dw + 'px');
+      }
+      if (Number.isFinite(tw) && tw >= 220 && tw <= vw * 0.6) {
+        root.style.setProperty('--tags-panel-w', tw + 'px');
+      }
+    }
+  } catch(e) {}
 
   // ══════ VIEW MODE ══════
   function setViewMode(mode) {
