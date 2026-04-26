@@ -3865,3 +3865,172 @@ html:not([data-theme="dark"]) .stripe-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
 }
+
+/* ============================================================================
+ * ROUND 6.3 — CARD ELEVATION SYSTEM (LIGHT MODE ONLY)
+ *
+ * Three tiers of cards, each lifting off the white page background by a
+ * different amount. Dark mode is untouched — this entire block lives behind
+ * :root:not([data-theme="dark"]) selectors.
+ *
+ * Tier 1 — DEFAULT: subtle white-to-near-white gradient. Soft shadow. 1px
+ *          white inner highlight at top (mimics light hitting a physical
+ *          card). Used on extraction module cards, queue rows, file chips,
+ *          standard panels.
+ *
+ * Tier 2 — ELEVATED: slightly more saturated grey gradient. Deeper shadow.
+ *          Reserved for the "important supporting" surfaces — Decision panel
+ *          frame, the analysis cards inside it, the active submission card.
+ *
+ * Tier 3 — HERO: graphite gradient (#1A1A22 → #0F0F15). White text. The
+ *          "answer" surface. Reserved for: Recommendation card, AFTER card
+ *          on marketing, primary CTA section. Re-uses the signal color so
+ *          it ties to buttons.
+ *
+ * USAGE:
+ *   <div class="card-elev-default">...</div>   <!-- tier 1 -->
+ *   <div class="card-elev-elevated">...</div>  <!-- tier 2 -->
+ *   <div class="card-elev-hero">...</div>      <!-- tier 3 -->
+ *
+ * Cards inside the platform that already have classes (.card, .summary-card,
+ * .file-card, .queue-row, etc.) get treated below as a one-time backfill so
+ * we don't have to rename anything in HTML.
+ * ============================================================================ */
+
+/* === TIER 1: DEFAULT === */
+:root:not([data-theme="dark"]) .card-elev-default,
+:root:not([data-theme="dark"]) .summary-card,
+:root:not([data-theme="dark"]) .feature-card,
+:root:not([data-theme="dark"]) .file-card,
+:root:not([data-theme="dark"]) .queue-row,
+:root:not([data-theme="dark"]) .module-card,
+:root:not([data-theme="dark"]) .step,
+:root:not([data-theme="dark"]) .module {
+  background: linear-gradient(180deg, #FBFCFD 0%, #F4F6F9 100%);
+  border: 1px solid #E3E8EE;
+  box-shadow: 0 1px 2px rgba(10, 37, 64, 0.04), 0 4px 12px rgba(10, 37, 64, 0.06);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .card-elev-default::before,
+:root:not([data-theme="dark"]) .summary-card::before,
+:root:not([data-theme="dark"]) .feature-card::before,
+:root:not([data-theme="dark"]) .file-card::before,
+:root:not([data-theme="dark"]) .queue-row::before,
+:root:not([data-theme="dark"]) .module-card::before,
+:root:not([data-theme="dark"]) .step::before,
+:root:not([data-theme="dark"]) .module::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* === TIER 2: ELEVATED === */
+:root:not([data-theme="dark"]) .card-elev-elevated,
+:root:not([data-theme="dark"]) .decision-panel,
+:root:not([data-theme="dark"]) .admin-card,
+:root:not([data-theme="dark"]) .sec-card,
+:root:not([data-theme="dark"]) .uc-content,
+:root:not([data-theme="dark"]) .roadmap-col,
+:root:not([data-theme="dark"]) .ba-col {
+  background: linear-gradient(180deg, #F4F6F9 0%, #E8EDF3 100%);
+  border: 1px solid #D8DFE8;
+  box-shadow: 0 2px 4px rgba(10, 37, 64, 0.06), 0 8px 24px rgba(10, 37, 64, 0.10);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .card-elev-elevated::before,
+:root:not([data-theme="dark"]) .decision-panel::before,
+:root:not([data-theme="dark"]) .admin-card::before,
+:root:not([data-theme="dark"]) .sec-card::before,
+:root:not([data-theme="dark"]) .uc-content::before,
+:root:not([data-theme="dark"]) .roadmap-col::before,
+:root:not([data-theme="dark"]) .ba-col::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* === TIER 3: HERO === */
+:root:not([data-theme="dark"]) .card-elev-hero,
+:root:not([data-theme="dark"]) .recommendation-card,
+:root:not([data-theme="dark"]) .cta-section,
+:root:not([data-theme="dark"]) .ba-after,
+:root:not([data-theme="dark"]) .builtby,
+:root:not([data-theme="dark"]) .wedge-callout {
+  background: linear-gradient(180deg, #1A1A22 0%, #0F0F15 100%);
+  border: 1px solid #1A1A22;
+  color: #FAFAFA;
+  box-shadow: 0 4px 8px rgba(10, 37, 64, 0.12), 0 16px 40px rgba(10, 37, 64, 0.20);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .card-elev-hero::before,
+:root:not([data-theme="dark"]) .recommendation-card::before,
+:root:not([data-theme="dark"]) .cta-section::before,
+:root:not([data-theme="dark"]) .ba-after::before,
+:root:not([data-theme="dark"]) .builtby::before,
+:root:not([data-theme="dark"]) .wedge-callout::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Hero cards need readable text on dark background — override descendants */
+:root:not([data-theme="dark"]) .card-elev-hero,
+:root:not([data-theme="dark"]) .card-elev-hero h1,
+:root:not([data-theme="dark"]) .card-elev-hero h2,
+:root:not([data-theme="dark"]) .card-elev-hero h3,
+:root:not([data-theme="dark"]) .card-elev-hero h4,
+:root:not([data-theme="dark"]) .recommendation-card,
+:root:not([data-theme="dark"]) .recommendation-card h1,
+:root:not([data-theme="dark"]) .recommendation-card h2,
+:root:not([data-theme="dark"]) .recommendation-card h3,
+:root:not([data-theme="dark"]) .ba-after,
+:root:not([data-theme="dark"]) .ba-after h1,
+:root:not([data-theme="dark"]) .ba-after h2,
+:root:not([data-theme="dark"]) .ba-after h3,
+:root:not([data-theme="dark"]) .ba-after .ba-num,
+:root:not([data-theme="dark"]) .builtby,
+:root:not([data-theme="dark"]) .builtby h1,
+:root:not([data-theme="dark"]) .builtby h2,
+:root:not([data-theme="dark"]) .builtby h3,
+:root:not([data-theme="dark"]) .cta-section,
+:root:not([data-theme="dark"]) .cta-section h1,
+:root:not([data-theme="dark"]) .cta-section h2,
+:root:not([data-theme="dark"]) .cta-section h3 {
+  color: #FAFAFA;
+}
+:root:not([data-theme="dark"]) .card-elev-hero p,
+:root:not([data-theme="dark"]) .recommendation-card p,
+:root:not([data-theme="dark"]) .ba-after p,
+:root:not([data-theme="dark"]) .builtby p,
+:root:not([data-theme="dark"]) .cta-section p {
+  color: rgba(255, 255, 255, 0.78);
+}
+:root:not([data-theme="dark"]) .card-elev-hero .module-tag,
+:root:not([data-theme="dark"]) .card-elev-hero .label-tag,
+:root:not([data-theme="dark"]) .recommendation-card .module-tag,
+:root:not([data-theme="dark"]) .ba-after .label-tag {
+  background: rgba(255, 255, 255, 0.10);
+  color: #FAFAFA;
+}
+
+/* Italic-serif emphasis inside hero cards uses brighter accent */
+:root:not([data-theme="dark"]) .card-elev-hero em,
+:root:not([data-theme="dark"]) .recommendation-card em,
+:root:not([data-theme="dark"]) .ba-after em,
+:root:not([data-theme="dark"]) .builtby em,
+:root:not([data-theme="dark"]) .cta-section em {
+  color: #FAFAFA;
+  font-family: var(--font-display-italic);
+}

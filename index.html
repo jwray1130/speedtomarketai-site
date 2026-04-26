@@ -3023,6 +3023,158 @@ footer {
 
 /* Tighten builtby-creds chip wrapping on smaller screens */
 .builtby-creds { row-gap: 10px; }
+
+/* ============================================================================
+ * ROUND 6.3 — CARD ELEVATION SYSTEM (LIGHT MODE ONLY)
+ *
+ * Three tiers lifting cards off the white page background. Dark mode is
+ * untouched. Same logic as app.css — adapted to marketing-page class names.
+ *
+ * Tier 1 (DEFAULT): subtle white-grey gradient. Step cards, modules, stat
+ *                    cards, sec-card, tc-card, roadmap-col.
+ * Tier 2 (ELEVATED): stronger grey gradient. Used sparingly — uc-content,
+ *                    decision-style panels, ba-col.before.
+ * Tier 3 (HERO): graphite gradient (#1A1A22 → #0F0F15) with white text.
+ *                The "answer" surfaces — ba-col.after, builtby, cta-section,
+ *                wedge-callout.
+ * ============================================================================ */
+
+/* === TIER 1: DEFAULT === */
+:root:not([data-theme="dark"]) .step,
+:root:not([data-theme="dark"]) .module,
+:root:not([data-theme="dark"]) .sec-card,
+:root:not([data-theme="dark"]) .tc-card,
+:root:not([data-theme="dark"]) .roadmap-col,
+:root:not([data-theme="dark"]) .quote {
+  background: linear-gradient(180deg, #FBFCFD 0%, #F4F6F9 100%);
+  border: 1px solid #E3E8EE;
+  box-shadow: 0 1px 2px rgba(10, 37, 64, 0.04), 0 4px 12px rgba(10, 37, 64, 0.06);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .step::before,
+:root:not([data-theme="dark"]) .module::before,
+:root:not([data-theme="dark"]) .sec-card::before,
+:root:not([data-theme="dark"]) .tc-card::before,
+:root:not([data-theme="dark"]) .roadmap-col::before,
+:root:not([data-theme="dark"]) .quote::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* === TIER 2: ELEVATED === */
+:root:not([data-theme="dark"]) .uc-content,
+:root:not([data-theme="dark"]) .ba-col.before {
+  background: linear-gradient(180deg, #F4F6F9 0%, #E8EDF3 100%);
+  border: 1px solid #D8DFE8;
+  box-shadow: 0 2px 4px rgba(10, 37, 64, 0.06), 0 8px 24px rgba(10, 37, 64, 0.10);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .uc-content::before,
+:root:not([data-theme="dark"]) .ba-col.before::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* === TIER 3: HERO === */
+:root:not([data-theme="dark"]) .ba-col.after,
+:root:not([data-theme="dark"]) .builtby,
+:root:not([data-theme="dark"]) .cta-section,
+:root:not([data-theme="dark"]) .wedge-callout {
+  background: linear-gradient(180deg, #1A1A22 0%, #0F0F15 100%);
+  border: 1px solid #1A1A22;
+  color: #FAFAFA;
+  box-shadow: 0 4px 8px rgba(10, 37, 64, 0.12), 0 16px 40px rgba(10, 37, 64, 0.20);
+  position: relative;
+}
+:root:not([data-theme="dark"]) .ba-col.after::before,
+:root:not([data-theme="dark"]) .builtby::before,
+:root:not([data-theme="dark"]) .cta-section::before,
+:root:not([data-theme="dark"]) .wedge-callout::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Hero card text overrides — readable on dark backgrounds */
+:root:not([data-theme="dark"]) .ba-col.after,
+:root:not([data-theme="dark"]) .ba-col.after h1,
+:root:not([data-theme="dark"]) .ba-col.after h2,
+:root:not([data-theme="dark"]) .ba-col.after h3,
+:root:not([data-theme="dark"]) .ba-col.after .ba-num,
+:root:not([data-theme="dark"]) .builtby,
+:root:not([data-theme="dark"]) .builtby h1,
+:root:not([data-theme="dark"]) .builtby h2,
+:root:not([data-theme="dark"]) .builtby h3,
+:root:not([data-theme="dark"]) .cta-section,
+:root:not([data-theme="dark"]) .cta-section h1,
+:root:not([data-theme="dark"]) .cta-section h2,
+:root:not([data-theme="dark"]) .cta-section h3,
+:root:not([data-theme="dark"]) .cta-huge,
+:root:not([data-theme="dark"]) .wedge-callout,
+:root:not([data-theme="dark"]) .wedge-line {
+  color: #FAFAFA;
+}
+:root:not([data-theme="dark"]) .ba-col.after p,
+:root:not([data-theme="dark"]) .ba-col.after li,
+:root:not([data-theme="dark"]) .builtby p,
+:root:not([data-theme="dark"]) .cta-section p,
+:root:not([data-theme="dark"]) .wedge-callout p {
+  color: rgba(255, 255, 255, 0.78);
+}
+/* Hero italic emphasis — bright accent so it still pops on dark bg */
+:root:not([data-theme="dark"]) .ba-col.after em,
+:root:not([data-theme="dark"]) .builtby em,
+:root:not([data-theme="dark"]) .cta-section em,
+:root:not([data-theme="dark"]) .wedge-callout em,
+:root:not([data-theme="dark"]) .cta-huge em,
+:root:not([data-theme="dark"]) .wedge-line em {
+  color: #FFFFFF;
+  font-family: var(--font-display-italic);
+}
+/* Eyebrow / label tags inside hero cards */
+:root:not([data-theme="dark"]) .ba-col.after .ba-label,
+:root:not([data-theme="dark"]) .builtby .label-tag,
+:root:not([data-theme="dark"]) .cta-section .label-tag {
+  color: rgba(255, 255, 255, 0.5);
+}
+/* Builtby avatar ring stays graphite on light, but inverts to white-tinted
+   border when sitting inside the hero graphite card */
+:root:not([data-theme="dark"]) .builtby .builtby-avatar {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+/* CTA buttons inside hero cards — invert to white-on-dark */
+:root:not([data-theme="dark"]) .ba-col.after .btn-primary,
+:root:not([data-theme="dark"]) .builtby .btn-primary,
+:root:not([data-theme="dark"]) .cta-section .btn-primary {
+  background: #FFFFFF;
+  color: #1A1A22;
+  border-color: #FFFFFF;
+}
+:root:not([data-theme="dark"]) .ba-col.after .btn-secondary,
+:root:not([data-theme="dark"]) .builtby .btn-secondary,
+:root:not([data-theme="dark"]) .cta-section .btn-secondary,
+:root:not([data-theme="dark"]) .ba-col.after .btn-ghost,
+:root:not([data-theme="dark"]) .builtby .btn-ghost,
+:root:not([data-theme="dark"]) .cta-section .btn-ghost {
+  background: transparent;
+  color: #FFFFFF;
+  border-color: rgba(255, 255, 255, 0.3);
+}
 </style>
 
 <!-- ========== CTA ========== -->
