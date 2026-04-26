@@ -1,0 +1,32 @@
+{
+  "package": "github-document-workspace-replacement",
+  "integration": "1:1 document workspace in iframe",
+  "replace": [
+    "app.html",
+    "documents-view.css",
+    "documents-view.js"
+  ],
+  "add": [
+    "documents-workspace.html",
+    "documents-workspace.css",
+    "documents-workspace.js"
+  ],
+  "included_unchanged": [
+    "app.css",
+    "app.js",
+    "prompts.js",
+    "supabase-data.js",
+    "admin-views.js",
+    "scraper.js",
+    "pipeline.js",
+    "index.html",
+    "vercel.json"
+  ],
+  "entrypoints": {
+    "parent_stage": "app.html#documentsStage",
+    "parent_bridge": "documents-view.js",
+    "workspace": "documents-workspace.html",
+    "workspace_css": "documents-workspace.css",
+    "workspace_js": "documents-workspace.js"
+  }
+}

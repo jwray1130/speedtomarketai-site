@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Speed to Market AI · Document Workspace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/documents-workspace.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════ TOPBAR ══════ -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <a class="brand" href="#">
+        <div class="brand-mark">S</div>
+        <div class="brand-text">
+          <div class="brand-name">Speed to Market AI</div>
+          <div class="brand-sub">Document Workspace</div>
+        </div>
+      </a>
+    </div>
+
+    <div class="topbar-center">
+      <button class="tools-btn" id="toolsBtn" title="Open annotation tools">
+        <svg class="tools-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <rect x="10" y="10" width="4" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="tools-btn-label">TOOLS</span>
+        <span class="tools-btn-active" id="toolsBtnActive"></span>
+        <svg class="tools-btn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      <!-- Topbar search (moved from docs panel) -->
+      <div class="topbar-search">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search documents…">
+        <span class="search-counter" id="searchCounter"></span>
+        <button class="search-nav-btn" id="searchPrev" title="Previous match (Shift+Enter)" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+        <button class="search-nav-btn" id="searchNext" title="Next match (Enter)" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button class="search-clear" id="searchClear" title="Clear search (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+
+      <!-- Topbar utility icons (view toggle + sort) -->
+      <div class="topbar-utils">
+        <div class="view-toggle">
+          <button class="active" data-view="thumbnail" title="Thumbnail view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+          <button data-view="list" title="List view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+        </div>
+        <div class="sort-wrap">
+          <button class="sort-btn" id="sortBtn" title="Sort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg></button>
+          <div class="sort-menu" id="sortMenu">
+            <button class="sort-option active" data-sort="newest">Newest First</button>
+            <button class="sort-option" data-sort="oldest">Oldest First</button>
+            <button class="sort-option" data-sort="name-asc">Name A → Z</button>
+            <button class="sort-option" data-sort="name-desc">Name Z → A</button>
+            <button class="sort-option" data-sort="type">By Type</button>
+          </div>
+        </div>
+        <button class="btn-icon" id="clearAllBtn" title="Clear all documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+      </div>
+
+      <span class="topbar-category" id="activeCategoryLabel">All Documents</span>
+      <!-- Hidden legacy element kept for existing JS references -->
+      <span id="docsCount" style="display:none">0</span>
+    </div>
+
+    <div class="topbar-right">
+      <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <button class="btn btn-primary" id="uploadBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload Documents
+      </button>
+      <input type="file" id="fileInput" multiple accept=".pdf,.xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm,.doc,.docx,.rtf,.jpg,.jpeg,.png,.tiff,.tif,.gif,.webp,.bmp,.eml,.msg,.oft,.pptx,.ppt,.ppsx,.potx,.potm,.pptm,.csv,.tsv,.txt,.log,.md,.zip,.rar,.7z,.tar,.gz" style="display:none">
+    </div>
+  </header>
+
+  <!-- ══════ 3-COLUMN WORKSPACE ══════ -->
+  <main class="workspace">
+
+    <!-- LEFT: Documents panel -->
+    <aside class="docs-panel">
+
+      <!-- (Annotation toolbar removed — now floating .anno-toolbox at root) -->
+      <!-- (Search + Docs Header removed — moved to topbar) -->
+
+      <!-- Bulk bar -->
+      <div class="bulk-bar" id="bulkBar">
+        <div class="bulk-count"><b id="bulkCount">0</b> selected</div>
+        <div class="bulk-actions">
+          <button class="bulk-btn" data-bulk="tag" title="Tag all"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
+          <button class="bulk-btn" data-bulk="color-red" title="Loss History"><span class="mini-dot red"></span></button>
+          <button class="bulk-btn" data-bulk="color-maroon" title="Cancellations"><span class="mini-dot maroon"></span></button>
+          <button class="bulk-btn" data-bulk="color-blue" title="Policy"><span class="mini-dot blue"></span></button>
+          <button class="bulk-btn" data-bulk="color-green" title="Applications"><span class="mini-dot green"></span></button>
+          <button class="bulk-btn" data-bulk="color-yellow" title="Underlying"><span class="mini-dot yellow"></span></button>
+          <button class="bulk-btn" data-bulk="color-purple" title="Project"><span class="mini-dot purple"></span></button>
+          <button class="bulk-btn" data-bulk="color-orange" title="Subjectivity"><span class="mini-dot orange"></span></button>
+          <button class="bulk-btn" data-bulk="color-pink" title="Quote / Indication"><span class="mini-dot pink"></span></button>
+          <button class="bulk-btn" data-bulk="color-black" title="Underwriting"><span class="mini-dot black"></span></button>
+          <button class="bulk-btn" data-bulk="move" title="Move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
+          <button class="bulk-btn danger" data-bulk="delete" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+          <button class="bulk-btn" id="bulkClose" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+      </div>
+
+      <!-- (Docs Header removed — view toggle moved to topbar) -->
+
+      <!-- Docs list -->
+      <div class="docs-list" id="docsList" data-view="thumbnail">
+        <div class="docs-empty" id="docsEmpty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div class="docs-empty-title">No documents yet</div>
+          <div class="docs-empty-sub">Drop files here or click Upload Documents</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="resizer" id="resizer1"></div>
+
+    <!-- CENTER: Categories -->
+    <section class="categories-panel">
+      <div class="cat-header">
+        <div>
+          <div class="cat-header-label">Categories</div>
+          <h1 class="cat-header-title">Document Library</h1>
+        </div>
+        <div class="cat-stats">
+          <span class="cat-stat-pill"><b id="totalDocs">0</b> Total</span>
+          <span class="cat-stat-pill"><b id="totalTagged">0</b> Tagged</span>
+        </div>
+      </div>
+      <div class="cat-grid" id="catGrid"></div>
+    </section>
+
+    <div class="resizer" id="resizer2"></div>
+
+    <!-- RIGHT: Tagged pages -->
+    <aside class="tags-panel">
+      <div class="tags-header">
+        <span class="tags-header-title">Tagged Pages</span>
+        <span class="tags-count-badge"><span id="tagsCount">0</span> pages</span>
+      </div>
+
+      <div class="color-filter">
+        <button class="color-filter-btn" id="colorFilterBtn">
+          <span class="color-filter-display">
+            <span class="color-dot all"></span>
+            <span id="colorFilterLabel">All Colors</span>
+          </span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="color-filter-menu" id="colorFilterMenu">
+          <button class="color-option active" data-filter="all"><span class="color-dot all"></span>All Colors</button>
+          <button class="color-option" data-filter="red"><span class="color-dot red"></span>Loss History</button>
+          <button class="color-option" data-filter="maroon"><span class="color-dot maroon"></span>Cancellations</button>
+          <button class="color-option" data-filter="blue"><span class="color-dot blue"></span>Policy</button>
+          <button class="color-option" data-filter="green"><span class="color-dot green"></span>Applications</button>
+          <button class="color-option" data-filter="yellow"><span class="color-dot yellow"></span>Underlying</button>
+          <button class="color-option" data-filter="purple"><span class="color-dot purple"></span>Project</button>
+          <button class="color-option" data-filter="orange"><span class="color-dot orange"></span>Subjectivity</button>
+          <button class="color-option" data-filter="pink"><span class="color-dot pink"></span>Quote / Indication</button>
+          <button class="color-option" data-filter="black"><span class="color-dot black"></span>Underwriting</button>
+        </div>
+      </div>
+
+      <div class="tags-list" id="tagsList">
+        <div class="tags-empty" id="tagsEmpty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          <div class="tags-empty-title">No tagged pages</div>
+          <div class="tags-empty-sub">Tag pages to organize</div>
+        </div>
+      </div>
+
+      <div class="tags-footer">
+        <button class="btn" id="exportTaggedBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export PDF
+        </button>
+        <button class="btn" id="clearTaggedBtn">Clear Tags</button>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- ══════ Floating Annotation Toolbox (draggable) ══════ -->
+<div class="anno-toolbox" id="annoToolbox">
+  <div class="anno-toolbox-header" id="annoToolboxHandle">
+    <div class="anno-toolbox-grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <span class="anno-toolbox-title">Annotate</span>
+    <button class="anno-toolbox-btn" id="annoToolboxMin" title="Collapse">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+  </div>
+  <div class="anno-toolbox-body">
+    <div class="anno-tools-row">
+      <button class="anno-btn active" data-tool="pointer" title="Select (V)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 10-7 2-3 7L4 2z"/></svg></button>
+      <div class="anno-divider"></div>
+      <button class="anno-btn" data-tool="pen" title="Pen (P)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+      <button class="anno-btn" data-tool="highlighter" title="Highlighter (H)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h3l6-6"/><path d="M14 4l6 6-9 9-6-6z"/></svg></button>
+      <div class="anno-divider"></div>
+      <button class="anno-btn" data-tool="rectangle" title="Rectangle (U)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg></button>
+      <button class="anno-btn" data-tool="ellipse" title="Ellipse (O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button>
+      <button class="anno-btn" data-tool="arrow" title="Arrow (A)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg></button>
+      <button class="anno-btn" data-tool="line" title="Line (L)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+      <div class="anno-divider"></div>
+      <button class="anno-btn" data-tool="text" title="Text (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
+      <button class="anno-btn" data-tool="sticky" title="Sticky Note (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+      <div class="anno-divider"></div>
+      <button class="anno-btn" data-tool="eraser" title="Eraser (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-7-7 9-9 10 10-4 6z"/><line x1="22" y1="22" x2="16" y2="16"/></svg></button>
+    </div>
+
+    <div class="anno-options-row">
+      <span class="anno-label">Color</span>
+      <div class="anno-swatches">
+        <button class="anno-swatch active" data-color="#F87171" style="background:#F87171" title="Red"></button>
+        <button class="anno-swatch" data-color="#60A5FA" style="background:#60A5FA" title="Blue"></button>
+        <button class="anno-swatch" data-color="#7DD88A" style="background:#7DD88A" title="Green"></button>
+        <button class="anno-swatch" data-color="#FBBF24" style="background:#FBBF24" title="Yellow"></button>
+        <button class="anno-swatch" data-color="#FF9448" style="background:#FF9448" title="Orange"></button>
+        <button class="anno-swatch" data-color="#A78BFA" style="background:#A78BFA" title="Purple"></button>
+        <button class="anno-swatch" data-color="#F472B6" style="background:#F472B6" title="Pink"></button>
+        <button class="anno-swatch" data-color="#1A1F2E" style="background:#1A1F2E" title="Black"></button>
+        <button class="anno-swatch" data-color="#FFFFFF" style="background:#FFFFFF; border-color:#C9C1AC" title="White"></button>
+      </div>
+
+      <div class="anno-divider"></div>
+      <span class="anno-label">Stroke</span>
+      <div class="anno-strokes">
+        <button class="anno-stroke-btn" data-width="2" title="Thin"><span class="anno-stroke-preview" style="height:2px"></span></button>
+        <button class="anno-stroke-btn active" data-width="4" title="Medium"><span class="anno-stroke-preview" style="height:4px"></span></button>
+        <button class="anno-stroke-btn" data-width="8" title="Thick"><span class="anno-stroke-preview" style="height:8px"></span></button>
+      </div>
+
+      <div id="opacityGroup" class="opt-group">
+        <div class="anno-divider"></div>
+        <span class="anno-label">Opacity</span>
+        <input type="range" class="anno-opacity" id="opacitySlider" min="5" max="50" value="15">
+      </div>
+
+      <div id="fontSizeGroup" class="opt-group">
+        <div class="anno-divider"></div>
+        <span class="anno-label">Size</span>
+        <div class="anno-fontsize-btns">
+          <button class="anno-fontsize-btn" data-size="14">S</button>
+          <button class="anno-fontsize-btn active" data-size="18">M</button>
+          <button class="anno-fontsize-btn" data-size="26">L</button>
+        </div>
+      </div>
+
+      <div id="fillGroup" class="opt-group">
+        <div class="anno-divider"></div>
+        <span class="anno-label">Fill</span>
+        <button class="anno-fill-toggle" id="fillToggle" title="Toggle fill">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4L4 18h16L12 4z"/></svg>
+        </button>
+      </div>
+
+      <div class="anno-action-group">
+        <button class="btn btn-primary anno-preview-btn" id="fullscreenBtn" title="Preview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          Preview
+        </button>
+        <div class="anno-divider" style="margin:0 4px"></div>
+        <button class="anno-action-btn" id="undoBtn" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>
+        <button class="anno-action-btn" id="redoBtn" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
+        <button class="anno-action-btn danger" id="clearAnnoBtn" title="Clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ Overlays (drop zone, modal, context menu, preview) ══════ -->
+
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-content">
+    <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+    <div class="drop-title">Drop files to upload</div>
+    <div class="drop-sub">PDF · Excel · Word · Images</div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="categoryModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Assign to Category</div>
+      <div class="modal-sub" id="modalSub">Select a category</div>
+    </div>
+    <div class="modal-cat-grid" id="modalCatGrid"></div>
+    <div class="modal-footer">
+      <button class="btn" id="modalCancel">Cancel</button>
+      <button class="btn btn-primary" id="modalConfirm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="modalConfirmLabel">Upload</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="context-menu" id="contextMenu">
+  <button class="ctx-item" data-act="preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Preview<kbd>Space</kbd></button>
+  <button class="ctx-item" data-act="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Toggle Tag<kbd>T</kbd></button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" data-act="color-red"><span class="mini-dot red"></span>Loss History</button>
+  <button class="ctx-item" data-act="color-maroon"><span class="mini-dot maroon"></span>Cancellations</button>
+  <button class="ctx-item" data-act="color-blue"><span class="mini-dot blue"></span>Policy</button>
+  <button class="ctx-item" data-act="color-green"><span class="mini-dot green"></span>Applications</button>
+  <button class="ctx-item" data-act="color-yellow"><span class="mini-dot yellow"></span>Underlying</button>
+  <button class="ctx-item" data-act="color-purple"><span class="mini-dot purple"></span>Project</button>
+  <button class="ctx-item" data-act="color-orange"><span class="mini-dot orange"></span>Subjectivity</button>
+  <button class="ctx-item" data-act="color-pink"><span class="mini-dot pink"></span>Quote / Indication</button>
+  <button class="ctx-item" data-act="color-black"><span class="mini-dot black"></span>Underwriting</button>
+  <button class="ctx-item" data-act="color-clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Clear Color</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>Rename</button>
+  <button class="ctx-item" data-act="move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>Move to Folder</button>
+  <button class="ctx-item" data-act="download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item danger" data-act="delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>Delete<kbd>Del</kbd></button>
+</div>
+
+<div class="preview-modal" id="previewModal">
+  <div class="preview-header">
+    <div class="preview-title-wrap">
+      <input type="text" class="preview-title" id="previewTitle" readonly>
+      <button class="btn-icon" id="previewTitleEdit" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+    </div>
+    <div class="preview-actions">
+      <div class="preview-nav">
+        <button class="preview-nav-btn" id="previewPrev" title="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <div class="preview-counter" id="previewCounter">1 / 1</div>
+        <button class="preview-nav-btn" id="previewNext" title="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      </div>
+      <button class="preview-btn preview-btn-primary" id="previewOCR" title="Run OCR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg><span id="ocrLabel">OCR</span></button>
+      <button class="preview-btn" id="previewCopy" title="Copy text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+      <div class="preview-color-wrap">
+        <button class="preview-btn" id="previewColorBtn" title="Color tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg></button>
+        <div class="color-picker-menu preview-dropdown" id="previewColorMenu">
+          <div class="color-grid" id="previewColorGrid"></div>
+          <button class="color-clear-btn" id="previewColorClear">Clear</button>
+        </div>
+      </div>
+      <button class="preview-btn" id="previewTag" title="Toggle tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
+      <button class="preview-btn" id="previewZoomOut" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+      <button class="preview-btn" id="previewZoomIn" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+      <button class="preview-btn" id="previewRotate" title="Rotate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
+      <button class="preview-btn" id="previewDownload" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      <button class="preview-btn" id="previewClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+  </div>
+  <div class="preview-body" id="previewBody"></div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-box">
+    <div class="loading-spinner"></div>
+    <div class="loading-title" id="loadingTitle">Processing</div>
+    <div class="loading-sub" id="loadingSub">Starting…</div>
+    <div class="loading-progress"><div class="loading-fill" id="loadingFill" style="width:0%"></div></div>
+    <div class="loading-pct" id="loadingPct">0%</div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script src="/documents-workspace.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "base": "uploaded split app files from /mnt/data",
+  "updated": [
+    "app.html",
+    "documents-view.css",
+    "documents-view.js"
+  ],
+  "new": [
+    "documents-workspace.html",
+    "documents-workspace.css",
+    "documents-workspace.js",
+    "README-INTEGRATION.md"
+  ],
+  "unchanged_copied": [
+    "app.css",
+    "app.js",
+    "prompts.js",
+    "supabase-data.js",
+    "admin-views.js",
+    "scraper.js",
+    "pipeline.js",
+    "vercel.json",
+    "index.html"
+  ]
+}
