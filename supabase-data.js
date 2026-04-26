@@ -665,3 +665,427 @@ window.sbLoadFeedbackRecent = sbLoadFeedbackRecent;
 window.sbLoadAuditEvents = sbLoadAuditEvents;
 window.sbLoadAuditCategories = sbLoadAuditCategories;
 window.sbHydrate = sbHydrate;
+
+// ════════════════════════════════════════════════════════════════════════
+// DOCUMENT PAGES — persistence for the Documents view (Phase 3)
+//
+// One row per page (or per native file). The original binary lives in the
+// 'submission-files' storage bucket at path '{user_id}/{file_id}.{ext}'.
+// The row holds metadata + thumbnail + extracted text + annotations JSONB.
+//
+// Auth: every helper checks sbUser() first and short-circuits if signed out
+// so that the docs view continues to function in pure-local mode (no
+// persistence) for unauthenticated demo sessions.
+//
+// Phase 5: every helper bumps a window.docsCloudHealth counter on failure
+// so the docs view can surface a sync-paused indicator to the user. The
+// counter resets to 0 on the next successful call.
+// ════════════════════════════════════════════════════════════════════════
+
+const STORAGE_BUCKET = 'submission-files';
+const DOC_TABLE      = 'document_pages';
+
+// Lightweight cloud-health tracker. Every doc helper marks success/failure
+// here so the UI can show a sync-paused badge after consecutive failures.
+// The counter is intentionally dumb (no rolling window) — a single success
+// resets it, so a temporary blip clears immediately while a real outage
+// stays visible.
+window.docsCloudHealth = window.docsCloudHealth || { consecutiveFailures: 0 };
+function _noteCloudOk() {
+  if (window.docsCloudHealth.consecutiveFailures > 0) {
+    window.docsCloudHealth.consecutiveFailures = 0;
+    if (typeof window.docsCloudHealthChanged === 'function') window.docsCloudHealthChanged(0);
+  }
+}
+function _noteCloudFail() {
+  window.docsCloudHealth.consecutiveFailures++;
+  if (typeof window.docsCloudHealthChanged === 'function') {
+    window.docsCloudHealthChanged(window.docsCloudHealth.consecutiveFailures);
+  }
+}
+
+// ---- Storage helpers ---------------------------------------------------
+
+// Upload a File or Blob to storage at '{user_id}/{file_id}.{ext}'. Returns
+// the storage path, or null on failure.
+//
+// Content-type handling: browsers return inconsistent MIME types across
+// platforms — Firefox might give 'application/octet-stream' for a .pptx
+// while Chrome gives the proper presentationml type. Storage's MIME
+// allowlist is strict, so we normalize: trust file.type if present, else
+// derive from extension via EXTENSION_TO_MIME, else fall through to
+// 'application/octet-stream' which is always allowlisted.
+const EXTENSION_TO_MIME = {
+  pdf:  'application/pdf',
+  doc:  'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls:  'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  xlsb: 'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
+  xltx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  xltm: 'application/vnd.ms-excel.template.macroEnabled.12',
+  ppt:  'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppsx: 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+  potx: 'application/vnd.openxmlformats-officedocument.presentationml.template',
+  pptm: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+  potm: 'application/vnd.ms-powerpoint.template.macroEnabled.12',
+  rtf:  'application/rtf',
+  eml:  'message/rfc822',
+  msg:  'application/vnd.ms-outlook',
+  oft:  'application/vnd.ms-office.outlook.template',
+  jpg:  'image/jpeg',
+  jpeg: 'image/jpeg',
+  png:  'image/png',
+  gif:  'image/gif',
+  webp: 'image/webp',
+  bmp:  'image/bmp',
+  tif:  'image/tiff',
+  tiff: 'image/tiff',
+  txt:  'text/plain',
+  log:  'text/plain',
+  csv:  'text/csv',
+  tsv:  'text/tab-separated-values',
+  md:   'text/markdown',
+  zip:  'application/zip',
+  rar:  'application/x-rar-compressed',
+  '7z': 'application/x-7z-compressed',
+  tar:  'application/x-tar',
+  gz:   'application/gzip',
+};
+const STORAGE_ALLOWED_MIME = new Set(Object.values(EXTENSION_TO_MIME).concat([
+  'application/octet-stream',
+  'text/html',
+  'image/heic',
+  'image/heif',
+  'text/rtf',
+  'application/vnd.ms-powerpoint.slideshow.macroEnabled.12',
+]));
+async function sbUploadDocumentFile(file, fileId) {
+  const u = await sbUser(); if (!u) return null;
+  // Derive a safe extension from the original name. We do this defensively:
+  // raw filenames can contain path separators ('../../etc/passwd' yields
+  // ext='/etc/passwd' under a naive regex), unicode, control chars, or
+  // arbitrary length junk. Only [a-z0-9_-] up to 10 chars; everything else
+  // falls through to 'bin'. The actual display name is preserved in the
+  // file_name column on the row — only the storage path is sanitized.
+  const rawMatch = String(file.name || '').match(/\.([^.]+)$/);
+  let ext = rawMatch ? rawMatch[1].toLowerCase() : 'bin';
+  if (!/^[a-z0-9_-]{1,10}$/.test(ext)) ext = 'bin';
+  const path = `${u.id}/${fileId}.${ext}`;
+  // Pick the safest content type: browser-provided if allowlisted, else
+  // extension-derived if known, else octet-stream as the universal fallback.
+  let contentType = file.type;
+  if (!contentType || !STORAGE_ALLOWED_MIME.has(contentType)) {
+    contentType = EXTENSION_TO_MIME[ext] || 'application/octet-stream';
+  }
+  const { error } = await window.sb.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType,
+    });
+  if (error) {
+    console.warn('sbUploadDocumentFile failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return path;
+}
+
+// Get a time-limited signed URL so the browser can fetch the binary.
+// Default: 1 hour; long enough for a preview/OCR session, short enough
+// that links emailed by accident expire fast.
+async function sbGetDocumentSignedUrl(storagePath, expiresInSeconds) {
+  if (!storagePath) return null;
+  const expires = expiresInSeconds || 3600;
+  const { data, error } = await window.sb.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrl(storagePath, expires);
+  if (error) {
+    console.warn('sbGetDocumentSignedUrl failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return data?.signedUrl || null;
+}
+
+async function sbDeleteDocumentFile(storagePath) {
+  if (!storagePath) return;
+  const { error } = await window.sb.storage
+    .from(STORAGE_BUCKET)
+    .remove([storagePath]);
+  if (error) console.warn('sbDeleteDocumentFile failed:', error.message);
+}
+
+// ---- document_pages table helpers --------------------------------------
+
+// Build the DB row from a state.docs entry. Only persistable fields go in;
+// the large in-memory blobs (pdfData arrayBuffer, highResData URL,
+// nativeDataUrl) stay in memory because their source-of-truth is storage.
+function buildDocPageRow(doc, userId) {
+  return {
+    id:                       doc.id,                  // app-generated UUID-like string
+    user_id:                  userId,
+    submission_id:            doc.submissionId || null,
+    file_id:                  doc.id,                  // same as id for now; reserved if we later split per-file vs per-page rows
+    file_name:                doc.workbookFileName || (doc.displayName + '.bin'),
+    file_size:                doc.fileSize || null,
+    file_mime_type:           doc.nativeMimeType || null,
+    storage_path:             doc.storagePath || null,
+    page_number:              doc.pageNumber || 1,
+    total_pages:              doc.totalPages || 1,
+    display_name:             doc.displayName || doc.name || 'Untitled',
+    category:                 doc.category || 'all',
+    color:                    doc.color || null,
+    tagged:                   !!doc.tagged,
+    pipeline_classification:  doc.pipelineClassification || null,
+    pipeline_routed_to:       doc.pipelineRoutedTo || null,
+    extracted_text:           (doc.textContent || '').slice(0, 500000),  // hard cap 500k chars
+    thumbnail_data_url:       doc.thumbnailData || null,
+    html_content:             doc.htmlContent || null,
+    annotations:              doc._annotationsForDb || { layers: [], undone: [] },
+  };
+}
+
+// ──── PHASE 5 · THUMBNAIL COMPRESSION ────
+// PDF thumbnails are rendered at 3.0x scale for crisp display, which puts
+// each page at 1-2 MB as a base64 PNG. Stored verbatim, a 100-page policy
+// schedule would push 100-200 MB into the document_pages.thumbnail_data_url
+// column. We cap at ~120 KB by re-encoding through a canvas: PNG → JPEG
+// quality 0.85, downscaling to 1200px wide if the source is larger, then
+// stepping quality down until under the cap. The full-resolution thumb
+// stays in memory for the active session — only the persisted copy shrinks.
+//
+// JPEG vs PNG: thumbnails are previews of mostly-photographic-or-text page
+// rasters; JPEG with white background fill compresses 8-15x better than
+// PNG with negligible visual cost at the small render size.
+const THUMB_PERSIST_MAX_BYTES = 120 * 1024;   // 120 KB cap on the data URL string
+const THUMB_PERSIST_MAX_WIDTH = 1200;         // downscale wider images
+async function compressThumbForPersist(dataUrl) {
+  if (!dataUrl) return null;
+  // Already small enough? Skip the canvas round-trip.
+  if (dataUrl.length <= THUMB_PERSIST_MAX_BYTES) return dataUrl;
+  // Headless / non-browser environment can't compress; just truncate by
+  // returning null so we don't store oversized rows. The doc still works
+  // on hydrate (falls back to the file-type icon).
+  if (typeof Image === 'undefined' || typeof document === 'undefined') return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, THUMB_PERSIST_MAX_WIDTH / img.naturalWidth);
+        canvas.width  = Math.max(1, Math.round(img.naturalWidth  * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        const ctx = canvas.getContext('2d');
+        // White background so transparent PNGs (rare for our thumbs but
+        // possible) don't end up black inside JPEG.
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // Step quality down until we fit. Floor at 0.4 so we don't ship
+        // visibly mushy thumbs; if even that's too big, return null.
+        let q = 0.85;
+        let out = canvas.toDataURL('image/jpeg', q);
+        while (out.length > THUMB_PERSIST_MAX_BYTES && q > 0.4) {
+          q -= 0.1;
+          out = canvas.toDataURL('image/jpeg', q);
+        }
+        resolve(out.length <= THUMB_PERSIST_MAX_BYTES ? out : null);
+      } catch (err) {
+        console.warn('compressThumbForPersist failed:', err);
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
+// Insert (or upsert) a single doc page. Used right after addDoc() in the
+// view fires, so the row appears in the database within a second of upload.
+async function sbInsertDocumentPage(doc) {
+  const u = await sbUser(); if (!u) return null;
+  const row = buildDocPageRow(doc, u.id);
+  // Compress oversized thumbnail before sending to Postgres.
+  if (row.thumbnail_data_url) {
+    row.thumbnail_data_url = await compressThumbForPersist(row.thumbnail_data_url);
+  }
+  // Hard cap on html_content too — 1 MB is plenty for Word page HTML and
+  // keeps row size manageable for queries.
+  if (row.html_content && row.html_content.length > 1024 * 1024) {
+    row.html_content = row.html_content.slice(0, 1024 * 1024);
+  }
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .upsert(row, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) {
+    console.warn('sbInsertDocumentPage failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return data;
+}
+
+// Patch a subset of columns on an existing doc. Used for the small-grain
+// mutations: tag toggle, color change, rename, recategorize.
+async function sbUpdateDocumentPage(docId, patch) {
+  const u = await sbUser(); if (!u) return null;
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .update(patch)
+    .eq('id', docId)
+    .eq('user_id', u.id);  // belt-and-braces; RLS already enforces this
+  if (error) {
+    console.warn('sbUpdateDocumentPage failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return true;
+}
+
+// Persist annotations JSON only — used by the debounced auto-save inside
+// the annotation engine. Strips DOM `el` references before saving so the
+// payload is JSON-serializable.
+async function sbUpdateDocumentAnnotations(docId, annoStore) {
+  const safe = {
+    layers: (annoStore?.layers || []).map(stripElFromLayer),
+    undone: (annoStore?.undone || []).map(stripElFromLayer),
+  };
+  return sbUpdateDocumentPage(docId, { annotations: safe });
+}
+
+function stripElFromLayer(layer) {
+  if (!layer || typeof layer !== 'object') return layer;
+  // Copy without the `el` (DOM element ref) which can't serialize.
+  const { el, ...rest } = layer;
+  return rest;
+}
+
+// Delete a doc + its storage object.
+async function sbDeleteDocumentPage(docId, storagePath) {
+  const u = await sbUser(); if (!u) return null;
+  // Storage cleanup first — if the row delete fails, we still want the
+  // bytes gone since they're referenced by id.
+  if (storagePath) await sbDeleteDocumentFile(storagePath);
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .delete()
+    .eq('id', docId)
+    .eq('user_id', u.id);
+  if (error) {
+    console.warn('sbDeleteDocumentPage failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return true;
+}
+
+// Pull every doc for the current user. Ordered newest-first so the view's
+// default sort matches the DB result without a re-sort.
+async function sbFetchDocumentPages() {
+  const u = await sbUser(); if (!u) return [];
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .select('*')
+    .eq('user_id', u.id)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('sbFetchDocumentPages failed:', error.message);
+    _noteCloudFail();
+    return [];
+  }
+  _noteCloudOk();
+  return data || [];
+}
+
+// Bulk delete (used by clearAllDocs). One round-trip + one storage call.
+async function sbDeleteAllDocumentPages() {
+  const u = await sbUser(); if (!u) return null;
+  // First gather storage_paths so we can clean the bucket.
+  const { data: rows, error: selErr } = await window.sb
+    .from(DOC_TABLE)
+    .select('storage_path')
+    .eq('user_id', u.id);
+  if (selErr) {
+    console.warn('sbDeleteAllDocumentPages select failed:', selErr.message);
+    return null;
+  }
+  const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
+  if (paths.length > 0) {
+    const { error: stErr } = await window.sb.storage
+      .from(STORAGE_BUCKET)
+      .remove(paths);
+    if (stErr) console.warn('sbDeleteAllDocumentPages storage failed:', stErr.message);
+  }
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .delete()
+    .eq('user_id', u.id);
+  if (error) {
+    console.warn('sbDeleteAllDocumentPages failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return true;
+}
+
+// Phase 5 — cascade delete for a single submission. Removes every doc row
+// linked to this submission_id plus its storage binaries. Called by
+// app.js when an Altitude submission is deleted.
+async function sbDeleteDocumentPagesForSubmission(submissionId) {
+  if (!submissionId) return null;
+  const u = await sbUser(); if (!u) return null;
+  // Gather paths first.
+  const { data: rows, error: selErr } = await window.sb
+    .from(DOC_TABLE)
+    .select('storage_path')
+    .eq('user_id', u.id)
+    .eq('submission_id', submissionId);
+  if (selErr) {
+    console.warn('sbDeleteDocumentPagesForSubmission select failed:', selErr.message);
+    _noteCloudFail();
+    return null;
+  }
+  const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
+  if (paths.length > 0) {
+    const { error: stErr } = await window.sb.storage
+      .from(STORAGE_BUCKET)
+      .remove(paths);
+    if (stErr) console.warn('sbDeleteDocumentPagesForSubmission storage failed:', stErr.message);
+  }
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .delete()
+    .eq('user_id', u.id)
+    .eq('submission_id', submissionId);
+  if (error) {
+    console.warn('sbDeleteDocumentPagesForSubmission failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return true;
+}
+
+window.sbUploadDocumentFile             = sbUploadDocumentFile;
+window.sbGetDocumentSignedUrl           = sbGetDocumentSignedUrl;
+window.sbDeleteDocumentFile             = sbDeleteDocumentFile;
+window.sbInsertDocumentPage             = sbInsertDocumentPage;
+window.sbUpdateDocumentPage             = sbUpdateDocumentPage;
+window.sbUpdateDocumentAnnotations      = sbUpdateDocumentAnnotations;
+window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
+window.sbFetchDocumentPages             = sbFetchDocumentPages;
+window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
+window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;

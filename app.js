@@ -148,6 +148,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const emailIn = document.getElementById('authEmail');
   if (emailIn) emailIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendMagicLink(); } });
   checkAuth();
+  // Initialize the Documents view once the DOM is parsed. The view's markup
+  // is already in the page (#docs-view-root) but hidden via CSS; this call
+  // wires up event handlers, builds the category grid, and prepares state.
+  // Safe to call before auth — the view is invisible until showStage('docs').
+  if (typeof window.initDocumentsView === 'function') {
+    try { window.initDocumentsView(); }
+    catch (err) { console.error('initDocumentsView failed:', err); }
+  }
 });
 
 // ----- (was Block 2: lines 812-3110 of app.html — STATE, files, queue, feedback) -----
@@ -2070,11 +2078,29 @@ function deleteSubmission(submissionId, confirmAlready) {
   updateQueueKpi();
   logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
   toast('Deleted · ' + label);
-  // Phase 4 (v2): remove the row from Supabase directly. Fire-and-forget
-  // with verbose audit so the UW knows whether the delete actually synced
-  // across devices. If the cloud delete fails, the row reappears on next
-  // hydrate — which is correct behavior (source of truth is the server).
+  // Phase 5 — cascade to documents. We MUST run this BEFORE deleting the
+  // submission row, because submissions FK has ON DELETE CASCADE on
+  // document_pages — if the submission goes first, the cascade nukes the
+  // rows before we can read their storage_paths, leaving orphan binaries
+  // in the bucket. Doing storage+rows first, then submission, is safe in
+  // either order from the user's perspective.
+  // If the local docs view has hydrated docs in memory for this
+  // submission, prune them so the user doesn't see stale rows. (Sync
+  // step — does not await any cloud work.)
+  if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
+    try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
+  }
+  // Now run the cloud-side cleanup with explicit ordering: documents first
+  // (storage + rows), then submission row. Both wrapped in async IIFE so
+  // the UI doesn't block on network round-trips.
   (async () => {
+    try {
+      if (typeof sbDeleteDocumentPagesForSubmission === 'function') {
+        await sbDeleteDocumentPagesForSubmission(submissionId);
+      }
+    } catch (err) {
+      console.warn('Document cascade delete failed for ' + submissionId + ':', err);
+    }
     try {
       if (typeof sbDeleteSubmission !== 'function') throw new Error('sbDeleteSubmission not defined');
       await sbDeleteSubmission(submissionId);
@@ -5003,12 +5029,13 @@ function showStage(stage) {
   document.getElementById('stageTabDocs')?.classList.remove('active');
   document.getElementById('pipelineStage').style.display = 'none';
   document.getElementById('summaryStage').classList.remove('active');
-  document.getElementById('documentsStage')?.classList.remove('active');
 
-  // Documents stage takes over the full viewport when active. The body.docs-fullwidth
-  // class drives CSS rules in documents-view.css that hide the Altitude topbar,
-  // submission header, side panes, and the workbench stage tabs — so the file
-  // workspace owns the entire screen exactly like Justin's prototype.
+  // Documents stage = native overlay. The Speed File Manager UI is mounted
+  // directly inside Altitude (in <div id="docs-view-root">), with all CSS
+  // namespaced under that id so there are zero style collisions. Activation
+  // is just a body class — the CSS does the rest. State (uploaded docs,
+  // tags, annotations) survives stage switches because the DOM tree stays
+  // mounted; we just toggle visibility.
   if (stage === 'pipe') {
     document.getElementById('pipelineStage').style.display = 'block';
     document.getElementById('stageTabPipe').classList.add('active');
@@ -5020,13 +5047,27 @@ function showStage(stage) {
     // Refresh the review banner whenever the summary view becomes visible
     if (typeof renderClassifierReview === 'function') renderClassifierReview();
   } else if (stage === 'docs') {
-    document.getElementById('documentsStage').classList.add('active');
     document.getElementById('stageTabDocs').classList.add('active');
     document.body.classList.add('docs-fullwidth');
-    // Activate the documents view module — exposed by documents-view.js
-    if (window.DocumentsView && typeof window.DocumentsView.activate === 'function') {
-      window.DocumentsView.activate();
+    // Phase 4: scope the docs view to the active submission so the user
+    // sees only that submission's docs, and any new uploads get linked.
+    // If there's no active submission (cross-account browsing), we pass
+    // (null, null) which clears scope and shows everything.
+    if (window.docsView && typeof window.docsView.setSubmissionContext === 'function') {
+      const sid = STATE && STATE.activeSubmissionId ? STATE.activeSubmissionId : null;
+      let title = null;
+      if (sid && STATE.submissions) {
+        const rec = STATE.submissions.find(s => s.id === sid);
+        if (rec) {
+          // Prefer account_name; fall back to title or broker. Keep it short.
+          title = rec.account_name || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
+        }
+      }
+      window.docsView.setSubmissionContext(sid, title);
     }
+    // Notify the docs view it's now visible (lets it lazy-init annotations,
+    // canvas resize, and re-measure thumb scaling for any docs already loaded).
+    if (typeof window.docsViewActivated === 'function') window.docsViewActivated();
   }
 }
 
