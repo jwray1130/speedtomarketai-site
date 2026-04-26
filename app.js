@@ -5005,17 +5005,25 @@ function showStage(stage) {
   document.getElementById('summaryStage').classList.remove('active');
   document.getElementById('documentsStage')?.classList.remove('active');
 
+  // The sub-layout grid hosts left intake pane + center workbench + right decision
+  // pane. When Documents stage is active, the file workspace needs the full width
+  // (it has its own 3-panel internal layout). Toggle a class to switch the grid.
+  const subLayout = document.querySelector('.sub-layout');
+
   if (stage === 'pipe') {
     document.getElementById('pipelineStage').style.display = 'block';
     document.getElementById('stageTabPipe').classList.add('active');
+    if (subLayout) subLayout.classList.remove('docs-fullwidth');
   } else if (stage === 'sum') {
     document.getElementById('summaryStage').classList.add('active');
     document.getElementById('stageTabSum').classList.add('active');
+    if (subLayout) subLayout.classList.remove('docs-fullwidth');
     // Refresh the review banner whenever the summary view becomes visible
     if (typeof renderClassifierReview === 'function') renderClassifierReview();
   } else if (stage === 'docs') {
     document.getElementById('documentsStage').classList.add('active');
     document.getElementById('stageTabDocs').classList.add('active');
+    if (subLayout) subLayout.classList.add('docs-fullwidth');
     // Render fresh every time so file changes / new submissions reflect immediately
     if (typeof renderDocumentsView === 'function') renderDocumentsView();
   }

@@ -4341,3 +4341,29 @@ table.loss {
 .docs-mini-dot.black  { background: #6B7280; border: 1px solid var(--border-strong, var(--border)); }
 
 /* END DOCUMENTS VIEW MODULE */
+
+/* ── DOCS FULL-WIDTH MODE ───────────────────────────────────────────────────
+   When the Documents stage is active inside the workbench, the file workspace
+   needs the entire submission view's horizontal space (it has its own 3-panel
+   internal layout: docs grid · categories · tagged pages). This class is added
+   to .sub-layout by showStage('docs') and removed when switching back to
+   Pipeline or Summary. Hides the Intake/Files left aside and the Decision
+   right aside, expands the center pane to a single 1fr column.
+   ──────────────────────────────────────────────────────────────────────── */
+.sub-layout.docs-fullwidth {
+  grid-template-columns: 1fr;
+}
+.sub-layout.docs-fullwidth > aside.pane,
+.sub-layout.docs-fullwidth > aside.actions-pane {
+  display: none;
+}
+/* When in fullwidth mode, drop the workbench heading text "Workbench" so the
+   stage tabs have visual room to breathe at the top. The tabs themselves stay. */
+.sub-layout.docs-fullwidth .center-pane .pane-head h3 {
+  display: none;
+}
+/* Stretch the center pane and its contents to fill the available height so
+   the docs workspace can use a flex column layout end-to-end. */
+.sub-layout.docs-fullwidth .center-pane {
+  height: 100%;
+}
