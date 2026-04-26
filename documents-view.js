@@ -400,12 +400,17 @@ window.initDocumentsView = function() {
   }
 
   // ══════ NATIVE FILE ACCESS (Excel) ══════
+  // Find the doc that owns the source binary for `doc`. After hydration
+  // the binary itself isn't in memory (nativeDataUrl=null) but storagePath
+  // points at it — ensureBinary pulls it on demand. So we accept either
+  // an in-memory binary OR a cloud reference; openNativeFile fills in the
+  // binary if needed before returning.
   function findNativeWorkbookDoc(doc) {
-    if (doc.nativeDataUrl) return doc;
+    if (doc.nativeDataUrl || doc.storagePath) return doc;
     if (!doc.workbookFileName) return null;
     return state.docs.find(d =>
       d.workbookFileName === doc.workbookFileName &&
-      d.nativeDataUrl
+      (d.nativeDataUrl || d.storagePath)
     );
   }
 
@@ -2123,10 +2128,20 @@ window.initDocumentsView = function() {
     // Fire-and-forget cloud insert. Local state is the source of truth in
     // the UI; the cloud row is a snapshot/backup. Failures log to console
     // but don't block the upload — user sees their docs immediately.
+    //
+    // Track the in-flight insert promise so a fast-following delete (user
+    // adds and immediately removes a doc) can await it before issuing the
+    // delete. Without this, delete-then-insert can arrive out of order at
+    // Supabase: delete affects 0 rows (row not yet created), then insert
+    // creates the row, leaving an orphan that resurrects on next hydrate.
     if (typeof window.sbInsertDocumentPage === 'function') {
-      window.sbInsertDocumentPage(doc).catch(err => {
+      if (!state._pendingInserts) state._pendingInserts = new Map();
+      const insertPromise = window.sbInsertDocumentPage(doc).catch(err => {
         console.warn('Failed to persist doc ' + doc.id + ':', err);
+      }).finally(() => {
+        if (state._pendingInserts) state._pendingInserts.delete(doc.id);
       });
+      state._pendingInserts.set(doc.id, insertPromise);
     }
     return doc;
   }
@@ -2366,9 +2381,16 @@ window.initDocumentsView = function() {
       state.docs = state.docs.filter(d => !state.selectedIds.has(d.id));
       if (typeof window.sbDeleteDocumentPage === 'function') {
         targets.forEach(d => {
-          window.sbDeleteDocumentPage(d.id, d.storagePath).catch(err => {
+          // If an insert for this id is still in flight, wait for it to
+          // settle before deleting — otherwise delete may run against a
+          // non-existent row, then the insert lands and the doc
+          // resurrects on next hydrate.
+          const pending = state._pendingInserts && state._pendingInserts.get(d.id);
+          const issue = () => window.sbDeleteDocumentPage(d.id, d.storagePath).catch(err => {
             console.warn('Delete failed for ' + d.id + ':', err);
           });
+          if (pending) pending.then(issue, issue);
+          else issue();
         });
       }
       toast('Deleted', ids.length + ' documents', 'success');
@@ -2555,9 +2577,12 @@ window.initDocumentsView = function() {
         state.docs = state.docs.filter(d => d.id !== id);
         renderDocsList(); renderTagsList();
         if (typeof window.sbDeleteDocumentPage === 'function') {
-          window.sbDeleteDocumentPage(id, storagePath).catch(err => {
+          const pending = state._pendingInserts && state._pendingInserts.get(id);
+          const issue = () => window.sbDeleteDocumentPage(id, storagePath).catch(err => {
             console.warn('Delete failed for ' + id + ':', err);
           });
+          if (pending) pending.then(issue, issue);
+          else issue();
         }
         toast('Deleted', doc.displayName, 'success');
       }
@@ -2673,7 +2698,10 @@ window.initDocumentsView = function() {
       const banner = document.createElement('div');
       banner.className = 'preview-native-banner';
       const nativeDoc = findNativeWorkbookDoc(doc);
-      const hasNative = !!(nativeDoc && nativeDoc.nativeDataUrl);
+      // The button enables when a binary is reachable, either in memory
+      // (nativeDataUrl) or via storage (storagePath → ensureBinary fetches
+      // it lazily when the user clicks). Hydrated docs only have storagePath.
+      const hasNative = !!(nativeDoc && (nativeDoc.nativeDataUrl || nativeDoc.storagePath));
       banner.innerHTML = `
         <div class="preview-native-info">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3003,9 +3031,12 @@ window.initDocumentsView = function() {
       });
     } else if (typeof window.sbDeleteDocumentPage === 'function') {
       targets.forEach(d => {
-        window.sbDeleteDocumentPage(d.id, d.storagePath).catch(err => {
+        const pending = state._pendingInserts && state._pendingInserts.get(d.id);
+        const issue = () => window.sbDeleteDocumentPage(d.id, d.storagePath).catch(err => {
           console.warn('Scoped clear failed for ' + d.id + ':', err);
         });
+        if (pending) pending.then(issue, issue);
+        else issue();
       });
     }
     toast('Cleared', targets.length + ' documents removed', 'success');
@@ -3953,15 +3984,19 @@ function startAnnoEngine() {
       };
 
       wrap.addEventListener('mousedown', onStart);
-      document.addEventListener('mousemove', (e) => {
-        if (state.annotations.currentCanvas === canvas) onMove(e);
-      });
-      document.addEventListener('mouseup', (e) => {
-        if (state.annotations.currentCanvas === canvas) onEnd(e);
-      });
+      // Document-level listeners are installed ONCE globally below
+      // (see "global pointer listeners" near startAnnoEngine end). The
+      // global handlers dispatch to whichever canvas is `currentCanvas`,
+      // so we don't add per-canvas document listeners here — that pattern
+      // accumulated dozens of stale listeners every time the docs list
+      // re-rendered (search keystroke, scope change, sort change, etc.).
       wrap.addEventListener('touchstart', onStart, { passive: false });
       wrap.addEventListener('touchmove', onMove, { passive: false });
       wrap.addEventListener('touchend', onEnd);
+      // Expose handlers on wrap so the global mousemove/mouseup can
+      // dispatch into them via the currentCanvas → wrap lookup.
+      wrap.__annoOnMove = onMove;
+      wrap.__annoOnEnd = onEnd;
     }
 
     function beginFreehand(pos) {
@@ -4614,9 +4649,13 @@ function startAnnoEngine() {
       resizeTimer = setTimeout(() => {
         $$('.anno-canvas-wrap').forEach(wrap => {
           const canvas = wrap.querySelector('.anno-canvas');
-          const thumb = wrap.parentElement;
-          if (canvas && thumb) {
-            resizeCanvas(canvas, thumb);
+          if (canvas && wrap.offsetWidth > 0) {
+            // Source from wrap, not thumb — same reasoning as ensureCanvas.
+            // doc-thumb has a 1px border-bottom; the wrap is `inset: 0` of
+            // doc-thumb's padding box so it's 1px shorter. Sourcing from
+            // thumb here reintroduces the original coordinate-mismatch bug
+            // every time the browser is resized.
+            resizeCanvas(canvas, wrap);
             const docId = wrap.dataset.docId;
             if (docId) redrawLayers(docId, canvas);
           }
@@ -4652,6 +4691,29 @@ function startAnnoEngine() {
       const wrap = e.target.closest('.anno-canvas-wrap');
       if (wrap) {
         state.annotations.currentDocId = wrap.dataset.docId;
+      }
+    });
+
+    // Single global mousemove/mouseup pair. Dispatches into the active
+    // wrap's stored handlers (set by attachEvents on the wrap itself).
+    // Replaces the per-canvas document listeners that previously
+    // accumulated on every doc-list re-render.
+    document.addEventListener('mousemove', (e) => {
+      if (!_docsActive()) return;
+      const canvas = state.annotations.currentCanvas;
+      if (!canvas) return;
+      const wrap = canvas.parentElement;
+      if (wrap && typeof wrap.__annoOnMove === 'function') {
+        wrap.__annoOnMove(e);
+      }
+    });
+    document.addEventListener('mouseup', (e) => {
+      if (!_docsActive()) return;
+      const canvas = state.annotations.currentCanvas;
+      if (!canvas) return;
+      const wrap = canvas.parentElement;
+      if (wrap && typeof wrap.__annoOnEnd === 'function') {
+        wrap.__annoOnEnd(e);
       }
     });
 

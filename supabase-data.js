@@ -974,9 +974,13 @@ function stripElFromLayer(layer) {
 // Delete a doc + its storage object.
 async function sbDeleteDocumentPage(docId, storagePath) {
   const u = await sbUser(); if (!u) return null;
-  // Storage cleanup first — if the row delete fails, we still want the
-  // bytes gone since they're referenced by id.
-  if (storagePath) await sbDeleteDocumentFile(storagePath);
+  // CRITICAL: a single storage object is shared by every page row from
+  // one source (e.g. all 50 pages of a PDF point to the same .pdf upload).
+  // Deleting the storage binary unconditionally would orphan every other
+  // page that still points at it. Order:
+  //   1. delete this row first
+  //   2. count remaining rows with the same storage_path
+  //   3. only delete the binary if no rows remain that reference it
   const { error } = await window.sb
     .from(DOC_TABLE)
     .delete()
@@ -988,6 +992,25 @@ async function sbDeleteDocumentPage(docId, storagePath) {
     return null;
   }
   _noteCloudOk();
+  if (storagePath) {
+    // Count surviving rows that still need this binary. Use HEAD to
+    // avoid pulling row data — we only need the count.
+    const { count, error: countErr } = await window.sb
+      .from(DOC_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', u.id)
+      .eq('storage_path', storagePath);
+    if (countErr) {
+      // Conservative: if the count query fails, leave the binary alone
+      // rather than risk orphaning sibling pages. Storage will be reaped
+      // by sbDeleteAllDocumentPages or the submission cascade later.
+      console.warn('sbDeleteDocumentPage ref-count failed; leaving binary in place:', countErr.message);
+      return true;
+    }
+    if ((count || 0) === 0) {
+      await sbDeleteDocumentFile(storagePath);
+    }
+  }
   return true;
 }
 
