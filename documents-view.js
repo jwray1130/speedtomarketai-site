@@ -57,6 +57,11 @@
   const LS_VIEW = LS_PREFIX + 'view_mode';
   const LS_PANEL_W = LS_PREFIX + 'panel_widths';
 
+  // Pending file registry: keyed by file.name. Stores the underlying File
+  // object for newly uploaded files (this session only) so we can generate
+  // thumbnails, OCR, native-download, etc. Does not persist across reloads.
+  const pendingFileBlobs = {};
+
   // ── PRIVATE STATE ───────────────────────────────────────────────────────
   // pages[]: each item is one "page" (a PDF page, a Word page, an Excel sheet,
   // a PPT slide, a single image, etc). Built from snapshot.files at render time.
@@ -115,20 +120,26 @@
   // Each Altitude file becomes one or more "pages" depending on type. For now
   // (visual phase) we treat each file as a single page; per-page splitting at
   // ingestion happens in the upload handler when new files come in.
+  //
+  // We read from STATE.files (the live working set) rather than snapshot.files
+  // because (a) STATE.files is rehydrated from the active submission's snapshot
+  // when opened, and (b) new uploads append to STATE.files BEFORE the snapshot
+  // gets rebuilt — so STATE.files is always the freshest source of truth.
   function buildPagesFromActiveSubmission() {
     const sid = window.STATE && window.STATE.activeSubmissionId;
     state.submissionId = sid;
-    if (!sid) { state.pages = []; return; }
-    const rec = window.STATE.submissions.find(s => s.id === sid);
-    if (!rec || !rec.snapshot || !Array.isArray(rec.snapshot.files)) {
-      state.pages = []; return;
-    }
+    if (!sid || !window.STATE.files) { state.pages = []; return; }
     const meta = loadMeta();
-    state.pages = rec.snapshot.files.map((f, idx) => {
-      const baseId = f.id || (f.name + '__' + idx);
-      const m = meta[baseId] || {};
+    state.pages = window.STATE.files.map((f, idx) => {
+      // Meta key: file name. Within a single submission Altitude's dedup
+      // prevents duplicate names, so name is a stable identifier across
+      // upload → pipeline run → snapshot commit cycles. Falls back to id if
+      // the name is somehow empty.
+      const metaKey = f.name || f.id || ('file_' + idx);
+      const m = meta[metaKey] || {};
       return {
-        id: baseId,
+        id: f.id || metaKey + '__' + idx,
+        metaKey,
         srcFile: f,
         name: m.name || f.name || ('File ' + (idx + 1)),
         size: f.size || 0,
@@ -145,7 +156,10 @@
         classification: f.classification || null,
         routedTo: f.routedTo || null,
         addedAt: m.addedAt || idx,
-        legacy: !f.storage_path,  // flag for files from old submissions with no storage
+        // Legacy = file existed in old submission with no underlying File bytes
+        // available in this session. For new uploads we'll have the File for
+        // thumbnail generation; for legacy ones the blob is gone forever.
+        legacy: !f.storage_path && !pendingFileBlobs[metaKey],
       };
     });
     state.annotations = loadAnnotations();
@@ -497,14 +511,14 @@
     const p = state.pages.find(x => x.id === pageId);
     if (!p) return;
     p.category = catId;
-    patchMeta(pageId, { category: catId });
+    patchMeta(p.metaKey, { category: catId });
     render();
   }
   function setColor(pageId, color) {
     const p = state.pages.find(x => x.id === pageId);
     if (!p) return;
     p.color = color;
-    patchMeta(pageId, { color: color });
+    patchMeta(p.metaKey, { color: color });
     render();
   }
   function clearAllForPage(pageId) {
@@ -512,7 +526,7 @@
     if (!p) return;
     p.category = null;
     p.color = null;
-    patchMeta(pageId, { category: null, color: null });
+    patchMeta(p.metaKey, { category: null, color: null });
     render();
   }
   function startRename(pageId) {
@@ -531,7 +545,7 @@
     function commit() {
       const v = input.value.trim() || p.name;
       p.name = v;
-      patchMeta(pageId, { name: v });
+      patchMeta(p.metaKey, { name: v });
       render();
     }
     function cancel() { render(); }
@@ -704,14 +718,17 @@
     $('docsColorPickerMenu')?.classList.remove('visible');
   }
 
-  // ── CATEGORY MODAL (bulk + assign on upload) ───────────────────────────
-  let pendingCatTargets = [];  // page ids to apply category to
+  // ── CATEGORY MODAL (bulk recategorize + upload-routing) ────────────────
+  let pendingCatTargets = [];  // page ids to apply category to (bulk recategorize)
   let pendingCatChoice = null;
+  let pendingUploadFiles = null;  // File objects waiting for category selection
   function openCategoryModal(targets, opts) {
     pendingCatTargets = targets || [];
     pendingCatChoice = null;
+    pendingUploadFiles = (opts && opts.uploadFiles) || null;
     const grid = $('docsCatModalGrid');
     const sub = $('docsCatModalSub');
+    const titleEl = $('docsCatModal').querySelector('.docs-modal-title');
     if (!grid) return;
     grid.innerHTML = '';
     CATEGORIES.filter(c => c.id !== 'all').forEach(c => {
@@ -726,19 +743,32 @@
       });
       grid.appendChild(opt);
     });
+    // Title differs based on context: upload vs bulk recategorize
+    if (titleEl) titleEl.textContent = pendingUploadFiles ? 'File Upload' : 'Categorize';
     if (sub) sub.textContent = (opts && opts.subText) || ('Assign a category to ' + targets.length + ' document(s).');
     $('docsCatModal').classList.add('visible');
   }
   function applyCategoryModal() {
     if (!pendingCatChoice) { toast('Pick a category first'); return; }
-    pendingCatTargets.forEach(id => setCategory(id, pendingCatChoice));
-    closeCategoryModal();
-    clearSelection();
+    if (pendingUploadFiles) {
+      // Upload flow: route the chosen files through Altitude pipeline + apply
+      // category in the docs view
+      const files = pendingUploadFiles;
+      const cat = pendingCatChoice;
+      closeCategoryModal();
+      applyUploadWithCategory(files, cat);
+    } else {
+      // Bulk recategorize flow
+      pendingCatTargets.forEach(id => setCategory(id, pendingCatChoice));
+      closeCategoryModal();
+      clearSelection();
+    }
   }
   function closeCategoryModal() {
     $('docsCatModal').classList.remove('visible');
     pendingCatTargets = [];
     pendingCatChoice = null;
+    pendingUploadFiles = null;
   }
 
   // ── COLOR FILTER (right pane dropdown) ─────────────────────────────────
@@ -866,7 +896,18 @@
   }
 
   function downloadPage(p) {
-    if (p.legacy) { toast('Legacy file — original bytes not stored'); return; }
+    // Prefer the in-memory blob if it's a new upload from this session
+    const blob = pendingFileBlobs[p.metaKey];
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = p.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
+    // Fall back to thumbnail data URL (for image-only thumbnails)
     if (p.thumbDataUrl) {
       const a = document.createElement('a');
       a.href = p.thumbDataUrl;
@@ -874,6 +915,7 @@
       a.click();
       return;
     }
+    if (p.legacy) { toast('Legacy file — original bytes not stored'); return; }
     toast('Download not available for this file');
   }
 
@@ -972,26 +1014,132 @@
     });
   }
 
-  // Hook into Altitude's main upload pipeline. Altitude has handleFiles() which
-  // does classification, routing, and adds to STATE.activeSubmissionId. We pass
-  // through to it (incremental mode if pipeline already done) so the docs view
-  // and main app stay in sync.
+  // Hook into Altitude's main upload pipeline. The flow is:
+  //   1. User picks files
+  //   2. Category modal opens — UW chooses where to file them on the docs side
+  //      (this is independent of where Altitude's classifier routes them)
+  //   3. Apply: store pending category in localStorage meta keyed by file name,
+  //      stash the File blobs in pendingFileBlobs for thumbnail generation,
+  //      then call window.handleFiles() so Altitude does its thing in parallel
+  //   4. Thumbnails generate in the background (PDFs via pdf.js, images via
+  //      FileReader). Each refresh re-renders tiles with whatever's ready.
+  //   5. Watch STATE.files for new entries; when they appear, trigger a refresh
+  //      so the docs view reflects the new files immediately
   function handleUpload(files) {
     if (!window.STATE || !window.STATE.activeSubmissionId) {
       toast('Open a submission first');
       return;
     }
+    if (!files || !files.length) return;
+    // Show the category-pick modal with the file list, capture the chosen
+    // category, then proceed to upload + thumbnail.
+    const fileNames = files.map(f => f.name);
+    const subText = files.length === 1
+      ? 'Where to file "' + escapeHtml(files[0].name) + '"?'
+      : 'Where to file these ' + files.length + ' documents? · ' + fileNames.slice(0, 3).map(escapeHtml).join(', ') + (fileNames.length > 3 ? ' · +' + (fileNames.length - 3) + ' more' : '');
+    openCategoryModal([], { subText, uploadFiles: files });
+  }
+
+  // Apply uploaded files: triggered from the category modal's Apply button
+  // when uploadFiles were passed in. Sets pending category, stashes blobs,
+  // kicks off Altitude pipeline + thumbnail generation in parallel.
+  function applyUploadWithCategory(files, category) {
+    files.forEach(file => {
+      // Stash the actual File blob so we can generate thumbnails / preview /
+      // download later this session
+      pendingFileBlobs[file.name] = file;
+      // Pre-populate meta with the chosen category. Files will appear in
+      // All Documents AND in the chosen folder once they hit STATE.files.
+      patchMeta(file.name, { category });
+      // Kick off thumbnail generation in the background. Each completion
+      // triggers a refresh of the docs view.
+      generateThumbnail(file).then(thumbDataUrl => {
+        if (thumbDataUrl) {
+          patchMeta(file.name, { thumbDataUrl });
+          if (state.activated) { buildPagesFromActiveSubmission(); render(); }
+        }
+      }).catch(e => console.warn('[docs] thumb fail', file.name, e));
+    });
+
+    // Hand off to Altitude's pipeline — classifier, modules, etc. run normally.
     if (typeof window.handleFiles === 'function') {
-      // Use Altitude's existing pipeline
       window.handleFiles(files);
-      // After Altitude processes, refresh docs view
-      setTimeout(() => { buildPagesFromActiveSubmission(); render(); }, 300);
-    } else if (typeof window.queueFiles === 'function') {
-      window.queueFiles(files);
-      setTimeout(() => { buildPagesFromActiveSubmission(); render(); }, 300);
+      // Watch for STATE.files to update with the new entries, then refresh the
+      // docs view so the tiles appear. Polling for ~2.5s is enough for the
+      // upload entry to land in STATE.files (text extraction is async but the
+      // entry itself is added immediately).
+      let attempts = 0;
+      const watcher = setInterval(() => {
+        attempts++;
+        if (state.activated) { buildPagesFromActiveSubmission(); render(); }
+        if (attempts >= 25) clearInterval(watcher);
+      }, 100);
     } else {
       toast('Upload pipeline not available');
     }
+
+    toast(files.length === 1
+      ? 'Filed "' + files[0].name + '" under ' + (CAT_BY_ID[category]?.name || category)
+      : 'Filed ' + files.length + ' documents under ' + (CAT_BY_ID[category]?.name || category)
+    );
+  }
+
+  // Generate a thumbnail data URL for a File. Returns null if the type is not
+  // renderable (in which case the native-card placeholder will show instead).
+  // Thumbnails are sized small (~300px wide) to keep localStorage usage low.
+  async function generateThumbnail(file) {
+    const t = (file.type || '').toLowerCase();
+    const n = (file.name || '').toLowerCase();
+    try {
+      if (t.includes('pdf') || n.endsWith('.pdf')) return await renderPdfThumb(file);
+      if (/^image\//.test(t) || /\.(jpe?g|png|gif|webp|bmp)$/.test(n)) return await renderImageThumb(file);
+    } catch (e) {
+      console.warn('[docs] thumb generation error', file.name, e);
+    }
+    return null;
+  }
+
+  async function renderPdfThumb(file) {
+    if (typeof pdfjsLib === 'undefined') return null;
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    // Target ~300px width thumbnail; compute scale from the page's natural size
+    const baseViewport = page.getViewport({ scale: 1 });
+    const targetWidth = 360;
+    const scale = targetWidth / baseViewport.width;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    // JPEG 0.85 quality is a good balance between size and visual fidelity for thumbnails
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }
+
+  async function renderImageThumb(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          // Resize to max 360px wide
+          const maxW = 360;
+          const scale = Math.min(1, maxW / img.width);
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   // ── BULK OPERATIONS ────────────────────────────────────────────────────
@@ -1192,8 +1340,11 @@
         el.classList.add('active');
         const startX = e.clientX;
         const startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue(varName), 10) || 280;
+        // Max width: 80% of viewport so the docs panel can dominate the screen
+        // while still leaving room for the resizer to be grabbable on the other side.
+        const maxW = Math.floor(window.innerWidth * 0.8);
         function move(ev) {
-          const newW = Math.max(180, Math.min(560, getDelta(startW, startX, ev.clientX)));
+          const newW = Math.max(180, Math.min(maxW, getDelta(startW, startX, ev.clientX)));
           document.documentElement.style.setProperty(varName, newW + 'px');
         }
         function up() {
@@ -1408,7 +1559,7 @@
       const commit = () => {
         const v = t.value.trim() || previewPage.name;
         previewPage.name = v;
-        patchMeta(previewPage.id, { name: v });
+        patchMeta(previewPage.metaKey, { name: v });
         t.readOnly = true;
         t.classList.remove('editable');
         render();
