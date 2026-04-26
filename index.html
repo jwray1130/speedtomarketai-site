@@ -25,106 +25,49 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,200..900,0..100;1,9..144,200..900,0..100&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,200..900,0..100;1,9..144,200..900,0..100&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* ============================================================
-   * Round 6 — Stripe-style light theme is the new default for
-   * the marketing page. Solves "too dark" feedback.
-   * Dark theme preserved verbatim under [data-theme="dark"].
-   * ============================================================ */
-  --bg: #FFFFFF;
-  --surface: #FFFFFF;
-  --surface-2: #F6F9FC;
-  --surface-3: #EBEEF1;
-  --line: #E3E8EE;
-  --line-warm: #C8D1DC;
-  --signal: #1A1A22;          /* Graphite — Round 6.2 */
-  --signal-dim: #4A4A55;
-  --signal-2: #00D4FF;
-  --signal-rgb: 26, 26, 34;
-  --signal-pale: rgba(26, 26, 34, 0.05);
-  --signal-tint: rgba(26, 26, 34, 0.10);
-  --amber: #F5A623;
-  --cream: #0A2540;           /* "cream" var name kept for backward compat — now deep slate ink */
-  --muted: #425466;
-  --muted-2: #8898AA;
+  /* Palette — deliberate, not derivative */
+  --bg: #0A0E1A;           /* Deep charcoal, slight cool cast — NOT pure black */
+  --surface: #111724;      /* Elevated surface */
+  --surface-2: #1A2236;    /* Secondary elevation */
+  --line: #1F2636;         /* Subtle rule lines */
+  --line-warm: #2A3449;    /* Warmer line accent */
+  --signal: #C6F432;       /* Electric chartreuse — the hero accent, velocity & market-green */
+  --signal-dim: #96BA25;   /* Signal when dimmed */
+  --amber: #FF9448;        /* Warm secondary accent, used sparingly */
+  --cream: #F1ECE2;        /* Warm off-white body text */
+  --muted: #8B95A8;        /* Dim text */
+  --muted-2: #5A6478;      /* Deeper dim */
   /* Type */
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display-italic: 'Source Serif 4', Georgia, serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
+  --font-body: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
   /* Rhythm */
   --gutter: clamp(20px, 4vw, 48px);
   --max-w: 1320px;
-  /* Stripe gradients */
-  --gradient-hero: linear-gradient(135deg, #635BFF 0%, #00D4FF 35%, #00C896 70%, #FFEB3B 100%);
-  --gradient-cta: linear-gradient(135deg, #1A1A22 0%, #2C2C36 100%);
-  --gradient-strip: linear-gradient(90deg, #635BFF 0%, #00D4FF 50%, #00C896 100%);
-  /* Visual */
-  --grain-opacity: 0.04;
-  --device-shadow: 0 30px 80px -30px rgba(10, 37, 64, 0.18), 0 0 0 1px rgba(10, 37, 64, 0.06), 0 60px 120px -40px rgba(26, 26, 34, 0.08);
-  --radius-pill: 100px;
-  --radius-card: 12px;
-}
-
-/* ===== DARK MODE — preserved exactly as it was prior to Round 6 ===== */
-:root[data-theme="dark"] {
-  --bg: #0A0E1A;
-  --surface: #111724;
-  --surface-2: #1A2236;
-  --surface-3: #212A3F;
-  --line: #1F2636;
-  --line-warm: #2A3449;
-  --signal: #C6F432;
-  --signal-dim: #96BA25;
-  --signal-2: #DBFF5C;
-  --signal-rgb: 198, 244, 50;
-  --signal-pale: rgba(var(--signal-rgb), 0.10);
-  --signal-tint: rgba(var(--signal-rgb), 0.18);
-  --amber: #FF9448;
-  --cream: #F1ECE2;
-  --muted: #8B95A8;
-  --muted-2: #5A6478;
-  /* Type — dark mode keeps Fraunces + Geist for typographic continuity */
-  --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
-  --font-display-italic: 'Fraunces', 'Instrument Serif', Georgia, serif;
-  --font-body: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
-  --gradient-hero: linear-gradient(135deg, #C6F432 0%, #38D687 50%, #00D4FF 100%);
-  --gradient-cta: linear-gradient(135deg, #C6F432 0%, #96BA25 100%);
-  --gradient-strip: linear-gradient(90deg, transparent, #C6F432, transparent);
+  /* Grain overlay opacity (overridden in light mode) */
   --grain-opacity: 0.45;
-  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(var(--signal-rgb), 0.08), 0 60px 120px -40px rgba(var(--signal-rgb), 0.12);
+  /* Hero device shadow (overridden in light mode) */
+  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(198, 244, 50, 0.08), 0 60px 120px -40px rgba(198, 244, 50, 0.12);
 }
 
-/* ===== LIGHT MODE — explicit, matches :root defaults ===== */
+/* ===== LIGHT MODE THEME ===== */
 :root[data-theme="light"] {
-  --bg: #FFFFFF;
-  --surface: #FFFFFF;
-  --surface-2: #F6F9FC;
-  --surface-3: #EBEEF1;
-  --line: #E3E8EE;
-  --line-warm: #C8D1DC;
-  --signal: #1A1A22;
-  --signal-dim: #4A4A55;
-  --signal-2: #00D4FF;
-  --signal-rgb: 26, 26, 34;
-  --signal-pale: rgba(26, 26, 34, 0.05);
-  --signal-tint: rgba(26, 26, 34, 0.10);
-  --amber: #F5A623;
-  --cream: #0A2540;
-  --muted: #425466;
-  --muted-2: #8898AA;
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display-italic: 'Source Serif 4', Georgia, serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
-  --gradient-hero: linear-gradient(135deg, #635BFF 0%, #00D4FF 35%, #00C896 70%, #FFEB3B 100%);
-  --gradient-cta: linear-gradient(135deg, #1A1A22 0%, #2C2C36 100%);
-  --gradient-strip: linear-gradient(90deg, #635BFF 0%, #00D4FF 50%, #00C896 100%);
-  --grain-opacity: 0.04;
-  --device-shadow: 0 30px 80px -30px rgba(10, 37, 64, 0.18), 0 0 0 1px rgba(10, 37, 64, 0.06), 0 60px 120px -40px rgba(26, 26, 34, 0.08);
+  --bg: #F7F5F0;          /* Warm cream background — NOT pure white */
+  --surface: #FFFFFF;     /* Elevated surfaces are pure white */
+  --surface-2: #EEEAE0;   /* Secondary surface — deeper warm tone */
+  --line: #E0DACE;        /* Subtle warm rule lines */
+  --line-warm: #CFC8B9;   /* Warmer line accent */
+  --signal: #7FA820;      /* Brighter chartreuse-olive — AA readable, carries punch */
+  --signal-dim: #96BA25;  /* Signal when dimmed */
+  --amber: #B84E15;       /* Slightly warmer amber for contrast on cream */
+  --cream: #1A1F2E;       /* "Cream" = dark text on light */
+  --muted: #5A6375;       /* Muted text */
+  --muted-2: #6F7A8E;     /* Deeper dim — was too light at #8A94A6 */
+  --grain-opacity: 0.08;  /* Much less grain in light mode */
+  --device-shadow: 0 20px 50px -20px rgba(26, 31, 46, 0.15), 0 0 0 1px rgba(127, 168, 32, 0.14), 0 40px 80px -30px rgba(127, 168, 32, 0.10);
 }
 
 /* Smooth theme transitions */
@@ -241,7 +184,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--signal);
 }
 .brand-mark svg { width: 100%; height: 100%; }
 .brand em {
@@ -281,7 +223,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   letter-spacing: -0.01em;
   transition: all 0.18s ease;
 }
-.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(var(--signal-rgb), 0.55); }
+.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(198, 244, 50, 0.55); }
 .nav-cta svg { width: 13px; height: 13px; transition: transform 0.18s; }
 .nav-cta:hover svg { transform: translateX(3px); }
 .nav-toggle { display: none; }
@@ -330,17 +272,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Nav CTA already works because it references --signal and --bg */
 [data-theme="light"] .nav-cta { color: #FFFFFF; }
-[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(var(--signal-rgb), 0.32); }
+[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(127, 168, 32, 0.32); }
 
 /* Primary buttons — white text on the darker chartreuse reads cleanly */
 [data-theme="light"] .btn-primary { color: #FFFFFF; }
-[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(var(--signal-rgb), 0.35); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(127, 168, 32, 0.35); }
 
 /* Hero accent ribbon — soften the signal tint on cream */
 [data-theme="light"] .hero-accent {
   background:
-    linear-gradient(125deg, transparent 46%, rgba(var(--signal-rgb), 0.06) 47%, rgba(var(--signal-rgb), 0.16) 50%, rgba(var(--signal-rgb), 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(var(--signal-rgb), 0.04) 59%, rgba(var(--signal-rgb), 0.11) 61%, rgba(var(--signal-rgb), 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(127, 168, 32, 0.06) 47%, rgba(127, 168, 32, 0.16) 50%, rgba(127, 168, 32, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(127, 168, 32, 0.04) 59%, rgba(127, 168, 32, 0.11) 61%, rgba(127, 168, 32, 0.04) 63%, transparent 64%);
   mix-blend-mode: multiply;
 }
 
@@ -356,24 +298,24 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Wedge callout — signal tint on warm cream */
 [data-theme="light"] .wedge-callout {
-  background: linear-gradient(135deg, rgba(var(--signal-rgb), 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(127, 168, 32, 0.06) 0%, transparent 65%);
 }
 
 /* Time compression "after" card — the signal-tinted one */
 [data-theme="light"] .ba-col.after {
-  border-color: rgba(var(--signal-rgb), 0.35);
-  background: linear-gradient(180deg, rgba(var(--signal-rgb), 0.05), var(--surface) 60%);
+  border-color: rgba(127, 168, 32, 0.35);
+  background: linear-gradient(180deg, rgba(127, 168, 32, 0.05), var(--surface) 60%);
 }
 
 /* Roadmap "now" card */
 [data-theme="light"] .roadmap-col.now {
-  border-color: rgba(var(--signal-rgb), 0.32);
-  background: linear-gradient(180deg, rgba(var(--signal-rgb), 0.05) 0%, var(--surface) 70%);
+  border-color: rgba(127, 168, 32, 0.32);
+  background: linear-gradient(180deg, rgba(127, 168, 32, 0.05) 0%, var(--surface) 70%);
 }
 
 /* Built-by section radial glow */
 [data-theme="light"] .builtby::before {
-  background: radial-gradient(ellipse at center, rgba(var(--signal-rgb), 0.07), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(127, 168, 32, 0.07), transparent 60%);
 }
 
 /* Built-by avatar — flip ring color to darker chartreuse for contrast */
@@ -389,7 +331,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Career timeline */
 [data-theme="light"] .ct-item.active .ct-dot {
-  box-shadow: 0 0 0 4px rgba(var(--signal-rgb), 0.18);
+  box-shadow: 0 0 0 4px rgba(127, 168, 32, 0.18);
 }
 
 /* Testimonials quote mark */
@@ -399,7 +341,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Use case tab active — softer signal highlight */
 [data-theme="light"] .uc-tab.active {
-  background: linear-gradient(90deg, rgba(var(--signal-rgb), 0.07), transparent);
+  background: linear-gradient(90deg, rgba(127, 168, 32, 0.07), transparent);
 }
 
 /* Nav backdrop blur — stronger white behind so it doesn't wash out */
@@ -415,10 +357,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Footer email pill hover */
 [data-theme="light"] .foot-email:hover {
-  background: rgba(var(--signal-rgb), 0.07);
+  background: rgba(127, 168, 32, 0.07);
 }
 [data-theme="light"] .foot-social:hover {
-  background: rgba(var(--signal-rgb), 0.07);
+  background: rgba(127, 168, 32, 0.07);
 }
 
 /* Stats strip numbers — signal italic */
@@ -519,40 +461,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   overflow: hidden;
   z-index: 2;
 }
-
-/* ============================================================
- * Round 6 — Stripe rainbow gradient hero (LIGHT MODE ONLY).
- * Massive blurred multi-color gradient sitting at the top of the
- * hero, masked to fade into white. The signature Stripe move.
- * Dark mode KEEPS its existing chartreuse ribbon (.hero-accent
- * below) — we don't touch dark mode's hero treatment.
- * ============================================================ */
-:root:not([data-theme="dark"]) .hero::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 720px;
-  background: var(--gradient-hero);
-  opacity: 0.55;
-  z-index: 0;
-  filter: blur(60px);
-  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 0%, black 35%, transparent 80%);
-          mask-image: radial-gradient(ellipse 90% 70% at 50% 25%, black 0%, black 35%, transparent 80%);
-  transform: skewY(-3deg);
-  transform-origin: top left;
-  pointer-events: none;
-}
-/* Light mode hides the old chartreuse hero-accent ribbon — replaced by the gradient above */
-:root:not([data-theme="dark"]) .hero-accent {
-  display: none;
-}
-/* Light mode tones down the grid pattern so it doesn't compete with the gradient */
-:root:not([data-theme="dark"]) .hero-grid {
-  opacity: 0.25;
-}
-
 .hero-grid {
   position: absolute;
   inset: 0;
@@ -573,8 +481,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 62%;
   height: 130%;
   background:
-    linear-gradient(125deg, transparent 46%, rgba(var(--signal-rgb), 0.06) 47%, rgba(var(--signal-rgb), 0.18) 50%, rgba(var(--signal-rgb), 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(var(--signal-rgb), 0.04) 59%, rgba(var(--signal-rgb), 0.12) 61%, rgba(var(--signal-rgb), 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(198, 244, 50, 0.06) 47%, rgba(198, 244, 50, 0.18) 50%, rgba(198, 244, 50, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(198, 244, 50, 0.04) 59%, rgba(198, 244, 50, 0.12) 61%, rgba(198, 244, 50, 0.04) 63%, transparent 64%);
   mix-blend-mode: screen;
   pointer-events: none;
 }
@@ -637,15 +545,6 @@ h1.hero-title em {
   color: var(--signal);
   font-weight: 300;
 }
-/* Round 6: in light mode, hero italic emphasis uses Source Serif 4 italic
-   (Stripe's signature move). Dark mode keeps Fraunces italic for typographic
-   continuity with the existing dark-theme aesthetic. */
-:root:not([data-theme="dark"]) h1.hero-title em {
-  font-family: var(--font-display-italic);
-  font-style: italic;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-}
 .hero-sub {
   font-size: clamp(15px, 1.3vw, 18px);
   line-height: 1.58;
@@ -680,7 +579,7 @@ h1.hero-title em {
   background: var(--signal);
   color: var(--bg);
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(var(--signal-rgb), 0.6); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(198, 244, 50, 0.6); }
 .btn-ghost {
   background: transparent;
   color: var(--cream);
@@ -1066,12 +965,12 @@ section.section {
 
 /* ===== FINAL UW SUMMARY capstone card ===== */
 .module.module-summary {
-  background: linear-gradient(165deg, rgba(var(--signal-rgb), 0.08) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(198, 244, 50, 0.08) 0%, var(--bg) 80%);
   border-left: 3px solid var(--signal);
   position: relative;
 }
 .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(var(--signal-rgb), 0.12) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(198, 244, 50, 0.12) 0%, var(--surface) 80%);
 }
 .module.module-summary::before {
   /* Subtle diagonal sheen in the corner */
@@ -1079,7 +978,7 @@ section.section {
   position: absolute;
   top: 0; right: 0;
   width: 90px; height: 90px;
-  background: radial-gradient(circle at top right, rgba(var(--signal-rgb), 0.16), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(198, 244, 50, 0.16), transparent 70%);
   pointer-events: none;
 }
 .module-tag.summary-tag {
@@ -1108,8 +1007,8 @@ section.section {
   font-size: 9.5px;
   letter-spacing: 0.1em;
   color: var(--signal);
-  background: rgba(var(--signal-rgb), 0.08);
-  border: 1px solid rgba(var(--signal-rgb), 0.28);
+  background: rgba(198, 244, 50, 0.08);
+  border: 1px solid rgba(198, 244, 50, 0.28);
   padding: 3px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1135,17 +1034,17 @@ section.section {
 
 /* Light-mode adjustments for the capstone card */
 [data-theme="light"] .module.module-summary {
-  background: linear-gradient(165deg, rgba(var(--signal-rgb), 0.09) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(127, 168, 32, 0.09) 0%, var(--bg) 80%);
 }
 [data-theme="light"] .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(var(--signal-rgb), 0.13) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(127, 168, 32, 0.13) 0%, var(--surface) 80%);
 }
 [data-theme="light"] .module.module-summary::before {
-  background: radial-gradient(circle at top right, rgba(var(--signal-rgb), 0.14), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(127, 168, 32, 0.14), transparent 70%);
 }
 [data-theme="light"] .summary-chip {
-  background: rgba(var(--signal-rgb), 0.09);
-  border-color: rgba(var(--signal-rgb), 0.3);
+  background: rgba(127, 168, 32, 0.09);
+  border-color: rgba(127, 168, 32, 0.3);
 }
 
 
@@ -1182,7 +1081,7 @@ section.section {
 .uc-tab.active {
   color: var(--cream);
   border-left-color: var(--signal);
-  background: linear-gradient(90deg, rgba(var(--signal-rgb), 0.05), transparent);
+  background: linear-gradient(90deg, rgba(198, 244, 50, 0.05), transparent);
 }
 @media (max-width: 880px) {
   .uc-tab { border-left: none; border-bottom: 2px solid transparent; }
@@ -1237,7 +1136,7 @@ section.section {
 /* ========== WEDGE CALLOUT ========== */
 .wedge-callout {
   position: relative;
-  background: linear-gradient(135deg, rgba(var(--signal-rgb), 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(198, 244, 50, 0.06) 0%, transparent 65%);
   border: 1px solid var(--line-warm);
   border-left: 3px solid var(--signal);
   border-radius: 14px;
@@ -1409,7 +1308,7 @@ section.section {
   right: -10%;
   width: 60%;
   height: 200%;
-  background: radial-gradient(ellipse at center, rgba(var(--signal-rgb), 0.08), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(198, 244, 50, 0.08), transparent 60%);
   pointer-events: none;
 }
 .builtby-avatar {
@@ -1550,7 +1449,7 @@ footer {
   border-radius: 999px;
   transition: all 0.2s;
 }
-.foot-email:hover { border-color: var(--signal); background: rgba(var(--signal-rgb), 0.05); }
+.foot-email:hover { border-color: var(--signal); background: rgba(198, 244, 50, 0.05); }
 
 /* ========== FOOTER SOCIAL LINKS ========== */
 .foot-socials {
@@ -1576,7 +1475,7 @@ footer {
 }
 .foot-social:hover {
   border-color: var(--signal);
-  background: rgba(var(--signal-rgb), 0.05);
+  background: rgba(198, 244, 50, 0.05);
   transform: translateY(-1px);
 }
 .foot-social:hover .fs-icon { color: var(--signal); }
@@ -1679,9 +1578,9 @@ footer {
     <a href="#" class="brand">
       <span class="brand-mark">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect x="2" y="2" width="36" height="36" rx="9" stroke="currentColor" stroke-width="1.5"/>
-          <path d="M12 22 L20 14 L28 22" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 28 L20 20 L28 28" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#C6F432" stroke-width="1.5"/>
+          <path d="M12 22 L20 14 L28 22" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 28 L20 20 L28 28" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
         </svg>
       </span>
       <span>Speed to Market <em>AI</em></span>
@@ -2070,8 +1969,8 @@ footer {
   border-color: var(--line-warm);
 }
 .ba-col.after {
-  border-color: rgba(var(--signal-rgb), 0.32);
-  background: linear-gradient(180deg, rgba(var(--signal-rgb), 0.04), var(--surface) 60%);
+  border-color: rgba(198, 244, 50, 0.32);
+  background: linear-gradient(180deg, rgba(198, 244, 50, 0.04), var(--surface) 60%);
 }
 .ba-label {
   font-family: var(--font-mono);
@@ -2736,8 +2635,8 @@ footer {
 }
 .roadmap-col:hover { border-color: var(--signal); transform: translateY(-3px); }
 .roadmap-col.now {
-  border-color: rgba(var(--signal-rgb), 0.35);
-  background: linear-gradient(180deg, rgba(var(--signal-rgb), 0.04) 0%, var(--surface) 70%);
+  border-color: rgba(198, 244, 50, 0.35);
+  background: linear-gradient(180deg, rgba(198, 244, 50, 0.04) 0%, var(--surface) 70%);
 }
 .rm-horizon {
   font-family: var(--font-mono);
@@ -2976,7 +2875,7 @@ footer {
 .ct-item.active .ct-dot {
   background: var(--signal);
   border-color: var(--signal);
-  box-shadow: 0 0 0 4px rgba(var(--signal-rgb), 0.18);
+  box-shadow: 0 0 0 4px rgba(198, 244, 50, 0.18);
 }
 .ct-item:hover .ct-dot {
   border-color: var(--signal);
@@ -3023,158 +2922,6 @@ footer {
 
 /* Tighten builtby-creds chip wrapping on smaller screens */
 .builtby-creds { row-gap: 10px; }
-
-/* ============================================================================
- * ROUND 6.3 — CARD ELEVATION SYSTEM (LIGHT MODE ONLY)
- *
- * Three tiers lifting cards off the white page background. Dark mode is
- * untouched. Same logic as app.css — adapted to marketing-page class names.
- *
- * Tier 1 (DEFAULT): subtle white-grey gradient. Step cards, modules, stat
- *                    cards, sec-card, tc-card, roadmap-col.
- * Tier 2 (ELEVATED): stronger grey gradient. Used sparingly — uc-content,
- *                    decision-style panels, ba-col.before.
- * Tier 3 (HERO): graphite gradient (#1A1A22 → #0F0F15) with white text.
- *                The "answer" surfaces — ba-col.after, builtby, cta-section,
- *                wedge-callout.
- * ============================================================================ */
-
-/* === TIER 1: DEFAULT === */
-:root:not([data-theme="dark"]) .step,
-:root:not([data-theme="dark"]) .module,
-:root:not([data-theme="dark"]) .sec-card,
-:root:not([data-theme="dark"]) .tc-card,
-:root:not([data-theme="dark"]) .roadmap-col,
-:root:not([data-theme="dark"]) .quote {
-  background: linear-gradient(180deg, #FBFCFD 0%, #F4F6F9 100%);
-  border: 1px solid #E3E8EE;
-  box-shadow: 0 1px 2px rgba(10, 37, 64, 0.04), 0 4px 12px rgba(10, 37, 64, 0.06);
-  position: relative;
-}
-:root:not([data-theme="dark"]) .step::before,
-:root:not([data-theme="dark"]) .module::before,
-:root:not([data-theme="dark"]) .sec-card::before,
-:root:not([data-theme="dark"]) .tc-card::before,
-:root:not([data-theme="dark"]) .roadmap-col::before,
-:root:not([data-theme="dark"]) .quote::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-/* === TIER 2: ELEVATED === */
-:root:not([data-theme="dark"]) .uc-content,
-:root:not([data-theme="dark"]) .ba-col.before {
-  background: linear-gradient(180deg, #F4F6F9 0%, #E8EDF3 100%);
-  border: 1px solid #D8DFE8;
-  box-shadow: 0 2px 4px rgba(10, 37, 64, 0.06), 0 8px 24px rgba(10, 37, 64, 0.10);
-  position: relative;
-}
-:root:not([data-theme="dark"]) .uc-content::before,
-:root:not([data-theme="dark"]) .ba-col.before::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-/* === TIER 3: HERO === */
-:root:not([data-theme="dark"]) .ba-col.after,
-:root:not([data-theme="dark"]) .builtby,
-:root:not([data-theme="dark"]) .cta-section,
-:root:not([data-theme="dark"]) .wedge-callout {
-  background: linear-gradient(180deg, #1A1A22 0%, #0F0F15 100%);
-  border: 1px solid #1A1A22;
-  color: #FAFAFA;
-  box-shadow: 0 4px 8px rgba(10, 37, 64, 0.12), 0 16px 40px rgba(10, 37, 64, 0.20);
-  position: relative;
-}
-:root:not([data-theme="dark"]) .ba-col.after::before,
-:root:not([data-theme="dark"]) .builtby::before,
-:root:not([data-theme="dark"]) .cta-section::before,
-:root:not([data-theme="dark"]) .wedge-callout::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.10);
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-/* Hero card text overrides — readable on dark backgrounds */
-:root:not([data-theme="dark"]) .ba-col.after,
-:root:not([data-theme="dark"]) .ba-col.after h1,
-:root:not([data-theme="dark"]) .ba-col.after h2,
-:root:not([data-theme="dark"]) .ba-col.after h3,
-:root:not([data-theme="dark"]) .ba-col.after .ba-num,
-:root:not([data-theme="dark"]) .builtby,
-:root:not([data-theme="dark"]) .builtby h1,
-:root:not([data-theme="dark"]) .builtby h2,
-:root:not([data-theme="dark"]) .builtby h3,
-:root:not([data-theme="dark"]) .cta-section,
-:root:not([data-theme="dark"]) .cta-section h1,
-:root:not([data-theme="dark"]) .cta-section h2,
-:root:not([data-theme="dark"]) .cta-section h3,
-:root:not([data-theme="dark"]) .cta-huge,
-:root:not([data-theme="dark"]) .wedge-callout,
-:root:not([data-theme="dark"]) .wedge-line {
-  color: #FAFAFA;
-}
-:root:not([data-theme="dark"]) .ba-col.after p,
-:root:not([data-theme="dark"]) .ba-col.after li,
-:root:not([data-theme="dark"]) .builtby p,
-:root:not([data-theme="dark"]) .cta-section p,
-:root:not([data-theme="dark"]) .wedge-callout p {
-  color: rgba(255, 255, 255, 0.78);
-}
-/* Hero italic emphasis — bright accent so it still pops on dark bg */
-:root:not([data-theme="dark"]) .ba-col.after em,
-:root:not([data-theme="dark"]) .builtby em,
-:root:not([data-theme="dark"]) .cta-section em,
-:root:not([data-theme="dark"]) .wedge-callout em,
-:root:not([data-theme="dark"]) .cta-huge em,
-:root:not([data-theme="dark"]) .wedge-line em {
-  color: #FFFFFF;
-  font-family: var(--font-display-italic);
-}
-/* Eyebrow / label tags inside hero cards */
-:root:not([data-theme="dark"]) .ba-col.after .ba-label,
-:root:not([data-theme="dark"]) .builtby .label-tag,
-:root:not([data-theme="dark"]) .cta-section .label-tag {
-  color: rgba(255, 255, 255, 0.5);
-}
-/* Builtby avatar ring stays graphite on light, but inverts to white-tinted
-   border when sitting inside the hero graphite card */
-:root:not([data-theme="dark"]) .builtby .builtby-avatar {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.05);
-}
-/* CTA buttons inside hero cards — invert to white-on-dark */
-:root:not([data-theme="dark"]) .ba-col.after .btn-primary,
-:root:not([data-theme="dark"]) .builtby .btn-primary,
-:root:not([data-theme="dark"]) .cta-section .btn-primary {
-  background: #FFFFFF;
-  color: #1A1A22;
-  border-color: #FFFFFF;
-}
-:root:not([data-theme="dark"]) .ba-col.after .btn-secondary,
-:root:not([data-theme="dark"]) .builtby .btn-secondary,
-:root:not([data-theme="dark"]) .cta-section .btn-secondary,
-:root:not([data-theme="dark"]) .ba-col.after .btn-ghost,
-:root:not([data-theme="dark"]) .builtby .btn-ghost,
-:root:not([data-theme="dark"]) .cta-section .btn-ghost {
-  background: transparent;
-  color: #FFFFFF;
-  border-color: rgba(255, 255, 255, 0.3);
-}
 </style>
 
 <!-- ========== CTA ========== -->
@@ -3207,9 +2954,9 @@ footer {
         <a href="#" class="brand">
           <span class="brand-mark">
             <svg viewBox="0 0 40 40" fill="none">
-              <rect x="2" y="2" width="36" height="36" rx="9" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M12 22 L20 14 L28 22" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 28 L20 20 L28 28" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#C6F432" stroke-width="1.5"/>
+              <path d="M12 22 L20 14 L28 22" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 28 L20 20 L28 28" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </span>
           <span>Speed to Market <em>AI</em></span>
@@ -3304,24 +3051,20 @@ document.querySelectorAll('.nav-links a').forEach(a => {
   a.addEventListener('click', () => document.getElementById('navLinks').classList.remove('open'));
 });
 
-// ===== THEME TOGGLE (Round 6: explicit attribute, never remove) =====
-// Round 6 made light the default :root, so the prior "remove attribute = dark"
-// logic stopped working. Now we ALWAYS set an explicit data-theme attribute,
-// either "light" or "dark", which makes the behavior deterministic regardless
-// of which theme is :root default.
+// ===== THEME TOGGLE =====
 function applyTheme(theme) {
-  if (theme === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A0E1A');
-  } else {
+  if (theme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FFFFFF');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#F7F5F0');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A0E1A');
   }
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  const next = current === 'dark' ? 'light' : 'dark';
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
   applyTheme(next);
   try { localStorage.setItem('stm-theme', next); } catch (e) {}
 }
@@ -3329,17 +3072,16 @@ function toggleTheme() {
 // Initialize theme on load:
 // 1. If user previously chose a theme, honor that
 // 2. Otherwise respect system preference
-// 3. Default to LIGHT (Round 6 — solves "too dark" feedback for new visitors)
+// 3. Default to dark
 (function initTheme() {
   let stored;
   try { stored = localStorage.getItem('stm-theme'); } catch (e) {}
   if (stored === 'light' || stored === 'dark') {
     applyTheme(stored);
-  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    applyTheme('dark');
-  } else {
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
     applyTheme('light');
   }
+  // Else: stay dark (default)
 })();
 </script>
 

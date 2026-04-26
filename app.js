@@ -1511,91 +1511,16 @@ const SUB_STATUS_CLASS = {
 };
 
 // ---- Persistence ----------------------------------------------------------
-// Phase 4: the Queue now lives in Supabase (public.submissions). These two
-// functions are kept as shims so existing call sites don't need to change —
-// the rest of the app still says `loadSubmissions()` / `saveSubmissions()`
-// and we translate to Supabase underneath.
+// Phase 4: the Queue lives in Supabase (public.submissions). loadSubmissions
+// is kept as a no-op shim so init-time callers don't break — the real load
+// happens in sbHydrate() after sign-in. Phase 7 step 3 replaced the old batch
+// saveSubmissions() with the direct-save pattern (sbSaveSubmission +
+// buildSubmissionPayload at each mutation site); the dead saveSubmissions
+// function was removed in v6.1 cleanup.
 function loadSubmissions() {
   // No-op. The real load happens in sbHydrate() after sign-in. That function
   // re-populates STATE.submissions from public.submissions and re-renders the
   // Queue. Leaving this as a stub so init-time callers don't break.
-}
-
-// Persist the submissions list to Supabase. We upsert each in-memory submission
-// into public.submissions. File text bytes are stripped from the snapshot (same
-// as the old lite-copy logic) so we stay well under row-size limits and don't
-// ship raw documents up to Postgres. This is fire-and-forget — if a write
-// fails, we log to audit and keep the in-memory copy so the UW doesn't lose
-// work mid-session.
-function saveSubmissions() {
-  // Build lite snapshots (drop raw file text bytes, same as before)
-  const lite = STATE.submissions.map(s => ({
-    ...s,
-    snapshot: s.snapshot ? {
-      ...s.snapshot,
-      files: (s.snapshot.files || []).map(f => ({
-        ...f,
-        text: '',              // drop raw bytes
-        textDropped: true      // flag so UI can show "re-upload to re-run"
-      }))
-    } : null
-  }));
-  // Fire off one upsert per submission. Don't await — the UI shouldn't block
-  // on the network. Any single failure gets audited; we don't throw.
-  // Throttle success/error toasts so a rapid batch of saves (many submissions
-  // being re-upserted at once) doesn't spam the UI. We remember the last toast
-  // time per kind and skip if we fired the same kind within 2 seconds.
-  if (!window._sbSubmitToastState) window._sbSubmitToastState = { okAt: 0, errAt: 0 };
-  const toastThrottleMs = 2000;
-  let okCount = 0, failCount = 0;
-  Promise.all(lite.map(s => {
-    const derived = {
-      account:         s.account || null,
-      broker:          s.broker || null,
-      effectiveDate:   s.effectiveDate || null,
-      requestedLimits: s.requestedLimits || null,
-      missingInfo:     s.missingInfo || null
-    };
-    const snapshotWithDerived = s.snapshot
-      ? { ...s.snapshot, derived: derived }
-      : { derived: derived };
-    return sbSaveSubmission({
-      id: s.id,
-      snapshot: snapshotWithDerived,
-      status: s.status || 'queued',
-      pipelineRun: s.pipelineRun || null,
-      title: s.account || s.title || null
-    }).then(data => {
-      okCount++;
-      return data;
-    }).catch(e => {
-      failCount++;
-      console.warn('Submission save failed', s.id, e);
-      if (typeof logAudit === 'function') {
-        logAudit('Submissions', 'Persist failed for ' + (s.id || '?') + ': ' + (e.message || e) + ' · keeping in-memory', 'warn');
-      }
-      // VISIBLE error toast so silent failures don't cost hours/money again.
-      // Throttled — only one red toast per 2s even if many saves fail at once.
-      const now = Date.now();
-      if (now - window._sbSubmitToastState.errAt > toastThrottleMs) {
-        window._sbSubmitToastState.errAt = now;
-        if (typeof toast === 'function') {
-          toast('Submission save failed · ' + (e.message || 'network error').slice(0, 80) + ' · data kept in-memory', 'error');
-        }
-      }
-    });
-  })).then(() => {
-    // Fire a single green success toast at the end of the batch, also throttled.
-    if (okCount > 0 && failCount === 0) {
-      const now = Date.now();
-      if (now - window._sbSubmitToastState.okAt > toastThrottleMs) {
-        window._sbSubmitToastState.okAt = now;
-        if (typeof toast === 'function') {
-          toast('Saved to cloud · ' + okCount + ' submission' + (okCount === 1 ? '' : 's'), 'success');
-        }
-      }
-    }
-  });
 }
 
 // ---- Derive display fields from extractions -------------------------------
@@ -5097,31 +5022,18 @@ function toast(msg) {
 }
 
 function toggleTheme() {
-  // Round 6: always set explicit data-theme attribute. Never remove.
-  // Light is the new :root default, so the prior "remove = dark" logic broke.
   const el = document.documentElement;
-  const cur = el.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const cur = el.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   const next = cur === 'dark' ? 'light' : 'dark';
-  el.setAttribute('data-theme', next);
+  if (next === 'light') el.setAttribute('data-theme', 'light');
+  else el.removeAttribute('data-theme');
   try { localStorage.setItem('stm-theme', next); } catch(e) {}
 }
 (function initTheme() {
-  // Round 6: light is the new default. Honor stored preference, else
-  // fall back to system preference, else default to light.
   try {
     const stored = localStorage.getItem('stm-theme');
-    if (stored === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else if (stored === 'light') {
-      document.documentElement.setAttribute('data-theme', 'light');
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-    }
-  } catch(e) {
-    document.documentElement.setAttribute('data-theme', 'light');
-  }
+    if (stored === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  } catch(e) {}
 })();
 
 // ============================================================================
