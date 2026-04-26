@@ -222,6 +222,9 @@
           <button class="stage-tab" id="stageTabSum" onclick="showStage('sum')" disabled>
             Summary <span class="count" id="sumCount">0</span>
           </button>
+          <button class="stage-tab" id="stageTabDocs" onclick="showStage('docs')">
+            Documents <span class="count" id="docsCount">0</span>
+          </button>
         </div>
       </div>
 
@@ -361,6 +364,141 @@
 
         <div class="add-custom-row">
           <button class="btn-add-custom" onclick="addCustomCard()">+ Add Custom Note / Section</button>
+        </div>
+      </div>
+
+      <!-- DOCUMENTS STAGE — Phase 1 Step 1: visual integration -->
+      <!-- Three-panel layout: docs grid (left) · category drawers (center) · tagged pages (right) -->
+      <!-- Reads files from STATE.activeSubmissionId's snapshot.files. Categorization persists to localStorage for now. -->
+      <div class="documents-stage" id="documentsStage">
+
+        <!-- Top toolbar: search · sort · view mode · clear -->
+        <div class="docs-toolbar">
+          <div class="docs-search-wrap">
+            <svg class="docs-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="docs-search-input" id="docsSearchInput" placeholder="Search documents in this submission…">
+            <button class="docs-search-clear" id="docsSearchClear" title="Clear (Esc)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="docs-toolbar-utils">
+            <div class="docs-view-toggle" id="docsViewToggle">
+              <button class="active" data-view="thumbnail" title="Thumbnail view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+              <button data-view="list" title="List view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+            </div>
+            <div class="docs-sort-wrap">
+              <button class="docs-sort-btn" id="docsSortBtn" title="Sort">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+              </button>
+              <div class="docs-sort-menu" id="docsSortMenu">
+                <button class="docs-sort-option active" data-sort="newest">Newest First</button>
+                <button class="docs-sort-option" data-sort="oldest">Oldest First</button>
+                <button class="docs-sort-option" data-sort="name-asc">Name A → Z</button>
+                <button class="docs-sort-option" data-sort="name-desc">Name Z → A</button>
+                <button class="docs-sort-option" data-sort="type">By Type</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Three-panel workspace -->
+        <div class="docs-workspace">
+
+          <!-- LEFT: Document grid for the active submission -->
+          <aside class="docs-grid-pane">
+            <div class="docs-grid-head">
+              <span class="docs-grid-title" id="docsGridTitle">All Documents</span>
+              <span class="docs-grid-count-badge" id="docsGridCount">0</span>
+            </div>
+            <div class="docs-grid" id="docsGrid" data-view="thumbnail">
+              <div class="docs-grid-empty" id="docsGridEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div class="docs-grid-empty-title">No documents</div>
+                <div class="docs-grid-empty-sub">Open a submission to see its files here</div>
+              </div>
+            </div>
+          </aside>
+
+          <!-- CENTER: Category drawers (14 categories for E&S excess casualty) -->
+          <section class="docs-categories-pane">
+            <div class="docs-cat-head">
+              <div>
+                <div class="docs-cat-eyebrow">Categories</div>
+                <h2 class="docs-cat-title">Document Library</h2>
+              </div>
+              <div class="docs-cat-stats">
+                <span class="docs-cat-pill"><b id="docsTotalAll">0</b> Total</span>
+                <span class="docs-cat-pill"><b id="docsTotalTagged">0</b> Tagged</span>
+              </div>
+            </div>
+            <div class="docs-cat-grid" id="docsCatGrid"></div>
+          </section>
+
+          <!-- RIGHT: Tagged pages with color filter -->
+          <aside class="docs-tags-pane">
+            <div class="docs-tags-head">
+              <span class="docs-tags-title">Tagged Pages</span>
+              <span class="docs-tags-count-badge"><span id="docsTagsCount">0</span> pages</span>
+            </div>
+            <div class="docs-color-filter">
+              <button class="docs-color-filter-btn" id="docsColorFilterBtn">
+                <span class="docs-color-filter-display">
+                  <span class="docs-color-dot all"></span>
+                  <span id="docsColorFilterLabel">All Colors</span>
+                </span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="docs-svg-xs"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="docs-color-filter-menu" id="docsColorFilterMenu">
+                <button class="docs-color-option active" data-filter="all"><span class="docs-color-dot all"></span>All Colors</button>
+                <button class="docs-color-option" data-filter="red"><span class="docs-color-dot red"></span>Loss History</button>
+                <button class="docs-color-option" data-filter="maroon"><span class="docs-color-dot maroon"></span>Cancellations</button>
+                <button class="docs-color-option" data-filter="blue"><span class="docs-color-dot blue"></span>Policy</button>
+                <button class="docs-color-option" data-filter="green"><span class="docs-color-dot green"></span>Applications</button>
+                <button class="docs-color-option" data-filter="yellow"><span class="docs-color-dot yellow"></span>Underlying</button>
+                <button class="docs-color-option" data-filter="purple"><span class="docs-color-dot purple"></span>Project</button>
+                <button class="docs-color-option" data-filter="orange"><span class="docs-color-dot orange"></span>Subjectivity</button>
+                <button class="docs-color-option" data-filter="pink"><span class="docs-color-dot pink"></span>Quote / Indication</button>
+                <button class="docs-color-option" data-filter="black"><span class="docs-color-dot black"></span>Underwriting</button>
+              </div>
+            </div>
+            <div class="docs-tags-list" id="docsTagsList">
+              <div class="docs-tags-empty" id="docsTagsEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <div class="docs-tags-empty-title">No tagged pages</div>
+                <div class="docs-tags-empty-sub">Right-click a doc to assign a color tag</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <!-- Right-click context menu for setting category/color on a doc -->
+        <div class="docs-context-menu" id="docsContextMenu">
+          <button class="docs-ctx-item" data-act="cat-correspondence"><span class="docs-ctx-icon">✉</span>Correspondence</button>
+          <button class="docs-ctx-item" data-act="cat-applications"><span class="docs-ctx-icon">📝</span>Applications</button>
+          <button class="docs-ctx-item" data-act="cat-loss_history"><span class="docs-ctx-icon">📉</span>Loss History</button>
+          <button class="docs-ctx-item" data-act="cat-underlying_quotes"><span class="docs-ctx-icon">▣</span>Underlying Quotes</button>
+          <button class="docs-ctx-item" data-act="cat-cancellations"><span class="docs-ctx-icon">✕</span>Cancellations</button>
+          <button class="docs-ctx-item" data-act="cat-pricing"><span class="docs-ctx-icon">$</span>Pricing</button>
+          <button class="docs-ctx-item" data-act="cat-quotes"><span class="docs-ctx-icon">▤</span>Quotes</button>
+          <button class="docs-ctx-item" data-act="cat-binders"><span class="docs-ctx-icon">▦</span>Binders</button>
+          <button class="docs-ctx-item" data-act="cat-policies"><span class="docs-ctx-icon">⛨</span>Policies</button>
+          <button class="docs-ctx-item" data-act="cat-endorsements"><span class="docs-ctx-icon">✎</span>Endorsements</button>
+          <button class="docs-ctx-item" data-act="cat-subjectivities"><span class="docs-ctx-icon">⚠</span>Subjectivities</button>
+          <button class="docs-ctx-item" data-act="cat-surplus_lines"><span class="docs-ctx-icon">▥</span>Surplus Lines</button>
+          <button class="docs-ctx-item" data-act="cat-project"><span class="docs-ctx-icon">⌂</span>Project</button>
+          <button class="docs-ctx-item" data-act="cat-underwriting"><span class="docs-ctx-icon">◈</span>Underwriting</button>
+          <div class="docs-ctx-sep"></div>
+          <button class="docs-ctx-item" data-act="color-red"><span class="docs-mini-dot red"></span>Tag Red — Loss History</button>
+          <button class="docs-ctx-item" data-act="color-maroon"><span class="docs-mini-dot maroon"></span>Tag Maroon — Cancellations</button>
+          <button class="docs-ctx-item" data-act="color-blue"><span class="docs-mini-dot blue"></span>Tag Blue — Policy</button>
+          <button class="docs-ctx-item" data-act="color-green"><span class="docs-mini-dot green"></span>Tag Green — Applications</button>
+          <button class="docs-ctx-item" data-act="color-yellow"><span class="docs-mini-dot yellow"></span>Tag Yellow — Underlying</button>
+          <button class="docs-ctx-item" data-act="color-purple"><span class="docs-mini-dot purple"></span>Tag Purple — Project</button>
+          <button class="docs-ctx-item" data-act="color-orange"><span class="docs-mini-dot orange"></span>Tag Orange — Subjectivity</button>
+          <button class="docs-ctx-item" data-act="color-pink"><span class="docs-mini-dot pink"></span>Tag Pink — Quote / Indication</button>
+          <button class="docs-ctx-item" data-act="color-black"><span class="docs-mini-dot black"></span>Tag Black — Underwriting</button>
+          <div class="docs-ctx-sep"></div>
+          <button class="docs-ctx-item" data-act="clear">Clear category &amp; color</button>
         </div>
       </div>
 
