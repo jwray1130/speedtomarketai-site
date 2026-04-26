@@ -2094,8 +2094,11 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 #docs-view-root .anno-canvas {
   position: absolute;
   inset: 0;
-  width: 100% !important;
-  height: 100% !important;
+  /* width/height come from inset:0 of the wrap; no !important so the
+     inline styles set by resizeCanvas() (which match the wrap) don't
+     conflict with the CSS-declared display size. The canvas.width/height
+     ATTRIBUTES (set in JS) determine the BACKING buffer; the CSS
+     determines the DISPLAYED size. We keep these in sync via resizeCanvas. */
   background: transparent;
   touch-action: none;
 }

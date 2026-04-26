@@ -3844,13 +3844,29 @@ function startAnnoEngine() {
     }
 
     function resizeCanvas(canvas, container) {
-      const rect = container.getBoundingClientRect();
-      if (rect.width < 10 || rect.height < 10) return;
+      // Size the backing buffer to the canvas's OWN displayed dimensions,
+      // not the container's. The CSS rule `.anno-canvas { width: 100% !important;
+      // height: 100% !important }` makes the canvas fill its wrap, but the
+      // wrap is `inset: 0` of doc-thumb's PADDING box (not border box), so
+      // when doc-thumb has a 1px border-bottom the wrap (and canvas) are
+      // 1px shorter than the doc-thumb's getBoundingClientRect reports.
+      // Sourcing from the canvas itself eliminates any container/canvas
+      // dimension mismatch and is robust against future CSS changes.
+      // Falls back to container only if canvas hasn't been laid out yet.
+      let rect = canvas.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) {
+        rect = container.getBoundingClientRect();
+        if (rect.width < 10 || rect.height < 10) return;
+      }
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
+      // Round to integer pixels so backing/display ratio is exact and
+      // strokes don't drift by sub-pixel amounts at high coordinates.
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
       const ctx = canvas.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
@@ -3868,6 +3884,19 @@ function startAnnoEngine() {
         if (state.annotations.tool === 'pointer') return;
         if (e.target.closest('.anno-text-input, .anno-sticky')) return;
         e.preventDefault(); e.stopPropagation();
+        // Defensive: if the canvas's CURRENT displayed size doesn't match
+        // its backing buffer (panel resized, scrollbar appeared, font load
+        // shifted layout, etc.), re-size + redraw before recording the
+        // first point. Without this, strokes from the new session would
+        // be offset by the size delta. We compare in CSS pixels (rect)
+        // vs CSS pixels (style), tolerating sub-pixel rounding.
+        const r = canvas.getBoundingClientRect();
+        const styledW = parseFloat(canvas.style.width) || 0;
+        const styledH = parseFloat(canvas.style.height) || 0;
+        if (Math.abs(r.width - styledW) > 1 || Math.abs(r.height - styledH) > 1) {
+          resizeCanvas(canvas, wrap);
+          redrawLayers(docId, canvas);
+        }
         const pos = getPos(e);
         const a = state.annotations;
         a.isDrawing = true;
