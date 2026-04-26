@@ -566,16 +566,36 @@
         <div class="form-hint">Default global model. Individual modules may override this based on reasoning / extraction preference.</div>
       </div>
       <div class="form-group">
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="forceGlobalModel" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--signal);">
+          <span>Force ALL modules to use the model above</span>
+        </label>
+        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 17 modules) goes through the model above. Use this for max-quality runs regardless of cost. ~50% more spend per submission with all-Opus vs. default routing.</div>
+      </div>
+      <div class="form-group">
         <label>Max output tokens</label>
         <input type="number" id="apiMaxTokens" value="4096" min="512" max="16384">
+        <div class="form-hint">Anthropic only generates as much as the response naturally needs — this is the ceiling, not the target. Default 4096 covers most modules. Raise to 8192 or 16384 for complex Loss History tables, large Excess Towers, or detailed Discrepancy reports. Server-side limit: 16384.</div>
       </div>
 
       <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line);">
         <h3 style="font-family: var(--font-display); font-size: 16px; font-weight: 500; margin: 0 0 4px; color: var(--text);">Carrier Underwriting Guideline</h3>
-        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Paste your carrier's full underwriting guideline here. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
+        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Drop a PDF or Word doc, or paste the full guideline below. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
+
+        <!-- Guideline drop zone (Round 5 Fix #3) -->
+        <div id="guidelineDropZone" style="border: 2px dashed var(--line-warm); border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.18s; background: var(--surface-2); margin-bottom: 14px;"
+             ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='rgba(127,168,32,0.05)';"
+             ondragleave="event.preventDefault(); this.style.borderColor=''; this.style.background='';"
+             ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; handleGuidelineDrop(event);"
+             onclick="document.getElementById('guidelineFileInput').click()">
+          <div style="font-size: 13px; color: var(--text); margin-bottom: 4px;">📄  Drop a guideline PDF, DOCX, or TXT here</div>
+          <div style="font-size: 11px; color: var(--text-3);">or click to browse · max 10MB · text extracted client-side</div>
+          <input type="file" id="guidelineFileInput" accept=".pdf,.docx,.doc,.txt,.md" style="display: none;" onchange="handleGuidelineFileInput(event)">
+        </div>
+
         <div class="form-group">
           <label>Guideline text <span id="guidelineStatus" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.04em; float: right;"></span></label>
-          <textarea id="carrierGuideline" rows="8" placeholder="Paste your full underwriting guideline here..." style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+          <textarea id="carrierGuideline" rows="8" placeholder="...or paste the full underwriting guideline here. The drop zone above is the easier path for PDFs and Word docs." style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
           <div class="form-hint">Leave empty to use the default embedded Zurich E&amp;S excerpt (~9.5K chars, 114-page guideline condensed).</div>
         </div>
         <div style="display: flex; gap: 8px;">

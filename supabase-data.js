@@ -611,6 +611,9 @@ async function sbHydrate() {
       }
       if (settings.default_model && STATE.api) STATE.api.model = settings.default_model;
       if (settings.max_tokens && STATE.api)    STATE.api.maxTokens = settings.max_tokens;
+      // Round 5 fix #1: read force_global_model. When true, callLLM in pipeline.js
+      // routes every LLM call through STATE.api.model regardless of per-module preference.
+      if (typeof settings.force_global_model === 'boolean' && STATE.api) STATE.api.forceGlobal = settings.force_global_model;
       // Phase 8.5 fix #5: refresh the visible model pill in the top bar so it
       // shows the just-loaded model name immediately, not the original default.
       // Without this the pill keeps showing the pre-hydrate model until some

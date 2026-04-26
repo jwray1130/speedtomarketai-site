@@ -640,6 +640,9 @@ function openSettings() {
     if (sel && STATE.api) {
       Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
     }
+    // Round 5 fix #1: pre-populate forceGlobal checkbox from STATE.
+    const fg = document.getElementById('forceGlobalModel');
+    if (fg && STATE.api) fg.checked = !!STATE.api.forceGlobal;
     // Guideline field — show whatever's active, but only populate textarea if override exists.
     // Phase 4: the override lives in ACTIVE_GUIDELINE (hydrated from user_settings
     // on sign-in). If it doesn't equal DEFAULT_GUIDELINE, treat it as a user override.
@@ -675,13 +678,18 @@ function closeSettings() {
 function saveSettings() {
   const model = document.getElementById('apiModel').value;
   const maxTokens = parseInt(document.getElementById('apiMaxTokens').value) || 4096;
-  STATE.api = { model, maxTokens };
+  // Round 5 fix #1: read forceGlobal checkbox state. When true, callLLM in
+  // pipeline.js routes every LLM call through this model regardless of the
+  // per-module preference. Defaults to false (existing per-module routing).
+  const forceGlobal = !!document.getElementById('forceGlobalModel')?.checked;
+  STATE.api = { model, maxTokens, forceGlobal };
 
   // Phase 8.5 fix: persist model + max_tokens to user_settings. Previously
   // these only updated STATE.api in-memory — sbHydrate read them on page
   // load but saveSettings never wrote them, so changes vanished on refresh.
+  // Round 5 adds force_global_model to the persisted set.
   if (typeof sbSaveSettings === 'function') {
-    sbSaveSettings({ default_model: model, max_tokens: maxTokens }).catch(e => {
+    sbSaveSettings({ default_model: model, max_tokens: maxTokens, force_global_model: forceGlobal }).catch(e => {
       console.warn('Model/token settings save failed', e);
       if (typeof toast === 'function') toast('Model/tokens saved locally, cloud save failed · ' + (e.message || 'network').slice(0, 60), 'warn');
     });
@@ -720,6 +728,102 @@ function showDefaultGuideline() {
   ta.value = DEFAULT_GUIDELINE;
   document.getElementById('guidelineStatus').textContent = 'VIEWING DEFAULT (unsaved)';
   document.getElementById('guidelineStatus').style.color = 'var(--warning)';
+}
+
+// ============================================================================
+// GUIDELINE DROP ZONE — Round 5 fix #3
+// ============================================================================
+// Accept a PDF, DOCX, DOC, TXT, or MD file dragged or selected. Parse the text
+// client-side using the same extractText() helper as broker file uploads.
+// Populate the textarea with the parsed result and show a status badge.
+// User still has to click Save to commit the new guideline to user_settings.
+// ============================================================================
+
+const GUIDELINE_MAX_FILE_SIZE = 10 * 1024 * 1024;       // 10MB — generous for big PDFs
+const GUIDELINE_MIN_TEXT_LENGTH = 100;                  // matches saveSettings threshold
+
+function handleGuidelineDrop(event) {
+  const dt = event.dataTransfer;
+  if (!dt || !dt.files || dt.files.length === 0) {
+    toast('No file dropped', 'warn');
+    return;
+  }
+  if (dt.files.length > 1) {
+    toast('Drop only one guideline file at a time', 'warn');
+    return;
+  }
+  loadGuidelineFromFile(dt.files[0]);
+}
+
+function handleGuidelineFileInput(event) {
+  const f = event.target.files && event.target.files[0];
+  if (!f) return;
+  loadGuidelineFromFile(f);
+  // Clear the input so re-selecting the same file fires onchange again
+  event.target.value = '';
+}
+
+async function loadGuidelineFromFile(file) {
+  const ta = document.getElementById('carrierGuideline');
+  const status = document.getElementById('guidelineStatus');
+  if (!ta) return;
+
+  // Validate extension
+  const name = (file.name || '').toLowerCase();
+  const allowed = ['.pdf', '.docx', '.doc', '.txt', '.md'];
+  const ok = allowed.some(ext => name.endsWith(ext));
+  if (!ok) {
+    toast('Unsupported file type · use PDF, DOCX, DOC, TXT, or MD', 'error');
+    return;
+  }
+
+  // Validate size
+  if (file.size > GUIDELINE_MAX_FILE_SIZE) {
+    toast('File too large · max 10MB', 'error');
+    return;
+  }
+
+  // Show progress
+  if (status) {
+    status.textContent = 'PARSING ' + file.name.toUpperCase() + '...';
+    status.style.color = 'var(--text-2)';
+  }
+
+  try {
+    // Reuse the broker-upload extractText() helper. It handles PDF / DOCX / DOC
+    // / plain text and returns the extracted text plus optional metadata.
+    const meta = {};
+    const text = await extractText(file, meta);
+    const cleanText = (text || '').trim();
+
+    // Sanity check: scanned PDFs come back near-empty
+    if (cleanText.length < GUIDELINE_MIN_TEXT_LENGTH) {
+      if (status) {
+        status.textContent = 'PARSED ' + cleanText.length + ' CHARS · TOO SHORT';
+        status.style.color = 'var(--error)';
+      }
+      toast('Parsed only ' + cleanText.length + ' chars — file may be a scanned PDF or empty. Use the textarea to paste manually.', 'error');
+      return;
+    }
+
+    // Drop it in the textarea so user can review/edit before save
+    ta.value = cleanText;
+    if (status) {
+      status.textContent = 'LOADED ' + file.name.toUpperCase() + ' · ' + cleanText.length.toLocaleString() + ' CHARS · CLICK SAVE';
+      status.style.color = 'var(--signal)';
+    }
+    toast('Guideline parsed (' + cleanText.length.toLocaleString() + ' chars) · click Save to apply');
+    if (typeof logAudit === 'function') {
+      logAudit('Settings', 'Guideline file dropped: ' + file.name + ' · ' + cleanText.length + ' chars', 'ok');
+    }
+  } catch (err) {
+    console.error('Guideline file parse failed', err);
+    if (status) {
+      status.textContent = 'PARSE FAILED';
+      status.style.color = 'var(--error)';
+    }
+    toast('Parse failed · ' + (err.message || 'unknown') + ' · use textarea to paste manually', 'error');
+  }
 }
 
 // Updates the API pill in the top bar to reflect signed-in state.
@@ -5069,6 +5173,9 @@ window.restoreAllCards = restoreAllCards;
 window.revertCard = revertCard;
 window.saveSettings = saveSettings;
 window.showDefaultGuideline = showDefaultGuideline;
+// Round 5 fix #3: guideline drop handlers
+window.handleGuidelineDrop = handleGuidelineDrop;
+window.handleGuidelineFileInput = handleGuidelineFileInput;
 window.showStage = showStage;
 window.startNewSubmission = startNewSubmission;
 window.submitFeedbackFromPopover = submitFeedbackFromPopover;

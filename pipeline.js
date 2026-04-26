@@ -138,7 +138,14 @@ const MODULES = {
 
 async function callLLM(systemPrompt, userContent, modelOverride) {
   const maxTokens = STATE.api.maxTokens || 4096;
-  const model = (STATE.adminOverrideModel === 'forced') ? STATE.api.model : (modelOverride || STATE.api.model);
+  // Round 5 fix #1: 'forceGlobal' replaces the old admin-only override.
+  // When STATE.api.forceGlobal is true, every callLLM (including classifier
+  // and verifier callsites that hardcode their own modelOverride) gets routed
+  // through STATE.api.model. When false (default), per-module modelOverride
+  // wins as before. Backward-compat with adminOverrideModel === 'forced' is
+  // preserved by checking either flag.
+  const forced = STATE.api.forceGlobal || STATE.adminOverrideModel === 'forced';
+  const model = forced ? STATE.api.model : (modelOverride || STATE.api.model);
 
   // Phase 7 step 4: append the defense addendum to the system prompt and
   // wrap the user content in delimiters. Both layers — the trained-priority
