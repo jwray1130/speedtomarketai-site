@@ -865,7 +865,12 @@ function buildDocPageRow(doc, userId) {
 // rasters; JPEG with white background fill compresses 8-15x better than
 // PNG with negligible visual cost at the small render size.
 const THUMB_PERSIST_MAX_BYTES = 120 * 1024;   // 120 KB cap on the data URL string
-const THUMB_PERSIST_MAX_WIDTH = 1200;         // downscale wider images
+const THUMB_PERSIST_MAX_WIDTH = 600;          // downscale wider images. 600px is
+                                              // 2.5x oversample for the 240px
+                                              // thumbnail UI — plenty for Retina,
+                                              // small enough that text-heavy pages
+                                              // compress under the byte cap at
+                                              // reasonable JPEG quality.
 async function compressThumbForPersist(dataUrl) {
   if (!dataUrl) return null;
   // Already small enough? Skip the canvas round-trip.
@@ -878,25 +883,51 @@ async function compressThumbForPersist(dataUrl) {
     const img = new Image();
     img.onload = () => {
       try {
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, THUMB_PERSIST_MAX_WIDTH / img.naturalWidth);
-        canvas.width  = Math.max(1, Math.round(img.naturalWidth  * scale));
-        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-        const ctx = canvas.getContext('2d');
-        // White background so transparent PNGs (rare for our thumbs but
-        // possible) don't end up black inside JPEG.
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        // Step quality down until we fit. Floor at 0.4 so we don't ship
-        // visibly mushy thumbs; if even that's too big, return null.
-        let q = 0.85;
-        let out = canvas.toDataURL('image/jpeg', q);
-        while (out.length > THUMB_PERSIST_MAX_BYTES && q > 0.4) {
-          q -= 0.1;
-          out = canvas.toDataURL('image/jpeg', q);
+        // Try progressively smaller sizes if quality stepdown alone can't fit.
+        // Width-halving is more effective than quality cuts for text-heavy
+        // pages (text edges are detail JPEG fights to preserve).
+        const widths = [
+          Math.min(img.naturalWidth, THUMB_PERSIST_MAX_WIDTH),  // first attempt: 600px
+          Math.min(img.naturalWidth, 400),                       // second: 400px
+          Math.min(img.naturalWidth, 280),                       // last resort: 280px (still > UI display size)
+        ];
+        for (const targetW of widths) {
+          const canvas = document.createElement('canvas');
+          const scale = targetW / img.naturalWidth;
+          canvas.width  = Math.max(1, Math.round(img.naturalWidth  * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          const ctx = canvas.getContext('2d');
+          // White background so transparent PNGs (rare for our thumbs but
+          // possible) don't end up black inside JPEG.
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // Step quality down at this width.
+          let q = 0.85;
+          let out = canvas.toDataURL('image/jpeg', q);
+          while (out.length > THUMB_PERSIST_MAX_BYTES && q > 0.3) {
+            q -= 0.1;
+            out = canvas.toDataURL('image/jpeg', q);
+          }
+          if (out.length <= THUMB_PERSIST_MAX_BYTES) {
+            resolve(out);
+            return;
+          }
         }
-        resolve(out.length <= THUMB_PERSIST_MAX_BYTES ? out : null);
+        // All three widths × all quality steps couldn't fit. Take the
+        // smallest+lowest-quality output anyway — a slightly-oversized
+        // thumb is better than a blank one. Cap cap at 200KB absolute
+        // ceiling to prevent runaway sizes.
+        const finalCanvas = document.createElement('canvas');
+        const finalScale = Math.min(280 / img.naturalWidth, 1);
+        finalCanvas.width  = Math.max(1, Math.round(img.naturalWidth  * finalScale));
+        finalCanvas.height = Math.max(1, Math.round(img.naturalHeight * finalScale));
+        const fctx = finalCanvas.getContext('2d');
+        fctx.fillStyle = '#FFFFFF';
+        fctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+        fctx.drawImage(img, 0, 0, finalCanvas.width, finalCanvas.height);
+        const fallback = finalCanvas.toDataURL('image/jpeg', 0.3);
+        resolve(fallback.length <= 200 * 1024 ? fallback : null);
       } catch (err) {
         console.warn('compressThumbForPersist failed:', err);
         resolve(null);
