@@ -553,11 +553,20 @@ window.initDocumentsView = function() {
       empty.style.display = '';
       // Make the empty state message scope-aware so users don't think
       // they have no docs at all when really they're just looking at an
-      // empty submission scope.
+      // empty submission scope. Also handle the FIRST-PAINT RACE: if
+      // hydration from cloud is still in progress, the docs view's
+      // local state may be empty even though the cloud has rows. Show
+      // a loading state instead of "No documents yet" — the inner panel
+      // will re-render when hydration completes (hydrateFromCloud calls
+      // renderDocsList at the end). This stops users from seeing a
+      // "0 Total / No documents yet" flash before docs populate.
       const titleEl = empty.querySelector('.docs-empty-title');
       const subEl   = empty.querySelector('.docs-empty-sub');
       if (titleEl && subEl) {
-        if (state.submissionFilter !== 'all' && state.docs.length > 0) {
+        if (state._hydrating) {
+          titleEl.textContent = 'Loading documents…';
+          subEl.textContent   = 'Fetching from cloud, hold on a moment.';
+        } else if (state.submissionFilter !== 'all' && state.docs.length > 0) {
           titleEl.textContent = 'No documents in this submission yet';
           subEl.textContent   = 'Drop files here or click Upload Documents · or × the chip to see all';
         } else if (state.searchQuery && state.docs.length > 0) {
@@ -3605,10 +3614,15 @@ window.initDocumentsView = function() {
     });
     state.nextId = Math.max(state.nextId, maxN + 1);
 
+    // Clear hydrating flag BEFORE the renders so the empty state path
+    // shows the right message. If we leave it true through the renders,
+    // a hydration that returns 0 rows would render "Loading documents…"
+    // but never re-render to show the real empty state. This ordering
+    // ensures the final state is consistent with the actual data.
+    state._hydrating = false;
     renderCategoryGrid();
     renderDocsList();
     renderTagsList();
-    state._hydrating = false;
     if (rows.length > 0) {
       console.log('%c✓ Hydrated ' + rows.length + ' document pages from cloud',
         'color: #C6F432; font-size: 11px;');
