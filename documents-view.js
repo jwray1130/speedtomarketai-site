@@ -1704,7 +1704,12 @@ window.initDocumentsView = function() {
     // Warn before processing very long PDFs. Each page produces two data URLs
     // (thumb + high-res) plus an entry in state.docs, so memory grows fast.
     // confirm() blocks the thread; user can cancel and the file is skipped.
-    if (total > PDF_PAGE_WARN_THRESHOLD) {
+    // BUT: when ingestion was triggered by the pipeline (state._pipelineCtx
+    // set), we suppress the confirm. The pipeline already showed the file
+    // to the user via the workbench file list and there's no second human
+    // in the loop; popping a modal during automated processing would block
+    // the entire pipeline waiting for a response that may never come.
+    if (total > PDF_PAGE_WARN_THRESHOLD && !state._pipelineCtx) {
       const ok = confirm(
         'This PDF has ' + total + ' pages. Processing will use ~' +
         Math.round(total * 4) + ' MB of memory and may take a minute.\n\n' +
@@ -2157,6 +2162,12 @@ window.initDocumentsView = function() {
     // earlier in the dispatch. All addDoc calls within one processFile run
     // share the same context because they're slices of the same source file.
     const ctx = state._uploadCtx || {};
+    // Pull pipeline context if processFile was invoked from the pipeline
+    // (processFileFromPipeline). This carries classifier output so every
+    // page produced by the type-specific processor inherits the same
+    // category/color/classification metadata. Explicit opts always win
+    // (callers can override per-page if needed) — defaults flow from ctx.
+    const pctx = state._pipelineCtx || {};
     // Cap display_name at 250 chars. Most filenames are <50 chars; some
     // generated names like 'Long Doc — Page 47' grow but still fit. A
     // pathologically long name (10K chars from a renamed export) would
@@ -2168,7 +2179,7 @@ window.initDocumentsView = function() {
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
-      category: opts.category || 'all',
+      category: opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
       htmlContent: sanitizeHtml(opts.htmlContent) || null,
@@ -2193,20 +2204,23 @@ window.initDocumentsView = function() {
       // Submission linkage (Phase 4). Pulled from state.activeSubmissionId
       // which is set by Altitude via window.docsView.setSubmissionContext
       // when the user opens the docs view from a submission. null when
-      // the docs view is opened standalone.
-      submissionId: opts.submissionId || state.activeSubmissionId || null,
+      // the docs view is opened standalone. Pipeline-driven uploads pass
+      // the submission ID via pctx since they may run before the user
+      // navigates to the docs view.
+      submissionId: opts.submissionId || pctx.submissionId || state.activeSubmissionId || null,
       // Pipeline metadata — populated by classifier hook (Phase 5) or by
       // explicit pushes from Altitude's existing pipeline. null at upload
-      // time; the doc may get classified later.
-      pipelineClassification: opts.pipelineClassification || null,
-      pipelineRoutedTo: opts.pipelineRoutedTo || null,
+      // time; the doc may get classified later. Falls through to pctx if
+      // processFileFromPipeline was the entry point.
+      pipelineClassification: opts.pipelineClassification || pctx.pipelineClassification || null,
+      pipelineRoutedTo: opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
       // Color tag — usually null on user upload (user picks via tag menu),
-      // but the pipeline-push path (addDocFromPipeline) sets it from the
-      // CATEGORY_MAP so classified docs auto-tag with their category color.
-      // Setting a color implies tagged=true so the doc shows up in the
-      // Tagged Pages panel filterable by color.
-      color: opts.color || null,
-      tagged: !!opts.color,
+      // but the pipeline-push path (addDocFromPipeline / processFileFromPipeline)
+      // sets it from the CATEGORY_MAP so classified docs auto-tag with their
+      // category color. Setting a color implies tagged=true so the doc shows
+      // up in the Tagged Pages panel filterable by color.
+      color: opts.color || pctx.color || null,
+      tagged: !!(opts.color || pctx.color),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
@@ -3718,6 +3732,59 @@ window.initDocumentsView = function() {
       renderDocsList();
       renderTagsList();
       return doc.id;
+    },
+    // Pipeline-driven full-fidelity ingestion. Unlike addDocFromPipeline
+    // (metadata-only push, no thumbnails or storage), this takes the raw
+    // File object and runs the same processing pipeline manual upload uses:
+    //   1) upload binary to Supabase storage
+    //   2) dispatch to type-specific processor (PDF, Excel, Word, image, etc.)
+    //   3) processor renders thumbnails + extracts text
+    //   4) addDoc() creates one row per page/sheet/slide, all sharing the
+    //      same storage path and inheriting the classifier's category/color
+    //      via state._pipelineCtx
+    // Returns a Promise that resolves when ingestion completes (or rejects
+    // on processor error). Used by Altitude's pipeline.js after classifier
+    // run to mirror the broker submission file into the Documents tab with
+    // working thumbnails and previews.
+    processFileFromPipeline: async (file, ctx) => {
+      if (!file || typeof file !== 'object') {
+        console.warn('processFileFromPipeline: file required (File or Blob-like)');
+        return null;
+      }
+      if (typeof processFile !== 'function') {
+        console.warn('processFileFromPipeline: processFile dispatcher missing');
+        return null;
+      }
+      // Stamp pipeline context onto state so addDoc inherits it for every
+      // page produced by the processor. Cleared in the finally block so it
+      // doesn't leak into a subsequent manual upload session.
+      state._pipelineCtx = {
+        category: (ctx && ctx.category) || 'all',
+        color: (ctx && ctx.color) || null,
+        pipelineClassification: (ctx && ctx.pipelineClassification) || null,
+        pipelineRoutedTo: (ctx && ctx.pipelineRoutedTo) || null,
+        submissionId: (ctx && ctx.submissionId) || null,
+      };
+      const beforeIds = new Set(state.docs.map(d => d.id));
+      try {
+        // Pass the resolved category to processFile so the per-type
+        // processor passes it to addDoc explicitly. addDoc will then
+        // accept that category (opts wins over pctx).
+        await processFile(file, state._pipelineCtx.category);
+      } catch (err) {
+        console.warn('processFileFromPipeline: processing failed for ' + file.name + ':', err);
+        // Surface to the caller so the pipeline can handle. Don't swallow.
+        throw err;
+      } finally {
+        state._pipelineCtx = null;
+      }
+      // Return the new doc IDs so the pipeline can correlate this File with
+      // the doc rows (e.g. to tag specific pages later in Step 3).
+      const newIds = state.docs.filter(d => !beforeIds.has(d.id)).map(d => d.id);
+      renderCategoryGrid();
+      renderDocsList();
+      renderTagsList();
+      return newIds;
     },
     // Phase 5 — cascade pruning hook. Called by app.js when an Altitude
     // submission is deleted, so the docs view drops the matching local

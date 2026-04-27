@@ -1057,36 +1057,69 @@ async function runPipeline() {
     f.routedTo = ROUTING[c.type] || null;  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();
-    // === PUSH TO DOCS VIEW ===
-    // After classification, mirror the file into the Documents tab so the
-    // underwriter sees pipeline-classified docs in the file manager grid,
-    // bucketed into the right category with the right color tag — regardless
-    // of what the broker named the file. Skip if the docs view module didn't
-    // load, or if we already pushed this file (re-runs don't double-add).
-    if (window.docsView && typeof window.docsView.addDocFromPipeline === 'function' && !f._pushedToDocsView) {
-      try {
-        const mapping = docsViewMappingFor(c.type);
-        // Build a sensible display name: prefer the original filename. The
-        // category + color tells the user what kind of doc it is independent
-        // of the filename, so we don't rewrite the name itself — just file
-        // it correctly. Future enhancement: append a "????" hint to first
-        // page when classification is unknown so user knows to review.
-        const displayName = f.name || ('Pipeline Doc ' + (f.id || ''));
-        const docId = window.docsView.addDocFromPipeline({
-          name: displayName,
-          // type left as default 'unknown' — the legacy upload flow doesn't
-          // produce thumbnails or PDF binaries, so the docs view will render
-          // a generic tile. Phase B (binary persistence) makes thumbnails
-          // possible.
-          category: mapping.category,
-          color: mapping.color,
-          submissionId: STATE.activeSubmissionId || null,
-          pipelineClassification: c.type,
-          pipelineRoutedTo: f.routedTo || null,
-        });
-        if (docId) f._pushedToDocsView = docId;
-      } catch (err) {
-        console.warn('Failed to push file to docs view:', f.name, err);
+    // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
+    // After classification, mirror the file into the Documents tab with the
+    // FULL processing path — render thumbnails, upload binary to Supabase
+    // storage, persist a row per page. The classifier's category and color
+    // are stamped on every page so the doc shows in the right bucket with
+    // the right tag color, regardless of broker filename.
+    //
+    // Skip if:
+    //   • the docs view module isn't loaded (testing harness, etc.)
+    //   • we already pushed this file (re-runs don't double-add)
+    //   • the raw File object isn't on the entry (lite snapshot dropped it,
+    //     or this is a synthesized record without a binary). In that case
+    //     fall back to the metadata-only push so the doc still appears,
+    //     just without a working preview.
+    if (window.docsView && !f._pushedToDocsView) {
+      const mapping = docsViewMappingFor(c.type);
+      const ingestCtx = {
+        category: mapping.category,
+        color: mapping.color,
+        submissionId: STATE.activeSubmissionId || null,
+        pipelineClassification: c.type,
+        pipelineRoutedTo: f.routedTo || null,
+      };
+      // Prefer full ingestion (binary + thumbnails). Falls back to metadata
+      // push if no File on hand or processFileFromPipeline isn't exposed.
+      if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
+        try {
+          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
+          if (newDocIds && newDocIds.length > 0) {
+            f._pushedToDocsView = newDocIds;
+            // Free the File reference once it's safely persisted in Supabase
+            // storage. Keeping it around forever would pin the binary in JS
+            // memory; the docs view re-fetches from storage when needed.
+            f._rawFile = null;
+          }
+        } catch (err) {
+          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+          // Fall back to metadata-only push so the doc at least appears.
+          if (typeof window.docsView.addDocFromPipeline === 'function') {
+            try {
+              const docId = window.docsView.addDocFromPipeline({
+                name: f.name || 'Pipeline Doc',
+                ...ingestCtx,
+              });
+              if (docId) f._pushedToDocsView = docId;
+            } catch (e2) {
+              console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+            }
+          }
+        }
+      } else if (typeof window.docsView.addDocFromPipeline === 'function') {
+        // No File on hand (incremental rerun against stored snapshot, etc.).
+        // Push metadata only — doc lands in the right bucket but has no
+        // thumbnail or preview until the user re-uploads.
+        try {
+          const docId = window.docsView.addDocFromPipeline({
+            name: f.name || 'Pipeline Doc',
+            ...ingestCtx,
+          });
+          if (docId) f._pushedToDocsView = docId;
+        } catch (err) {
+          console.warn('Metadata-only push failed for ' + f.name + ':', err);
+        }
       }
     }
   }));

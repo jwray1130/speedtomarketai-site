@@ -557,7 +557,7 @@ function resyncActiveSnapshot(reason) {
       if (typeof sbSaveSubmission !== 'function') return;
       const liteSnapshot = {
         ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
         derived: {
           account:         rec.account || null,
           broker:          rec.broker || null,
@@ -1192,7 +1192,14 @@ async function handleFiles(fileList) {
       id, name: file.name, size: file.size, type: file.type,
       text: '', classification: null, confidence: 0, routedTo: null,
       state: 'parsing', error: null,
-      isIncremental: isIncremental
+      isIncremental: isIncremental,
+      // Hold a reference to the raw File object so the pipeline can mirror
+      // the binary into the Document Library after classification (Step 1
+      // of the wire-up plan). Browsers keep File objects in memory as long
+      // as something references them; we drop this once the file finishes
+      // processing through the docs view to avoid retention. Not persisted
+      // in snapshot.files (lite snapshot drops `file` along with `text`).
+      _rawFile: file,
     };
     STATE.files.push(entry);
     newFiles.push(entry);
@@ -1266,7 +1273,8 @@ async function handleFiles(fileList) {
                 parentEmailName: entry.name,
                 emailContext: attachmentContext[att.name] || '',  // sentence near the attachment reference
                 emailSubject: meta.subject || '',
-                isNestedAttachment: true                   // prevents further recursion
+                isNestedAttachment: true,                   // prevents further recursion
+                _rawFile: pseudoFile,                       // for pipeline → docs view ingestion
               };
               STATE.files.push(attachEntry);
               newFiles.push(attachEntry);
@@ -1746,7 +1754,7 @@ function archiveCurrentSubmission() {
       // Build lite snapshot (drop raw file text bytes to stay under row-size limits)
       const liteSnapshot = rec.snapshot ? {
         ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
         derived: {
           account:         rec.account || null,
           broker:          rec.broker || null,
@@ -1807,7 +1815,7 @@ function changeSubmissionStatus(submissionId, newStatus) {
       if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
       const liteSnapshot = rec.snapshot ? {
         ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
         derived: {
           account:         rec.account || null,
           broker:          rec.broker || null,
@@ -1894,7 +1902,7 @@ function rehydrateSubmission(submissionId) {
           }
           const liteSnapshot = activeRec.snapshot ? {
             ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
             derived: {
               account:         activeRec.account || null,
               broker:          activeRec.broker || null,
@@ -4949,7 +4957,7 @@ function startNewSubmission() {
           }
           const liteSnapshot = activeRec.snapshot ? {
             ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true })),
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
             derived: {
               account:         activeRec.account || null,
               broker:          activeRec.broker || null,
