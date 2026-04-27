@@ -568,6 +568,13 @@ window.initDocumentsView = function() {
     $id('totalDocs').textContent = state.docs.length;
     updateTagsCount();
     renderCategoryGrid();
+    // Notify Altitude's workbench so its Documents-tab count badge stays
+    // in sync with whatever is in the docs view. Fire-and-forget — the
+    // hook is exposed from app.js and may not exist (e.g. if the docs
+    // view loads before app.js's exports execute).
+    if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
+      try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
+    }
   }
 
   function buildDocItem(doc) {

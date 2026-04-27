@@ -5069,6 +5069,12 @@ function showStage(stage) {
     // canvas resize, and re-measure thumb scaling for any docs already loaded).
     if (typeof window.docsViewActivated === 'function') window.docsViewActivated();
   }
+  // Refresh the workbench Documents-tab count badge whenever we navigate.
+  // Counts surface the current number of doc rows scoped to the active
+  // submission (read live from the Documents view).
+  if (typeof updateActiveSubmissionDocsCount === 'function') {
+    updateActiveSubmissionDocsCount();
+  }
 }
 
 function toast(msg) {
@@ -5174,6 +5180,39 @@ window.toggleFeedbackChip = toggleFeedbackChip;
 window.toggleStatusMenu = toggleStatusMenu;
 window.toggleTheme = toggleTheme;
 window.triggerAddDocuments = triggerAddDocuments;
+
+// ============================================================================
+// WORKBENCH DOCS-COUNT BADGE
+// The "Documents" tab in the workbench header shows a count badge. The badge
+// element is hardcoded to 0 in HTML; this function reads the actual count
+// from the Documents view (window.docsView API) filtered to the active
+// submission, and updates the badge in place. Called from:
+//   • showStage — every navigation between Pipeline/Summary/Documents
+//   • setActiveSubmission flows — when the user opens a submission
+//   • The Documents view itself — after every state change (upload/delete/
+//     hydrate). The Documents view calls window.refreshActiveSubmissionDocsCount
+//     which we expose below.
+// ============================================================================
+function updateActiveSubmissionDocsCount() {
+  const el = document.getElementById('docsCount');
+  if (!el) return;
+  const sid = (typeof STATE !== 'undefined' && STATE) ? STATE.activeSubmissionId : null;
+  if (!sid) { el.textContent = '0'; return; }
+  if (!window.docsView || typeof window.docsView.getDocs !== 'function') {
+    el.textContent = '0';
+    return;
+  }
+  try {
+    const docs = window.docsView.getDocs();
+    const count = docs.filter(d => d.submissionId === sid).length;
+    el.textContent = String(count);
+  } catch (e) {
+    el.textContent = '0';
+  }
+}
+// Public hook: the Documents view calls this from renderDocsList so the
+// count updates the moment uploads/deletes/hydration change the doc set.
+window.refreshActiveSubmissionDocsCount = updateActiveSubmissionDocsCount;
 
 // Cross-file functions called by other split files (in addition to inline
 // handlers above). These were already on window via implicit attachment in
