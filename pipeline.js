@@ -65,6 +65,58 @@ const ROUTING = {
 };
 
 // ============================================================================
+// DOCS-VIEW CATEGORY MAP — translates classifier types into docs view
+// category + color so the file lands in the right bucket and gets the right
+// auto-tag color. This is what makes the pipeline output show up in the
+// Documents tab. Categories without a mapping fall through to "All Documents"
+// with a grey/black color and a "????" label hint, per the design spec.
+//
+// IMPORTANT: this is the Phase A wiring. The current classifier produces a
+// limited set of types — many of Justin's full taxonomy (Project, Compliance,
+// Administration, sub-types of loss runs, etc.) require classifier prompt
+// expansion in Phase B before they'll ever populate. For now anything we
+// don't know maps to 'all' / black with the unidentified hint.
+// ============================================================================
+const DOCS_VIEW_MAP = {
+  // Loss History — all loss-run flavors (current classifier outputs single
+  // 'losses' type; Phase B will sub-type into GL/AL/Excess loss runs)
+  losses:                     { category: 'loss-history', color: 'red' },
+
+  // Applications — Supp App, ACORD, Narrative, Desc of Ops, Sub Agreement,
+  // Safety Manual all live here. Current classifier sub-types supplementals
+  // by industry; we collapse them all to 'applications' for the docs view.
+  supplemental:               { category: 'applications', color: 'green' },
+  supplemental_contractors:   { category: 'applications', color: 'green' },
+  supplemental_manufacturing: { category: 'applications', color: 'green' },
+  supplemental_hnoa:          { category: 'applications', color: 'green' },
+  supplemental_captive:       { category: 'applications', color: 'green' },
+  subcontract:                { category: 'applications', color: 'green' },
+  vendor:                     { category: 'applications', color: 'green' },
+  safety:                     { category: 'applications', color: 'green' },
+
+  // Underlying — broker-provided underlying carrier docs. Current classifier
+  // outputs gl_quote, al_quote, excess. Phase B will add EL, Lead, Aircraft,
+  // Stop Gap, Liquor, Foreign GL/AL/EL/Excess, Garage.
+  gl_quote:                   { category: 'underlying',   color: 'yellow' },
+  al_quote:                   { category: 'underlying',   color: 'yellow' },
+  excess:                     { category: 'underlying',   color: 'yellow' },
+
+  // Correspondence — broker emails and cover notes
+  email:                      { category: 'correspondence', color: 'pink' },
+
+  // Website intel goes into Underwriting (internal-research adjacent) per
+  // Justin's call that Underwriting holds reference material.
+  website:                    { category: 'underwriting', color: 'black' },
+
+  // Unknown / unclassified — falls into All Documents with no color tag
+  // (not in any specific bucket; user reviews and re-files manually).
+  unknown:                    { category: 'all',          color: null },
+};
+function docsViewMappingFor(classifierType) {
+  return DOCS_VIEW_MAP[classifierType] || { category: 'all', color: null };
+}
+
+// ============================================================================
 // MODEL PRICING — used for per-module cost calculation in the audit log.
 // Prices are per-million-tokens in USD. Update here when Anthropic changes pricing.
 // ============================================================================
@@ -1005,6 +1057,38 @@ async function runPipeline() {
     f.routedTo = ROUTING[c.type] || null;  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();
+    // === PUSH TO DOCS VIEW ===
+    // After classification, mirror the file into the Documents tab so the
+    // underwriter sees pipeline-classified docs in the file manager grid,
+    // bucketed into the right category with the right color tag — regardless
+    // of what the broker named the file. Skip if the docs view module didn't
+    // load, or if we already pushed this file (re-runs don't double-add).
+    if (window.docsView && typeof window.docsView.addDocFromPipeline === 'function' && !f._pushedToDocsView) {
+      try {
+        const mapping = docsViewMappingFor(c.type);
+        // Build a sensible display name: prefer the original filename. The
+        // category + color tells the user what kind of doc it is independent
+        // of the filename, so we don't rewrite the name itself — just file
+        // it correctly. Future enhancement: append a "????" hint to first
+        // page when classification is unknown so user knows to review.
+        const displayName = f.name || ('Pipeline Doc ' + (f.id || ''));
+        const docId = window.docsView.addDocFromPipeline({
+          name: displayName,
+          // type left as default 'unknown' — the legacy upload flow doesn't
+          // produce thumbnails or PDF binaries, so the docs view will render
+          // a generic tile. Phase B (binary persistence) makes thumbnails
+          // possible.
+          category: mapping.category,
+          color: mapping.color,
+          submissionId: STATE.activeSubmissionId || null,
+          pipelineClassification: c.type,
+          pipelineRoutedTo: f.routedTo || null,
+        });
+        if (docId) f._pushedToDocsView = docId;
+      } catch (err) {
+        console.warn('Failed to push file to docs view:', f.name, err);
+      }
+    }
   }));
   renderFileList();
   setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');

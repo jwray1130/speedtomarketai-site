@@ -50,17 +50,21 @@ window.initDocumentsView = function() {
       black: 'Underwriting',
     },
     categories: [
-      { id: 'all',             name: 'All Documents',   desc: 'View all uploaded files',        iconId: 'folder-open' },
-      { id: 'correspondence',  name: 'Correspondence',  desc: 'Letters and emails',             iconId: 'mail' },
-      { id: 'applications',    name: 'Applications',    desc: 'New insurance applications',     iconId: 'file-sig' },
-      { id: 'loss-history',    name: 'Loss History',    desc: 'Claims and losses',              iconId: 'trend-down' },
-      { id: 'pricing',         name: 'Pricing',         desc: 'Rate calculations',              iconId: 'dollar' },
-      { id: 'quotes',          name: 'Quotes',          desc: 'Insurance quotations',           iconId: 'file-invoice' },
-      { id: 'binders',         name: 'Binders',         desc: 'Policy binders',                 iconId: 'folder-plus' },
-      { id: 'policies',        name: 'Policies',        desc: 'Active insurance policies',      iconId: 'shield' },
-      { id: 'endorsements',    name: 'Endorsements',    desc: 'Policy modifications',           iconId: 'file-edit' },
-      { id: 'subjectivities',  name: 'Subjectivities',  desc: 'Pending requirements',           iconId: 'alert' },
-      { id: 'surplus-lines',   name: 'Surplus Lines',   desc: 'Non-admitted policies',          iconId: 'file-plus' },
+      { id: 'all',               name: 'All Documents',     desc: 'View all uploaded files',         iconId: 'folder-open' },
+      // ── Pipeline-routed (auto-classified by Altitude) ──
+      { id: 'loss-history',      name: 'Loss History',      desc: 'GL/AL/Excess loss runs · summaries · large losses', iconId: 'trend-down' },
+      { id: 'applications',      name: 'Applications',      desc: 'Supp app · ACORD · narrative · subagreement · safety', iconId: 'file-sig' },
+      { id: 'underlying',        name: 'Underlying',        desc: 'Underlying carrier policies — GL, AL, EL, Lead, Excess', iconId: 'shield' },
+      { id: 'project',           name: 'Project',           desc: 'Site plans · geotech · budgets · owner/GC docs',  iconId: 'folder-plus' },
+      { id: 'correspondence',    name: 'Correspondence',    desc: 'Cover notes · bind requests · broker emails',       iconId: 'mail' },
+      { id: 'compliance',        name: 'Compliance',        desc: 'TRIA accepted/declined · surplus lines letter',     iconId: 'alert' },
+      { id: 'administration',    name: 'Administration',    desc: 'BOR/AOR · COI · accounting',                        iconId: 'file-edit' },
+      // ── Manual upload only — uploaded by you, never auto-classified ──
+      { id: 'quotes-indications', name: 'Quotes & Indications', desc: 'Your quotes, indications, pricing',         iconId: 'file-invoice' },
+      { id: 'cancellations',     name: 'Cancellations',     desc: 'Notice of cancellation · reinstatement',           iconId: 'alert' },
+      { id: 'policy',            name: 'Policy',            desc: 'Quote · binder · policy · endorsements',           iconId: 'shield' },
+      { id: 'subjectivity',      name: 'Subjectivity',      desc: 'Subjectivity letters · responses',                  iconId: 'file-plus' },
+      { id: 'underwriting',      name: 'Underwriting',      desc: 'Internal UW notes · referrals · approvals',         iconId: 'file-edit' },
     ],
     storageKeys: {
       theme: 'stm_docs_theme',
@@ -2191,8 +2195,13 @@ window.initDocumentsView = function() {
       // time; the doc may get classified later.
       pipelineClassification: opts.pipelineClassification || null,
       pipelineRoutedTo: opts.pipelineRoutedTo || null,
-      color: null,
-      tagged: false,
+      // Color tag — usually null on user upload (user picks via tag menu),
+      // but the pipeline-push path (addDocFromPipeline) sets it from the
+      // CATEGORY_MAP so classified docs auto-tag with their category color.
+      // Setting a color implies tagged=true so the doc shows up in the
+      // Tagged Pages panel filterable by color.
+      color: opts.color || null,
+      tagged: !!opts.color,
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,

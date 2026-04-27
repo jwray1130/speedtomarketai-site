@@ -78,6 +78,9 @@ body.docs-fullwidth {
   --tag-orange: #EA580C;
   --tag-pink: #F472B6;
   --tag-black: #6B7280;
+  --tag-teal: #0D9488;       /* Quotes & Indications (manual) */
+  --tag-magenta: #DB2777;    /* Cancellations (manual) */
+  --tag-coral: #FB7185;      /* Subjectivity (manual) */
 
   /* RGB variants for rgba() — used for glow + gradient tints */
   --tag-red-rgb: 220, 38, 38;
@@ -89,6 +92,9 @@ body.docs-fullwidth {
   --tag-orange-rgb: 234, 88, 12;
   --tag-pink-rgb: 244, 114, 182;
   --tag-black-rgb: 107, 114, 128;
+  --tag-teal-rgb: 13, 148, 136;
+  --tag-magenta-rgb: 219, 39, 119;
+  --tag-coral-rgb: 251, 113, 133;
 
   /* SURFACES (dark default) */
   --bg: #0A0E1A;
@@ -909,6 +915,12 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .mini-dot.black { background: var(--tag-black); border: 1px solid var(--border-strong); }
 
+#docs-view-root .mini-dot.teal { background: var(--tag-teal); }
+
+#docs-view-root .mini-dot.magenta { background: var(--tag-magenta); }
+
+#docs-view-root .mini-dot.coral { background: var(--tag-coral); }
+
 #docs-view-root .docs-list {
   overflow-y: auto;
   padding: 8px;
@@ -995,6 +1007,12 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 #docs-view-root .doc-item.has-color.tag-pink { color: var(--tag-pink);   }
 
 #docs-view-root .doc-item.has-color.tag-black { color: var(--tag-black);  }
+
+#docs-view-root .doc-item.has-color.tag-teal { color: var(--tag-teal);    }
+
+#docs-view-root .doc-item.has-color.tag-magenta { color: var(--tag-magenta); }
+
+#docs-view-root .doc-item.has-color.tag-coral { color: var(--tag-coral);  }
 
 #docs-view-root .doc-item.has-color .doc-color-bar { background: currentColor; }
 
@@ -1526,27 +1544,33 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .cat-icon svg { width: 16px; height: 16px; }
 
-#docs-view-root .cat-card[data-cat="all"]            .cat-icon { background: var(--signal-pale); color: var(--signal-ink); }
+#docs-view-root .cat-card[data-cat="all"]              .cat-icon { background: var(--signal-pale); color: var(--signal-ink); }
 
-#docs-view-root .cat-card[data-cat="correspondence"] .cat-icon { background: rgba(244, 114, 182, 0.12); color: var(--tag-pink); }
+/* Pipeline-routed categories — auto-classified by the Altitude pipeline */
+#docs-view-root .cat-card[data-cat="loss-history"]     .cat-icon { background: rgba(220, 38, 38, 0.12);  color: var(--tag-red); }
 
-#docs-view-root .cat-card[data-cat="applications"]   .cat-icon { background: rgba(125, 216, 138, 0.12); color: var(--tag-green); }
+#docs-view-root .cat-card[data-cat="applications"]     .cat-icon { background: rgba(22, 163, 74, 0.12);  color: var(--tag-green); }
 
-#docs-view-root .cat-card[data-cat="loss-history"]   .cat-icon { background: rgba(248, 113, 113, 0.12); color: var(--tag-red); }
+#docs-view-root .cat-card[data-cat="underlying"]       .cat-icon { background: rgba(234, 179, 8, 0.12);  color: var(--tag-yellow); }
 
-#docs-view-root .cat-card[data-cat="pricing"]        .cat-icon { background: rgba(125, 216, 138, 0.12); color: var(--tag-green); }
+#docs-view-root .cat-card[data-cat="project"]          .cat-icon { background: rgba(124, 58, 237, 0.12); color: var(--tag-purple); }
 
-#docs-view-root .cat-card[data-cat="quotes"]         .cat-icon { background: rgba(96, 165, 250, 0.12); color: var(--tag-blue); }
+#docs-view-root .cat-card[data-cat="correspondence"]   .cat-icon { background: rgba(244, 114, 182, 0.12); color: var(--tag-pink); }
 
-#docs-view-root .cat-card[data-cat="binders"]        .cat-icon { background: rgba(167, 139, 250, 0.12); color: var(--tag-purple); }
+#docs-view-root .cat-card[data-cat="compliance"]       .cat-icon { background: rgba(234, 88, 12, 0.12);  color: var(--tag-orange); }
 
-#docs-view-root .cat-card[data-cat="policies"]       .cat-icon { background: rgba(96, 165, 250, 0.12); color: var(--tag-blue); }
+#docs-view-root .cat-card[data-cat="administration"]   .cat-icon { background: rgba(127, 29, 29, 0.12);  color: var(--tag-maroon); }
 
-#docs-view-root .cat-card[data-cat="endorsements"]   .cat-icon { background: rgba(251, 191, 36, 0.12); color: var(--tag-yellow); }
+/* Manual-only categories — uploaded by the user, never auto-classified */
+#docs-view-root .cat-card[data-cat="quotes-indications"] .cat-icon { background: rgba(13, 148, 136, 0.12); color: var(--tag-teal); }
 
-#docs-view-root .cat-card[data-cat="subjectivities"] .cat-icon { background: rgba(255, 148, 72, 0.12); color: var(--tag-orange); }
+#docs-view-root .cat-card[data-cat="cancellations"]    .cat-icon { background: rgba(219, 39, 119, 0.12); color: var(--tag-magenta); }
 
-#docs-view-root .cat-card[data-cat="surplus-lines"]  .cat-icon { background: rgba(96, 165, 250, 0.12); color: var(--tag-blue); }
+#docs-view-root .cat-card[data-cat="policy"]           .cat-icon { background: rgba(37, 99, 235, 0.12);  color: var(--tag-blue); }
+
+#docs-view-root .cat-card[data-cat="subjectivity"]     .cat-icon { background: rgba(251, 113, 133, 0.12); color: var(--tag-coral); }
+
+#docs-view-root .cat-card[data-cat="underwriting"]     .cat-icon { background: rgba(107, 114, 128, 0.12); color: var(--tag-black); }
 
 #docs-view-root .cat-body { flex: 1; min-width: 0; }
 
@@ -1653,7 +1677,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   flex-shrink: 0;
 }
 
-#docs-view-root .color-dot.all { background: conic-gradient(var(--tag-red), var(--tag-maroon), var(--tag-orange), var(--tag-yellow), var(--tag-green), var(--tag-blue), var(--tag-purple), var(--tag-pink), var(--tag-black), var(--tag-red)); }
+#docs-view-root .color-dot.all { background: conic-gradient(var(--tag-red), var(--tag-maroon), var(--tag-orange), var(--tag-yellow), var(--tag-green), var(--tag-teal), var(--tag-blue), var(--tag-purple), var(--tag-magenta), var(--tag-pink), var(--tag-coral), var(--tag-black), var(--tag-red)); }
 
 #docs-view-root .color-dot.red { background: var(--tag-red); }
 
@@ -1672,6 +1696,12 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 #docs-view-root .color-dot.pink { background: var(--tag-pink); }
 
 #docs-view-root .color-dot.black { background: var(--tag-black); border: 1px solid var(--border-strong); }
+
+#docs-view-root .color-dot.teal { background: var(--tag-teal); }
+
+#docs-view-root .color-dot.magenta { background: var(--tag-magenta); }
+
+#docs-view-root .color-dot.coral { background: var(--tag-coral); }
 
 #docs-view-root .color-filter-menu {
   position: absolute;
@@ -1750,7 +1780,13 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .tagged-item.tag-black { --tc: var(--tag-black-rgb); }
 
-#docs-view-root .tagged-item.tag-red, #docs-view-root .tagged-item.tag-maroon, #docs-view-root .tagged-item.tag-blue, #docs-view-root .tagged-item.tag-green, #docs-view-root .tagged-item.tag-yellow, #docs-view-root .tagged-item.tag-purple, #docs-view-root .tagged-item.tag-orange, #docs-view-root .tagged-item.tag-pink, #docs-view-root .tagged-item.tag-black {
+#docs-view-root .tagged-item.tag-teal { --tc: var(--tag-teal-rgb); }
+
+#docs-view-root .tagged-item.tag-magenta { --tc: var(--tag-magenta-rgb); }
+
+#docs-view-root .tagged-item.tag-coral { --tc: var(--tag-coral-rgb); }
+
+#docs-view-root .tagged-item.tag-red, #docs-view-root .tagged-item.tag-maroon, #docs-view-root .tagged-item.tag-blue, #docs-view-root .tagged-item.tag-green, #docs-view-root .tagged-item.tag-yellow, #docs-view-root .tagged-item.tag-purple, #docs-view-root .tagged-item.tag-orange, #docs-view-root .tagged-item.tag-pink, #docs-view-root .tagged-item.tag-black, #docs-view-root .tagged-item.tag-teal, #docs-view-root .tagged-item.tag-magenta, #docs-view-root .tagged-item.tag-coral {
   border-color: rgba(var(--tc), 0.55);
   background:
     linear-gradient(90deg, rgba(var(--tc), 0.18) 0%, rgba(var(--tc), 0.05) 40%, var(--surface) 100%),
@@ -1760,14 +1796,14 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
     0 0 14px -2px rgba(var(--tc), 0.45);
 }
 
-#docs-view-root .tagged-item.tag-red:hover, #docs-view-root .tagged-item.tag-maroon:hover, #docs-view-root .tagged-item.tag-blue:hover, #docs-view-root .tagged-item.tag-green:hover, #docs-view-root .tagged-item.tag-yellow:hover, #docs-view-root .tagged-item.tag-purple:hover, #docs-view-root .tagged-item.tag-orange:hover, #docs-view-root .tagged-item.tag-pink:hover, #docs-view-root .tagged-item.tag-black:hover {
+#docs-view-root .tagged-item.tag-red:hover, #docs-view-root .tagged-item.tag-maroon:hover, #docs-view-root .tagged-item.tag-blue:hover, #docs-view-root .tagged-item.tag-green:hover, #docs-view-root .tagged-item.tag-yellow:hover, #docs-view-root .tagged-item.tag-purple:hover, #docs-view-root .tagged-item.tag-orange:hover, #docs-view-root .tagged-item.tag-pink:hover, #docs-view-root .tagged-item.tag-black:hover, #docs-view-root .tagged-item.tag-teal:hover, #docs-view-root .tagged-item.tag-magenta:hover, #docs-view-root .tagged-item.tag-coral:hover {
   border-color: rgb(var(--tc));
   box-shadow:
     0 0 0 1px rgba(var(--tc), 0.45),
     0 0 22px 0 rgba(var(--tc), 0.65);
 }
 
-#docs-view-root .tagged-item.tag-red::before, #docs-view-root .tagged-item.tag-maroon::before, #docs-view-root .tagged-item.tag-blue::before, #docs-view-root .tagged-item.tag-green::before, #docs-view-root .tagged-item.tag-yellow::before, #docs-view-root .tagged-item.tag-purple::before, #docs-view-root .tagged-item.tag-orange::before, #docs-view-root .tagged-item.tag-pink::before, #docs-view-root .tagged-item.tag-black::before {
+#docs-view-root .tagged-item.tag-red::before, #docs-view-root .tagged-item.tag-maroon::before, #docs-view-root .tagged-item.tag-blue::before, #docs-view-root .tagged-item.tag-green::before, #docs-view-root .tagged-item.tag-yellow::before, #docs-view-root .tagged-item.tag-purple::before, #docs-view-root .tagged-item.tag-orange::before, #docs-view-root .tagged-item.tag-pink::before, #docs-view-root .tagged-item.tag-black::before, #docs-view-root .tagged-item.tag-teal::before, #docs-view-root .tagged-item.tag-magenta::before, #docs-view-root .tagged-item.tag-coral::before {
   content: '';
   position: absolute;
   left: 0; top: 0; bottom: 0;
