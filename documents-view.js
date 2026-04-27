@@ -2691,6 +2691,39 @@ window.initDocumentsView = function() {
       img.src = doc.highResData || doc.thumbnailData;
       img.alt = doc.displayName;
       canvas.appendChild(img);
+      // Hydrated PDF docs come back with highResData=null but storagePath set,
+      // so the placeholder above is the small compressed thumbnail. Lazy-fetch
+      // the original binary and re-render this specific page at full 3.5x so
+      // the preview is sharp instead of upscaled-JPEG-blurry. Image docs:
+      // their full-resolution version IS the thumbnailData (no separate
+      // high-res), so no upgrade needed.
+      if (doc.type === 'pdf' && !doc.highResData && doc.storagePath) {
+        (async () => {
+          try {
+            // Fetch binary if not already loaded.
+            if (!doc.pdfData) {
+              const ok = await ensureBinary(doc);
+              if (!ok) return;
+            }
+            if (typeof pdfjsLib === 'undefined' || !doc.pdfData) return;
+            const pdf = await pdfjsLib.getDocument({ data: doc.pdfData }).promise;
+            const page = await pdf.getPage(doc.pageNumber || 1);
+            const highRes = await renderPdfPage(page, CONFIG.pdf.highResScale);
+            try { page.cleanup(); } catch(e) {}
+            try { await pdf.cleanup(); } catch(e) {}
+            try { await pdf.destroy(); } catch(e) {}
+            // Cache for the rest of the session and any subsequent previews.
+            doc.highResData = highRes;
+            // Only swap the img if this preview is still showing the same doc
+            // (user may have clicked Next/Prev while we were rendering).
+            if (currentPreviewDoc() === doc) {
+              img.src = highRes;
+            }
+          } catch (err) {
+            console.warn('Preview high-res upgrade failed for ' + doc.id + ':', err);
+          }
+        })();
+      }
     } else if (doc.type === 'excel') {
       const wrap = document.createElement('div');
       wrap.className = 'preview-excel-wrap';
