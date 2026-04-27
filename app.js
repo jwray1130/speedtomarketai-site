@@ -1727,9 +1727,15 @@ function archiveCurrentSubmission() {
     // createdAt. Everything else refreshes to latest.
     Object.assign(rec, derived, { snapshot, lastModifiedAt: now });
   } else {
-    // Brand new record
+    // Brand new record. Reuse the pre-minted submission id if pipeline.js
+    // assigned one at run start (so docs view ingestion + final record
+    // share the same SUB-XXX id). Otherwise generate one now — same format,
+    // same uniqueness guarantees.
+    const submissionId = STATE.activeSubmissionId
+      ? STATE.activeSubmissionId
+      : ('SUB-' + now.toString(36).toUpperCase());
     rec = {
-      id:              'SUB-' + now.toString(36).toUpperCase(),
+      id:              submissionId,
       pipelineRun:     STATE.pipelineRun,
       createdAt:       now,
       lastModifiedAt:  now,

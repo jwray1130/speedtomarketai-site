@@ -965,7 +965,20 @@ async function sbInsertDocumentPage(doc) {
     .select()
     .single();
   if (error) {
-    console.warn('sbInsertDocumentPage failed:', error.message);
+    // Detailed failure log — without this, batch failures (constraint
+    // violations on color or category, RLS blocks, FK errors) drop pages
+    // silently and the user sees no thumbnail with no explanation. Log
+    // includes the doc id + page number + the Postgres error code & detail
+    // so root cause is obvious in the console. Also surfaces the SQL hint
+    // when present, which Postgres uses to guide CHECK constraint failures.
+    console.warn(
+      'sbInsertDocumentPage failed for ' + (doc.id || '?') +
+      ' page ' + (doc.pageNumber || '?') + '/' + (doc.totalPages || '?') + ': ' +
+      (error.message || 'unknown') +
+      (error.code ? ' [code=' + error.code + ']' : '') +
+      (error.details ? ' [details=' + error.details + ']' : '') +
+      (error.hint ? ' [hint=' + error.hint + ']' : '')
+    );
     _noteCloudFail();
     return null;
   }

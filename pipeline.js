@@ -1023,6 +1023,26 @@ async function runPipeline() {
   STATE.pipelineRun = 'PIPE-' + Date.now().toString(36).toUpperCase();
   STATE.extractions = {};
 
+  // === SUBMISSION ID PRE-MINT ===
+  // Pipeline-fed docs need a submission ID at classifier time so they land
+  // in the right bucket on the workbench Documents counter. recordSubmission
+  // (which normally mints the SUB-XXX id) runs at the END of the pipeline
+  // after all extraction completes. Without pre-minting, every file uploaded
+  // via the pipeline path gets submissionId=null in the docs view, and the
+  // workbench counter (which filters by activeSubmissionId) shows zero.
+  //
+  // Strategy: if no active submission, mint one now. Then when
+  // recordSubmission runs at pipeline end, it sees the existing id on STATE
+  // and reuses it instead of generating a fresh one. The id format is the
+  // same one recordSubmission would have used.
+  if (!STATE.activeSubmissionId) {
+    const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
+    STATE.activeSubmissionId = preMintId;
+    if (typeof logAudit === 'function') {
+      logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
+    }
+  }
+
   document.getElementById('btnRun').disabled = true;
   document.getElementById('btnRunLabel').innerHTML = '<span class="spinner"></span> Running';
   document.getElementById('pipelineEmpty').style.display = 'none';
