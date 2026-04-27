@@ -1031,15 +1031,49 @@ async function runPipeline() {
   // via the pipeline path gets submissionId=null in the docs view, and the
   // workbench counter (which filters by activeSubmissionId) shows zero.
   //
-  // Strategy: if no active submission, mint one now. Then when
-  // recordSubmission runs at pipeline end, it sees the existing id on STATE
-  // and reuses it instead of generating a fresh one. The id format is the
-  // same one recordSubmission would have used.
+  // Strategy: if no active submission, mint one now AND insert a stub row
+  // into Supabase's `submissions` table. The FK constraint on
+  // document_pages.submission_id requires the parent row to exist before
+  // any page can be inserted — without this, every per-page upload fails
+  // with a 23503 FK violation. recordSubmission at pipeline end calls
+  // sbSaveSubmission again with the same ID (upsert on conflict id), which
+  // updates the stub row with the full extraction snapshot. So the stub is
+  // a placeholder that gets enriched, not a duplicate row.
   if (!STATE.activeSubmissionId) {
     const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
     STATE.activeSubmissionId = preMintId;
     if (typeof logAudit === 'function') {
       logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
+    }
+    // Persist the stub row synchronously (await) so it lands BEFORE the
+    // classifier's per-file ingestion fires off page-row inserts. Without
+    // await, the stub save races the document_pages inserts and they
+    // arrive at Postgres before the parent row exists → FK 23503.
+    if (typeof window.sbSaveSubmission === 'function') {
+      try {
+        await window.sbSaveSubmission({
+          id: preMintId,
+          status: 'AWAITING UW REVIEW',
+          statusHistory: [{ from: null, to: 'AWAITING UW REVIEW', at: STATE.pipelineStart, actor: typeof currentActor === 'function' ? currentActor() : 'system' }],
+          pipelineRun: STATE.pipelineRun,
+          // Snapshot is empty at this stage — recordSubmission will fill
+          // it in at pipeline end with the full file list and extractions.
+          snapshot: { files: [], extractions: {}, pipelineRun: STATE.pipelineRun, _stub: true },
+        });
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'Stub submission row persisted to Supabase · ' + preMintId, 'ok');
+        }
+      } catch (err) {
+        // If the stub save fails (network, auth, RLS), log loudly and
+        // continue — the docs view ingestion will still try, and per-page
+        // inserts will fail with FK errors that surface in the console.
+        // Better to attempt and have visible failures than to silently
+        // skip pre-mint and have everything mysteriously break.
+        console.error('Pre-mint stub save failed for ' + preMintId + ':', err);
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'WARNING: stub submission save failed · ' + preMintId + ' · ' + (err.message || 'unknown') + ' · per-page inserts will likely fail with FK errors', 'error');
+        }
+      }
     }
   }
 

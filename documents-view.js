@@ -2219,8 +2219,19 @@ window.initDocumentsView = function() {
       // sets it from the CATEGORY_MAP so classified docs auto-tag with their
       // category color. Setting a color implies tagged=true so the doc shows
       // up in the Tagged Pages panel filterable by color.
-      color: opts.color || pctx.color || null,
-      tagged: !!(opts.color || pctx.color),
+      //
+      // FIRST-PAGE-ONLY TAGGING for pipeline ingestion:
+      // The pipeline-driven path stamps every page from a multi-page PDF
+      // with the same category (so they all live in the right bucket and
+      // are findable via the category panel). But we only paint the COLOR
+      // TAG on page 1 — the marker for where the doc starts. Pages 2..N
+      // share the same submission/category but stay un-tagged so the
+      // Tagged Pages count reflects "number of distinct docs", not
+      // "number of total pages." Manual uploads (no pctx) keep the
+      // legacy behavior — opts.color paints whatever page the caller
+      // specifies, since manual users tag pages individually anyway.
+      color: opts.color || (pctx.color && (opts.pageNumber || 1) === 1 ? pctx.color : null) || null,
+      tagged: !!(opts.color || (pctx.color && (opts.pageNumber || 1) === 1)),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
