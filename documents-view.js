@@ -37,16 +37,21 @@ window.initDocumentsView = function() {
     pdf:   { thumbnailScale: 3.0, highResScale: 3.5, ocrScale: 3.5 },
     preview: { minZoom: 0.4, maxZoom: 4.0, zoomStep: 0.25 },
     toast: { duration: 3000 },
-    tagColors: ['red','maroon','blue','green','yellow','purple','orange','pink','black'],
+    tagColors: ['red','green','yellow','purple','pink','orange','maroon','teal','magenta','blue','coral','black'],
     tagColorLabels: {
+      // Pipeline-routed categories
       red: 'Loss History',
-      maroon: 'Cancellations',
-      blue: 'Policy',
       green: 'Applications',
       yellow: 'Underlying',
       purple: 'Project',
-      orange: 'Subjectivity',
-      pink: 'Quote / Indication',
+      pink: 'Correspondence',
+      orange: 'Compliance',
+      maroon: 'Administration',
+      // Manual-only categories
+      teal: 'Quotes & Indications',
+      magenta: 'Cancellations',
+      blue: 'Policy',
+      coral: 'Subjectivity',
       black: 'Underwriting',
     },
     categories: [
