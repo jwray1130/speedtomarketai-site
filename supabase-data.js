@@ -864,13 +864,20 @@ function buildDocPageRow(doc, userId) {
 // JPEG vs PNG: thumbnails are previews of mostly-photographic-or-text page
 // rasters; JPEG with white background fill compresses 8-15x better than
 // PNG with negligible visual cost at the small render size.
-const THUMB_PERSIST_MAX_BYTES = 120 * 1024;   // 120 KB cap on the data URL string
-const THUMB_PERSIST_MAX_WIDTH = 600;          // downscale wider images. 600px is
-                                              // 2.5x oversample for the 240px
-                                              // thumbnail UI — plenty for Retina,
-                                              // small enough that text-heavy pages
-                                              // compress under the byte cap at
-                                              // reasonable JPEG quality.
+const THUMB_PERSIST_MAX_BYTES = 500 * 1024;   // 500 KB cap per persisted thumb.
+                                              // Larger than minimal but small
+                                              // enough to keep DB row sizes
+                                              // reasonable. Tradeoff: hydrate
+                                              // pulls every row's thumb on
+                                              // load, so this multiplies the
+                                              // initial fetch time by however
+                                              // many docs the user has.
+const THUMB_PERSIST_MAX_WIDTH = 1200;         // downscale wider images. 1200px
+                                              // is the natural width of the
+                                              // doc-thumb at common panel
+                                              // sizes — the thumb fills any
+                                              // reasonable panel resize
+                                              // without empty space.
 async function compressThumbForPersist(dataUrl) {
   if (!dataUrl) return null;
   // Already small enough? Skip the canvas round-trip.
@@ -887,9 +894,9 @@ async function compressThumbForPersist(dataUrl) {
         // Width-halving is more effective than quality cuts for text-heavy
         // pages (text edges are detail JPEG fights to preserve).
         const widths = [
-          Math.min(img.naturalWidth, THUMB_PERSIST_MAX_WIDTH),  // first attempt: 600px
-          Math.min(img.naturalWidth, 400),                       // second: 400px
-          Math.min(img.naturalWidth, 280),                       // last resort: 280px (still > UI display size)
+          Math.min(img.naturalWidth, THUMB_PERSIST_MAX_WIDTH),  // first attempt: 1200px
+          Math.min(img.naturalWidth, 800),                       // second: 800px
+          Math.min(img.naturalWidth, 500),                       // last resort: 500px (still > minimal UI display size)
         ];
         for (const targetW of widths) {
           const canvas = document.createElement('canvas');
