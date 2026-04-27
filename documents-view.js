@@ -598,12 +598,79 @@ window.initDocumentsView = function() {
       thumb.appendChild(badge);
     }
 
-    if ((doc.type === 'pdf' || doc.type === 'image') && doc.thumbnailData) {
+    if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
       const img = document.createElement('img');
-      img.src = doc.thumbnailData;
+      // Prefer in-memory high-res if already cached (set during active session
+      // by upload, or by an earlier lazy-fetch from a preview/grid open).
+      // Otherwise fall back to the small persisted thumb as instant placeholder.
+      img.src = doc.highResData || doc.thumbnailData;
       img.loading = 'lazy';
       img.alt = doc.displayName;
       thumb.appendChild(img);
+
+      // Lazy-upgrade after refresh: when this thumb becomes visible AND we
+      // don't already have a high-res render in memory AND the source binary
+      // is reachable in storage, fetch it and re-render at full quality, then
+      // swap the img source. This restores the same sharpness the grid had
+      // during the active upload session — without forcing every doc's
+      // binary to download on hydrate (which would make refresh painful).
+      // Uses IntersectionObserver so docs below the fold don't fetch until
+      // the user scrolls to them; scales to hundreds of docs without churn.
+      if (!doc.highResData && doc.storagePath && typeof IntersectionObserver !== 'undefined') {
+        const upgrade = async () => {
+          try {
+            if (doc.highResData) { img.src = doc.highResData; return; }
+            if (doc.type === 'image') {
+              // Images: just fetch the binary as a blob URL and use that
+              // directly — no per-page rendering needed since the binary
+              // IS the displayable image.
+              const ok = await ensureBinary(doc);
+              if (!ok) return;
+              if (doc.nativeDataUrl) {
+                doc.highResData = doc.nativeDataUrl;
+                img.src = doc.nativeDataUrl;
+              }
+              return;
+            }
+            // PDF: pull binary, render this specific page at the same
+            // 3.5x scale used by the preview modal so both surfaces share
+            // the same in-memory render.
+            if (!doc.pdfData) {
+              const ok = await ensureBinary(doc);
+              if (!ok) return;
+            }
+            if (typeof pdfjsLib === 'undefined' || !doc.pdfData) return;
+            const pdf = await pdfjsLib.getDocument({ data: doc.pdfData }).promise;
+            const page = await pdf.getPage(doc.pageNumber || 1);
+            const highRes = await renderPdfPage(page, CONFIG.pdf.highResScale);
+            try { page.cleanup(); } catch(e) {}
+            try { await pdf.cleanup(); } catch(e) {}
+            try { await pdf.destroy(); } catch(e) {}
+            doc.highResData = highRes;
+            // Only swap if the img element is still in the DOM — re-renders
+            // of the docs list (search keystroke, scope change) recreate
+            // doc-items and the old img would be detached.
+            if (img.isConnected) img.src = highRes;
+          } catch (err) {
+            console.warn('Grid thumb upgrade failed for ' + doc.id + ':', err);
+          }
+        };
+        // Observe the parent item, not the img — IntersectionObserver fires
+        // when the visible/non-visible threshold is crossed, regardless of
+        // image load state.
+        const observer = new IntersectionObserver((entries, obs) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              obs.disconnect();
+              upgrade();
+            }
+          });
+        }, { rootMargin: '200px' });  // start fetching slightly before fully visible
+        // Defer observe() to the microtask queue so item is mounted in DOM first.
+        Promise.resolve().then(() => {
+          if (item.isConnected) observer.observe(item);
+        });
+      }
     } else if (doc.type === 'excel' || doc.type === 'archive' || doc.type === 'native' || doc.type === 'csv' ||
                (doc.type === 'email' && doc.emailMeta?.format === 'msg') ||
                (doc.type === 'powerpoint' && !doc.htmlContent)) {
