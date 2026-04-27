@@ -333,11 +333,54 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
       metaText = (typeof meta === 'string') ? meta : JSON.stringify(meta);
     }
 
+    const effectiveSid = submissionId
+                      || (typeof STATE !== 'undefined' && STATE.activeSubmissionId)
+                      || null;
+
+    // FK PRE-CHECK: audit_events.submission_id has a FK constraint to
+    // submissions.id. Pipeline runs that fire dozens of audit events
+    // before recordSubmission persists the parent row will all violate
+    // the FK. Suppress these inserts when we know the parent doesn't
+    // exist yet — track a per-submission-id "known unsaved" flag locally,
+    // refresh it once per session, and let through inserts that have
+    // a confirmed-saved parent.
+    //
+    // First-write fallback: if we don't yet know whether the parent
+    // exists, do a single existence check and cache the result. Cheap
+    // (PK lookup), prevents 115 redundant FK violations per pipeline run.
+    if (effectiveSid) {
+      if (!sbLogAuditEvent._submissionExistsCache) {
+        sbLogAuditEvent._submissionExistsCache = new Map();
+      }
+      const cache = sbLogAuditEvent._submissionExistsCache;
+      let exists = cache.get(effectiveSid);
+      if (exists === undefined) {
+        try {
+          const { data, error: chkErr } = await window.sb
+            .from('submissions')
+            .select('id')
+            .eq('id', effectiveSid)
+            .maybeSingle();
+          exists = !chkErr && !!data;
+          cache.set(effectiveSid, exists);
+        } catch (e) {
+          // If existence check fails, default to "exists=true" so we
+          // attempt the insert; if it fails with FK, we'll catch below
+          // and learn from the error.
+          exists = true;
+        }
+      }
+      if (!exists) {
+        // Skip the insert silently. The audit event won't reach the cloud
+        // for this submission until its parent row lands. Local audit log
+        // (state.audit) still has the entry, so nothing's truly lost.
+        return;
+      }
+    }
+
     const row = {
       user_id:       u.id,
-      submission_id: submissionId
-                  || (typeof STATE !== 'undefined' && STATE.activeSubmissionId)
-                  || null,
+      submission_id: effectiveSid,
       category:      cat,
       message:       msg,
       meta:          metaText
@@ -345,6 +388,22 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
     const { error } = await window.sb.from('audit_events').insert(row);
     if (error) {
       // rule 2 — DO NOT call logAudit() here. Console only.
+      // FK violations: cache "doesn't exist yet" for this submission so
+      // the next call short-circuits without retrying. Updates flip to
+      // "exists" once recordSubmission persists the parent.
+      if (error.code === '23503' && effectiveSid) {
+        if (!sbLogAuditEvent._submissionExistsCache) {
+          sbLogAuditEvent._submissionExistsCache = new Map();
+        }
+        sbLogAuditEvent._submissionExistsCache.set(effectiveSid, false);
+        // Log the FK violation once per submission, not per event.
+        if (!sbLogAuditEvent._fkLoggedFor) sbLogAuditEvent._fkLoggedFor = new Set();
+        if (!sbLogAuditEvent._fkLoggedFor.has(effectiveSid)) {
+          sbLogAuditEvent._fkLoggedFor.add(effectiveSid);
+          console.warn('[audit] FK violation for submission ' + effectiveSid + ' — parent row not yet persisted; further audit events for this submission will be skipped until it lands.');
+        }
+        return;
+      }
       console.warn('[audit] cloud write failed:', error.message || error);
     }
   } catch (e) {
@@ -352,6 +411,21 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
     console.warn('[audit] cloud write threw:', (e && e.message) || e);
   }
 }
+// Public hook: when a submission is finally saved (recordSubmission), call
+// this to flip the cache so subsequent audit events go through. Without it,
+// every audit event after recordSubmission would still skip until the
+// per-session cache TTL expired (which we don't have).
+function sbInvalidateSubmissionExistsCache(submissionId) {
+  if (!submissionId) return;
+  if (!sbLogAuditEvent._submissionExistsCache) return;
+  // Mark as definitely existing — pipeline pre-mint or recordSubmission
+  // both call this after a successful upsert.
+  sbLogAuditEvent._submissionExistsCache.set(submissionId, true);
+  if (sbLogAuditEvent._fkLoggedFor) {
+    sbLogAuditEvent._fkLoggedFor.delete(submissionId);
+  }
+}
+window.sbInvalidateSubmissionExistsCache = sbInvalidateSubmissionExistsCache;
 window.sbLogAuditEvent = sbLogAuditEvent;
 
 // ---- User settings (carrier guideline, model pref, etc.) -----------------

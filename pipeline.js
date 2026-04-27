@@ -1060,6 +1060,15 @@ async function runPipeline() {
           // it in at pipeline end with the full file list and extractions.
           snapshot: { files: [], extractions: {}, pipelineRun: STATE.pipelineRun, _stub: true },
         });
+        // Tell the audit-events writer that this submission now exists in
+        // the database. Without this, subsequent logAudit calls would all
+        // hit the FK pre-check, see the cache from a prior session say
+        // "doesn't exist", and skip the insert. This flip means audit
+        // events written from now on for this submission DO reach the
+        // cloud.
+        if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
+          window.sbInvalidateSubmissionExistsCache(preMintId);
+        }
         if (typeof logAudit === 'function') {
           logAudit('Pipeline', 'Stub submission row persisted to Supabase · ' + preMintId, 'ok');
         }
@@ -1121,11 +1130,44 @@ async function runPipeline() {
     // Skip if:
     //   • the docs view module isn't loaded (testing harness, etc.)
     //   • we already pushed this file (re-runs don't double-add)
+    //   • RE-RUN GUARD: the docs view already has docs from this submission
+    //     with the same source filename. f._pushedToDocsView only persists
+    //     within a single STATE.files lifetime; pipeline re-runs may reset
+    //     the file array (e.g. user retries with a different model). The
+    //     filename + submissionId pair is the durable identity; if the
+    //     docs view already has rows matching, we don't push again.
     //   • the raw File object isn't on the entry (lite snapshot dropped it,
     //     or this is a synthesized record without a binary). In that case
     //     fall back to the metadata-only push so the doc still appears,
     //     just without a working preview.
     if (window.docsView && !f._pushedToDocsView) {
+      // Re-run double-push guard. If docsView.getDocs reports any existing
+      // doc rows for this submission with the same source-file name (matched
+      // by name prefix because PDFs split into "FileName — Page N" entries),
+      // skip the push. The user can manually re-trigger by deleting the
+      // docs in the file manager first if they want a fresh classification.
+      let alreadyPushed = false;
+      try {
+        if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
+          const existing = window.docsView.getDocs();
+          const baseName = (f.name || '').replace(/\.[^.]+$/, '');
+          alreadyPushed = existing.some(d =>
+            d.submissionId === STATE.activeSubmissionId &&
+            (d.name === f.name ||
+             (d.name && baseName && d.name.indexOf(baseName) === 0))
+          );
+          if (alreadyPushed) {
+            f._pushedToDocsView = 'cached';
+            if (typeof logAudit === 'function') {
+              logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
+            }
+          }
+        }
+      } catch (e) {
+        // Cache check failed — proceed with push anyway. Worst case we
+        // push duplicates, which is the previous behavior.
+        console.warn('Docs view duplicate check failed, proceeding with push:', e);
+      }
       const mapping = docsViewMappingFor(c.type);
       const ingestCtx = {
         category: mapping.category,
@@ -1134,6 +1176,8 @@ async function runPipeline() {
         pipelineClassification: c.type,
         pipelineRoutedTo: f.routedTo || null,
       };
+      // Skip both push paths if we already determined a duplicate exists.
+      if (!alreadyPushed) {
       // Prefer full ingestion (binary + thumbnails). Falls back to metadata
       // push if no File on hand or processFileFromPipeline isn't exposed.
       if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
@@ -1175,6 +1219,7 @@ async function runPipeline() {
           console.warn('Metadata-only push failed for ' + f.name + ':', err);
         }
       }
+      }  // end if (!alreadyPushed)
     }
   }));
   renderFileList();

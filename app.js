@@ -1770,6 +1770,12 @@ function archiveCurrentSubmission() {
         }
       } : null;
       const saved = await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+      // Tell the audit-events writer this submission now exists. Pipeline
+      // pre-mint also calls this, but covering recordSubmission ensures
+      // the cache is consistent regardless of which path created the row.
+      if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
+        window.sbInvalidateSubmissionExistsCache(rec.id);
+      }
       if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + rec.id + ' to cloud · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
       if (typeof toast === 'function') toast('Saved to cloud · ' + rec.id.slice(0, 12));
     } catch (err) {
