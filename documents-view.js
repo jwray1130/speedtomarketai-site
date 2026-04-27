@@ -3755,36 +3755,65 @@ window.initDocumentsView = function() {
         console.warn('processFileFromPipeline: processFile dispatcher missing');
         return null;
       }
-      // Stamp pipeline context onto state so addDoc inherits it for every
-      // page produced by the processor. Cleared in the finally block so it
-      // doesn't leak into a subsequent manual upload session.
-      state._pipelineCtx = {
-        category: (ctx && ctx.category) || 'all',
-        color: (ctx && ctx.color) || null,
-        pipelineClassification: (ctx && ctx.pipelineClassification) || null,
-        pipelineRoutedTo: (ctx && ctx.pipelineRoutedTo) || null,
-        submissionId: (ctx && ctx.submissionId) || null,
-      };
-      const beforeIds = new Set(state.docs.map(d => d.id));
-      try {
-        // Pass the resolved category to processFile so the per-type
-        // processor passes it to addDoc explicitly. addDoc will then
-        // accept that category (opts wins over pctx).
-        await processFile(file, state._pipelineCtx.category);
-      } catch (err) {
-        console.warn('processFileFromPipeline: processing failed for ' + file.name + ':', err);
-        // Surface to the caller so the pipeline can handle. Don't swallow.
-        throw err;
-      } finally {
-        state._pipelineCtx = null;
-      }
-      // Return the new doc IDs so the pipeline can correlate this File with
-      // the doc rows (e.g. to tag specific pages later in Step 3).
-      const newIds = state.docs.filter(d => !beforeIds.has(d.id)).map(d => d.id);
-      renderCategoryGrid();
-      renderDocsList();
-      renderTagsList();
-      return newIds;
+      // ── SERIALIZATION CHAIN ──────────────────────────────────────────────
+      // Pipeline classification runs files in parallel (Promise.all in
+      // pipeline.js). When their classifier promises all settle around the
+      // same time, multiple processFileFromPipeline calls would otherwise
+      // run concurrently and stomp on each other:
+      //
+      //   • state._pipelineCtx  (category, color, classification, submissionId)
+      //   • state._uploadCtx    (storagePath, fileId, fileSize, fileName)
+      //
+      // Both are read by addDoc when stamping new pages. If file B's call
+      // overwrites the ctx mid-loop while file A's processPDF is still
+      // pumping pages 21..99, those pages end up inheriting B's storagePath
+      // and category — cross-contamination that's silent at upload time
+      // but breaks previews after refresh because the persisted storage_path
+      // points at the wrong binary.
+      //
+      // Manual uploads avoid this because _runUploadBatch awaits each file
+      // serially. Pipeline ingestion needs the same guarantee. We chain on
+      // a shared promise so each file's processing completes (ctx set →
+      // processFile → ctx cleared) before the next one starts. Errors
+      // don't break the chain — caught with .catch(()=>{}) so a single
+      // file's failure doesn't poison subsequent ingestions.
+      const prev = state._pipelineIngestChain || Promise.resolve();
+      const next = prev.catch(() => {}).then(async () => {
+        // Stamp pipeline context onto state so addDoc inherits it for every
+        // page produced by the processor. Cleared in the finally block so it
+        // doesn't leak into a subsequent manual upload session.
+        state._pipelineCtx = {
+          category: (ctx && ctx.category) || 'all',
+          color: (ctx && ctx.color) || null,
+          pipelineClassification: (ctx && ctx.pipelineClassification) || null,
+          pipelineRoutedTo: (ctx && ctx.pipelineRoutedTo) || null,
+          submissionId: (ctx && ctx.submissionId) || null,
+        };
+        const beforeIds = new Set(state.docs.map(d => d.id));
+        try {
+          // Pass the resolved category to processFile so the per-type
+          // processor passes it to addDoc explicitly. addDoc will then
+          // accept that category (opts wins over pctx).
+          await processFile(file, state._pipelineCtx.category);
+        } catch (err) {
+          console.warn('processFileFromPipeline: processing failed for ' + file.name + ':', err);
+          // Surface to the caller so the pipeline can handle. Don't swallow.
+          throw err;
+        } finally {
+          state._pipelineCtx = null;
+          // Note: _uploadCtx is set inside processFile and not cleared
+          // automatically. Manual uploads overwrite it on next file; we
+          // mirror that here. Clearing explicitly would be cleaner but
+          // would diverge from the manual path's semantics.
+        }
+        const newIds = state.docs.filter(d => !beforeIds.has(d.id)).map(d => d.id);
+        renderCategoryGrid();
+        renderDocsList();
+        renderTagsList();
+        return newIds;
+      });
+      state._pipelineIngestChain = next;
+      return next;
     },
     // Phase 5 — cascade pruning hook. Called by app.js when an Altitude
     // submission is deleted, so the docs view drops the matching local
