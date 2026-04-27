@@ -3818,6 +3818,29 @@ window.initDocumentsView = function() {
           // would diverge from the manual path's semantics.
         }
         const newIds = state.docs.filter(d => !beforeIds.has(d.id)).map(d => d.id);
+        // Wait for in-flight Supabase inserts for these new docs to settle
+        // before returning. Without this, processFileFromPipeline can
+        // resolve while document_pages rows are still being upserted in
+        // the background. The pipeline counter would jump to N (matches
+        // local state.docs) but a refresh during the gap would hydrate
+        // fewer than N rows, looking like a persistence bug. Waiting
+        // here makes the contract clear: when this resolves, the rows
+        // are persisted (or the per-row error has been logged).
+        //
+        // .allSettled (not .all) means a single insert failure doesn't
+        // reject the whole batch — the per-row catch in addDoc already
+        // logged it, and we want to return whatever IDs were created
+        // locally regardless of cloud success. Misses (NULL pendingInserts
+        // map, doc id not registered) just resolve to undefined which
+        // allSettled handles cleanly.
+        if (state._pendingInserts && state._pendingInserts.size > 0) {
+          const pending = newIds
+            .map(id => state._pendingInserts.get(id))
+            .filter(Boolean);
+          if (pending.length > 0) {
+            await Promise.allSettled(pending);
+          }
+        }
         renderCategoryGrid();
         renderDocsList();
         renderTagsList();

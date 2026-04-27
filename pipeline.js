@@ -1142,19 +1142,32 @@ async function runPipeline() {
     //     just without a working preview.
     if (window.docsView && !f._pushedToDocsView) {
       // Re-run double-push guard. If docsView.getDocs reports any existing
-      // doc rows for this submission with the same source-file name (matched
-      // by name prefix because PDFs split into "FileName — Page N" entries),
-      // skip the push. The user can manually re-trigger by deleting the
-      // docs in the file manager first if they want a fresh classification.
+      // doc rows for this submission belonging to the same source file,
+      // skip the push so re-runs don't double-add. The user can force
+      // re-classification by deleting the docs in the file manager first.
+      //
+      // Match precision matters here. The docs view's PDF processor splits
+      // multi-page PDFs into "BaseName — Page N" entries, so we can't
+      // exact-match the original filename. But arbitrary prefix matching
+      // is too loose (would falsely block "Safety Manual.pdf" if "Safety
+      // Manual Updated.pdf" was already there — its split docs all start
+      // with "Safety Manual"). The fix: match only the EXACT page-split
+      // format the processor produces ("BaseName — Page N"), or the
+      // original filename for non-split single-page docs. Em-dash is the
+      // separator the splitter uses (see processPDF in documents-view.js).
       let alreadyPushed = false;
       try {
         if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
           const existing = window.docsView.getDocs();
           const baseName = (f.name || '').replace(/\.[^.]+$/, '');
+          const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
           alreadyPushed = existing.some(d =>
             d.submissionId === STATE.activeSubmissionId &&
-            (d.name === f.name ||
-             (d.name && baseName && d.name.indexOf(baseName) === 0))
+            d.name && (
+              d.name === f.name ||                         // single-page or non-PDF
+              d.name === baseName ||                       // single-page PDF
+              d.name.indexOf(pageSplitPrefix) === 0        // multi-page PDF split entry
+            )
           );
           if (alreadyPushed) {
             f._pushedToDocsView = 'cached';
