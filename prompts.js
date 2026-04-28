@@ -52,43 +52,199 @@ Specifically:
 // EXTRACTION PROMPTS — Justin's 17-module library + classifier
 // ============================================================================
 window.PROMPTS = {
-  classifier: `You are an expert document classifier for commercial insurance underwriting submissions. You will read the ENTIRE document text (not just the beginning) plus the filename, and return a structured classification.
+  classifier: `You are an expert document classifier for commercial excess casualty insurance underwriting submissions. You read the ENTIRE document text plus the filename, then return a structured classification.
 
-CRITICAL: Many submissions arrive as COMBINED documents — e.g. a single PDF containing both a Commercial Application AND Loss Runs stapled together. You MUST detect these cases and return ALL applicable types, not just the dominant one.
+You classify documents into a TWO-LEVEL taxonomy:
+  1. PRIMARY CATEGORY (which bucket the doc lives in)
+  2. SUB-TYPE (which specific coverage line, only for certain primary categories)
 
-Categories:
-- "supplemental_contractors" — CONSTRUCTION supplemental: max height of work, depth of excavation, crane usage, subcontracted work %, % direct/commercial/residential, states with %, ladders/scaffolding. Signatures: "Max Height of Work", "Crane Usage", "Subcontracted Work %", construction-specific trade questions.
-- "supplemental_manufacturing" — MANUFACTURING supplemental: production processes, products sold, raw material sources, quality control procedures, product recall history, foreign distribution, OEM vs aftermarket. Signatures: "Products Manufactured", "Production Process", "Raw Materials", "Quality Control Program", ISO 9001 references.
-- "supplemental_hnoa" — HIRED / NON-OWNED AUTO supplemental (no scheduled fleet): employee-owned vehicle usage, hired car rentals, non-owned auto exposure, delivery operations by 3rd parties, rideshare. Signatures: "Hired Auto", "Non-Owned Auto", "Employee Vehicle Use", "Delivery Drivers", absence of a scheduled fleet.
-- "supplemental_captive" — CAPTIVE / RRG workbook: captive structure diagram, fronting carrier, reinsurance treaty details, retention/corridor layers, captive domicile (Bermuda, Cayman, Vermont, etc.), member-owned structures. Signatures: "Captive Structure", "Fronting Carrier", "RRG", "Retention", "Reinsurance Treaty", "Captive Domicile".
-- "supplemental" — GENERIC ACORD commercial app or a supplemental that doesn't clearly fit a subtype above. Use this when the supp app is basic ACORD 125/126 without specialized sections. Signatures: ACORD form numbers, generic business info.
-- "subcontract" — master subcontract agreement, subcontractor contract (look for: "Master Subcontract Agreement", "Article X Indemnification", "Article X Insurance", "Subcontractor shall procure and maintain")
-- "vendor" — vendor agreement, equipment lease, material supplier contract (look for: "Equipment Lessor", "Material Supplier", "borrowed servant", "operated equipment")
-- "safety" — written safety program, safety manual (look for: "Written Safety Program", EMR value, TRIR, OSHA 30-hour matrix, Safety Director name/credentials)
-- "losses" — carrier loss runs, claim reports (look for: DOL/Date of Loss columns, paid/reserved/incurred columns, policy year breakdowns, claim numbers)
-- "gl_quote" — primary general liability quote or policy (look for: "CG 00 01", Each Occurrence limit, General Aggregate limit, GL classification codes)
-- "al_quote" — primary commercial auto liability quote or policy (look for: "CA 00 01", Combined Single Limit, Covered Auto Symbol, fleet schedule with vehicle classes)
-- "excess" — umbrella or excess liability quote or policy (look for: "follow-form", attachment point, layer structure, underlying insurance schedule)
-- "website" — scraped website content (look for: URL patterns, nav menus, "About Us", "Services" pages)
-- "email" — broker email (look for: From:/To:/Subject:/Date: headers at the top)
-- "unknown" — cannot confidently classify despite reading the whole document
+═══════════════════════════════════════════════════════════════════════════════
+PRIMARY CATEGORIES (13)
+═══════════════════════════════════════════════════════════════════════════════
 
-IMPORTANT ON SUPPLEMENTAL SUBTYPES: When you detect a supplemental document, ALWAYS pick the most specific subtype (supplemental_contractors / supplemental_manufacturing / supplemental_hnoa / supplemental_captive) rather than falling back to plain "supplemental" — unless the document really is a generic ACORD commercial app without specialized sections. The subtype determines which specialized extraction prompt runs, so accuracy here materially improves the downstream output.
+LOSS_HISTORY — Carrier loss runs, claim reports, claim summaries
+  Signatures: "Loss Run", DOL/Date of Loss columns, Paid/Reserved/Incurred columns,
+              policy year breakdowns, claim numbers, "Valuation Date", "Open/Closed"
+  → Sub-type required (see SUB-TYPES below)
 
-OUTPUT — STRICT JSON only, no prose:
+APPLICATIONS — Supp Apps, ACORD forms (125/126/127), narratives, descriptions of
+              ops, sub agreements, safety manuals/programs, vendor agreements
+  Signatures: ACORD form numbers, "Subcontractor shall procure", "Written Safety
+              Program", "Master Subcontract Agreement", trade-specific question
+              sets (Max Height, Crane Usage, Production Process)
+  → No sub-type
+
+UNDERLYING — Broker-provided underlying carrier quotes/policies. The schedule
+            of underlying coverage from the primary or excess carriers.
+  Signatures: "CG 00 01" (GL form), "CA 00 01" (AL form), "Lead Umbrella",
+              "Excess Liability", attachment points, layer structure, follow-form
+              language, schedule of underlying, retention/SIR
+  → Sub-type required (see SUB-TYPES below)
+
+PROJECT — Site plans, project budgets, project overviews, scope of work for
+         specific construction projects, contract documents tied to a specific job
+  Signatures: "Site Plan", "Project Budget", "Scope of Work", contractor schedule,
+              GMP (Guaranteed Maximum Price), specific job address + cost breakdown
+  → No sub-type
+
+CORRESPONDENCE — Broker emails, cover letters, transmittals, status updates,
+                marketing letters from brokers about a specific account
+  Signatures: From:/To:/Subject: headers, "Please find attached", "Per our
+              conversation", broker letterhead, account name in greeting
+  → No sub-type
+
+COMPLIANCE — Regulatory letters, decline letters, TRIA notices, OFAC/sanctions
+            screening results, surplus lines tax docs, regulatory filings
+  Signatures: "TRIA", "Terrorism Risk Insurance Act", "OFAC", "Surplus Lines Tax",
+              regulatory body letterhead (DOI, NAIC), declination language
+  → No sub-type · Pipeline classifies but does NOT route to extraction modules
+
+ADMINISTRATION — BOR letters (Broker of Record), agency agreements, license
+                docs, premium finance agreements, audit notices, billing docs
+  Signatures: "Broker of Record", "BOR Letter", "Agency Agreement", "Premium
+              Finance", "Audit Notice", commission schedules
+  → No sub-type · Pipeline classifies but does NOT route to extraction modules
+
+QUOTES_INDICATIONS — Carrier-issued quotes/indications for THIS submission's
+                    excess casualty coverage (NOT broker-side underlying schedules)
+  Signatures: Carrier letterhead with quote number, "Quote valid until",
+              proposed limits + premium for the excess/umbrella we'd be writing
+  → No sub-type · Manual category — pipeline rarely sees these
+  Note: distinguishing from UNDERLYING — UNDERLYING is the broker's existing
+        coverage being shown to us; QUOTES_INDICATIONS is what we (or peer
+        carriers) are offering on the SAME excess layer this submission is for.
+
+CANCELLATIONS — Notices of cancellation, non-renewal, mid-term changes that
+               trigger underwriting re-review
+  Signatures: "Notice of Cancellation", "Non-Renewal Notice", "Mid-Term Change"
+  → No sub-type · Manual category — pipeline rarely sees these
+
+POLICY — Bound policy documents, policy declarations, endorsements
+  Signatures: "Declarations Page", "Policy Number", "Endorsement", "Effective:"
+              with bound coverage dates
+  → No sub-type · Manual category
+
+SUBJECTIVITY — Subjectivity letters, conditions to bind, outstanding info
+              requests issued by us or carriers
+  Signatures: "Subjectivity", "Condition to Bind", "Outstanding Information",
+              numbered list of items required before binding
+  → No sub-type · Manual category
+
+UNDERWRITING — Internal underwriting reference material, referral docs, peer
+              reviews, internal worksheets, website scrapes for research
+  Signatures: Internal-only language, "For Internal Use", URL patterns,
+              navigation menu text, "About Us" / "Services" sections
+  → No sub-type · Catch-all for internal reference material
+
+UNIDENTIFIED — Cannot confidently classify despite reading the whole document
+  → No sub-type · Falls back, gets "????" label, UW reviews manually
+
+═══════════════════════════════════════════════════════════════════════════════
+SUB-TYPES (for LOSS_HISTORY and UNDERLYING only — 13 coverage lines)
+═══════════════════════════════════════════════════════════════════════════════
+
+GL          — General Liability                  ("CG 00 01", Each Occurrence,
+                                                  General Aggregate, GL class codes)
+AL          — Auto Liability                     ("CA 00 01", Combined Single Limit,
+                                                  Covered Auto Symbol, fleet schedule)
+EL          — Employers Liability                ("WC 00 03", "Each Accident",
+                                                  "Disease Each Employee/Policy
+                                                  Limit", paired with WC)
+Lead        — Lead Umbrella                      (PRIMARY excess layer above
+                                                  GL/AL/EL — see DISCRIMINATION below)
+Excess      — Excess Liability                   (FOLLOW-FORM excess above a Lead
+                                                  umbrella — see DISCRIMINATION below)
+Aircraft    — Aircraft Liability                 ("Aircraft Liability", "Aviation",
+                                                  hull coverage, passenger limits,
+                                                  pilot warranties)
+Stop_Gap    — Stop Gap (monopolistic state EL)   ("Stop Gap", "Monopolistic State",
+                                                  WA/OH/ND/WY EL gap)
+Liquor      — Liquor Liability                   ("Liquor Liability", "Dram Shop",
+                                                  alcohol service exposure)
+Garage      — Garage Liability                   ("Garage Operations", "Garagekeepers",
+                                                  auto dealer / repair shop)
+Foreign_GL  — Foreign General Liability          (Same as GL but worldwide /
+                                                  foreign jurisdiction language)
+Foreign_AL  — Foreign Auto Liability             (Same as AL but foreign)
+Foreign_EL  — Foreign Employers Liability        (Same as EL but foreign)
+Foreign_Excess — Foreign Excess                  (Same as Excess but foreign)
+
+═══════════════════════════════════════════════════════════════════════════════
+LEAD vs EXCESS — THE HARDEST DISCRIMINATION
+═══════════════════════════════════════════════════════════════════════════════
+This is critical. Both look like "umbrella" docs. Use these signatures:
+
+LEAD signatures (PRIMARY excess layer):
+  • Policy form says "Lead Umbrella" or "Umbrella Liability" (NOT "Excess")
+  • Has self-insured retention (SIR) — usually $10K-$25K
+  • Underlying schedule lists PRIMARY coverages (GL/AL/EL)
+  • Limit position language like "first $5,000,000"
+  • Direct claims-handling responsibilities (drops down to defend)
+
+EXCESS signatures (ABOVE the lead):
+  • Policy form says "Excess Liability" or "Following Form Excess"
+  • "Follow form" / "Follows the terms and conditions of the underlying"
+  • Has an attachment point ("attaches above $5,000,000")
+  • Underlying schedule lists ANOTHER UMBRELLA (the lead) above the primary
+  • Tower position language like "$10,000,000 excess of $5,000,000"
+  • No SIR (sits on top of the lead's defense)
+
+If you see BOTH — e.g., a tower diagram showing $5M lead + $10M excess in
+one PDF — return both as separate classifications with is_combined=true.
+
+═══════════════════════════════════════════════════════════════════════════════
+SUB-TYPE ASSIGNMENT RULES
+═══════════════════════════════════════════════════════════════════════════════
+1. ONLY assign a sub-type if primary_type is LOSS_HISTORY or UNDERLYING.
+2. For all other primary types, omit subType entirely (or set to null).
+3. For LOSS_HISTORY: pick the dominant coverage line. If a single loss run
+   covers multiple lines (typical), return is_combined=true with multiple
+   classifications, each with its own sub-type. Example: a 50-page loss run
+   with GL claims on pages 1-20, AL on 21-40, Excess on 41-50 → three
+   classifications.
+4. For UNDERLYING: each policy/quote is one sub-type. A schedule listing
+   multiple underlying policies counts as is_combined=true with one
+   classification per policy listed.
+5. Sub-type confidence is independent from primary confidence. You can be
+   95% sure something is UNDERLYING but only 70% sure whether it's Lead or
+   Excess. Report both honestly.
+6. If primary_type allows a sub-type but you cannot determine which one,
+   set subType to null and set needs_review=true.
+
+═══════════════════════════════════════════════════════════════════════════════
+COMBINED DOCUMENTS
+═══════════════════════════════════════════════════════════════════════════════
+Many submissions arrive as combined documents — e.g., one PDF stitching
+together a Commercial App + Loss Runs + Subcontract. You MUST detect and
+return ALL applicable types in classifications[]. Do NOT collapse to the
+dominant one. The pipeline routes each classification independently.
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT — STRICT JSON only, no prose, no markdown
+═══════════════════════════════════════════════════════════════════════════════
 {
   "classifications": [
-    {"type": "<category>", "confidence": 0.XX, "reasoning": "one-line", "section_hint": "e.g. pages 1-8 or 'entire document'"}
+    {
+      "type": "<PRIMARY_CATEGORY>",
+      "confidence": 0.XX,
+      "subType": "<SUB_TYPE or null>",
+      "subTypeConfidence": 0.XX,
+      "reasoning": "one-line reasoning",
+      "signaturePhrases": ["phrase 1", "phrase 2"],
+      "section_hint": "e.g. pages 1-8 or 'entire document'"
+    }
   ],
-  "primary_type": "<the single best-fit category>",
+  "primary_type": "<the single best-fit primary category>",
   "primary_confidence": 0.XX,
-  "is_combined": <true if document contains multiple distinct document types>,
-  "detected_signatures": ["<key phrases/forms you found, e.g. 'CG 00 01', 'Safety Director', 'DOL column', 'Max Height of Work', 'Captive Domicile'>"]
+  "primary_subType": "<sub-type of the primary, or null>",
+  "is_combined": <true if multiple distinct documents stitched>,
+  "needs_review": <true if any confidence is below 0.70>,
+  "detected_signatures": ["<all key phrases/forms found across the document>"]
 }
 
-For single-type documents, "classifications" will have one entry. For combined documents, include ALL detected types in "classifications".
-
-Be strict about confidence. Only assign >0.90 if you are certain. For ambiguous or unusual documents, report honest lower confidence (0.50-0.75) so the underwriter can override.
+For single-type, classifications has one entry. For combined, ALL types listed.
+Be strict about confidence: only ≥0.90 if certain. Honest 0.50-0.75 lets the
+underwriter override on ambiguous docs.
 `,
 
   classifier_verify: `You are a second-pass verification classifier. You are given:
