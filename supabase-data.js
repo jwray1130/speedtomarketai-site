@@ -118,18 +118,45 @@ function buildSubmissionPayload(rec, liteSnapshot) {
 window.buildSubmissionPayload = buildSubmissionPayload;
 
 async function sbDeleteSubmission(id) {
-  // Phase 8.5 Round 4 fix #1: defensively delete child rows BEFORE deleting
-  // the parent submission. If the Supabase schema has ON DELETE CASCADE on
-  // *.submission_id, these pre-deletes are redundant but harmless. If it
-  // doesn't have cascades, these prevent orphan rows from accumulating
-  // forever AND prevent the parent delete from failing with a restrictive
-  // FK error. Both are best-effort: if a child delete fails (e.g. RLS
-  // quirk), we still proceed with the parent delete.
+  // Pre-delete child tables BEFORE deleting the parent submission, where the
+  // FK behavior calls for it. Verified FK behavior across child tables:
   //
-  // Tables with submission_id FK: submission_edits, feedback_events,
-  // audit_events, document_pages. document_pages is handled by a separate
-  // call path (sbDeleteDocumentPagesForSubmission, with storage cleanup),
-  // so it's not pre-deleted here. The other three are safe to bulk delete.
+  //   table             FK on_delete   action here
+  //   ────────────────  ─────────────  ─────────────────────────────────────
+  //   submission_edits  CASCADE        no pre-delete (kept for legacy reasons,
+  //                                    redundant-but-harmless under cascade)
+  //   document_pages    CASCADE        handled separately by
+  //                                    sbDeleteDocumentPagesForSubmission for
+  //                                    storage-binary cleanup ordering
+  //   feedback_events   SET NULL       pre-deleted here — UW review feedback
+  //                                    is tied to a specific submission and
+  //                                    is not separately useful when orphaned
+  //   audit_events      SET NULL       NOT pre-deleted — see explanation below
+  //
+  // ─── audit_events policy decision ───
+  // audit_events.submission_id is intentionally SET NULL (not CASCADE). The
+  // schema designer made this choice so the audit trail SURVIVES submission
+  // deletion: when a submission is deleted, audit rows remain with
+  // submission_id NULL'd, which is the right compliance posture for proving
+  // "who deleted submission X and when" after the fact. Each audit row is
+  // self-contained:
+  //   • user_id  — who performed the action
+  //   • category — what kind of event
+  //   • message  — human-readable description (typically includes the
+  //                submission ID denormalized, e.g. "Deleted SUB-XYZ123…")
+  //   • created_at — timestamp
+  // So a row with submission_id=NULL is still fully useful for audit/forensics.
+  //
+  // Pre-deleting audit_events here would defeat that intent — it would nuke
+  // the audit history at exactly the moment audit history matters most. So
+  // we explicitly do NOT pre-delete audit_events. The SET NULL FK does its
+  // job and the trail is preserved.
+  //
+  // (Additional note: the audit_events RLS policies grant authenticated
+  // users INSERT and SELECT on their own rows but NOT DELETE. Only the
+  // postgres / service_role can delete audit rows. So even if we tried to
+  // pre-delete from the client, RLS would silently no-op the operation.
+  // That alone makes a client-side audit_events delete the wrong primitive.)
   if (!id) return;
   try {
     await window.sb.from('submission_edits').delete().eq('submission_id', id);
@@ -137,15 +164,7 @@ async function sbDeleteSubmission(id) {
   try {
     await window.sb.from('feedback_events').delete().eq('submission_id', id);
   } catch (e) { console.warn('Pre-delete of feedback_events failed (continuing)', id, e); }
-  // FIX #3 — also pre-delete audit_events. We don't know whether the FK is
-  // ON DELETE CASCADE (added in a Phase 6 migration not in our local SQL
-  // files) or restrictive. Pre-deleting is safe either way: cascading FK
-  // makes this a redundant but cheap call; restrictive FK would otherwise
-  // fail the parent delete and leave the submission visible after refresh
-  // (the local row is removed first, but the cloud row resurfaces on hydrate).
-  try {
-    await window.sb.from('audit_events').delete().eq('submission_id', id);
-  } catch (e) { console.warn('Pre-delete of audit_events failed (continuing)', id, e); }
+  // audit_events: deliberately NOT pre-deleted. SET NULL preserves the trail.
   const { error } = await window.sb.from('submissions').delete().eq('id', id);
   if (error) throw error;
 }
