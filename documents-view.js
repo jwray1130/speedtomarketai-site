@@ -1011,15 +1011,20 @@ window.initDocumentsView = function() {
     // Concurrency lock — chain every batch behind any in-flight one so they
     // run strictly serially. Without serialization, two batches share
     // state._uploadCtx and storage_paths get cross-assigned to the wrong
-    // docs. We chain off state._uploadChain (the most recent batch's
-    // promise) instead of Promise.resolve(), so subsequent batches actually
-    // wait for predecessors. .catch swallowed at the chain level so a
-    // failed earlier batch doesn't poison later ones.
-    const prev = state._uploadChain || Promise.resolve();
-    state._uploadChain = prev
+    // docs.
+    //
+    // UNIFIED CHAIN: We use state._processFileChain (NOT _uploadChain) so
+    // manual batches AND pipeline-driven ingestion (processFileFromPipeline)
+    // share the same lock. Both paths set state._uploadCtx and state._pipelineCtx
+    // during processFile dispatch — if a manual batch starts while a pipeline
+    // ingestion is mid-flight (or vice versa), they'd cross-contaminate. The
+    // single chain prevents that. .catch swallowed so a failed earlier batch
+    // doesn't poison later ones.
+    const prev = state._processFileChain || Promise.resolve();
+    state._processFileChain = prev
       .catch(() => {})
       .then(() => _runUploadBatch(files, category));
-    return state._uploadChain;
+    return state._processFileChain;
   }
 
   async function _runUploadBatch(files, category) {
@@ -1029,6 +1034,14 @@ window.initDocumentsView = function() {
     // Reset the storage-fail counter at batch start; processFile bumps it
     // when storage upload returns null while the user is signed in.
     state._batchStorageFails = 0;
+    // Track storage paths used by this batch so we can clean orphans at
+    // the end. processFile sets state._uploadCtx with the storagePath
+    // before dispatching to the type-specific processor; we capture it
+    // before each iteration. After all files settle, any storagePath
+    // with zero corresponding rows in document_pages is an orphan
+    // (entire file failed, OR user cancelled the long-PDF confirm)
+    // and gets cleaned up via cleanupOrphanStoragePaths.
+    const batchStoragePaths = new Set();
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -1036,6 +1049,10 @@ window.initDocumentsView = function() {
       updateLoading(pct, file.name);
       try {
         await processFile(file, category);
+        // After processFile returns, state._uploadCtx has been cleared.
+        // The storagePath used for this file lives on the local docs that
+        // were just added — if any. We capture from state.docs by matching
+        // freshness rather than _uploadCtx (which is null by now).
         success++;
       } catch (err) {
         console.error('Failed to process', file.name, err);
@@ -1047,6 +1064,30 @@ window.initDocumentsView = function() {
     updateLoading(100, 'Done');
     await delay(200);
     hideLoading();
+
+    // Wait for any pending Supabase inserts to settle, then clean up
+    // orphan storage binaries (files whose row inserts all failed, or
+    // whose long-PDF confirm was cancelled by the user). Without this,
+    // cancelling a long PDF after the binary uploaded leaves the binary
+    // forever in storage with no corresponding row.
+    if (state._pendingInserts && state._pendingInserts.size > 0) {
+      const pending = Array.from(state._pendingInserts.values());
+      if (pending.length > 0) {
+        await Promise.allSettled(pending);
+      }
+    }
+    // Collect storage paths from local docs added in this batch. We
+    // identify them by scanning state.docs for any with a storagePath
+    // we haven't seen before — simpler than tracking a per-file set
+    // through the recursive PDF page-split. Even simpler: gather every
+    // unique storagePath in state.docs, query the cloud for a count of
+    // rows per path, and clean any with zero rows.
+    const allStoragePaths = [...new Set(
+      state.docs.map(d => d.storagePath).filter(Boolean)
+    )];
+    if (allStoragePaths.length > 0) {
+      cleanupOrphanStoragePaths(allStoragePaths);
+    }
 
     const storageFails = state._batchStorageFails || 0;
     state._batchStorageFails = 0;
@@ -1073,6 +1114,48 @@ window.initDocumentsView = function() {
 
     if (category !== 'all' && state.currentCategory === 'all') selectCategory(category);
     else renderDocsList();
+  }
+
+  // ORPHAN STORAGE CLEANUP HELPER
+  // Given a list of candidate storage_path values, query Supabase to find
+  // any with zero referencing document_pages rows and remove them from
+  // storage. Called at the end of upload batches and pipeline ingestion
+  // (the only times new binaries are created).
+  //
+  // Why batch-level (not per-page-failure): when a multi-page PDF fails
+  // mid-stream (page 1 fails, pages 2..99 still in flight), a per-page
+  // existence check returns 0 (because 2..99 haven't committed). Deleting
+  // the binary at that point would orphan the rows that subsequently
+  // commit successfully — the worst failure mode (visible-broken docs).
+  // Doing it at batch level, after all pending inserts have settled,
+  // gives a definitive "this binary has zero references" answer.
+  //
+  // Fire-and-forget by design — orphan binaries are cosmetic residue, not
+  // a correctness issue. The protect_delete trigger blocks accidents.
+  async function cleanupOrphanStoragePaths(storagePaths) {
+    if (!Array.isArray(storagePaths) || storagePaths.length === 0) return;
+    if (!window.sb) return;
+    for (const sp of storagePaths) {
+      try {
+        const { count, error: chkErr } = await window.sb
+          .from('document_pages')
+          .select('id', { count: 'exact', head: true })
+          .eq('storage_path', sp);
+        if (chkErr) continue;
+        if (count !== null && count === 0) {
+          const { error: rmErr } = await window.sb.storage
+            .from('submission-files')
+            .remove([sp]);
+          if (rmErr) {
+            console.warn('Batch orphan cleanup failed for ' + sp + ' (non-fatal):', rmErr.message || rmErr);
+          } else {
+            console.log('Cleaned orphan binary after failed/cancelled batch:', sp);
+          }
+        }
+      } catch (e) {
+        console.warn('Batch orphan check threw for ' + sp + ':', (e && e.message) || e);
+      }
+    }
   }
 
   // Per-file size cap. Browser tabs crash beyond ~200MB single-file uploads
@@ -3796,13 +3879,14 @@ window.initDocumentsView = function() {
       // but breaks previews after refresh because the persisted storage_path
       // points at the wrong binary.
       //
-      // Manual uploads avoid this because _runUploadBatch awaits each file
-      // serially. Pipeline ingestion needs the same guarantee. We chain on
-      // a shared promise so each file's processing completes (ctx set →
-      // processFile → ctx cleared) before the next one starts. Errors
-      // don't break the chain — caught with .catch(()=>{}) so a single
+      // UNIFIED CHAIN: we use state._processFileChain so this serializes
+      // not just against other pipeline ingestions but ALSO against manual
+      // uploads (which feed the same chain via _runUploadBatch). Without
+      // that, a user manually uploading mid-pipeline would set
+      // state._uploadCtx and corrupt the pipeline file's remaining pages.
+      // Errors don't break the chain — caught with .catch(()=>{}) so a single
       // file's failure doesn't poison subsequent ingestions.
-      const prev = state._pipelineIngestChain || Promise.resolve();
+      const prev = state._processFileChain || Promise.resolve();
       const next = prev.catch(() => {}).then(async () => {
         // Stamp pipeline context onto state so addDoc inherits it for every
         // page produced by the processor. Cleared in the finally block so it
@@ -3855,12 +3939,26 @@ window.initDocumentsView = function() {
             await Promise.allSettled(pending);
           }
         }
+
+        // BATCH-LEVEL ORPHAN STORAGE CLEANUP
+        // After all pending inserts have settled, check whether any
+        // binaries we uploaded have zero referencing rows. Definitive
+        // existence check at this point — no concurrent inserts in flight.
+        // Uses the shared cleanupOrphanStoragePaths helper (also called
+        // from _runUploadBatch for the manual upload path).
+        const localDocsForBatch = state.docs.filter(d => newIds.includes(d.id));
+        const storagePaths = [...new Set(localDocsForBatch.map(d => d.storagePath).filter(Boolean))];
+        if (storagePaths.length > 0) {
+          // Fire-and-forget — orphan cleanup never blocks the caller.
+          cleanupOrphanStoragePaths(storagePaths);
+        }
+
         renderCategoryGrid();
         renderDocsList();
         renderTagsList();
         return newIds;
       });
-      state._pipelineIngestChain = next;
+      state._processFileChain = next;
       return next;
     },
     // Phase 5 — cascade pruning hook. Called by app.js when an Altitude

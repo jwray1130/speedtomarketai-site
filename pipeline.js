@@ -470,6 +470,21 @@ async function incrementalProcess(newFiles) {
   toast((newFiles.length === 1 ? 'Adding ' : 'Adding ' + newFiles.length + ' files: ') + names + ' to submission…', 'info');
   logAudit('Incremental', 'Incremental add started: ' + names, STATE.api.model);
 
+  // === FIX #4 — TOP-LEVEL TRY/CATCH/FINALLY ===
+  // runPipeline has a hard recovery guard via try/finally; incrementalProcess
+  // didn't. If anything throws unexpectedly (DOM mutation, classifier blow-up,
+  // docs view crash), the user could be left with the incremental banner
+  // showing, the file list desynced, and no clear recovery path. Mirror the
+  // runPipeline pattern: wrap the body, log any unexpected throw, and always
+  // clean up UI state in finally.
+  //
+  // Also tracks whether ANY work was done so the finally knows whether to
+  // archive — even files that classify with no module routing should
+  // still trigger a persistence pass (Fix #1).
+  let anyFilesProcessed = false;
+  let archiveSuccessful = false;
+  try {
+
   // === Phase 1: Classify each new file in parallel ===
   await Promise.all(newFiles.map(async f => {
     f.state = 'parsing';
@@ -485,6 +500,83 @@ async function incrementalProcess(newFiles) {
     f.routedToAll = (c.classifications || []).map(cl => ROUTING[cl.type]).filter(Boolean);
     f.routedTo = ROUTING[c.type] || null;
     f.state = 'classified';
+    anyFilesProcessed = true;
+
+    // === MIRROR INCREMENTAL ADD INTO DOCS VIEW ===
+    // Same hook pattern as runPipeline. Without this, follow-up docs added
+    // after initial pipeline completion classify and trigger module reruns
+    // BUT never appear in the file manager. The user thinks the doc didn't
+    // upload at all; in reality it ran through the pipeline silently.
+    //
+    // Honors the same dup-check + raw-file-vs-metadata fallback that the
+    // initial-run path uses (see runPipeline). Skip if already pushed (from
+    // a parent run, e.g. user adds the same file twice in one session).
+    if (window.docsView && !f._pushedToDocsView) {
+      let alreadyPushed = false;
+      try {
+        if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
+          const existing = window.docsView.getDocs();
+          const baseName = (f.name || '').replace(/\.[^.]+$/, '');
+          const pageSplitPrefix = baseName + ' — Page ';
+          alreadyPushed = existing.some(d =>
+            d.submissionId === STATE.activeSubmissionId &&
+            d.name && (
+              d.name === f.name ||
+              d.name === baseName ||
+              d.name.indexOf(pageSplitPrefix) === 0
+            )
+          );
+          if (alreadyPushed) {
+            f._pushedToDocsView = 'cached';
+            logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
+          }
+        }
+      } catch (e) {
+        console.warn('Docs view duplicate check failed in incremental, proceeding with push:', e);
+      }
+      if (!alreadyPushed) {
+        const mapping = docsViewMappingFor(c.type);
+        const ingestCtx = {
+          category: mapping.category,
+          color: mapping.color,
+          submissionId: STATE.activeSubmissionId || null,
+          pipelineClassification: c.type,
+          pipelineRoutedTo: f.routedTo || null,
+        };
+        if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
+          try {
+            const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
+            if (newDocIds && newDocIds.length > 0) {
+              f._pushedToDocsView = newDocIds;
+              f._rawFile = null;
+            }
+          } catch (err) {
+            console.warn('Incremental → docs view full ingestion failed for ' + f.name + ':', err);
+            if (typeof window.docsView.addDocFromPipeline === 'function') {
+              try {
+                const docId = window.docsView.addDocFromPipeline({
+                  name: f.name || 'Pipeline Doc',
+                  ...ingestCtx,
+                });
+                if (docId) f._pushedToDocsView = docId;
+              } catch (e2) {
+                console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+              }
+            }
+          }
+        } else if (typeof window.docsView.addDocFromPipeline === 'function') {
+          try {
+            const docId = window.docsView.addDocFromPipeline({
+              name: f.name || 'Pipeline Doc',
+              ...ingestCtx,
+            });
+            if (docId) f._pushedToDocsView = docId;
+          } catch (err) {
+            console.warn('Metadata-only push failed for ' + f.name + ':', err);
+          }
+        }
+      }
+    }
   }));
   renderFileList();
 
@@ -495,40 +587,107 @@ async function incrementalProcess(newFiles) {
     targets.forEach(mid => directlyAffected.add(mid));
   });
 
+  // === FIX #1 — NO-ROUTE PATH MUST STILL ARCHIVE ===
+  // Previously we returned here without archiving. Result: a follow-up file
+  // that classifies with no routed module (email, unknown, or new taxonomy
+  // categories like Compliance/Administration that classify-only) would
+  // appear in the docs view but not persist into the submission snapshot.
+  // Refresh = file disappears from STATE.files because the snapshot wasn't
+  // updated. Now we still call the archive in finally so persistence happens
+  // regardless of whether modules ran.
   if (directlyAffected.size === 0) {
-    toast('No modules were affected by the new file(s) — classified as email or unknown', 'warn');
-    logAudit('Incremental', 'No module routing for new files; skipping re-run', 'warn');
-    return;
+    toast('No modules were affected by the new file(s) — classified as email/compliance/admin/unknown', 'warn');
+    logAudit('Incremental', 'No module routing for new files; skipping module re-run (snapshot will still persist)', 'warn');
+    // Note: we deliberately do NOT return here. Fall through to finally
+    // which will archive the snapshot. The new file is in STATE.files and
+    // needs to be saved.
+  } else {
+    // Compute transitive downstream
+    const allAffected = computeDownstream(directlyAffected);
+    const directList = Array.from(directlyAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
+    const downstreamOnly = Array.from(allAffected).filter(mid => !directlyAffected.has(mid));
+    const downstreamList = downstreamOnly.map(mid => MODULES[mid]?.code || mid).join(', ');
+
+    logAudit('Incremental', 'Directly affected: ' + directList + (downstreamList ? ' · Downstream: ' + downstreamList : ''), STATE.api.model);
+
+    // === Phase 3: Re-run the affected modules in wave order ===
+    showIncrementalBanner(allAffected.size, newFiles.length);
+    await rerunModules(Array.from(allAffected));
+
+    // === Phase 4: Tag affected extractions as updated for UPDATED badge ===
+    // Only modules that actually have an extraction post-rerun get the
+    // updated marker. Modules that were restored from backup (rerun failed)
+    // already have rerunFailed/staleFromRerun flags set by rerunModules,
+    // and shouldn't get conflicting wasUpdated semantics.
+    allAffected.forEach(mid => {
+      if (STATE.extractions[mid] && !STATE.extractions[mid].rerunFailed) {
+        STATE.extractions[mid].wasUpdated = true;
+        STATE.extractions[mid].updatedAt = Date.now();
+      }
+    });
+    renderSummaryCards();
+
+    // === Phase 5: Audit + user feedback ===
+    const affectedCodes = Array.from(allAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
+    toast('Incremental update complete · ' + allAffected.size + ' module' + (allAffected.size === 1 ? '' : 's') + ' refreshed (' + affectedCodes + ')', 'success');
+    logAudit('Incremental', 'Completed. Refreshed: ' + affectedCodes, STATE.api.model);
   }
 
-  // Compute transitive downstream
-  const allAffected = computeDownstream(directlyAffected);
-  const directList = Array.from(directlyAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
-  const downstreamOnly = Array.from(allAffected).filter(mid => !directlyAffected.has(mid));
-  const downstreamList = downstreamOnly.map(mid => MODULES[mid]?.code || mid).join(', ');
-
-  logAudit('Incremental', 'Directly affected: ' + directList + (downstreamList ? ' · Downstream: ' + downstreamList : ''), STATE.api.model);
-
-  // === Phase 3: Re-run the affected modules in wave order ===
-  const updateBannerId = 'incrementalBanner';
-  showIncrementalBanner(allAffected.size, newFiles.length);
-  await rerunModules(Array.from(allAffected));
-
-  // === Phase 4: Tag affected extractions as updated for UPDATED badge ===
-  allAffected.forEach(mid => {
-    if (STATE.extractions[mid]) {
-      STATE.extractions[mid].wasUpdated = true;
-      STATE.extractions[mid].updatedAt = Date.now();
+  // === PERSIST INCREMENTAL UPDATE TO CLOUD ===
+  // Without this, the rerun extractions live in browser memory only. A
+  // refresh AFTER an incremental update would hydrate the previously-
+  // archived snapshot, silently losing the new extraction work. This is
+  // a "your UW work disappears" failure mode — worst kind of bug.
+  //
+  // Always runs (whether or not modules were affected) so files added with
+  // no module routing still get persisted in STATE.files via the snapshot.
+  if (typeof window.archiveCurrentSubmission === 'function' && anyFilesProcessed) {
+    try {
+      const archiveResult = await window.archiveCurrentSubmission({ source: 'incremental' });
+      // Inspect structured result. cloudSaved=false means the snapshot
+      // didn't reach Supabase; refresh would lose this incremental update.
+      if (archiveResult && archiveResult.cloudSaved === false) {
+        const errMsg = archiveResult.cloudError && archiveResult.cloudError.message
+          ? archiveResult.cloudError.message
+          : 'unknown';
+        logAudit('Incremental', 'WARNING: incremental cloud save failed · ' + errMsg + ' · refresh would lose updates', 'error');
+        toast('Incremental update saved locally · cloud save failed — refresh could lose changes', 'warn');
+      } else {
+        archiveSuccessful = true;
+        logAudit('Incremental', 'Updated submission snapshot persisted to cloud', 'ok');
+      }
+    } catch (err) {
+      console.error('Failed to persist incremental update:', err);
+      logAudit('Incremental', 'WARNING: snapshot persist failed · ' + (err.message || 'unknown') + ' · refresh would lose updates', 'error');
+      toast('Incremental updates may not be saved · refresh could lose changes', 'error');
     }
-  });
-  renderSummaryCards();
+  }
 
-  // === Phase 5: Audit + user feedback ===
-  const affectedCodes = Array.from(allAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
-  toast('Incremental update complete · ' + allAffected.size + ' module' + (allAffected.size === 1 ? '' : 's') + ' refreshed (' + affectedCodes + ')', 'success');
-  logAudit('Incremental', 'Completed. Refreshed: ' + affectedCodes, STATE.api.model);
-
-  hideIncrementalBanner();
+  } catch (err) {
+    // Top-level error during incremental processing. Log loudly so we know
+    // the user landed in a partial state, then let finally clean up the UI.
+    console.error('Incremental process error:', err);
+    if (typeof logAudit === 'function') {
+      logAudit('Incremental', 'ORCHESTRATOR ERROR: ' + (err && err.message ? err.message : 'unknown') + ' · UI reset by guard', 'error');
+    }
+    if (typeof toast === 'function') {
+      toast('Incremental update error · ' + (err && err.message ? err.message.slice(0, 80) : 'unknown'), 'error');
+    }
+  } finally {
+    // Always clean up: hide the banner, refresh the file list, refresh the
+    // queue UI. Without this guard, an unexpected error mid-rerun would
+    // leave the incremental banner stuck visible and the file list out
+    // of sync with STATE.files.
+    try { hideIncrementalBanner(); } catch (e) {}
+    try { renderFileList(); } catch (e) {}
+    try { if (typeof updateQueueKpi === 'function') updateQueueKpi(); } catch (e) {}
+    if (anyFilesProcessed && !archiveSuccessful) {
+      // Persistence didn't happen for some reason (caller could check this
+      // via state.audit). User-visible signal so they know to manually
+      // re-trigger or refresh-and-retry.
+      logAudit('Incremental', 'NOTE: incremental run ended with persistence not confirmed', 'warn');
+    }
+  }
 }
 
 function showIncrementalBanner(moduleCount, fileCount) {
@@ -558,7 +717,24 @@ function hideIncrementalBanner() {
 }
 
 async function rerunModules(moduleIds) {
-  // Clear the extractions we're about to re-run
+  // === FIX #2 — BACKUP BEFORE DELETE ===
+  // Previously we deleted STATE.extractions[mid] for every module in the rerun
+  // list, then attempted to re-run. If runModule failed (returned false), the
+  // module's previous good extraction was already gone — silently replaced
+  // with nothing. The next archive call would persist a snapshot with the
+  // good card MISSING.
+  //
+  // Now: snapshot every targeted module's extraction first, then delete.
+  // After each module attempt, if runModule returned false (the failure
+  // signal), restore from the backup and mark the extraction as stale so
+  // the user can see the card is from the previous run, not the current one.
+  // Result: failed reruns preserve prior good data instead of destroying it.
+  const backup = {};
+  moduleIds.forEach(mid => {
+    if (STATE.extractions[mid]) {
+      backup[mid] = JSON.parse(JSON.stringify(STATE.extractions[mid]));
+    }
+  });
   moduleIds.forEach(mid => { delete STATE.extractions[mid]; });
 
   // Re-group files by their (possibly updated) routing
@@ -571,6 +747,10 @@ async function rerunModules(moduleIds) {
     });
   });
 
+  // Track failures so we can restore. Map<moduleId, true> for any module
+  // whose runModule returned false (errored).
+  const rerunFailures = {};
+
   // Execute in wave order, respecting deps
   const waves = [1, 2, 3, 4];
   for (const wave of waves) {
@@ -581,39 +761,83 @@ async function rerunModules(moduleIds) {
       const m = MODULES[mid];
       setNodeState(`[data-module="${mid}"]`, 'running');
 
+      let runResult = null;  // null = not attempted, true = success, false = failure
       if (m.inputsFrom === 'file') {
         const matched = filesByModule[mid];
         if (matched && matched.length > 0) {
           const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + f.text).join('\n\n');
           const src = matched.map(f => f.name).join(', ');
-          await runModule(mid, PROMPTS[mid], combined, src);
+          runResult = await runModule(mid, PROMPTS[mid], combined, src);
         } else {
           skipModule(mid, 'no matching file');
         }
       } else if (m.inputsFrom === 'extraction' && m.deps.length > 0) {
         if (STATE.extractions[m.deps[0]]) {
-          await runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
+          runResult = await runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
         } else {
           skipModule(mid, 'dep missing');
         }
       } else if (m.inputsFrom === 'extractions') {
-        const availableDeps = m.deps.filter(d => STATE.extractions[d]);
+        // === FIX #3 — INCLUDE optionalDeps WHEN BUILDING INPUTS ===
+        // computeDownstream correctly identifies optionalDeps as triggers
+        // (so e.g. discrepancy reruns when an authoritative source changes),
+        // but the rerun previously only fed the module its REQUIRED deps.
+        // That meant discrepancy could rerun without seeing the source that
+        // triggered it — degraded output vs. the original full run. Combine
+        // required + optional deps here to match what the initial run uses.
+        const allDeps = [
+          ...(m.deps || []),
+          ...(m.optionalDeps || [])
+        ];
+        const availableDeps = allDeps.filter(d => STATE.extractions[d]);
         if (availableDeps.length > 0) {
           if (mid === 'guidelines') {
             // Guidelines needs the appended guidelines text
             const soText = STATE.extractions['summary-ops'] ? STATE.extractions['summary-ops'].text : '';
             const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
-            await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines');
+            runResult = await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines');
           } else {
             const combined = availableDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-            await runModule(mid, PROMPTS[mid], combined, availableDeps.map(d => MODULES[d].code).join('+'));
+            runResult = await runModule(mid, PROMPTS[mid], combined, availableDeps.map(d => MODULES[d].code).join('+'));
           }
         } else {
           skipModule(mid, 'no deps ready');
         }
       }
+
+      // FIX #2 (continued): if rerun failed OR was skipped without producing
+      // a new extraction, restore from backup so we don't persist a snapshot
+      // with the good card destroyed. Mark stale so the UI can show "rerun
+      // failed — showing prior extraction".
+      //
+      // Three states for runResult:
+      //   • true  — runModule succeeded; new extraction is in place; do nothing
+      //   • false — runModule was called but failed (LLM error, parse fail);
+      //             restore backup with rerunFailed marker so user knows it's stale
+      //   • null  — runModule was never called (skipped: no files matched,
+      //             dep missing, no deps ready); without restore, the deletion
+      //             at the top of rerunModules left the slot empty. Restore so
+      //             the prior extraction comes back, marked as stale because
+      //             the rerun pass didn't refresh it.
+      if (runResult !== true && backup[mid]) {
+        STATE.extractions[mid] = backup[mid];
+        STATE.extractions[mid].rerunFailed = (runResult === false);
+        STATE.extractions[mid].rerunSkipped = (runResult === null);
+        STATE.extractions[mid].staleFromRerun = true;
+        rerunFailures[mid] = true;
+        const reason = runResult === false ? 'failed' : 'skipped (no input)';
+        logAudit('Pipeline', 'Rerun of ' + MODULES[mid].code + ' ' + reason + ' — restored prior extraction (marked stale)', 'warn');
+        setNodeState(`[data-module="${mid}"]`, 'warn', 'rerun ' + reason + ' · using prior');
+      }
     });
     await Promise.all(tasks);
+  }
+
+  // Surface a single warning toast if any reruns failed and were restored,
+  // so the user knows the cards on screen aren't fresh.
+  const failCount = Object.keys(rerunFailures).length;
+  if (failCount > 0) {
+    toast(failCount + ' module' + (failCount === 1 ? '' : 's') + ' could not re-run · prior extractions preserved', 'warn');
   }
 }
 
@@ -1023,6 +1247,24 @@ async function runPipeline() {
   STATE.pipelineRun = 'PIPE-' + Date.now().toString(36).toUpperCase();
   STATE.extractions = {};
 
+  // === FIX #8 — TOP-LEVEL TRY/FINALLY GUARANTEE ===
+  // Module-level errors are caught individually inside runModule, but a
+  // failure in the orchestrator itself (DOM element missing, helper throws,
+  // unexpected render failure) would leave STATE.pipelineRunning = true,
+  // the Run button disabled, and the timer ticking forever. The user has
+  // to refresh to recover, losing in-flight state.
+  //
+  // The try/finally must wrap from the moment pipelineRunning is set to
+  // true onward — including the DOM setup (getElementById can theoretically
+  // return null), the timer creation, and the pre-mint flow. Otherwise
+  // any failure in those early lines leaves us stuck.
+  //
+  // `timer` is declared outside the try so the finally can clearInterval
+  // it even if the assignment itself threw.
+  let timer = null;
+  let archiveErr = null;
+  try {
+
   // === SUBMISSION ID PRE-MINT ===
   // Pipeline-fed docs need a submission ID at classifier time so they land
   // in the right bucket on the workbench Documents counter. recordSubmission
@@ -1092,8 +1334,10 @@ async function runPipeline() {
   document.getElementById('pipelineFlow').style.display = 'block';
   renderPipelineNodes();
 
-  const timer = setInterval(updateTimer, 100);
+  timer = setInterval(updateTimer, 100);
   logAudit('Pipeline', 'Started run ' + STATE.pipelineRun + ' · ' + ready.length + ' files', STATE.api.model);
+
+  // (the existing classifier + module execution code lives here)
 
   // === Stage 0: Classify all files in parallel ===
   setNodeState('[data-node="classifier"]', 'running');
@@ -1375,20 +1619,73 @@ async function runPipeline() {
   // Enable the Assistant-handoff button now that the pipeline has a summary to review
   if (typeof renderHandoffState === 'function') renderHandoffState();
 
-  // Archive this completed run into the Queue. Status defaults to AWAITING UW REVIEW
-  // regardless of guideline outcome — UW drives status from here.
-  if (typeof archiveCurrentSubmission === 'function') archiveCurrentSubmission();
+  // === FIX #4 — AWAIT THE FINAL ARCHIVE ===
+  // Previously archiveCurrentSubmission was called fire-and-forget (its
+  // cloud save was wrapped in an async IIFE). That meant the pipeline UI
+  // would say "complete" before the snapshot actually persisted to
+  // Supabase. A fast refresh in the gap could hydrate stale data. Now
+  // the archive is async and we await it, so by the time we toast
+  // "Pipeline complete" the cloud save has either succeeded or logged
+  // its error.
+  if (typeof archiveCurrentSubmission === 'function') {
+    try {
+      const archiveResult = await archiveCurrentSubmission({ source: 'pipeline-end' });
+      // Inspect the structured result. If cloudSaved is false, the
+      // pipeline DID complete locally but Supabase rejected the snapshot
+      // — refresh would hydrate stale state. Surface this as a separate
+      // warning so the user knows to retry/refresh-with-care.
+      if (archiveResult && archiveResult.cloudSaved === false) {
+        archiveErr = archiveResult.cloudError || new Error('cloud save reported failure');
+        console.warn('Pipeline complete locally, but cloud save failed:', archiveErr);
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'WARNING: pipeline complete locally but cloud save failed · ' + (archiveErr.message || 'unknown') + ' · refresh would lose extractions', 'error');
+        }
+      }
+    } catch (err) {
+      // Archive threw — different from cloudSaved=false. Local state may
+      // also be incomplete. Logged for diagnosis.
+      archiveErr = err;
+      console.warn('Final archive after pipeline encountered error:', err);
+    }
+  }
 
   updateQueueKpi();
   // Summary card rendering still uses the Phase 4 replacement (hooked there)
   renderSummaryCards();
   // Render the post-hoc classifier-review banner (shows flagged low-confidence files)
   if (typeof renderClassifierReview === 'function') renderClassifierReview();
-  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/' + Object.keys(MODULES).length + ' modules · ' + finalTime + 's', STATE.api.model);
-  toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
+  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/' + Object.keys(MODULES).length + ' modules · ' + finalTime + 's' + (archiveErr ? ' · archive WARN' : ''), STATE.api.model);
+  // Toast text reflects cloud save state honestly.
+  if (archiveErr) {
+    toast('Pipeline complete locally · ' + completed + ' modules · cloud save FAILED — refresh could lose extractions', 'warn');
+  } else {
+    toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
+  }
   // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
   // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
   setTimeout(() => { if (typeof showStage === 'function') showStage('sum'); }, 400);
+  } catch (pipelineErr) {
+    // Top-level failure (something that escaped the per-module catch).
+    // Log it loudly so we have diagnostic data, then let finally clean up.
+    console.error('Pipeline orchestrator error:', pipelineErr);
+    if (typeof logAudit === 'function') {
+      logAudit('Pipeline', 'ORCHESTRATOR ERROR: ' + (pipelineErr && pipelineErr.message ? pipelineErr.message : 'unknown') + ' · UI reset by guard', 'error');
+    }
+    if (typeof toast === 'function') {
+      toast('Pipeline error · ' + (pipelineErr && pipelineErr.message ? pipelineErr.message.slice(0, 80) : 'unknown'), 'error');
+    }
+  } finally {
+    // Always reset UI state regardless of how we got here. Without this
+    // guard, an unexpected error mid-pipeline would leave the Run button
+    // disabled, STATE.pipelineRunning = true, and the timer ticking
+    // forever — user would have to refresh to recover.
+    clearInterval(timer);
+    STATE.pipelineRunning = false;
+    const btn = document.getElementById('btnRun');
+    if (btn) btn.disabled = false;
+    const btnLabel = document.getElementById('btnRunLabel');
+    if (btnLabel) btnLabel.textContent = STATE.pipelineDone ? 'View Summary' : 'Run Pipeline';
+  }
 }
 
 // Initialize the pipeline nodes when the view loads

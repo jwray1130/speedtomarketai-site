@@ -380,22 +380,30 @@ function loadGuidelineFromStorage() {
   // break.
 }
 
-function saveGuidelineOverride(text) {
+async function saveGuidelineOverride(text) {
   const clearing = !text || text.length < 100;
   if (clearing) {
     ACTIVE_GUIDELINE = DEFAULT_GUIDELINE;
   } else {
     ACTIVE_GUIDELINE = text;
   }
-  // Persist to Supabase (fire-and-forget). `null` clears the override.
+  // Persist to Supabase. Now awaited so the success toast reflects actual
+  // cloud state. Previously fire-and-forget with optimistic toast — admin
+  // could change the guideline, refresh, and find the change wasn't saved.
+  let cloudOk = true;
   if (typeof sbSaveSettings === 'function') {
-    sbSaveSettings({ carrier_guideline: clearing ? null : text }).catch(e => {
+    try {
+      await sbSaveSettings({ carrier_guideline: clearing ? null : text });
+    } catch (e) {
+      cloudOk = false;
       console.warn('Guideline save failed', e);
       toast('Guideline save failed · ' + (e.message || 'network'), 'error');
-    });
+    }
   }
   logAudit('Admin', 'Carrier guideline updated · ' + (text ? text.length.toLocaleString() + ' chars' : 'reset to default'), 'user');
-  toast('Guideline ' + (text ? 'updated' : 'reset to Zurich default'));
+  if (cloudOk) {
+    toast('Guideline ' + (text ? 'updated' : 'reset to Zurich default'));
+  }
 }
 
 function getActiveGuideline() {
@@ -486,32 +494,47 @@ function applyPendingEditsIfMatch(pipelineRunId) {
   return true;
 }
 
-function saveEditsNow() {
+async function saveEditsNow() {
   // In-memory edits are persisted two ways for resilience:
   //   1) Baked into the active submission's snapshot (see archiveCurrentSubmission
   //      / rehydrateSubmission) so a reload restores cleanly.
   //   2) Per-module rows in Supabase `submission_edits` so admin views and
-  //      multi-device access work. This is fire-and-forget — we update the
-  //      save indicator optimistically and only toast on real failure.
+  //      multi-device access work.
+  //
+  // Now async + awaited: the save indicator shows "Saving…" until the cloud
+  // write actually resolves, then flips to "Saved just now". Previously the
+  // indicator flipped to "Saved" optimistically before the network round-trip
+  // — misleading during testing and a real risk if the user refreshed in
+  // the gap. The visible UI now reflects actual persistence state.
   LAST_SAVE_TS = Date.now();
-  const ind = document.getElementById('saveIndicator');
-  const txt = document.getElementById('saveIndicatorText');
-  if (ind && txt) {
-    ind.classList.remove('saving');
-    ind.classList.add('saved');
-    txt.textContent = 'Saved just now';
-    setTimeout(updateSaveIndicator, 1200);
-  }
   const submissionId = STATE.activeSubmissionId;
   if (!submissionId) return;   // nothing to persist yet (no archived submission)
-  sbSaveAllEditsForSubmission(
-    submissionId,
-    STATE.pipelineRun || null,
-    STATE.edits, STATE.customCards, STATE.hiddenCards
-  ).catch(e => {
+  try {
+    await sbSaveAllEditsForSubmission(
+      submissionId,
+      STATE.pipelineRun || null,
+      STATE.edits, STATE.customCards, STATE.hiddenCards
+    );
+    const ind = document.getElementById('saveIndicator');
+    const txt = document.getElementById('saveIndicatorText');
+    if (ind && txt) {
+      ind.classList.remove('saving');
+      ind.classList.add('saved');
+      txt.textContent = 'Saved just now';
+      setTimeout(updateSaveIndicator, 1200);
+    }
+  } catch (e) {
     console.warn('Edit save failed', e);
+    const ind = document.getElementById('saveIndicator');
+    const txt = document.getElementById('saveIndicatorText');
+    if (ind && txt) {
+      ind.classList.remove('saving');
+      // Don't flip to "saved" on failure — leave the dirty signal so user
+      // knows their work isn't safe.
+      txt.textContent = 'Save failed';
+    }
     toast('Save failed · ' + (e.message || 'network'), 'error');
-  });
+  }
 }
 
 // Debounced save — called on every edit
@@ -538,7 +561,7 @@ function markDirty() {
 // testing — RACE_TEST_MARKER_PHASE_8_5_R2 reappeared after clearAllEdits + reload.
 // This helper re-syncs the snapshot blob and triggers a single sbSaveSubmission
 // upsert with the freshly-aligned snapshot.
-function resyncActiveSnapshot(reason) {
+async function resyncActiveSnapshot(reason) {
   const sid = STATE.activeSubmissionId;
   if (!sid) return;
   const rec = STATE.submissions.find(s => s.id === sid);
@@ -550,29 +573,29 @@ function resyncActiveSnapshot(reason) {
   rec.snapshot.customCards  = deepClone(STATE.customCards);
   rec.snapshot.hiddenCards  = deepClone(STATE.hiddenCards);
   rec.lastModifiedAt = Date.now();
-  // Fire-and-forget cloud save with verbose audit, mirroring the pattern in
-  // changeSubmissionStatus and archiveCurrentSubmission.
-  (async () => {
-    try {
-      if (typeof sbSaveSubmission !== 'function') return;
-      const liteSnapshot = {
-        ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
-        derived: {
-          account:         rec.account || null,
-          broker:          rec.broker || null,
-          effectiveDate:   rec.effective || rec.effectiveDate || null,
-          requestedLimits: rec.requested || rec.requestedLimits || null,
-          missingInfo:     rec.missingInfo || null
-        }
-      };
-      await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
-      if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resynced (' + reason + ') · ' + sid, 'ok');
-    } catch (err) {
-      console.warn('resyncActiveSnapshot save failed', sid, err);
-      if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resync FAILED (' + reason + ') · ' + sid + ' · ' + (err.message || err), 'error');
-    }
-  })();
+  // Cloud save — now awaited inline so callers (revertCard, restoreAllCards,
+  // clearAllEdits) can chain on completion. Errors don't throw out; local
+  // state is still valid and the user can continue working. Logged loudly
+  // so silent failures stay impossible to miss.
+  try {
+    if (typeof sbSaveSubmission !== 'function') return;
+    const liteSnapshot = {
+      ...rec.snapshot,
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      derived: {
+        account:         rec.account || null,
+        broker:          rec.broker || null,
+        effectiveDate:   rec.effective || rec.effectiveDate || null,
+        requestedLimits: rec.requested || rec.requestedLimits || null,
+        missingInfo:     rec.missingInfo || null
+      }
+    };
+    await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resynced (' + reason + ') · ' + sid, 'ok');
+  } catch (err) {
+    console.warn('resyncActiveSnapshot save failed', sid, err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resync FAILED (' + reason + ') · ' + sid + ' · ' + (err.message || err), 'error');
+  }
 }
 
 function updateSaveIndicator() {
@@ -595,7 +618,7 @@ setInterval(updateSaveIndicator, 10000);
 // Clears in-memory STATE AND deletes the matching cloud submission_edits rows
 // for the active submission (so Reset is durable and survives a refresh).
 // Other submissions' edits are not touched.
-function clearAllEdits() {
+async function clearAllEdits() {
   if (Object.keys(STATE.edits).length === 0 &&
       STATE.customCards.length === 0 &&
       Object.keys(STATE.hiddenCards).length === 0) {
@@ -606,29 +629,44 @@ function clearAllEdits() {
   STATE.edits = {};
   STATE.customCards = [];
   STATE.hiddenCards = {};
-  saveEditsNow();
-  // Phase 8.5 fix: also delete remote submission_edits rows for this
-  // submission. saveEditsNow's upsert path has nothing to write when local
-  // state is empty, so without this delete the orphan rows would resurrect
-  // on next rehydrate (which now overlays cloud edits on snapshot).
+  // Now awaited end-to-end so the "All edits reset" toast reflects actual
+  // persisted state. Three things must happen atomically (from user POV):
+  //   1) saveEditsNow flushes any pending edit upserts (now empty)
+  //   2) sbDeleteAllEditsForSubmission removes the cloud submission_edits rows
+  //   3) resyncActiveSnapshot flushes the snapshot so it doesn't resurrect
+  //      stale edits on next hydrate
+  // If any of the three fails, the user sees an error toast instead of the
+  // misleading success toast that fired pre-fix.
+  let cloudOk = true;
+  try {
+    await saveEditsNow();
+  } catch (e) { cloudOk = false; console.warn('clearAllEdits: saveEditsNow failed', e); }
+  // Also delete remote submission_edits rows for this submission. saveEditsNow's
+  // upsert path has nothing to write when local state is empty, so without
+  // this delete the orphan rows would resurrect on next rehydrate.
   const sid = STATE.activeSubmissionId;
   if (sid && typeof sbDeleteAllEditsForSubmission === 'function') {
-    (async () => {
-      try {
-        await sbDeleteAllEditsForSubmission(sid);
-        if (typeof logAudit === 'function') logAudit('Edits', 'Cloud edits deleted for ' + sid, 'ok');
-      } catch (err) {
-        console.warn('sbDeleteAllEditsForSubmission failed', err);
-        if (typeof logAudit === 'function') logAudit('Edits', 'Cloud delete FAILED for ' + sid + ' · ' + (err.message || err), 'error');
-        if (typeof toast === 'function') toast('Reset locally, cloud cleanup failed · ' + (err.message || err).slice(0, 60), 'error');
-      }
-    })();
+    try {
+      await sbDeleteAllEditsForSubmission(sid);
+      if (typeof logAudit === 'function') logAudit('Edits', 'Cloud edits deleted for ' + sid, 'ok');
+    } catch (err) {
+      cloudOk = false;
+      console.warn('sbDeleteAllEditsForSubmission failed', err);
+      if (typeof logAudit === 'function') logAudit('Edits', 'Cloud delete FAILED for ' + sid + ' · ' + (err.message || err), 'error');
+    }
   }
   renderSummaryCards();
-  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't resurrect old data
-  resyncActiveSnapshot('clearAllEdits');
+  // Resync snapshot so reload doesn't resurrect old data. Awaited so the
+  // toast at the end reflects whether cloud is in sync.
+  try {
+    await resyncActiveSnapshot('clearAllEdits');
+  } catch (e) { cloudOk = false; console.warn('clearAllEdits: resync failed', e); }
   logAudit('Edits', 'Reset all edits, custom cards, and hidden cards', '—');
-  toast('All edits reset');
+  if (cloudOk) {
+    toast('All edits reset');
+  } else {
+    toast('Edits reset locally · cloud sync had errors (see audit log)', 'warn');
+  }
 }
 
 // ============================================================================
@@ -683,7 +721,7 @@ function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
 }
 
-function saveSettings() {
+async function saveSettings() {
   const model = document.getElementById('apiModel').value;
   const maxTokens = parseInt(document.getElementById('apiMaxTokens').value) || 4096;
   // Round 5 fix #1: read forceGlobal checkbox state. When true, callLLM in
@@ -692,41 +730,53 @@ function saveSettings() {
   const forceGlobal = !!document.getElementById('forceGlobalModel')?.checked;
   STATE.api = { model, maxTokens, forceGlobal };
 
-  // Phase 8.5 fix: persist model + max_tokens to user_settings. Previously
-  // these only updated STATE.api in-memory — sbHydrate read them on page
-  // load but saveSettings never wrote them, so changes vanished on refresh.
-  // Round 5 adds force_global_model to the persisted set.
+  // FIX #4 — AWAIT THE CLOUD SAVE BEFORE TOASTING SUCCESS
+  // Previously this used .catch() on the promise without awaiting. The
+  // success toast fired immediately even if the cloud save was still in
+  // flight — or, worse, was about to fail. User saw "Settings saved" and
+  // closed the modal, then the failure logged silently to the console.
+  // Now we await the save and only toast success if it actually succeeded.
+  // Failures still update local STATE.api so the user gets the in-memory
+  // change for this session.
+  let cloudSaveOk = true;
   if (typeof sbSaveSettings === 'function') {
-    sbSaveSettings({ default_model: model, max_tokens: maxTokens, force_global_model: forceGlobal }).catch(e => {
+    try {
+      await sbSaveSettings({ default_model: model, max_tokens: maxTokens, force_global_model: forceGlobal });
+    } catch (e) {
+      cloudSaveOk = false;
       console.warn('Model/token settings save failed', e);
-      if (typeof toast === 'function') toast('Model/tokens saved locally, cloud save failed · ' + (e.message || 'network').slice(0, 60), 'warn');
-    });
+    }
   }
 
-  // Save guideline override if present
+  // Save guideline override if present. Awaited so the "Settings saved"
+  // toast at the end reflects actual persistence of both model AND guideline.
   const ta = document.getElementById('carrierGuideline');
   if (ta) {
     const val = ta.value.trim();
     if (val.length === 0) {
-      saveGuidelineOverride('');
+      await saveGuidelineOverride('');
     } else if (val.length < 100) {
       toast('Guideline too short (min 100 chars) · kept existing', 'warn');
     } else if (val !== ACTIVE_GUIDELINE) {
-      saveGuidelineOverride(val);
+      await saveGuidelineOverride(val);
     }
   }
 
   updateApiPillUI();
   closeSettings();
-  toast('Settings saved');
+  if (cloudSaveOk) {
+    toast('Settings saved');
+  } else {
+    toast('Settings saved locally · cloud save failed (kept in-memory for this session)', 'warn');
+  }
 }
 
-function resetGuidelineToDefault() {
+async function resetGuidelineToDefault() {
   if (!confirm('Reset the carrier guideline back to the default Zurich E&S excerpt? Any custom guideline you pasted will be cleared.')) return;
   document.getElementById('carrierGuideline').value = '';
   document.getElementById('guidelineStatus').textContent = 'DEFAULT · ' + DEFAULT_GUIDELINE.length.toLocaleString() + ' CHARS';
   document.getElementById('guidelineStatus').style.color = 'var(--text-3)';
-  saveGuidelineOverride('');
+  await saveGuidelineOverride('');
 }
 
 function showDefaultGuideline() {
@@ -1210,6 +1260,7 @@ async function handleFiles(fileList) {
       if (!entry.text || entry.text.length < 20) {
         entry.state = 'error';
         entry.error = 'Empty or too short';
+        entry._rawFile = null;  // drop binary ref — won't be processed further
         logAudit('Extract', 'FAILED ' + file.name + ' · empty or too short (' + (entry.text?.length || 0) + ' chars)', 'error');
       } else {
         // Dedup check — if we already have a file with the same content hash, this is
@@ -1219,6 +1270,11 @@ async function handleFiles(fileList) {
         if (existingDup) {
           entry.state = 'duplicate';
           entry.duplicateOf = existingDup.name;
+          // Drop the _rawFile reference now that we know this entry won't go
+          // through the pipeline. Keeping it would pin the binary in memory
+          // until the user clears submissions, even though no code path will
+          // ever read from it again.
+          entry._rawFile = null;
           logAudit('Extract', 'DUPLICATE ' + file.name + ' · matches already-loaded ' + existingDup.name + ' (same content hash) · skipped', 'warn');
           toast(file.name + ' is a duplicate of ' + existingDup.name + ' — skipped', 'warn');
           renderFileList();
@@ -1346,6 +1402,7 @@ async function handleFiles(fileList) {
       } else {
         entry.state = 'error';
         entry.error = err.message;
+        entry._rawFile = null;  // drop binary ref — extract failed, no pipeline path will use it
         toast(file.name + ': ' + err.message, 'error');
       }
     }
@@ -1688,7 +1745,14 @@ function computeMissingInfo() {
 // already a record for this pipeline run, update it in place (preserves
 // UW-set status, history, and any edits the UW made since the run). Returns
 // the submission record (never null).
-function archiveCurrentSubmission() {
+async function archiveCurrentSubmission(opts) {
+  // opts.source identifies the caller for diagnostics ('pipeline-end',
+  // 'incremental', 'auto-save', etc.). Returns the rec on success,
+  // null if there's no completed pipeline to archive. The cloud save
+  // is now awaited inline so callers can ensure persistence completes
+  // before declaring an action done. Existing fire-and-forget callers
+  // can continue not awaiting; they'll get the in-memory rec back
+  // immediately and the cloud save will resolve in the background.
   if (!STATE.pipelineDone || !STATE.pipelineRun) return null;
   // Compute derived fields from current extractions
   const extractedIds = Object.keys(STATE.extractions);
@@ -1747,47 +1811,58 @@ function archiveCurrentSubmission() {
     STATE.submissions.push(rec);
   }
   STATE.activeSubmissionId = rec.id;
-  // Phase 4 (v2): save this one record directly — bypasses the batch
-  // saveSubmissions() path which was silently skipping all promise callbacks.
-  // This is fire-and-forget but uses explicit await inside an async IIFE so
-  // every step logs to audit, making future silent failures impossible.
-  (async () => {
-    if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + rec.id + ' to cloud…', 'ok');
-    try {
-      if (typeof sbSaveSubmission !== 'function') {
-        throw new Error('sbSaveSubmission not defined');
-      }
-      // Build lite snapshot (drop raw file text bytes to stay under row-size limits)
-      const liteSnapshot = rec.snapshot ? {
-        ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
-        derived: {
-          account:         rec.account || null,
-          broker:          rec.broker || null,
-          effectiveDate:   rec.effective || rec.effectiveDate || null,
-          requestedLimits: rec.requested || rec.requestedLimits || null,
-          missingInfo:     rec.missingInfo || null
-        }
-      } : null;
-      const saved = await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
-      // Tell the audit-events writer this submission now exists. Pipeline
-      // pre-mint also calls this, but covering recordSubmission ensures
-      // the cache is consistent regardless of which path created the row.
-      if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
-        window.sbInvalidateSubmissionExistsCache(rec.id);
-      }
-      if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + rec.id + ' to cloud · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
-      if (typeof toast === 'function') toast('Saved to cloud · ' + rec.id.slice(0, 12));
-    } catch (err) {
-      console.error('Submission save failed', rec.id, err);
-      const msg = (err && err.message) ? err.message : String(err);
-      if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + rec.id + ' · ' + msg + ' · kept in-memory', 'error');
-      if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80));
+  // Cloud save — awaited inline. Returns a structured result so callers
+  // can distinguish "pipeline complete + cloud saved" from "pipeline
+  // complete + cloud save failed (kept in-memory)". Previous behavior
+  // swallowed the failure and returned rec unchanged, which made callers
+  // believe persistence succeeded. Now they can branch on .cloudSaved.
+  let cloudSaved = false;
+  let cloudError = null;
+  if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + rec.id + ' to cloud…', 'ok');
+  try {
+    if (typeof sbSaveSubmission !== 'function') {
+      throw new Error('sbSaveSubmission not defined');
     }
-  })();
+    // Build lite snapshot (drop raw file text bytes to stay under row-size limits)
+    const liteSnapshot = rec.snapshot ? {
+      ...rec.snapshot,
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      derived: {
+        account:         rec.account || null,
+        broker:          rec.broker || null,
+        effectiveDate:   rec.effective || rec.effectiveDate || null,
+        requestedLimits: rec.requested || rec.requestedLimits || null,
+        missingInfo:     rec.missingInfo || null
+      }
+    } : null;
+    const saved = await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+    if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
+      window.sbInvalidateSubmissionExistsCache(rec.id);
+    }
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + rec.id + ' to cloud · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
+    if (typeof toast === 'function') toast('Saved to cloud · ' + rec.id.slice(0, 12));
+    cloudSaved = true;
+  } catch (err) {
+    cloudError = err;
+    console.error('Submission save failed', rec.id, err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + rec.id + ' · ' + msg + ' · kept in-memory', 'error');
+    if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+    // Note: don't rethrow. The local-state record is still valid and the
+    // user can continue working; refresh would just hydrate from older
+    // cloud state. The structured return lets callers detect this case
+    // and surface their own warning.
+  }
   renderQueueTable();
   updateQueueKpi();
-  return rec;
+  // Return the rec PLUS metadata about whether persistence succeeded.
+  // Callers that need to know (pipeline-end, handoff persist) can branch
+  // on .cloudSaved. Callers that don't care still get rec via .rec.
+  // For backward compatibility, attach the rec's properties directly to
+  // the return so old callers like `await archiveCurrentSubmission()`
+  // followed by `.id` access still work.
+  const result = rec ? Object.assign({}, rec, { cloudSaved, cloudError, rec }) : { rec: null, cloudSaved: false, cloudError };
+  return result;
 }
 
 function deepClone(v) {
@@ -1800,7 +1875,7 @@ function deepClone(v) {
 }
 
 // ---- Status change -------------------------------------------------------
-function changeSubmissionStatus(submissionId, newStatus) {
+async function changeSubmissionStatus(submissionId, newStatus) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!SUB_STATUSES.includes(newStatus)) {
@@ -1819,32 +1894,32 @@ function changeSubmissionStatus(submissionId, newStatus) {
   logAudit('Submissions', rec.id + ' · status ' + from + ' → ' + newStatus, '—');
   toast(displayAccount(rec) + ' · ' + newStatus.toLowerCase());
   closeAllStatusMenus();
-  // Phase 4 (v2): persist the single record directly, bypassing the batch
-  // saveSubmissions() path. Fire-and-forget with verbose audit so any failure
-  // is visible instead of silent. Mirrors the pattern in archiveCurrentSubmission.
-  (async () => {
-    try {
-      if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
-      const liteSnapshot = rec.snapshot ? {
-        ...rec.snapshot,
-        files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
-        derived: {
-          account:         rec.account || null,
-          broker:          rec.broker || null,
-          effectiveDate:   rec.effective || rec.effectiveDate || null,
-          requestedLimits: rec.requested || rec.requestedLimits || null,
-          missingInfo:     rec.missingInfo || null
-        }
-      } : null;
-      await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
-      if (typeof logAudit === 'function') logAudit('Submissions', 'Status synced to cloud · ' + rec.id + ' · ' + newStatus, 'ok');
-    } catch (err) {
-      console.error('Status sync failed', rec.id, err);
-      const msg = (err && err.message) ? err.message : String(err);
-      if (typeof logAudit === 'function') logAudit('Submissions', 'STATUS SYNC FAILED ' + rec.id + ' · ' + msg, 'error');
-      if (typeof toast === 'function') toast('Status save failed · ' + msg.slice(0, 80));
-    }
-  })();
+  // Now awaited inline so the toast/UI reflects actual persistence. Previously
+  // fire-and-forget — UI showed new status before the cloud write committed,
+  // and a fast refresh in the gap would resurface the prior status. Errors
+  // don't throw out (local state still has the new status); they're logged
+  // so the user sees the failure indicator and can retry.
+  try {
+    if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
+    const liteSnapshot = rec.snapshot ? {
+      ...rec.snapshot,
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      derived: {
+        account:         rec.account || null,
+        broker:          rec.broker || null,
+        effectiveDate:   rec.effective || rec.effectiveDate || null,
+        requestedLimits: rec.requested || rec.requestedLimits || null,
+        missingInfo:     rec.missingInfo || null
+      }
+    } : null;
+    await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Status synced to cloud · ' + rec.id + ' · ' + newStatus, 'ok');
+  } catch (err) {
+    console.error('Status sync failed', rec.id, err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'STATUS SYNC FAILED ' + rec.id + ' · ' + msg, 'error');
+    if (typeof toast === 'function') toast('Status save failed · ' + msg.slice(0, 80), 'error');
+  }
 }
 
 function displayAccount(rec) {
@@ -2085,7 +2160,7 @@ function rehydrateSubmission(submissionId) {
 }
 
 // ---- Delete submission ---------------------------------------------------
-function deleteSubmission(submissionId, confirmAlready) {
+async function deleteSubmission(submissionId, confirmAlready) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
@@ -2111,27 +2186,27 @@ function deleteSubmission(submissionId, confirmAlready) {
     try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
   }
   // Now run the cloud-side cleanup with explicit ordering: documents first
-  // (storage + rows), then submission row. Both wrapped in async IIFE so
-  // the UI doesn't block on network round-trips.
-  (async () => {
-    try {
-      if (typeof sbDeleteDocumentPagesForSubmission === 'function') {
-        await sbDeleteDocumentPagesForSubmission(submissionId);
-      }
-    } catch (err) {
-      console.warn('Document cascade delete failed for ' + submissionId + ':', err);
+  // (storage + rows), then submission row. Now awaited inline so the user
+  // sees the actual cloud-deletion result before the function returns.
+  // Previously fire-and-forget — UI removed the row claiming success while
+  // the cloud delete might still be racing or failing silently.
+  try {
+    if (typeof sbDeleteDocumentPagesForSubmission === 'function') {
+      await sbDeleteDocumentPagesForSubmission(submissionId);
     }
-    try {
-      if (typeof sbDeleteSubmission !== 'function') throw new Error('sbDeleteSubmission not defined');
-      await sbDeleteSubmission(submissionId);
-      if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
-    } catch (err) {
-      console.error('Cloud delete failed', submissionId, err);
-      const msg = (err && err.message) ? err.message : String(err);
-      if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
-      if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh');
-    }
-  })();
+  } catch (err) {
+    console.warn('Document cascade delete failed for ' + submissionId + ':', err);
+  }
+  try {
+    if (typeof sbDeleteSubmission !== 'function') throw new Error('sbDeleteSubmission not defined');
+    await sbDeleteSubmission(submissionId);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
+  } catch (err) {
+    console.error('Cloud delete failed', submissionId, err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh', 'error');
+  }
 }
 
 // ---- Status menu (dropdown) ----------------------------------------------
@@ -4379,53 +4454,81 @@ function deleteCard(mid) {
   logAudit('Edits', 'Hid card ' + mid, '—');
 }
 
-function revertCard(mid) {
+async function revertCard(mid) {
   if (!confirm('Revert ' + (MODULES[mid] ? MODULES[mid].name : mid) + ' to original AI output? All your edits to this card will be lost.')) return;
   delete STATE.edits[mid];
-  // Phase 8.5 round 3 fix #1: also delete the cloud submission_edits row.
-  // Without this, the local revert succeeds but the cloud edit row remains
-  // and would resurrect on next rehydrate (which now overlays cloud edits
-  // on top of the snapshot). Same shape as the clearAllEdits cloud-delete
-  // fix from round 1 — applied here for the single-card revert path.
+  // Now awaited: the toast at the end reflects whether cloud cleanup AND
+  // snapshot resync both succeeded. Previously fire-and-forget — the
+  // optimistic "Reverted to original" toast could fire even if the cloud
+  // delete failed and the edit would resurrect on next refresh.
+  let cloudOk = true;
   const sid = STATE.activeSubmissionId;
   if (sid && typeof sbDeleteEdit === 'function') {
-    sbDeleteEdit(sid, 'card:' + mid).catch(e => {
+    try {
+      await sbDeleteEdit(sid, 'card:' + mid);
+    } catch (e) {
+      cloudOk = false;
       console.warn('Cloud edit delete failed for', mid, e);
       if (typeof logAudit === 'function') logAudit('Edits', 'Cloud revert FAILED for ' + mid + ' · ' + (e.message || e), 'error');
-      if (typeof toast === 'function') toast('Reverted locally, cloud cleanup failed · ' + (e.message || 'network').slice(0, 60), 'error');
-    });
+    }
   }
   markDirty();
   renderSummaryCards();
-  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't resurrect the reverted edit
-  resyncActiveSnapshot('revertCard:' + mid);
+  // Resync snapshot so reload doesn't resurrect the reverted edit. Awaited
+  // so the success toast reflects actual persistence.
+  try {
+    await resyncActiveSnapshot('revertCard:' + mid);
+  } catch (e) {
+    cloudOk = false;
+    console.warn('revertCard: resync failed', e);
+  }
   logAudit('Edits', 'Reverted ' + mid + ' to original', '—');
-  toast('Reverted to original');
+  if (cloudOk) {
+    toast('Reverted to original');
+  } else {
+    toast('Reverted locally · cloud sync had errors (see audit log)', 'warn');
+  }
 }
 
-function restoreAllCards() {
-  // Phase 8.5 round 3 fix #2: capture hidden IDs BEFORE clearing local state,
-  // so we can delete the matching cloud submission_edits rows. Without this,
-  // restored cards would re-hide on next rehydrate (which overlays cloud
-  // hidden:<id> rows on top of the snapshot). Same shape as the revert and
-  // clearAllEdits cloud-delete patterns.
+async function restoreAllCards() {
+  // Capture hidden IDs BEFORE clearing local state so we can delete the
+  // matching cloud submission_edits rows. Without this, restored cards
+  // would re-hide on next rehydrate (which overlays cloud hidden:<id>
+  // rows on top of the snapshot).
   const hiddenIds = Object.keys(STATE.hiddenCards || {});
   STATE.hiddenCards = {};
+  // Now awaited end-to-end: each hidden:<id> row delete must complete, AND
+  // the snapshot resync must complete, before the success toast fires.
+  // Previously the deletes fire-and-forget — could leave stale hidden rows
+  // in the cloud that would re-hide the cards on refresh.
+  let cloudOk = true;
   const sid = STATE.activeSubmissionId;
   if (sid && hiddenIds.length > 0 && typeof sbDeleteEdit === 'function') {
-    hiddenIds.forEach(id => {
+    // Run deletes in parallel but await them all before continuing.
+    const deletes = hiddenIds.map(id =>
       sbDeleteEdit(sid, 'hidden:' + id).catch(e => {
+        cloudOk = false;
         console.warn('Cloud hidden-row delete failed for', id, e);
         if (typeof logAudit === 'function') logAudit('Edits', 'Cloud restore FAILED for hidden:' + id + ' · ' + (e.message || e), 'error');
-      });
-    });
+      })
+    );
+    await Promise.all(deletes);
   }
   markDirty();
   renderSummaryCards();
-  // Phase 8.5 Round 4 fix #2: resync snapshot so reload doesn't re-hide the cards
-  resyncActiveSnapshot('restoreAllCards');
+  // Resync snapshot so reload doesn't re-hide the cards. Awaited.
+  try {
+    await resyncActiveSnapshot('restoreAllCards');
+  } catch (e) {
+    cloudOk = false;
+    console.warn('restoreAllCards: resync failed', e);
+  }
   logAudit('Edits', 'Restored all hidden cards (' + hiddenIds.length + ')', '—');
-  toast('All cards restored');
+  if (cloudOk) {
+    toast('All cards restored');
+  } else {
+    toast('Restored locally · cloud sync had errors (see audit log)', 'warn');
+  }
 }
 
 // Dismiss a single discrepancy flag (material conflict or minor variance).
@@ -4483,6 +4586,40 @@ function triggerAddDocuments() {
 // States: null → awaiting_assistant → in_review → returned_to_uw → (optionally loop)
 // ============================================================================
 
+// FIX #1 — PERSIST HANDOFF STATE
+// Without this helper, every handoff transition (send to assistant, return
+// to UW, toggle assistant view) mutated STATE.handoff in memory but didn't
+// trigger a snapshot save. The cloud submissions row stayed at the previous
+// state until SOMETHING ELSE incidentally archived. Refresh in the gap =
+// the assistant doesn't see the handoff, or the UW doesn't see the return,
+// or the view toggle doesn't stick.
+//
+// This helper calls the same archive path used at end-of-pipeline. Awaits
+// the cloud save so the success toast reflects actual persistence. Failures
+// log loudly but don't throw — local state is still valid; refresh would
+// hydrate the previous state, which is the expected fallback.
+async function persistHandoffState(reason) {
+  if (typeof archiveCurrentSubmission !== 'function') return;
+  if (!STATE.pipelineDone || !STATE.pipelineRun) return;
+  try {
+    const result = await archiveCurrentSubmission({ source: 'handoff:' + (reason || 'unknown') });
+    if (result && result.cloudSaved === false) {
+      // Local handoff state mutated, but cloud rejected. The next archive
+      // (status change, edit, refresh-then-edit) may overwrite or persist
+      // it depending on timing. Surface to user so they can retry.
+      const errMsg = result.cloudError && result.cloudError.message ? result.cloudError.message : 'unknown';
+      if (typeof logAudit === 'function') logAudit('Handoff', 'WARNING: handoff cloud save failed · ' + reason + ' · ' + errMsg + ' · refresh may not show transition', 'error');
+      if (typeof toast === 'function') toast('Handoff saved locally · cloud sync failed', 'warn');
+    } else {
+      if (typeof logAudit === 'function') logAudit('Handoff', 'Persisted handoff transition · ' + reason, 'ok');
+    }
+  } catch (err) {
+    console.error('Handoff persist failed:', err);
+    if (typeof logAudit === 'function') logAudit('Handoff', 'WARNING: handoff persist failed · ' + reason + ' · ' + (err.message || 'unknown') + ' · refresh would lose this transition', 'error');
+    if (typeof toast === 'function') toast('Handoff save failed · refresh could lose changes', 'error');
+  }
+}
+
 function openSendToAssistantModal() {
   if (!STATE.pipelineDone) return;
   document.getElementById('sendAssistantModal').classList.add('open');
@@ -4492,7 +4629,7 @@ function closeSendToAssistantModal() {
   document.getElementById('sendAssistantModal').classList.remove('open');
 }
 
-function confirmSendToAssistant() {
+async function confirmSendToAssistant() {
   const assignee = document.getElementById('handoffAssignee').value;
   const note = document.getElementById('handoffUwNote').value.trim();
   if (!note) {
@@ -4509,6 +4646,9 @@ function confirmSendToAssistant() {
   closeSendToAssistantModal();
   renderHandoffState();
   toast('Sent to ' + assignee + ' for review', 'success');
+  // FIX #1 — persist the transition immediately so the assistant (or a
+  // refresh) sees the handoff. Awaited but errors don't throw.
+  await persistHandoffState('send-to-assistant');
 }
 
 function openReturnToUwModal() {
@@ -4523,7 +4663,7 @@ function closeReturnToUwModal() {
   document.getElementById('returnUwModal').classList.remove('open');
 }
 
-function confirmReturnToUw() {
+async function confirmReturnToUw() {
   const note = document.getElementById('handoffAssistantNote').value.trim();
   if (!note) {
     toast('Please write a review note before returning', 'warn');
@@ -4540,6 +4680,8 @@ function confirmReturnToUw() {
   closeReturnToUwModal();
   renderHandoffState();
   toast('Returned to UW with review notes', 'success');
+  // FIX #1 — persist so the UW sees the returned note on refresh.
+  await persistHandoffState('return-to-uw');
 }
 
 // ============================================================================
@@ -4630,12 +4772,13 @@ function confirmManualPaste() {
   }
 }
 
-function toggleAssistantView() {
+async function toggleAssistantView() {
   if (!STATE.handoff.status) {
     toast('Send to assistant first to enable assistant view', 'warn');
     return;
   }
   const now = Date.now();
+  let statusChanged = false;
   if (STATE.handoff.viewAs === 'uw') {
     STATE.handoff.viewAs = 'assistant';
     // First time opening as assistant: mark as in_review
@@ -4644,11 +4787,19 @@ function toggleAssistantView() {
       STATE.handoff.openedAt = now;
       STATE.handoff.history.push({ transition: 'assistant_opened', at: now, actor: STATE.handoff.assignee || 'Assistant' });
       logAudit('Handoff', (STATE.handoff.assignee || 'Assistant') + ' opened submission for review', STATE.api.model);
+      statusChanged = true;
     }
   } else {
     STATE.handoff.viewAs = 'uw';
   }
   renderHandoffState();
+  // FIX #1 — persist only when there's a real status transition. Pure
+  // viewAs toggles are local UI state; refresh would re-derive them.
+  // The status → in_review transition is durable and the assistant's
+  // openedAt timestamp matters for audit trails.
+  if (statusChanged) {
+    await persistHandoffState('assistant-opened');
+  }
 }
 
 // Centralized renderer — updates pill, note banner, button states, and body class
@@ -5006,8 +5157,22 @@ function startNewSubmission() {
   // submission_edits, scoped by submission_id. A fresh pipeline has no
   // active submission yet, so there's nothing to clear here.
   if (STATE.handoff) {
-    STATE.handoff.status = null;
-    STATE.handoff.viewAs = 'uw';
+    // FIX #2 — FULL HANDOFF RESET ON NEW SUBMISSION
+    // Previously this only cleared status + viewAs. assignee, uwNote,
+    // assistantNote, timestamps, and history would persist from the prior
+    // submission. Since the snapshot includes the full handoff object,
+    // those stale fields would be written into the new submission's row
+    // on first archive — leaking submission A's review history into
+    // submission B's records. Reset every field to its initial value.
+    STATE.handoff.status        = null;
+    STATE.handoff.assignee      = null;
+    STATE.handoff.uwNote        = null;
+    STATE.handoff.assistantNote = null;
+    STATE.handoff.sentAt        = null;
+    STATE.handoff.openedAt      = null;
+    STATE.handoff.returnedAt    = null;
+    STATE.handoff.viewAs        = 'uw';
+    STATE.handoff.history       = [];
   }
   document.body.classList.remove('pipeline-complete-mode');
   // Reset sub-header to the fresh-submission state

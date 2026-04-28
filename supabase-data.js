@@ -120,11 +120,16 @@ window.buildSubmissionPayload = buildSubmissionPayload;
 async function sbDeleteSubmission(id) {
   // Phase 8.5 Round 4 fix #1: defensively delete child rows BEFORE deleting
   // the parent submission. If the Supabase schema has ON DELETE CASCADE on
-  // submission_edits.submission_id and feedback_events.submission_id, these
-  // pre-deletes are redundant but harmless. If it doesn't have cascades,
-  // these prevent orphan rows from accumulating forever in those tables.
-  // Both are best-effort: if a child delete fails (e.g. RLS quirk), we still
-  // proceed with the parent delete so the user-visible "delete" succeeds.
+  // *.submission_id, these pre-deletes are redundant but harmless. If it
+  // doesn't have cascades, these prevent orphan rows from accumulating
+  // forever AND prevent the parent delete from failing with a restrictive
+  // FK error. Both are best-effort: if a child delete fails (e.g. RLS
+  // quirk), we still proceed with the parent delete.
+  //
+  // Tables with submission_id FK: submission_edits, feedback_events,
+  // audit_events, document_pages. document_pages is handled by a separate
+  // call path (sbDeleteDocumentPagesForSubmission, with storage cleanup),
+  // so it's not pre-deleted here. The other three are safe to bulk delete.
   if (!id) return;
   try {
     await window.sb.from('submission_edits').delete().eq('submission_id', id);
@@ -132,6 +137,15 @@ async function sbDeleteSubmission(id) {
   try {
     await window.sb.from('feedback_events').delete().eq('submission_id', id);
   } catch (e) { console.warn('Pre-delete of feedback_events failed (continuing)', id, e); }
+  // FIX #3 — also pre-delete audit_events. We don't know whether the FK is
+  // ON DELETE CASCADE (added in a Phase 6 migration not in our local SQL
+  // files) or restrictive. Pre-deleting is safe either way: cascading FK
+  // makes this a redundant but cheap call; restrictive FK would otherwise
+  // fail the parent delete and leave the submission visible after refresh
+  // (the local row is removed first, but the cloud row resurfaces on hydrate).
+  try {
+    await window.sb.from('audit_events').delete().eq('submission_id', id);
+  } catch (e) { console.warn('Pre-delete of audit_events failed (continuing)', id, e); }
   const { error } = await window.sb.from('submissions').delete().eq('id', id);
   if (error) throw error;
 }
@@ -374,6 +388,21 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
         // Skip the insert silently. The audit event won't reach the cloud
         // for this submission until its parent row lands. Local audit log
         // (state.audit) still has the entry, so nothing's truly lost.
+        //
+        // BUFFER FOR REPLAY: queue these skipped events so they can be
+        // replayed once the parent submission row lands. Without buffering,
+        // any audit events fired during the brief window between
+        // pre-mint-id-set and stub-row-saved would be silently dropped
+        // from the cloud audit (still visible locally, but not mirrored).
+        if (!sbLogAuditEvent._buffer) sbLogAuditEvent._buffer = new Map();
+        let queue = sbLogAuditEvent._buffer.get(effectiveSid);
+        if (!queue) { queue = []; sbLogAuditEvent._buffer.set(effectiveSid, queue); }
+        // Cap the buffer at 100 events per submission to prevent runaway
+        // memory if a submission never lands. Most pipeline runs queue a
+        // handful before pre-mint completes, so 100 is comfortable.
+        if (queue.length < 100) {
+          queue.push({ user_id: u.id, submission_id: effectiveSid, category: cat, message: msg, meta: metaText });
+        }
         return;
       }
     }
@@ -396,11 +425,18 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
           sbLogAuditEvent._submissionExistsCache = new Map();
         }
         sbLogAuditEvent._submissionExistsCache.set(effectiveSid, false);
+        // Buffer THIS event too so it gets replayed when submission lands.
+        // Otherwise the very first event that hit the FK race is silently
+        // dropped while subsequent ones get queued.
+        if (!sbLogAuditEvent._buffer) sbLogAuditEvent._buffer = new Map();
+        let queue = sbLogAuditEvent._buffer.get(effectiveSid);
+        if (!queue) { queue = []; sbLogAuditEvent._buffer.set(effectiveSid, queue); }
+        if (queue.length < 100) queue.push(row);
         // Log the FK violation once per submission, not per event.
         if (!sbLogAuditEvent._fkLoggedFor) sbLogAuditEvent._fkLoggedFor = new Set();
         if (!sbLogAuditEvent._fkLoggedFor.has(effectiveSid)) {
           sbLogAuditEvent._fkLoggedFor.add(effectiveSid);
-          console.warn('[audit] FK violation for submission ' + effectiveSid + ' — parent row not yet persisted; further audit events for this submission will be skipped until it lands.');
+          console.warn('[audit] FK violation for submission ' + effectiveSid + ' — parent row not yet persisted; events buffered for replay when it lands.');
         }
         return;
       }
@@ -423,6 +459,30 @@ function sbInvalidateSubmissionExistsCache(submissionId) {
   sbLogAuditEvent._submissionExistsCache.set(submissionId, true);
   if (sbLogAuditEvent._fkLoggedFor) {
     sbLogAuditEvent._fkLoggedFor.delete(submissionId);
+  }
+  // Replay any audit events that were buffered while this submission
+  // was in the "doesn't exist yet" state. Without this, audit events
+  // fired during the pipeline-pre-mint → stub-saved window would
+  // never reach the cloud audit_events table — they'd live only in
+  // the local state.audit array.
+  if (sbLogAuditEvent._buffer && sbLogAuditEvent._buffer.has(submissionId)) {
+    const queue = sbLogAuditEvent._buffer.get(submissionId);
+    sbLogAuditEvent._buffer.delete(submissionId);
+    if (queue && queue.length > 0 && window.sb) {
+      // Fire-and-forget — don't block the caller. If the replay insert
+      // fails, the events are already in local state.audit so the loss
+      // is the same as if the buffer hadn't existed.
+      (async () => {
+        try {
+          const { error } = await window.sb.from('audit_events').insert(queue);
+          if (error) {
+            console.warn('[audit] replay of ' + queue.length + ' buffered events failed:', error.message);
+          }
+        } catch (e) {
+          console.warn('[audit] replay threw:', (e && e.message) || e);
+        }
+      })();
+    }
   }
 }
 window.sbInvalidateSubmissionExistsCache = sbInvalidateSubmissionExistsCache;
@@ -1054,6 +1114,20 @@ async function sbInsertDocumentPage(doc) {
       (error.hint ? ' [hint=' + error.hint + ']' : '')
     );
     _noteCloudFail();
+    // NOTE: Storage cleanup deliberately NOT done here. A previous attempt
+    // to remove the storage binary on insert failure had a race: when
+    // page 1 of a multi-page PDF fails first, pages 2..99 inserts may
+    // still be in flight. The "are any other rows referencing this
+    // storage_path" check would return 0, the binary would be deleted,
+    // and pages 2..99 would commit successfully — pointing at a missing
+    // binary. Result: visible-broken docs (worst failure mode).
+    //
+    // The correct cleanup point is the batch-level finalizer in the
+    // docs view after all pending inserts have settled. See the call
+    // site in processFileFromPipeline / _runUploadBatch for that logic.
+    // Per-page failures here just return null and let the binary stay
+    // in storage. Worst case: orphan binary (harmless cosmetic residue,
+    // protected by the protect_delete trigger anyway).
     return null;
   }
   _noteCloudOk();
@@ -1158,9 +1232,19 @@ async function sbFetchDocumentPages() {
 }
 
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.
+//
+// FIX #5 — DELETE ORDER REVERSED. Previously this function deleted storage
+// objects FIRST and then deleted the database rows. If row deletion failed
+// after storage succeeded, the rows would remain in the table but their
+// preview/download links pointed at missing binaries — the worst failure
+// mode (visible-but-broken docs). The safer order is: delete rows first,
+// then storage. If storage fails after rows succeeded, you get harmless
+// orphan binaries (already a known cosmetic issue protected by the
+// protect_delete trigger), not visible-broken docs.
 async function sbDeleteAllDocumentPages() {
   const u = await sbUser(); if (!u) return null;
-  // First gather storage_paths so we can clean the bucket.
+  // Gather storage_paths first so we know what to clean. We don't delete
+  // the binaries yet — we'll do that after the row deletion succeeds.
   const { data: rows, error: selErr } = await window.sb
     .from(DOC_TABLE)
     .select('storage_path')
@@ -1170,20 +1254,26 @@ async function sbDeleteAllDocumentPages() {
     return null;
   }
   const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
-  if (paths.length > 0) {
-    const { error: stErr } = await window.sb.storage
-      .from(STORAGE_BUCKET)
-      .remove(paths);
-    if (stErr) console.warn('sbDeleteAllDocumentPages storage failed:', stErr.message);
-  }
+  // STEP 1: Delete the database rows. If this fails, we abort — never
+  // delete storage when we don't know if the rows are gone.
   const { error } = await window.sb
     .from(DOC_TABLE)
     .delete()
     .eq('user_id', u.id);
   if (error) {
-    console.warn('sbDeleteAllDocumentPages failed:', error.message);
+    console.warn('sbDeleteAllDocumentPages row delete failed:', error.message);
     _noteCloudFail();
     return null;
+  }
+  // STEP 2: Now that rows are gone, clean up the storage binaries. A
+  // failure here is non-fatal — orphan binaries are harmless cosmetic
+  // residue and the protect_delete trigger blocks accidental cascades.
+  // Log so future cleanup-via-Storage-UI knows what to expect.
+  if (paths.length > 0) {
+    const { error: stErr } = await window.sb.storage
+      .from(STORAGE_BUCKET)
+      .remove(paths);
+    if (stErr) console.warn('sbDeleteAllDocumentPages storage cleanup (non-fatal):', stErr.message);
   }
   _noteCloudOk();
   return true;
@@ -1195,7 +1285,9 @@ async function sbDeleteAllDocumentPages() {
 async function sbDeleteDocumentPagesForSubmission(submissionId) {
   if (!submissionId) return null;
   const u = await sbUser(); if (!u) return null;
-  // Gather paths first.
+  // Gather paths first — needed for storage cleanup, but we don't delete
+  // until after the rows are confirmed gone (see FIX #5 in
+  // sbDeleteAllDocumentPages above for rationale).
   const { data: rows, error: selErr } = await window.sb
     .from(DOC_TABLE)
     .select('storage_path')
@@ -1207,21 +1299,24 @@ async function sbDeleteDocumentPagesForSubmission(submissionId) {
     return null;
   }
   const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
-  if (paths.length > 0) {
-    const { error: stErr } = await window.sb.storage
-      .from(STORAGE_BUCKET)
-      .remove(paths);
-    if (stErr) console.warn('sbDeleteDocumentPagesForSubmission storage failed:', stErr.message);
-  }
+  // STEP 1: Delete database rows first. If this fails, abort — never
+  // orphan visible docs by deleting their binaries while keeping rows.
   const { error } = await window.sb
     .from(DOC_TABLE)
     .delete()
     .eq('user_id', u.id)
     .eq('submission_id', submissionId);
   if (error) {
-    console.warn('sbDeleteDocumentPagesForSubmission failed:', error.message);
+    console.warn('sbDeleteDocumentPagesForSubmission row delete failed:', error.message);
     _noteCloudFail();
     return null;
+  }
+  // STEP 2: Rows are gone — clean up storage. Non-fatal if it fails.
+  if (paths.length > 0) {
+    const { error: stErr } = await window.sb.storage
+      .from(STORAGE_BUCKET)
+      .remove(paths);
+    if (stErr) console.warn('sbDeleteDocumentPagesForSubmission storage cleanup (non-fatal):', stErr.message);
   }
   _noteCloudOk();
   return true;
