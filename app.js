@@ -4842,11 +4842,45 @@ function renderCustomCard(cc) {
 
 function toggleCard(headEl) {
   const card = headEl.closest('.sc-card');
-  if (card) card.classList.toggle('collapsed');
+  if (!card) return;
+  const wasCollapsed = card.classList.contains('collapsed');
+  card.classList.toggle('collapsed');
+  // If we just expanded the card, force a reflow on the body. Without this,
+  // contenteditable bodies that have `max-height` + `overflow-y: auto` and
+  // were previously `display: none` can fail to compute their scroll layout
+  // until another interaction triggers it — manifesting as the "I have to
+  // click again to see the text" bug. Reading offsetHeight is the canonical
+  // way to force a synchronous layout/paint pass.
+  if (wasCollapsed) {
+    const body = card.querySelector('.sc-body');
+    if (body) {
+      void body.offsetHeight;  // force reflow — discard the value, the read is the side effect
+    }
+  }
 }
 
 function toggleAllCards(collapse) {
-  document.querySelectorAll('.sc-card').forEach(c => c.classList.toggle('collapsed', collapse));
+  // Collect cards that are about to transition from collapsed → expanded
+  // BEFORE we mutate the class, so we can reflow only those that actually
+  // need it. Reflowing every card on every Collapse-all click is wasteful.
+  const cards = document.querySelectorAll('.sc-card');
+  const aboutToExpand = [];
+  if (!collapse) {
+    cards.forEach(c => {
+      if (c.classList.contains('collapsed')) aboutToExpand.push(c);
+    });
+  }
+  cards.forEach(c => c.classList.toggle('collapsed', collapse));
+  // Force a reflow on each newly-expanded card's body. Same fix as toggleCard
+  // — without this, the contenteditable body's max-height + overflow:auto
+  // layout doesn't compute on first paint after `display: none` is removed,
+  // and the user sees an empty white card until they click it again.
+  if (!collapse && aboutToExpand.length > 0) {
+    aboutToExpand.forEach(card => {
+      const body = card.querySelector('.sc-body');
+      if (body) void body.offsetHeight;
+    });
+  }
 }
 
 // ============================================================================
