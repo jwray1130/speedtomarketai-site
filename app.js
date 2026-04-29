@@ -1871,8 +1871,28 @@ function deriveAccountName() {
   }
   const so = STATE.extractions['summary-ops'];
   if (so && so.text) {
-    // Opening narrative typically starts "<Company Name>, founded in..."
-    const m = so.text.match(/^([A-Z][^,\n]{3,80}?),\s*(founded|established|specialize|is\s+a)/im);
+    // Opening narrative patterns. The A6 prompt instructs the model to start
+    // with "[Company Name], founded in [Year], specializes in...", but real
+    // output frequently varies. Examples we've seen and need to catch:
+    //   "Kimble Company, a family-owned business with over 70 years..."
+    //   "Acme Corp, headquartered in Chicago, provides..."
+    //   "Acme Corp is a Michigan-based company that..."
+    //   "Acme Corp provides full-service residential..."
+    //   "Acme Corp, based in Texas, has been..."
+    //
+    // Strategy: try patterns in priority order, most specific first. If none
+    // match, fall through to the Website Intel fallback below.
+    let m =
+      // Pattern A: "X, <verb-phrase>" — original strict pattern, kept for
+      // back-compat with submissions that match it perfectly.
+      so.text.match(/^([A-Z][^,\n]{3,80}?),\s*(founded|established|specialize|is\s+a|headquartered|based\s+in|providing|provides|operating)/im) ||
+      // Pattern B: "X, a <descriptor>" — catches "a family-owned business",
+      // "a Michigan-based company", "a leading provider of", etc.
+      so.text.match(/^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m) ||
+      // Pattern C: "X is a..." / "X provides..." / "X operates..." with no
+      // leading comma. Looser — only fires if the next word is a recognized
+      // company-description verb.
+      so.text.match(/^([A-Z][^,\n]{3,80}?)\s+(is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m);
     if (m) return cleanDerived(m[1]);
   }
   // Fall back to GL/AL named insured
@@ -1882,6 +1902,27 @@ function deriveAccountName() {
       const m = ext.text.match(/\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i);
       if (m) return cleanDerived(m[1]);
     }
+  }
+  // FINAL FALLBACK — Website Intel (A1). When a submission has ONLY a website
+  // scrape and no broker docs (no supplemental, no GL/AL quote), this is the
+  // only place the company name lives. The A1 prompt produces output that
+  // typically opens with the company name in heading or first sentence.
+  // Look for two patterns:
+  //   1. A markdown heading like "**Company Name:** Acme Corp" or "# Acme Corp"
+  //   2. The first sentence opening with a capitalized phrase
+  // We try heading-style fields first because they're more reliable, then
+  // fall through to prose.
+  const wi = STATE.extractions['website-intel'] || STATE.extractions.website || STATE.extractions['A1'];
+  if (wi && wi.text) {
+    // Try field-style match first (handles "Company: X", "Insured: X", "Name: X")
+    const fieldMatch =
+      wi.text.match(/\*{0,2}(?:Company\s+Name|Insured\s+Name|Named\s+Insured|Company|Insured|Name)\*{0,2}\s*:?\s*([A-Z][^\n]{2,80})/i);
+    if (fieldMatch) return cleanDerived(fieldMatch[1]);
+    // Then try first-sentence prose
+    const proseMatch =
+      wi.text.match(/^([A-Z][^,\n]{3,80}?)\s+(is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m) ||
+      wi.text.match(/^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m);
+    if (proseMatch) return cleanDerived(proseMatch[1]);
   }
   return null;
 }
