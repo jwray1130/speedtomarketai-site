@@ -1860,71 +1860,137 @@ function loadSubmissions() {
 // templates but aren't strict JSON, so we have to scan prose. Each helper
 // returns null if it can't find a confident match; the queue cell then shows "—".
 
-function deriveAccountName() {
-  // Try supplemental first (most authoritative), then summary-ops opening line
-  const supp = STATE.extractions.supplemental;
-  if (supp && supp.text) {
-    const m = supp.text.match(/\*{0,2}Company Name\*{0,2}\s*:?\s*([^\n]+)/i)
-          || supp.text.match(/\*{0,2}Applicant\*{0,2}\s*:?\s*([^\n]+)/i)
-          || supp.text.match(/\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i);
-    if (m) return cleanDerived(m[1]);
-  }
-  const so = STATE.extractions['summary-ops'];
-  if (so && so.text) {
-    // Opening narrative patterns. The A6 prompt instructs the model to start
-    // with "[Company Name], founded in [Year], specializes in...", but real
-    // output frequently varies. Examples we've seen and need to catch:
-    //   "Kimble Company, a family-owned business with over 70 years..."
-    //   "Acme Corp, headquartered in Chicago, provides..."
-    //   "Acme Corp is a Michigan-based company that..."
-    //   "Acme Corp provides full-service residential..."
-    //   "Acme Corp, based in Texas, has been..."
-    //
-    // Strategy: try patterns in priority order, most specific first. If none
-    // match, fall through to the Website Intel fallback below.
-    let m =
-      // Pattern A: "X, <verb-phrase>" — original strict pattern, kept for
-      // back-compat with submissions that match it perfectly.
-      so.text.match(/^([A-Z][^,\n]{3,80}?),\s*(founded|established|specialize|is\s+a|headquartered|based\s+in|providing|provides|operating)/im) ||
-      // Pattern B: "X, a <descriptor>" — catches "a family-owned business",
-      // "a Michigan-based company", "a leading provider of", etc.
-      so.text.match(/^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m) ||
-      // Pattern C: "X is a..." / "X provides..." / "X operates..." with no
-      // leading comma. Looser — only fires if the next word is a recognized
-      // company-description verb.
-      so.text.match(/^([A-Z][^,\n]{3,80}?)\s+(is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m);
-    if (m) return cleanDerived(m[1]);
-  }
-  // Fall back to GL/AL named insured
-  for (const mid of ['gl_quote', 'al_quote']) {
-    const ext = STATE.extractions[mid];
-    if (ext && ext.text) {
-      const m = ext.text.match(/\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i);
-      if (m) return cleanDerived(m[1]);
+// === ACCOUNT NAME EXTRACTION HELPERS ===
+// Returns {name, source, confidence} or null. Source is the field/extraction
+// that produced the name; confidence is a per-source heuristic (not from LLM).
+// These helpers are isolated for testability and to keep the priority chain
+// in deriveAccountName() readable.
+
+// Reject obvious filler / non-company phrases. Without this, the looser
+// patterns (Pattern C in summary-ops) could match things like "The company
+// has been..." or "Submission information..." or "Operations include...".
+const ACCOUNT_NAME_BLOCKLIST = [
+  /^the\s+company/i,
+  /^the\s+applicant/i,
+  /^the\s+insured/i,
+  /^submission\s+information/i,
+  /^operations?\s+include/i,
+  /^products?\s+and\s+services/i,
+  /^safety\s+protocols?/i,
+  /^percentage\s+of\s+work/i,
+  /^target\s+markets?/i,
+  /^according\s+to/i,
+  /^based\s+on/i,
+];
+
+function isLikelyCompanyName(s) {
+  if (!s || typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  if (trimmed.length < 3 || trimmed.length > 100) return false;
+  if (ACCOUNT_NAME_BLOCKLIST.some(rx => rx.test(trimmed))) return false;
+  // Must contain at least one capitalized word
+  if (!/[A-Z][a-z]/.test(trimmed)) return false;
+  return true;
+}
+
+// Returns the first match from a list of regex patterns, or null. Each
+// pattern is expected to capture the company name in group 1.
+function _matchCompanyName(text, patterns) {
+  for (const rx of patterns) {
+    const m = text.match(rx);
+    if (m && isLikelyCompanyName(m[1])) {
+      return cleanDerived(m[1]);
     }
   }
-  // FINAL FALLBACK — Website Intel (A1). When a submission has ONLY a website
-  // scrape and no broker docs (no supplemental, no GL/AL quote), this is the
-  // only place the company name lives. The A1 prompt produces output that
-  // typically opens with the company name in heading or first sentence.
-  // Look for two patterns:
-  //   1. A markdown heading like "**Company Name:** Acme Corp" or "# Acme Corp"
-  //   2. The first sentence opening with a capitalized phrase
-  // We try heading-style fields first because they're more reliable, then
-  // fall through to prose.
-  const wi = STATE.extractions['website-intel'] || STATE.extractions.website || STATE.extractions['A1'];
-  if (wi && wi.text) {
-    // Try field-style match first (handles "Company: X", "Insured: X", "Name: X")
-    const fieldMatch =
-      wi.text.match(/\*{0,2}(?:Company\s+Name|Insured\s+Name|Named\s+Insured|Company|Insured|Name)\*{0,2}\s*:?\s*([A-Z][^\n]{2,80})/i);
-    if (fieldMatch) return cleanDerived(fieldMatch[1]);
-    // Then try first-sentence prose
-    const proseMatch =
-      wi.text.match(/^([A-Z][^,\n]{3,80}?)\s+(is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m) ||
-      wi.text.match(/^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m);
-    if (proseMatch) return cleanDerived(proseMatch[1]);
+  return null;
+}
+
+function _accountNameFromSupplemental(extractions) {
+  const supp = extractions && extractions.supplemental;
+  if (!supp || !supp.text) return null;
+  const name = _matchCompanyName(supp.text, [
+    /\*{0,2}Company Name\*{0,2}\s*:?\s*([^\n]+)/i,
+    /\*{0,2}Applicant\*{0,2}\s*:?\s*([^\n]+)/i,
+    /\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i,
+  ]);
+  return name ? { name, source: 'supplemental.field', confidence: 0.95 } : null;
+}
+
+function _accountNameFromQuoteNamedInsured(extractions) {
+  for (const mid of ['gl_quote', 'al_quote', 'excess']) {
+    const ext = extractions && extractions[mid];
+    if (!ext || !ext.text) continue;
+    const name = _matchCompanyName(ext.text, [
+      /\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i,
+    ]);
+    if (name) return { name, source: mid + '.named_insured', confidence: 0.92 };
   }
   return null;
+}
+
+function _accountNameFromSummaryOps(extractions) {
+  const so = extractions && extractions['summary-ops'];
+  if (!so || !so.text) return null;
+  // Pattern A: "X, <company-description-verb>"
+  let name = _matchCompanyName(so.text, [
+    /^([A-Z][^,\n]{3,80}?),\s*(?:founded|established|specialize|is\s+a|headquartered|based\s+in|providing|provides|operating)/im,
+  ]);
+  if (name) return { name, source: 'summary-ops.opening_verb', confidence: 0.85 };
+  // Pattern B: "X, a <descriptor>" — catches "a family-owned business",
+  // "a Michigan-based company", "a leading provider of"
+  name = _matchCompanyName(so.text, [
+    /^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m,
+  ]);
+  if (name) return { name, source: 'summary-ops.opening_descriptor', confidence: 0.80 };
+  // Pattern C: "X provides...", "X operates...", etc. (no leading comma).
+  // Looser — only fires if a recognized company-description verb follows.
+  name = _matchCompanyName(so.text, [
+    /^([A-Z][^,\n]{3,80}?)\s+(?:is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m,
+  ]);
+  if (name) return { name, source: 'summary-ops.opening_no_comma', confidence: 0.75 };
+  return null;
+}
+
+function _accountNameFromWebsiteIntel(extractions) {
+  const wi = extractions && (extractions['website-intel'] || extractions.website || extractions['A1']);
+  if (!wi || !wi.text) return null;
+  // Field-style match first
+  let name = _matchCompanyName(wi.text, [
+    /\*{0,2}(?:Company\s+Name|Insured\s+Name|Named\s+Insured)\*{0,2}\s*:?\s*([A-Z][^\n]{2,80})/i,
+    /\*{0,2}(?:Company|Insured|Name)\*{0,2}\s*:?\s*([A-Z][^\n]{2,80})/i,
+  ]);
+  if (name) return { name, source: 'website-intel.field', confidence: 0.88 };
+  // Prose fallback
+  name = _matchCompanyName(wi.text, [
+    /^([A-Z][^,\n]{3,80}?)\s+(?:is\s+a(?:n)?|provides|operates|offers|serves|specializes\s+in|delivers)\b/m,
+    /^([A-Z][^,\n]{3,80}?),\s+a(?:n)?\s+[a-z]/m,
+  ]);
+  if (name) return { name, source: 'website-intel.prose', confidence: 0.70 };
+  return null;
+}
+
+// Main entry. Walks priority chain, returns first non-null result.
+// Single-source priority order — broker docs > A6 prose > A1 website.
+// Website-only submissions naturally fall through to the website fallback;
+// no need for a special-case branch (which would duplicate logic).
+function deriveAccountNameDetailed(extractions) {
+  const sources = [
+    _accountNameFromSupplemental,
+    _accountNameFromQuoteNamedInsured,
+    _accountNameFromSummaryOps,
+    _accountNameFromWebsiteIntel,
+  ];
+  for (const fn of sources) {
+    const result = fn(extractions || {});
+    if (result && result.name) return result;
+  }
+  return null;
+}
+
+// Backward-compatible: existing callers expect a string or null.
+function deriveAccountName() {
+  const detailed = deriveAccountNameDetailed(STATE.extractions);
+  return detailed ? detailed.name : null;
 }
 
 function deriveBroker() {
@@ -2527,7 +2593,71 @@ document.addEventListener('click', (e) => {
 });
 
 // ---- Queue rendering -----------------------------------------------------
+// Backfill missing account_name on submissions where extractions exist but
+// the name was never derived (typical case: submission archived before the
+// regex covered the company-description pattern, like "X, a family-owned…").
+// Walks STATE.submissions, finds rows with no account but a snapshot that
+// contains extractions, re-derives, persists the patched record back to
+// Supabase. Fire-and-forget; never blocks render.
+//
+// Without this, broadening deriveAccountName() only fixes future submissions.
+// Existing rows would stay "(no name extracted)" until the user clicks
+// Re-run Guidelines. Auto-backfill removes that step entirely.
+function backfillMissingAccountNames() {
+  if (!Array.isArray(STATE.submissions) || STATE.submissions.length === 0) return;
+  const candidates = STATE.submissions.filter(rec =>
+    !rec.account &&
+    rec.snapshot &&
+    rec.snapshot.extractions &&
+    Object.keys(rec.snapshot.extractions).length > 0 &&
+    !rec._backfillAttempted   // single-attempt-per-session marker
+  );
+  if (candidates.length === 0) return;
+  for (const rec of candidates) {
+    rec._backfillAttempted = true;   // prevent re-attempt loop
+    try {
+      const detailed = deriveAccountNameDetailed(rec.snapshot.extractions);
+      if (detailed && detailed.name) {
+        rec.account = detailed.name;
+        rec.accountNameSource = detailed.source;
+        rec.accountNameConfidence = detailed.confidence;
+        if (typeof logAudit === 'function') {
+          logAudit('Submissions', 'Backfilled name for ' + rec.id + ' · ' + detailed.name + ' · source ' + detailed.source, 'ok');
+        }
+        // Persist the patched record back to cloud. Fire-and-forget — render
+        // already used the in-memory value; cloud sync is best-effort.
+        if (typeof sbSaveSubmission === 'function') {
+          (async () => {
+            try {
+              const liteSnapshot = rec.snapshot ? {
+                ...rec.snapshot,
+                files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+                derived: {
+                  account:         rec.account || null,
+                  broker:          rec.broker || null,
+                  effectiveDate:   rec.effective || rec.effectiveDate || null,
+                  requestedLimits: rec.requested || rec.requestedLimits || null,
+                  missingInfo:     rec.missingInfo || null
+                }
+              } : null;
+              await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+            } catch (err) {
+              console.warn('Backfill cloud save failed for ' + rec.id, err);
+            }
+          })();
+        }
+      }
+    } catch (err) {
+      console.warn('Backfill threw for ' + rec.id, err);
+    }
+  }
+}
+
 function renderQueueTable() {
+  // Auto-backfill missing names BEFORE building rows. One attempt per
+  // submission per session (gated by _backfillAttempted). Cheap when there's
+  // nothing to do (filter returns []), invisible when it succeeds.
+  try { backfillMissingAccountNames(); } catch (e) { console.warn('Backfill pass threw:', e); }
   const tbody = document.getElementById('queueBody');
   if (!tbody) return;
   if (STATE.submissions.length === 0) {

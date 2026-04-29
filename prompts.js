@@ -740,6 +740,8 @@ Include a section ONLY when you actually found content for it. Do NOT render emp
 
 OUTPUT SECTIONS (include each only if you have real content):
 
+**Company Name:** The legal/marketing name of the company as it appears on the website (header, footer, "About Us", or page title). Use the form they actually use on the site — if the homepage banner says "Acme Corp, Inc." use that; if it just says "Acme Corp" use that. ALWAYS include this section if you found a name; this is used as the canonical identifier across the submission. Omit ONLY if the site is so generic you cannot extract any reliable company name.
+
 **Services Extracted:** Actual services and operations performed by the insured, as stated on the site. If none found, omit this section.
 
 **Target Markets / Industries:** Verticals or customer segments the insured explicitly names. Omit if not stated.
