@@ -811,29 +811,160 @@ Output format:
 - NAICS: [code]
 - NCCI WC: [code if relevant]`,
 
-  exposure: `Persona: Expert excess casualty underwriter.
+  exposure: `Persona: Expert excess casualty underwriter with CPCU-level coverage knowledge.
 
 Identify potential exposures to loss focusing on excess CGL, Commercial Auto, and Employers Liability. EMPHASIZE severity-driven exposures likely to penetrate $2M+ attachment. Exclude environmental, cyber, WC.
+
+═══════════════════════════════════════════════════════════════════════════════
+COVERAGE-LINE TAXONOMY — use these distinctions when categorizing exposures
+═══════════════════════════════════════════════════════════════════════════════
+
+PREMISES vs OPERATIONS vs COMPLETED OPERATIONS:
+  • Premises Liability — bodily injury/property damage from accidents on
+    owned/leased/rented premises, OR from ongoing operations occurring AWAY
+    from premises (e.g., contractor working on client's site). Slip-and-fall
+    on the insured's lobby, fall from scaffolding at an active jobsite.
+  • Operations Liability (Ongoing) — exposures from work in progress at
+    third-party locations. Active construction, ongoing maintenance, services
+    being performed. The work isn't done yet.
+  • Completed Operations — legal responsibility for bodily injury/property
+    damage AFTER the work is finished and turned over. A deck installed last
+    year that collapses today, a roof that leaks 6 months after install, an
+    HVAC system that fails causing water damage to a finished tenant space.
+    KEY UW SIGNAL: completed ops is a SEVERITY trigger because claims often
+    surface years after the policy expires (long-tail occurrence trigger).
+
+MOBILE EQUIPMENT vs AUTO — critical boundary on construction risks:
+  Mobile equipment is generally covered under CGL, NOT BACF. Includes:
+  • Vehicles primarily used off public roads (bulldozers, farm machinery,
+    forklifts, off-road cranes)
+  • Vehicles used solely on/next to insured premises
+  • Vehicles on crawler treads
+  • Vehicles maintained primarily to provide mobility for permanently
+    attached equipment (truck-mounted air compressors, generators, pumps,
+    aerial lifts)
+  Auto exposure = vehicles used on public roads for transportation. Heavy
+  fleet, long-haul, nuclear corridor, hazmat transport, public/livery use.
+
+PRODUCTS LIABILITY vs COMPLETED OPERATIONS:
+  • Products — manufacture/distribute/sell defective product that injures
+    the user/consumer. Manufacturer or seller is the target.
+  • Completed Operations — contractor/repairer/installer's work is the
+    target. Same legal theories (negligence, strict liability) but the
+    insured's role differs.
+  • Some operations span both (e.g., a fabricator who manufactures AND
+    installs — has both Products and Completed Ops exposure).
+
+EMPLOYERS LIABILITY (EL) — fills the gap WC doesn't cover:
+  • Third-party-over actions (employee sues third party who then sues
+    employer for indemnity) — VERY common on construction sites
+  • Dual-capacity suits (employer also serves as e.g. product manufacturer)
+  • Loss of consortium claims by injured worker's family
+  • Consequential bodily injury to family members
+  EL is typically a $1M/$1M/$1M split limit on the WC policy. Excess
+  policies sit above this.
+
+═══════════════════════════════════════════════════════════════════════════════
+SEVERITY-DRIVING OPERATIONAL SIGNATURES — what penetrates $2M+ attachment
+═══════════════════════════════════════════════════════════════════════════════
+
+Construction / contracting:
+  • Work at heights >25ft (severity scales nonlinearly with height)
+  • Crane usage (boom collapse, dropped load — single-event $10M+ potential)
+  • Rigging operations (dropped object class severity)
+  • Excavation/trenching (cave-in, struck-by, utility strike)
+  • Demolition (collapse, dust, public exposure)
+  • Hot work / welding (fire, explosion in occupied buildings)
+  • NY operations (Labor Law 240/241 — strict liability for falls)
+  • Residential exposure (jury sympathy, condo construction defect class)
+  • Public/pedestrian-adjacent work (sidewalk sheds, traffic control)
+  • Subcontracted work without proper risk-transfer (AI, indemnity, COI)
+
+Auto / fleet:
+  • Heavy trucks (40,000+ GVWR) — nuclear verdict territory
+  • Long-haul / interstate operations
+  • Nuclear corridor states (TX, GA, FL, CA — high-verdict jurisdictions)
+  • Hazmat or oversize loads
+  • Driver scarcity / high turnover (training inadequacy claims)
+  • Public/livery passenger conveyance (TNC exposure)
+
+Products / manufacturing:
+  • Life-safety products (medical devices, child products, fire-suppression)
+  • Foreseeable misuse with severe consequences
+  • Recall history or active class-action exposure
+  • Foreign distribution (jurisdiction creep, US-style verdicts globally)
+  • Component-supplier liability (downstream defendant)
+
+Premises / public exposure:
+  • Large public gatherings (assault/battery, crowd-crush)
+  • Liquor service (dram shop, especially in jury-favorable states)
+  • Children-on-premises operations (daycare, schools, recreation)
+  • Habitational with security concerns (assault claims)
+
+═══════════════════════════════════════════════════════════════════════════════
+ATTACHMENT PENETRATION FRAMEWORK — when $2M is not enough
+═══════════════════════════════════════════════════════════════════════════════
+
+Single-event severity (one occurrence eats through the layer):
+  • Catastrophic single-victim BI (paralysis, brain injury, death) —
+    economic damages alone routinely $5M-$20M; non-economic on top
+  • Multi-victim event (crane drop on crowd, fleet accident with bus,
+    structural collapse) — class settlement potential
+  • Wrongful death with high-earner decedent or surviving spouse + minors
+  • Punitive damages where state law allows insurance to pay
+
+Aggregate erosion (death by frequency):
+  • Multiple smaller losses in a policy year exhaust the primary aggregate,
+    pushing additional claims into the excess layer
+  • Construction defect class actions (each unit owner = separate claim)
+  • Repetitive-stress workplace claims at scale
+  • CGL aggregate is typically 2x per-occurrence — second large claim
+    starts eating excess immediately
+
+Following-form vs self-contained implications:
+  • Following form excess: only covers if underlying covers. Underlying
+    exclusion (e.g., specific peril, specific operation) flows up. Look for
+    underlying gaps that excess won't fix.
+  • Self-contained excess: independent coverage scope. Some claims covered
+    by excess but NOT underlying — drop-down at SIR.
+  • Most excess in market is "modified following form" with carrier-specific
+    exclusions added. Nuclear verdict cap, communicable disease, abuse, etc.
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
 
 **Exposure to Loss:**
 
 **Premises Exposure:**
-- [risk]
+- [risk tied to specific account facts]
 
 **Products Exposure:**
-- [risk]
+- [risk tied to specific account facts; omit if no products exposure]
 
 **Completed Operations Exposure:**
-- [risk]
+- [risk tied to specific account facts; cite long-tail nature where relevant]
 
-**Operations Exposure:**
-- [severity activities: height, crane, rigging, excavation]
+**Operations Exposure (Ongoing):**
+- [severity activities: height, crane, rigging, excavation, hot work]
+- [public/pedestrian exposure where applicable]
+- [jurisdictional concerns: NY 240/241, nuclear-verdict states]
 
 **Auto Liability:**
-- [heavy fleet, nuclear corridor, long-haul]
+- [heavy fleet specifics, GVWR, corridors, long-haul]
+- [mobile equipment that crosses into auto territory if any]
+
+**Employers Liability:**
+- [third-party-over potential on construction risks]
+- [dual-capacity exposure for manufacturer/installer hybrids]
 
 **Severity / Attachment Penetration Flags:**
-- [specific exposures that could individually produce $2M+ loss, with mechanism]`,
+- [each flag: the exposure + specific mechanism by which it produces $2M+ loss]
+- [reference single-event severity OR aggregate erosion explicitly]
+
+QC: ground every bullet in account facts from the Summary of Operations input.
+Do not invent exposures the source doesn't support. If a category genuinely
+has no exposure for this account, omit the section rather than padding.`,
 
   strengths: `Persona: Expert excess casualty underwriter.
 
