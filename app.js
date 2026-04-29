@@ -113,9 +113,105 @@ window.currentActor = currentActor;
 
 // Shared helper: POST to the LLM proxy with the current session token.
 // Returns the parsed Anthropic Messages response.
+// LLM PROXY FETCH WITH RETRY + STRUCTURED LOGGING
+// ============================================================================
+// Wraps the call to the Supabase Edge Function `llm-proxy` with:
+//   1. Retry-with-backoff for transient infrastructure failures (Cloudflare
+//      challenges, 429s, 5xx). The first version of this function failed
+//      immediately on any non-2xx response — that's the worst possible
+//      posture against Cloudflare's "Just a moment..." interstitial, which
+//      is specifically designed to clear after a short delay.
+//   2. Structured audit logging on every call (success or failure). Captures
+//      status, response_bytes, model, latency_ms, ray_id, retry_attempt, and
+//      categorized error type. Without this, the audit log shows "FAILED A1:
+//      LLM proxy 403: <!DOCTYPE html..." with no Ray ID, no model, no
+//      timing — forensically useless.
+//   3. Error categorization. Distinguishes INFRA_403 (Cloudflare/upstream
+//      blocked) from RATE_LIMITED (429) from MODEL_ERROR (200 OK but bad
+//      JSON) from INPUT_ERROR (400 client mistake) etc. The category drives
+//      retry decision: INFRA_403 retries with long backoff, INPUT_ERROR
+//      doesn't retry (config bug, won't help).
+//
+// IMPORTANT: this is the single chokepoint for ALL LLM calls — pipeline
+// modules, classifier, scraper, web-fetch beta. One change here improves
+// resilience for every downstream caller. Do not bypass this function.
+
+const LLM_PROXY_RETRY_CONFIG = {
+  // Cloudflare-friendly delays. The "Just a moment…" challenge typically
+  // clears in 5-30s. Don't hammer faster than that or we'll just trigger
+  // the rule again and look more bot-like.
+  cf403:   [5000, 15000, 30000],   // 5s, 15s, 30s
+  rate429: [5000, 15000, 30000],   // honors Retry-After if present, else this
+  server5xx: [1000, 4000, 16000],  // transient backend, retry fast
+  network: [1000, 4000, 16000],    // network/timeout, retry fast
+  maxRetries: 3,                    // total attempts = maxRetries + 1 = 4
+  perAttemptTimeout: 120000,        // 2 minutes per attempt; large extractions
+                                    // can run long. Whole call can take 10+ min
+                                    // worst-case across all retries.
+};
+
+// Categorize the failure based on status + body content.
+// Returns { category, isRetriable, retryDelays } where retryDelays is the
+// schedule to use for backoff (in ms).
+function categorizeProxyError(status, bodySnippet) {
+  if (!status || status === 0) {
+    // Network failure — fetch threw before getting a response
+    return { category: 'NETWORK', isRetriable: true, retryDelays: LLM_PROXY_RETRY_CONFIG.network };
+  }
+  if (status === 403) {
+    // Cloudflare or proxy authorization. The HTML signature for Cloudflare's
+    // managed challenge is the giveaway: <title>Just a moment...</title>.
+    // True 403 from Anthropic itself comes back as JSON, not HTML.
+    const isCloudflare = /just a moment|<!DOCTYPE html|cf-ray|cloudflare/i.test(bodySnippet || '');
+    return {
+      category: isCloudflare ? 'INFRA_403_CLOUDFLARE' : 'INFRA_403',
+      isRetriable: true,
+      retryDelays: LLM_PROXY_RETRY_CONFIG.cf403
+    };
+  }
+  if (status === 429) {
+    return { category: 'RATE_LIMITED', isRetriable: true, retryDelays: LLM_PROXY_RETRY_CONFIG.rate429 };
+  }
+  if (status >= 500 && status < 600) {
+    return { category: 'INFRA_5XX', isRetriable: true, retryDelays: LLM_PROXY_RETRY_CONFIG.server5xx };
+  }
+  if (status === 400) {
+    // 400 is usually a request validation error — bad model name, prompt
+    // too long, malformed body. Retrying won't help.
+    return { category: 'INPUT_ERROR', isRetriable: false, retryDelays: [] };
+  }
+  if (status === 401) {
+    // Auth failure — JWT expired or invalid. Don't retry, won't help.
+    return { category: 'AUTH_ERROR', isRetriable: false, retryDelays: [] };
+  }
+  if (status === 404) {
+    return { category: 'CONFIG_ERROR', isRetriable: false, retryDelays: [] };
+  }
+  // Anything else 4xx — don't retry by default, return generic category
+  return { category: 'CLIENT_ERROR_' + status, isRetriable: false, retryDelays: [] };
+}
+
+// Extract Cloudflare Ray ID from response headers OR body fallback.
+// Ray IDs look like: 8a3f9c2bd1234567 (hex). Header is 'cf-ray', body
+// usually has it in a <div class="ray-id"> or similar near the bottom.
+function extractRayId(headers, bodySnippet) {
+  // Headers are most reliable
+  if (headers && typeof headers.get === 'function') {
+    const cfRay = headers.get('cf-ray');
+    if (cfRay) return cfRay.split('-')[0];  // strip datacenter suffix if present
+  }
+  // Body fallback — Cloudflare's interstitial pages embed the Ray ID
+  if (bodySnippet) {
+    const m = bodySnippet.match(/(?:ray[\s-]?id|cf-ray)[^a-z0-9]*([a-f0-9]{16})/i);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 async function llmProxyFetch(body, extraHeaders) {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error('Not signed in');
+
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer ' + session.access_token
@@ -123,16 +219,179 @@ async function llmProxyFetch(body, extraHeaders) {
   if (extraHeaders) {
     for (const k in extraHeaders) headers[k] = extraHeaders[k];
   }
-  const res = await fetch(LLM_PROXY_URL, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error('LLM proxy ' + res.status + ': ' + t.slice(0, 400));
+
+  // Pre-compute payload size for telemetry. JSON.stringify is the same call
+  // fetch will make internally, so this isn't extra work — we just capture
+  // the byte count.
+  const bodyJson = JSON.stringify(body);
+  const requestBytes = bodyJson.length;
+  const requestModel = (body && body.model) || 'unknown';
+  const requestMaxTokens = (body && body.max_tokens) || null;
+
+  let lastErr = null;
+  let attempt = 0;
+  const maxAttempts = LLM_PROXY_RETRY_CONFIG.maxRetries + 1;
+  let retryDelaysForLastError = [];
+
+  while (attempt < maxAttempts) {
+    const startedAt = Date.now();
+    let res = null;
+    let bodyText = '';
+    let bodySnippet = '';
+    let parsed = null;
+    let status = 0;
+    let networkErr = null;
+
+    // Per-attempt timeout via AbortController. Without this, a hung proxy
+    // could pin a single attempt forever and we'd never get to retry.
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), LLM_PROXY_RETRY_CONFIG.perAttemptTimeout);
+
+    try {
+      res = await fetch(LLM_PROXY_URL, {
+        method: 'POST',
+        headers: headers,
+        body: bodyJson,
+        signal: abortCtrl.signal
+      });
+      status = res.status;
+    } catch (err) {
+      networkErr = err;
+      // AbortError means we hit the per-attempt timeout. Treat as 0 status
+      // (network class) so it follows the network retry schedule.
+      status = 0;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const latencyMs = Date.now() - startedAt;
+
+    // If we got a response, read the body once. We need it for two paths:
+    // 1) success → JSON.parse
+    // 2) failure → snippet for error categorization + Ray ID extraction
+    if (res) {
+      try {
+        bodyText = await res.text();
+        bodySnippet = bodyText.slice(0, 2048);  // cap at 2KB for log meta
+      } catch (e) {
+        bodyText = '';
+        bodySnippet = '(body read error: ' + (e.message || 'unknown') + ')';
+      }
+    }
+
+    // Build the structured meta object that goes into the audit log.
+    // This is captured for BOTH success and failure attempts so we have
+    // complete telemetry (size distributions, latency percentiles, etc.).
+    const meta = {
+      status: status,
+      request_bytes: requestBytes,
+      response_bytes: bodyText.length,
+      model: requestModel,
+      max_tokens: requestMaxTokens,
+      latency_ms: latencyMs,
+      ray_id: res ? extractRayId(res.headers, bodySnippet) : null,
+      retry_attempt: attempt,
+      max_attempts: maxAttempts
+    };
+
+    // === SUCCESS PATH ===
+    if (res && res.ok) {
+      try {
+        parsed = JSON.parse(bodyText);
+      } catch (parseErr) {
+        // 200 OK but the response body isn't valid JSON. This is a MODEL_ERROR
+        // class — the proxy delivered something but it's not what Anthropic
+        // would normally return. Don't retry; the model already produced
+        // its (broken) output and would just produce the same on retry.
+        meta.error_category = 'MODEL_ERROR';
+        meta.error_detail = 'JSON parse failed: ' + (parseErr.message || 'unknown');
+        meta.body_snippet = bodySnippet;
+        if (typeof logAudit === 'function') {
+          logAudit('LLMProxy', 'MODEL_ERROR · ' + requestModel + ' · ' + latencyMs + 'ms · ' + bodyText.length + ' bytes · parse failed', meta);
+        }
+        throw new Error('LLM proxy returned non-JSON: ' + bodySnippet.slice(0, 300));
+      }
+      // Log successful call to audit. Costs nothing (text column, JSON.stringify),
+      // gives us the size + latency distributions that will spot future patterns.
+      if (typeof logAudit === 'function') {
+        logAudit('LLMProxy', 'OK · ' + requestModel + ' · ' + latencyMs + 'ms · ' + requestBytes + 'b → ' + bodyText.length + 'b' + (attempt > 0 ? ' · retry ' + attempt : ''), meta);
+      }
+      return parsed;
+    }
+
+    // === FAILURE PATH ===
+    // Categorize the failure. This determines whether to retry and with
+    // what backoff schedule.
+    const errInfo = categorizeProxyError(status, bodySnippet);
+    meta.error_category = errInfo.category;
+    meta.error_detail = bodySnippet.slice(0, 400);  // first 400 chars of error body
+    meta.is_retriable = errInfo.isRetriable;
+    if (networkErr) {
+      meta.network_error = networkErr.name + ': ' + (networkErr.message || 'unknown');
+    }
+    retryDelaysForLastError = errInfo.retryDelays;
+
+    // Log this attempt to audit BEFORE deciding whether to retry. Each
+    // failed attempt becomes its own audit row so we can see the retry
+    // pattern after the fact.
+    if (typeof logAudit === 'function') {
+      logAudit(
+        'LLMProxy',
+        errInfo.category + ' · status=' + status + ' · ' + latencyMs + 'ms · attempt ' + (attempt + 1) + '/' + maxAttempts + (meta.ray_id ? ' · ray=' + meta.ray_id : '') + (errInfo.isRetriable && attempt + 1 < maxAttempts ? ' · will retry' : ' · giving up'),
+        meta
+      );
+    }
+
+    lastErr = new Error('LLM proxy ' + status + ' [' + errInfo.category + ']' + (meta.ray_id ? ' ray=' + meta.ray_id : '') + ': ' + bodySnippet.slice(0, 300));
+    lastErr.category = errInfo.category;
+    lastErr.status = status;
+    lastErr.rayId = meta.ray_id;
+    lastErr.attempt = attempt;
+    lastErr.bodySnippet = bodySnippet;
+
+    // Decide: retry or bail?
+    if (!errInfo.isRetriable) {
+      // Permanent error — config issue, auth problem, validation error.
+      // Don't retry; user/admin needs to fix something.
+      throw lastErr;
+    }
+    if (attempt + 1 >= maxAttempts) {
+      // Out of retries.
+      throw lastErr;
+    }
+
+    // Compute the delay for the NEXT attempt. For 429 specifically, prefer
+    // the server-supplied Retry-After header if present.
+    let delayMs = retryDelaysForLastError[attempt] || retryDelaysForLastError[retryDelaysForLastError.length - 1] || 5000;
+    if (status === 429 && res) {
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter) {
+        // Retry-After can be either a number of seconds or an HTTP date
+        const seconds = parseInt(retryAfter, 10);
+        if (!isNaN(seconds) && seconds > 0 && seconds < 600) {
+          delayMs = seconds * 1000;
+        }
+      }
+    }
+
+    if (typeof toast === 'function' && attempt === 0) {
+      // Surface the first retry to the user so they know we're working on
+      // it. Subsequent retries don't toast (too noisy if 3 attempts fail).
+      const friendly = errInfo.category === 'INFRA_403_CLOUDFLARE'
+        ? 'Cloudflare challenge · auto-retry in ' + Math.round(delayMs / 1000) + 's'
+        : errInfo.category === 'RATE_LIMITED'
+          ? 'Rate-limited · retry in ' + Math.round(delayMs / 1000) + 's'
+          : 'Proxy error ' + status + ' · retry in ' + Math.round(delayMs / 1000) + 's';
+      toast(friendly, 'warn');
+    }
+
+    // Wait, then loop.
+    await new Promise(r => setTimeout(r, delayMs));
+    attempt++;
   }
-  return res.json();
+
+  // Should be unreachable but defensive.
+  throw lastErr || new Error('LLM proxy failed with unknown error after retries');
 }
 
 // ============================================================================
