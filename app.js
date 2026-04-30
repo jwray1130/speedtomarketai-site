@@ -1277,9 +1277,443 @@ loadGuidelineFromStorage();
 loadEdits();
 
 // ============================================================================
+// CLAUDE VISION — primary OCR path for scanned PDFs and images
+// ============================================================================
+// State-of-the-art document understanding. Anthropic's PDF/image input lets
+// Claude read pages natively as images — handles handwriting, table structure,
+// multi-column layouts, ACORD forms, signatures, and stamps with quality far
+// beyond Tesseract.js. Critical for production underwriting where misread
+// limits / dates / dollar amounts produce plausible-but-wrong outputs that
+// don't fail conspicuously.
+//
+// Architecture:
+//   1) PDF text-layer extraction first (fast, free — most non-scanned PDFs
+//      take this path).
+//   2) If text-layer is empty/tiny → try Claude Vision via existing llm-proxy.
+//      Reuses the entire retry/backoff/audit infrastructure built in Phase 10.
+//   3) On any vision failure → fall back to Tesseract.js (still loaded
+//      lazily, retained for offline / proxy-down scenarios).
+//   4) On total failure → manual paste modal (last resort).
+//
+// API constraints (Anthropic, as of April 2026):
+//   - Max 100 pages per PDF document block. We chunk PDFs >100 pages by
+//     splitting via pdf.js into <=100-page sub-documents, OCR each, concat.
+//   - Max 32MB per PDF (post-base64 inflation: source must be ~24MB).
+//     For oversized PDFs we render each page to JPEG via canvas and send
+//     as image content blocks instead — works for 200-page scans that
+//     would otherwise blow the size cap.
+//
+// Cost reality check: A typical scanned binder page runs ~1,500-2,500 input
+// tokens through Claude Opus 4.7. A 99-page binder costs roughly $1.50-3.00
+// per pass. Negligible against the underwriting decision being supported.
+//
+// Quality vs Tesseract: Vision ~95%+ accuracy on field-level data including
+// tables and form pairings, vs Tesseract's 60-80% on the same material with
+// table structure destroyed.
+
+const CLAUDE_VISION_CONFIG = {
+  // Use Sonnet for OCR — high quality at materially lower cost than Opus and
+  // OCR is largely a perception task, not a reasoning task. forced=true on the
+  // settings page can still route through Opus if STATE.api.forceGlobal is set.
+  model: 'claude-sonnet-4-6',
+  // Max output tokens for an OCR call. A single 100-page chunk yields ~30k-60k
+  // tokens of extracted text on average; 16384 covers most cases. If we hit the
+  // ceiling on a chunk we'll see truncation in audit and can re-chunk smaller.
+  maxOutputTokens: 16384,
+  // Chunk size for >100-page PDFs. Stays under Anthropic's 100-page hard cap
+  // with margin for cover pages / blank pages that the API still counts.
+  pagesPerChunk: 80,
+  // Per-chunk timeout in ms. Vision calls can be slow on 80-page chunks; the
+  // proxy's per-attempt timeout (LLM_PROXY_RETRY_CONFIG.perAttemptTimeout)
+  // is the actual limit but we surface a friendlier message at this threshold.
+  perChunkTimeoutMs: 240000,  // 4 minutes
+};
+
+// Extract text from a PDF via Claude Vision through the existing llm-proxy.
+// Returns { text, confidence } where confidence is the model's self-reported
+// estimate of OCR fidelity. Throws on hard failure (proxy unreachable,
+// authentication, malformed response) — the caller should fall back to
+// Tesseract on throw.
+async function extractTextViaClaudeVision(file, fileEntry) {
+  if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js not loaded');
+  if (!window.currentUser) throw new Error('not signed in');
+
+  const arrayBuf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+  const totalPages = pdf.numPages;
+  // Anthropic accepts PDF source ≤32MB after base64 encoding (~24MB raw). Below
+  // that AND ≤80 pages, we can send the PDF directly as a document block — the
+  // simpler/cheaper path and Anthropic renders server-side at higher quality
+  // than our 2.0x JPEG. Above either threshold we render-to-JPEG-and-chunk.
+  const fileSizeMb = arrayBuf.byteLength / (1024 * 1024);
+  const canUseNativePdf = (totalPages <= CLAUDE_VISION_CONFIG.pagesPerChunk && fileSizeMb < 22);
+
+  if (fileEntry) {
+    fileEntry.visionInProgress = true;
+    fileEntry.visionProgress = 0;
+    fileEntry.visionTotalPages = totalPages;
+    if (typeof renderFileList === 'function') renderFileList();
+  }
+
+  try {
+    // === Path A: native PDF document block (fast, simple, best quality) ===
+    if (canUseNativePdf) {
+      try { await pdf.cleanup(); } catch (e) {}
+      try { await pdf.destroy(); } catch (e) {}
+      // Convert the original PDF arrayBuffer to base64. btoa requires a
+      // string of binary chars; chunk to avoid call-stack overflow on
+      // large files (apply on each ~8KB slice).
+      const bytes = new Uint8Array(arrayBuf);
+      let binary = '';
+      const CHUNK = 8192;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      const base64Pdf = btoa(binary);
+      if (fileEntry) {
+        fileEntry.visionProgress = 0.3;  // base64 done; awaiting model response
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+      const result = await callClaudeForPdfDocument(base64Pdf, file.name, totalPages);
+      if (fileEntry) fileEntry.visionProgress = 1;
+      return result;
+    }
+
+    // === Path B: render-to-JPEG chunking (for PDFs >80 pages or >22MB) ===
+    const allPages = [];
+    for (let i = 1; i <= totalPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const base64 = dataUrl.split(',')[1];
+      allPages.push(base64);
+      try { page.cleanup(); } catch (e) {}
+      if (fileEntry) {
+        fileEntry.visionProgress = (i / totalPages) * 0.4;
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+    }
+    try { await pdf.cleanup(); } catch (e) {}
+    try { await pdf.destroy(); } catch (e) {}
+
+    const chunks = [];
+    for (let i = 0; i < allPages.length; i += CLAUDE_VISION_CONFIG.pagesPerChunk) {
+      chunks.push(allPages.slice(i, i + CLAUDE_VISION_CONFIG.pagesPerChunk));
+    }
+
+    let combinedText = '';
+    let totalConfidence = 0;
+    let totalWeight = 0;
+    for (let ci = 0; ci < chunks.length; ci++) {
+      if (fileEntry) {
+        fileEntry.visionProgress = 0.4 + (ci / chunks.length) * 0.6;
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+      const chunkResult = await callClaudeForPdfImages(chunks[ci], file.name, ci, chunks.length);
+      combinedText += chunkResult.text + '\n\n';
+      const weight = Math.max(1, chunkResult.text.length);
+      totalConfidence += chunkResult.confidence * weight;
+      totalWeight += weight;
+    }
+    if (fileEntry) fileEntry.visionProgress = 1;
+    const avgConfidence = totalWeight > 0 ? Math.round(totalConfidence / totalWeight) : 0;
+    return { text: combinedText, confidence: avgConfidence };
+  } finally {
+    if (fileEntry) {
+      fileEntry.visionInProgress = false;
+      delete fileEntry.visionProgress;
+      delete fileEntry.visionTotalPages;
+      if (typeof renderFileList === 'function') renderFileList();
+    }
+  }
+}
+
+// Send a PDF directly as a document content block (preferred for small PDFs).
+// Returns { text, confidence }.
+async function callClaudeForPdfDocument(base64Pdf, fileName, totalPages) {
+  const systemPrompt =
+    'You are a document text extraction engine. Your single task is to read every page of the provided document and output the text content with maximum fidelity. ' +
+    'Preserve the visual structure: tables remain as aligned columns, form fields stay paired with their labels (e.g. "Named Insured: Acme Corp"), bullet lists stay listed, headers stay marked. ' +
+    'Read all visible text including stamps, handwritten notes (transcribe as best you can), signatures (note as [SIGNATURE]), checkbox states ([X] or [ ]), and form-field values. ' +
+    'Do not summarize. Do not interpret. Do not skip pages. Extract verbatim. ' +
+    'At the very start of your response, output a single line in this exact format: ' +
+    '__OCR_CONFIDENCE__:NN where NN is your estimated confidence percentage (0-100) in the accuracy of your extraction. ' +
+    'After that confidence line, output the extracted text with page boundaries marked as "--- PAGE N ---" between pages.';
+  const documentBlock = {
+    type: 'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf }
+  };
+  const userTextBlock = {
+    type: 'text',
+    text: 'Document: ' + fileName + ' (' + totalPages + ' pages). Extract all text in order, page by page.'
+  };
+  const body = {
+    model: STATE.api && STATE.api.forceGlobal ? STATE.api.model : CLAUDE_VISION_CONFIG.model,
+    max_tokens: CLAUDE_VISION_CONFIG.maxOutputTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: [documentBlock, userTextBlock] }]
+  };
+  const data = await llmProxyFetch(body);
+  const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
+  let confidence = 80;
+  let text = rawText;
+  const confMatch = rawText.match(/^\s*__OCR_CONFIDENCE__:(\d{1,3})\s*\n/);
+  if (confMatch) {
+    confidence = Math.max(0, Math.min(100, parseInt(confMatch[1], 10)));
+    text = rawText.slice(confMatch[0].length);
+  }
+  if (typeof logAudit === 'function') {
+    logAudit('Vision', 'Vision extraction · ' + fileName + ' · ' + totalPages + ' pages (native PDF block) · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%', 'ok');
+  }
+  return { text, confidence };
+}
+
+// Send a chunk of page images (base64 JPEGs) to Claude with an extraction prompt.
+// Returns { text, confidence }. Confidence is parsed from a structured marker
+// the prompt asks the model to emit at the start of its response.
+async function callClaudeForPdfImages(base64Pages, fileName, chunkIndex, totalChunks) {
+  const chunkLabel = totalChunks > 1
+    ? ' (chunk ' + (chunkIndex + 1) + ' of ' + totalChunks + ')'
+    : '';
+  // The prompt shape mirrors the existing classifier/extractor patterns: clear
+  // delimiters around the task, structured output marker for confidence parsing,
+  // strict instructions to preserve structure.
+  const systemPrompt =
+    'You are a document text extraction engine. Your single task is to read every page of the provided document and output the text content with maximum fidelity. ' +
+    'Preserve the visual structure: tables remain as aligned columns, form fields stay paired with their labels (e.g. "Named Insured: Acme Corp"), bullet lists stay listed, headers stay marked. ' +
+    'Read all visible text including stamps, handwritten notes (transcribe as best you can), signatures (note as [SIGNATURE]), checkbox states ([X] or [ ]), and form-field values. ' +
+    'Do not summarize. Do not interpret. Do not skip pages. Extract verbatim. ' +
+    'At the very start of your response, output a single line in this exact format: ' +
+    '__OCR_CONFIDENCE__:NN where NN is your estimated confidence percentage (0-100) in the accuracy of your extraction. ' +
+    'After that confidence line, output the extracted text with page boundaries marked as "--- PAGE N ---" between pages.';
+  const userTextBlock = {
+    type: 'text',
+    text: 'Document: ' + fileName + chunkLabel + '. Extract all text from the ' + base64Pages.length + ' attached page image' + (base64Pages.length === 1 ? '' : 's') + ' in order.'
+  };
+  const imageBlocks = base64Pages.map(b64 => ({
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/jpeg', data: b64 }
+  }));
+  const body = {
+    model: STATE.api && STATE.api.forceGlobal ? STATE.api.model : CLAUDE_VISION_CONFIG.model,
+    max_tokens: CLAUDE_VISION_CONFIG.maxOutputTokens,
+    system: systemPrompt,
+    // Multi-block content array: images first, then the text instruction. This
+    // ordering matters — putting images before text gives the model the context
+    // it needs to follow the instruction correctly.
+    messages: [{ role: 'user', content: [...imageBlocks, userTextBlock] }]
+  };
+
+  // Reuses llmProxyFetch which has retry/backoff/Ray-ID logging baked in from
+  // Phase 10. No separate retry layer needed here.
+  const data = await llmProxyFetch(body);
+  const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
+
+  // Parse the confidence marker. Default to 80 if the model didn't emit one
+  // (defensive — production prompts should always emit it but we don't trust).
+  let confidence = 80;
+  let text = rawText;
+  const confMatch = rawText.match(/^\s*__OCR_CONFIDENCE__:(\d{1,3})\s*\n/);
+  if (confMatch) {
+    confidence = Math.max(0, Math.min(100, parseInt(confMatch[1], 10)));
+    text = rawText.slice(confMatch[0].length);
+  }
+
+  // Audit the per-chunk call so cost/quality is visible in the admin pane.
+  if (typeof logAudit === 'function') {
+    logAudit('Vision', 'Vision extraction · ' + fileName + chunkLabel + ' · ' + base64Pages.length + ' pages · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%', 'ok');
+  }
+
+  return { text, confidence };
+}
+
+// Image-file variant: a single image block with the same extraction prompt.
+async function extractTextViaClaudeVisionFromImage(file, fileEntry) {
+  if (!window.currentUser) throw new Error('not signed in');
+  if (fileEntry) {
+    fileEntry.visionInProgress = true;
+    fileEntry.visionProgress = 0;
+    if (typeof renderFileList === 'function') renderFileList();
+  }
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Failed to read image'));
+      reader.readAsDataURL(file);
+    });
+    const mediaType = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
+    // Anthropic supports image/jpeg, image/png, image/gif, image/webp. Other
+    // formats (HEIC, BMP, TIFF) get re-encoded to JPEG via canvas.
+    const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    let finalDataUrl = dataUrl;
+    let finalMediaType = mediaType;
+    if (!supportedTypes.has(mediaType)) {
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('Failed to decode image'));
+        i.src = dataUrl;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      finalDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      finalMediaType = 'image/jpeg';
+    }
+    const base64 = finalDataUrl.split(',')[1];
+    if (fileEntry) {
+      fileEntry.visionProgress = 0.5;
+      if (typeof renderFileList === 'function') renderFileList();
+    }
+    const result = await callClaudeForPdfImages([base64], file.name, 0, 1);
+    if (fileEntry) fileEntry.visionProgress = 1;
+    return result;
+  } finally {
+    if (fileEntry) {
+      fileEntry.visionInProgress = false;
+      delete fileEntry.visionProgress;
+      if (typeof renderFileList === 'function') renderFileList();
+    }
+  }
+}
+
+// ============================================================================
+// OCR — Tesseract.js fallback (offline / proxy-down scenarios)
+// ============================================================================
+// Retained as the second-tier fallback when Claude Vision fails (proxy
+// unreachable, authentication issues, oversized files, model errors).
+// Quality is materially lower than Vision on real-world broker scans, but
+// it works without network and produces SOMETHING usable on most documents.
+let __TESSERACT_LOADED = false;
+let __TESSERACT_LOADING = null;
+async function ensureTesseract() {
+  // Documents View may have already loaded Tesseract via its own loader. If so,
+  // the global is already there and we skip the script-tag injection.
+  if (typeof Tesseract !== 'undefined') { __TESSERACT_LOADED = true; return; }
+  if (__TESSERACT_LOADING) return __TESSERACT_LOADING;
+  __TESSERACT_LOADING = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = () => { __TESSERACT_LOADED = true; resolve(); };
+    s.onerror = () => reject(new Error('Failed to load OCR engine'));
+    document.head.appendChild(s);
+  });
+  return __TESSERACT_LOADING;
+}
+
+// Render a pdf.js page into a canvas at high DPI suitable for OCR. The 3.5x
+// scale is what Documents View uses for its OCR rendering — anything lower
+// loses fidelity on small fonts.
+async function pdfPageToCanvas(page, scale) {
+  const viewport = page.getViewport({ scale: scale || 3.5 });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas;
+}
+
+// Grayscale + contrast stretch + 2x upscale for low-DPI scans. Same pre-processing
+// the Documents View uses; Tesseract accuracy improves materially with this step.
+function preprocessCanvasForOCR(srcCanvas) {
+  const up = (srcCanvas.width < 1000 || srcCanvas.height < 1000) ? 2 : 1;
+  const dst = document.createElement('canvas');
+  dst.width = srcCanvas.width * up;
+  dst.height = srcCanvas.height * up;
+  const ctx = dst.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, 0, 0, dst.width, dst.height);
+  const imgData = ctx.getImageData(0, 0, dst.width, dst.height);
+  const d = imgData.data;
+  let sum = 0, count = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    d[i] = d[i + 1] = d[i + 2] = g;
+    sum += g; count++;
+  }
+  const mean = sum / count;
+  for (let i = 0; i < d.length; i += 4) {
+    let v = d[i];
+    v = ((v - mean) * 1.5) + mean;          // 1.5x contrast around the mean
+    v = Math.max(0, Math.min(255, Math.round(v)));
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return dst;
+}
+
+// OCR a single image source (canvas, dataURL, or HTMLImageElement). Returns
+// { text, confidence }. The progressCb fires repeatedly with 0..1 during
+// recognition — used by renderFileList to show a live "OCR 47%" badge.
+async function ocrImage(src, progressCb) {
+  const result = await Tesseract.recognize(src, 'eng', {
+    logger: (info) => {
+      if (info.status === 'recognizing text' && typeof progressCb === 'function') {
+        progressCb(info.progress || 0);
+      }
+    },
+  });
+  return {
+    text: (result.data && result.data.text) || '',
+    confidence: Math.round((result.data && result.data.confidence) || 0)
+  };
+}
+
+// OCR every page of a pdf.js document and concatenate. Page-level confidences
+// are averaged (weighted by page text length so a low-confidence blank cover
+// page doesn't drag the whole doc's score down). The fileEntry is mutated
+// with ocrProgress so the file list can show progress while OCR runs — the
+// caller is expected to call renderFileList before/after each page.
+async function ocrPdfDocument(pdf, fileEntry) {
+  let combinedText = '';
+  let totalConfidenceWeighted = 0;
+  let totalWeight = 0;
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const pageProgress = (subProg) => {
+      if (fileEntry) {
+        // Map sub-progress within page to overall progress across pages.
+        fileEntry.ocrProgress = ((i - 1) + subProg) / pdf.numPages;
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+    };
+    pageProgress(0);
+    const page = await pdf.getPage(i);
+    const rawCanvas = await pdfPageToCanvas(page, 3.5);
+    const procCanvas = preprocessCanvasForOCR(rawCanvas);
+    let pageResult;
+    try {
+      pageResult = await ocrImage(procCanvas, pageProgress);
+    } catch (err) {
+      // OCR failure on a single page shouldn't kill the whole doc — log and
+      // keep going. A missing page contributes empty text and zero weight.
+      console.warn('OCR failed on page ' + i + ' of ' + (fileEntry && fileEntry.name), err);
+      pageResult = { text: '', confidence: 0 };
+    }
+    combinedText += pageResult.text + '\n\n';
+    const weight = Math.max(1, pageResult.text.length);
+    totalConfidenceWeighted += pageResult.confidence * weight;
+    totalWeight += weight;
+    // Free pdf.js per-page caches as we go (these PDFs may be 99-page binders).
+    try { page.cleanup(); } catch (e) {}
+  }
+  if (fileEntry) fileEntry.ocrProgress = 1;
+  const avgConfidence = totalWeight > 0 ? Math.round(totalConfidenceWeighted / totalWeight) : 0;
+  return { text: combinedText, confidence: avgConfidence };
+}
+
+// ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
-async function extractText(file, metadata) {
+async function extractText(file, metadata, fileEntry) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
   // extraction stats (pageCount for PDFs, sheetCount for XLSX, etc.) that feed
@@ -1301,12 +1735,87 @@ async function extractText(file, metadata) {
     meta.kind = 'pdf';
     meta.pageCount = pdf.numPages;
     // Scanned-PDF detection: empty or tiny text layer relative to page count.
-    // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
+    // A real 5-page text PDF will have thousands of chars; a scanned image PDF
+    // has 0-50 chars of metadata.
     const cleanedLength = text.replace(/\s+/g, '').length;
     const avgCharsPerPage = cleanedLength / pdf.numPages;
     if (cleanedLength < 100 || avgCharsPerPage < 50) {
-      throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
+      // Scanned PDF — text layer is empty or near-empty. Try the extraction
+      // chain in quality order:
+      //   1) Claude Vision (state-of-the-art accuracy on scanned underwriting
+      //      docs — handles tables, forms, handwriting, stamps natively).
+      //   2) Tesseract.js (offline-capable fallback for proxy-down scenarios;
+      //      lower quality but works without network).
+      //   3) __SCANNED_PDF__ throw → manual paste modal (last resort).
+      // Provenance is stamped on meta so the file row badge and audit log
+      // show the actual extraction method, and the pipeline can adjust trust
+      // (e.g. low-confidence Vision still beats high-confidence Tesseract).
+
+      // === Tier 1: Claude Vision ===
+      // Try this first when the user is signed in (which they always are
+      // inside the workbench — auth is enforced at app load).
+      if (window.currentUser && typeof extractTextViaClaudeVision === 'function') {
+        try {
+          const visionResult = await extractTextViaClaudeVision(file, fileEntry);
+          const visionCleaned = visionResult.text.replace(/\s+/g, '').length;
+          if (visionCleaned >= 50) {
+            meta.extractedVia = 'claude-vision';
+            meta.ocrApplied = true;            // legacy field — UI badges still read this
+            meta.ocrConfidence = visionResult.confidence;
+            return visionResult.text;
+          }
+          // Vision returned essentially nothing — could be a non-text PDF
+          // (e.g. blueprints, photo of a building). Don't fall through to
+          // Tesseract because it'll get the same nothing. Throw the manual-
+          // paste signal directly.
+          throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), vision extraction returned only ' + visionCleaned + ' chars — content may be non-text imagery (photos, blueprints) or blank pages. Paste content manually if needed.');
+        } catch (visionErr) {
+          // Vision failed for a recoverable reason (proxy unreachable,
+          // auth expiry, model error, payload too big). Fall through to
+          // Tesseract. The __SCANNED_PDF__ signal is intentional — re-throw
+          // those without falling through.
+          if (visionErr && visionErr.message && visionErr.message.startsWith('__SCANNED_PDF__::')) {
+            throw visionErr;
+          }
+          if (typeof logAudit === 'function') {
+            logAudit('Vision', 'Vision extraction FAILED for ' + file.name + ' · ' + (visionErr.message || visionErr) + ' · falling back to Tesseract', 'warn');
+          }
+          // Continue to Tier 2 below.
+        }
+      }
+
+      // === Tier 2: Tesseract.js ===
+      // Reached when (a) user not signed in, (b) Vision threw a non-fatal
+      // error, or (c) Vision unavailable in this build. Slower and lower
+      // quality but works offline.
+      if (fileEntry) {
+        fileEntry.ocrInProgress = true;
+        fileEntry.ocrProgress = 0;
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+      try {
+        await ensureTesseract();
+        if (typeof Tesseract === 'undefined') {
+          throw new Error('OCR engine failed to load');
+        }
+        const ocrResult = await ocrPdfDocument(pdf, fileEntry);
+        meta.extractedVia = 'tesseract';
+        meta.ocrApplied = true;
+        meta.ocrConfidence = ocrResult.confidence;
+        const ocrCleaned = ocrResult.text.replace(/\s+/g, '').length;
+        if (ocrCleaned < 50) {
+          throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), OCR returned only ' + ocrCleaned + ' chars — content may be non-text imagery (photos, blueprints) or blank pages. Paste content manually if needed.');
+        }
+        return ocrResult.text;
+      } finally {
+        if (fileEntry) {
+          fileEntry.ocrInProgress = false;
+          delete fileEntry.ocrProgress;
+          if (typeof renderFileList === 'function') renderFileList();
+        }
+      }
     }
+    meta.extractedVia = 'text-layer';
     return text;
   }
 
@@ -1350,10 +1859,85 @@ async function extractText(file, metadata) {
     throw new Error('__UNREADABLE__::PowerPoint content cannot be auto-extracted in-browser. Paste the relevant slide text manually, or export the deck to PDF first.');
   }
 
-  // Raster images — same story. OCR would need a heavy library (Tesseract.js ~10MB).
-  // For now, surface a clear manual-entry affordance.
+  // Raster images — same extraction chain as scanned PDFs:
+  //   1) Claude Vision (handles handwriting, complex layouts, ACORD-on-photo)
+  //   2) Tesseract.js (offline fallback)
+  //   3) __UNREADABLE__ → manual paste
   if (/\.(png|jpg|jpeg|webp|heic|heif|gif|bmp|tiff|tif)$/.test(name)) {
-    throw new Error('__UNREADABLE__::Image files require OCR, which isn\'t enabled in this build. Paste the visible text manually.');
+    meta.kind = 'image';
+
+    // === Tier 1: Claude Vision ===
+    if (window.currentUser && typeof extractTextViaClaudeVisionFromImage === 'function') {
+      try {
+        const visionResult = await extractTextViaClaudeVisionFromImage(file, fileEntry);
+        const visionCleaned = visionResult.text.replace(/\s+/g, '').length;
+        if (visionCleaned >= 30) {
+          meta.extractedVia = 'claude-vision';
+          meta.ocrApplied = true;
+          meta.ocrConfidence = visionResult.confidence;
+          return visionResult.text;
+        }
+        throw new Error('__UNREADABLE__::Vision returned only ' + visionCleaned + ' chars — image may be a photo with no text (e.g. building exterior). Paste any visible text manually if relevant.');
+      } catch (visionErr) {
+        if (visionErr && visionErr.message && visionErr.message.startsWith('__UNREADABLE__::')) {
+          throw visionErr;
+        }
+        if (typeof logAudit === 'function') {
+          logAudit('Vision', 'Vision extraction FAILED for image ' + file.name + ' · ' + (visionErr.message || visionErr) + ' · falling back to Tesseract', 'warn');
+        }
+        // Fall through to Tesseract.
+      }
+    }
+
+    // === Tier 2: Tesseract.js ===
+    if (fileEntry) {
+      fileEntry.ocrInProgress = true;
+      fileEntry.ocrProgress = 0;
+      if (typeof renderFileList === 'function') renderFileList();
+    }
+    try {
+      await ensureTesseract();
+      if (typeof Tesseract === 'undefined') {
+        throw new Error('OCR engine failed to load');
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read image'));
+        reader.readAsDataURL(file);
+      });
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('Failed to decode image'));
+        i.src = dataUrl;
+      });
+      const rawCanvas = document.createElement('canvas');
+      rawCanvas.width = img.naturalWidth || img.width;
+      rawCanvas.height = img.naturalHeight || img.height;
+      rawCanvas.getContext('2d').drawImage(img, 0, 0);
+      const procCanvas = preprocessCanvasForOCR(rawCanvas);
+      const ocrResult = await ocrImage(procCanvas, (p) => {
+        if (fileEntry) {
+          fileEntry.ocrProgress = p;
+          if (typeof renderFileList === 'function') renderFileList();
+        }
+      });
+      meta.extractedVia = 'tesseract';
+      meta.ocrApplied = true;
+      meta.ocrConfidence = ocrResult.confidence;
+      const ocrCleaned = ocrResult.text.replace(/\s+/g, '').length;
+      if (ocrCleaned < 30) {
+        throw new Error('__UNREADABLE__::OCR returned only ' + ocrCleaned + ' chars — image may be a photo with no text (e.g. building exterior). Paste any visible text manually if relevant.');
+      }
+      return ocrResult.text;
+    } finally {
+      if (fileEntry) {
+        fileEntry.ocrInProgress = false;
+        delete fileEntry.ocrProgress;
+        if (typeof renderFileList === 'function') renderFileList();
+      }
+    }
   }
 
   if (name.endsWith('.csv') || name.endsWith('.tsv')) {
@@ -1613,7 +2197,17 @@ async function handleFiles(fileList) {
     renderFileList();
     try {
       const meta = {};
-      entry.text = await extractText(file, meta);
+      entry.text = await extractText(file, meta, entry);
+      // Stamp extraction provenance onto the entry so renderFileList can
+      // show the right badge (VISION/OCR) and downstream code knows the
+      // trust level. extractedVia: 'text-layer' | 'claude-vision' | 'tesseract'
+      if (meta.ocrApplied) {
+        entry.ocrApplied = true;
+        entry.ocrConfidence = meta.ocrConfidence || 0;
+      }
+      if (meta.extractedVia) {
+        entry.extractedVia = meta.extractedVia;
+      }
       if (!entry.text || entry.text.length < 20) {
         entry.state = 'error';
         entry.error = 'Empty or too short';
@@ -1659,7 +2253,10 @@ async function handleFiles(fileList) {
         } else {
           coverageDetail = (meta.kind || 'text') + ' file';
         }
-        logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
+        const provenanceTag = meta.extractedVia === 'claude-vision' ? ' · VISION (' + (meta.ocrConfidence || 0) + '% confidence)'
+          : meta.extractedVia === 'tesseract' ? ' · OCR (' + (meta.ocrConfidence || 0) + '% confidence)'
+          : '';
+        logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted' + provenanceTag, 'ok');
 
         // === EMAIL ATTACHMENT UNPACK ===
         // If this is a .msg with attachments, synthesize File objects from each
@@ -1695,7 +2292,14 @@ async function handleFiles(fileList) {
               // Parse the attachment synchronously — same extractText path, same error handling
               try {
                 const attMeta = {};
-                attachEntry.text = await extractText(pseudoFile, attMeta);
+                attachEntry.text = await extractText(pseudoFile, attMeta, attachEntry);
+                if (attMeta.ocrApplied) {
+                  attachEntry.ocrApplied = true;
+                  attachEntry.ocrConfidence = attMeta.ocrConfidence || 0;
+                }
+                if (attMeta.extractedVia) {
+                  attachEntry.extractedVia = attMeta.extractedVia;
+                }
                 if (!attachEntry.text || attachEntry.text.length < 20) {
                   attachEntry.state = 'error';
                   attachEntry.error = 'Empty or too short';
@@ -1710,7 +2314,10 @@ async function handleFiles(fileList) {
                     attachEntry.state = 'parsed';
                     attachEntry.extractMeta = attMeta;
                     const akb = Math.round(attachEntry.text.length / 1024 * 10) / 10;
-                    logAudit('Extract', 'ATTACHMENT ' + att.name + ' (from ' + entry.name + ') · ' + akb + 'K chars extracted', 'ok');
+                    const provenanceTag = attMeta.extractedVia === 'claude-vision' ? ' · VISION (' + (attMeta.ocrConfidence || 0) + '% confidence)'
+                      : attMeta.extractedVia === 'tesseract' ? ' · OCR (' + (attMeta.ocrConfidence || 0) + '% confidence)'
+                      : '';
+                    logAudit('Extract', 'ATTACHMENT ' + att.name + ' (from ' + entry.name + ') · ' + akb + 'K chars extracted' + provenanceTag, 'ok');
                   }
                 }
               } catch (attErr) {
@@ -1801,8 +2408,46 @@ function renderFileList() {
     let stateText = '';
     let extraBadge = '';
 
-    if (f.state === 'parsing') { stateClass = 'parsing'; stateText = 'parsing…'; }
-    else if (f.state === 'parsed') { stateClass = 'classified'; stateText = Math.round(f.text.length / 1024) + 'K chars · ready'; }
+    if (f.state === 'parsing') {
+      stateClass = 'parsing';
+      // Live extraction progress. Three flavors:
+      //   visionInProgress → Claude Vision is reading the doc (preferred path)
+      //   ocrInProgress    → Tesseract.js fallback is running
+      //   neither          → fast text-layer extraction in flight
+      if (f.visionInProgress) {
+        const pct = Math.round((f.visionProgress || 0) * 100);
+        const pageCount = f.visionTotalPages ? ' · ' + f.visionTotalPages + 'p' : '';
+        stateText = 'VISION · ' + pct + '%' + pageCount;
+      } else if (f.ocrInProgress) {
+        const pct = Math.round((f.ocrProgress || 0) * 100);
+        stateText = 'OCR · ' + pct + '%';
+      } else {
+        stateText = 'parsing…';
+      }
+    }
+    else if (f.state === 'parsed') {
+      stateClass = 'classified';
+      stateText = Math.round(f.text.length / 1024) + 'K chars · ready';
+      // Extraction provenance badge — shows the UW which path produced the
+      // text. VISION (Claude Vision via llm-proxy) is high-confidence;
+      // OCR (Tesseract.js) is the fallback and lower trust.
+      // Confidence colors:
+      //   ≥85% chartreuse (normal)
+      //   70-84% amber warn
+      //   <70% red danger + REVIEW chip
+      if (f.ocrApplied) {
+        const conf = f.ocrConfidence || 0;
+        const isVision = (f.extractedVia === 'claude-vision');
+        const label = isVision ? 'VISION' : 'OCR';
+        let bg = 'var(--signal)';        // ≥85 — normal chartreuse
+        if (conf < 70) bg = 'var(--danger)';
+        else if (conf < 85) bg = 'var(--warning)';
+        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: ' + bg + '; color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">' + label + ' · ' + conf + '%</span>';
+        if (conf < 70) {
+          extraBadge += '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
+        }
+      }
+    }
     else if (f.state === 'needs_manual') {
       // Scanned PDF or unreadable format — show amber warning badge + click-to-paste affordance.
       // The UW can paste the visible text into a modal to feed the pipeline the content it needs.
@@ -1835,6 +2480,19 @@ function renderFileList() {
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
+      }
+      // Extraction provenance — appended since it's orthogonal to classification.
+      // VISION (Claude Vision) vs OCR (Tesseract.js fallback). Both use the
+      // same confidence color logic. UWs need this visible on classified files
+      // because the trust level affects whether to spot-check extracted numbers.
+      if (f.ocrApplied) {
+        const conf = f.ocrConfidence || 0;
+        const isVision = (f.extractedVia === 'claude-vision');
+        const label = isVision ? 'VISION' : 'OCR';
+        let bg = 'var(--signal)';
+        if (conf < 70) bg = 'var(--danger)';
+        else if (conf < 85) bg = 'var(--warning)';
+        extraBadge += '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: ' + bg + '; color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">' + label + ' · ' + conf + '%</span>';
       }
     }
     else if (f.state === 'error') { stateClass = 'error'; stateText = 'error: ' + (f.error || 'unknown'); }

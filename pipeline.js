@@ -495,6 +495,14 @@ async function incrementalProcess(newFiles) {
     f.classifications = c.classifications || [];
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
+    // Auto-flag OCR-derived files with low confidence for UW review. Low
+    // confidence OCR can yield text that looks plausible but has misread
+    // numbers (limits / dates / dollar amounts) — exactly the fields that
+    // matter most for binding. The needsReview flag already drives the
+    // review banner; this just expands the trigger conditions.
+    if (f.ocrApplied && (f.ocrConfidence || 0) < 70) {
+      f.needsReview = true;
+    }
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
     f.routedToAll = (c.classifications || []).map(cl => ROUTING[cl.type]).filter(Boolean);
@@ -1357,6 +1365,11 @@ async function runPipeline() {
     f.classifications = c.classifications || [];  // multi-type list for combined docs
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
+    // Auto-flag OCR-derived files with low confidence for UW review (matches
+    // incrementalProcess behavior — see comment there).
+    if (f.ocrApplied && (f.ocrConfidence || 0) < 70) {
+      f.needsReview = true;
+    }
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
     // Route to ALL applicable modules (supports combined docs)
