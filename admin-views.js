@@ -29,6 +29,40 @@
 // No logic changed. Only thing that moved is where the bytes live on disk.
 // ============================================================================
 
+// Phase 10.5 F8: structured-meta summarizer. Phase 10's resilience round
+// persists every llm-proxy call's diagnostic envelope as JSON-stringified
+// text in audit_events.meta — fields like status, latency_ms, ray_id,
+// request_bytes, response_bytes, attempt, model, error_category. The old
+// admin renderer truncated meta to 40 chars mid-token, which for these JSON
+// rows produced useless garbage. This helper detects a JSON object and
+// surfaces the most diagnostically-useful fields in a compact form. Falls
+// through to the prior truncation behavior for plain-text meta.
+function summarizeMeta(metaText) {
+  if (!metaText || metaText === '—') return '—';
+  const trimmed = String(metaText).trim();
+  // Quick JSON-object detection — only attempt parse if it actually looks
+  // like one. Avoids a try/catch on every plain text row.
+  if (trimmed.charAt(0) === '{' && trimmed.charAt(trimmed.length - 1) === '}') {
+    try {
+      const obj = JSON.parse(trimmed);
+      const parts = [];
+      if (obj.status != null)         parts.push('status=' + obj.status);
+      if (obj.latency_ms != null)     parts.push(obj.latency_ms + 'ms');
+      if (obj.attempt != null)        parts.push('try=' + obj.attempt);
+      if (obj.error_category)         parts.push('err=' + obj.error_category);
+      if (obj.ray_id)                 parts.push('ray=' + String(obj.ray_id).slice(0, 12));
+      if (obj.model)                  parts.push(String(obj.model).replace('claude-', ''));
+      if (parts.length > 0) return parts.join(' · ');
+      // Object had no recognized diagnostic fields — show keys as a hint.
+      const keys = Object.keys(obj);
+      if (keys.length > 0) return '{' + keys.slice(0, 3).join(',') + (keys.length > 3 ? ',…' : '') + '}';
+    } catch (e) {
+      // Malformed JSON — fall through to plain-text truncation.
+    }
+  }
+  return trimmed.length > 40 ? trimmed.slice(0, 40) + '…' : trimmed;
+}
+
 // Render the real Users & roles admin card. Called when the Admin tab opens.
 // Silent no-op for non-admins — they keep the static placeholder visuals.
 // Errors are caught and surfaced in the card status; logAudit captures them
@@ -231,18 +265,28 @@ async function renderAdminAuditLog(opts) {
       const time = t ? t.toISOString().slice(11, 19) : '';
       const date = t ? t.toISOString().slice(0, 10) : '';
       const metaText = r.meta || '—';
-      const metaShort = metaText.length > 40 ? metaText.slice(0, 40) + '…' : metaText;
-      // Title tooltip reveals full timestamp, user_id prefix, and submission_id
-      // on hover — useful forensic detail without cluttering the row.
+      // Phase 10.5 F8: structured-meta-aware summary. Phase 10's resilience
+      // round persists every llm-proxy call's status/latency/ray_id/model/
+      // error_category as JSON-stringified text in audit_events.meta. Old
+      // behavior was a flat 40-char slice — for those JSON rows it produced
+      // useless garbage like '{"status":200,"request_bytes":12...'. We now
+      // detect a JSON object, parse it, and surface the most useful diagnostic
+      // fields inline (status / latency / ray / model / error). Plain-text
+      // meta falls through to the prior truncation behavior.
+      const metaSummary = summarizeMeta(metaText);
+      // Title tooltip reveals full timestamp, user_id prefix, submission_id,
+      // AND the full untruncated meta — useful forensic detail without
+      // cluttering the row.
       const tooltipBits = [date + ' ' + time];
       if (r.user_id) tooltipBits.push('user:' + r.user_id.slice(0, 8));
       if (r.submission_id) tooltipBits.push('sub:' + r.submission_id);
+      if (metaText && metaText !== '—') tooltipBits.push('meta:' + metaText);
       return `
         <div class="audit-entry" title="${escapeHtml(tooltipBits.join(' · '))}">
           <span class="audit-time">${escapeHtml(time)}</span>
           <span class="audit-actor">${escapeHtml(r.category || '')}</span>
           <span class="audit-action">${escapeHtml(r.message || '')}</span>
-          <span class="audit-ver">${escapeHtml(metaShort)}</span>
+          <span class="audit-ver">${escapeHtml(metaSummary)}</span>
         </div>
       `;
     }).join('');

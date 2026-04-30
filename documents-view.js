@@ -3620,12 +3620,37 @@ window.initDocumentsView = function() {
   // download). Annotations come back as a JSON store and rebuild on
   // first render of each thumbnail.
   async function hydrateFromCloud() {
-    if (typeof window.sbFetchDocumentPages !== 'function') return;
+    if (typeof window.sbFetchDocumentPages !== 'function') {
+      // Phase 10.5 Their #5: even when the helper isn't available, we still
+      // need to render once. The empty state is gated on state._hydrating
+      // (see renderDocsList) — without an explicit render after we flip the
+      // flag (or never set it), a fresh load with no docs would never repaint
+      // and the user sees a stale loading state. This early-return path is
+      // unusual (only hits during partial bundle deploys) but cheap to cover.
+      state._hydrating = false;
+      renderCategoryGrid(); renderDocsList(); renderTagsList();
+      return;
+    }
     state._hydrating = true;
     let rows = [];
     try { rows = await window.sbFetchDocumentPages(); }
-    catch (err) { console.warn('hydrate fetch failed:', err); state._hydrating = false; return; }
-    if (!rows || rows.length === 0) { state._hydrating = false; return; }
+    catch (err) {
+      // Phase 10.5 Their #5: cloud fetch failure path — flip flag AND re-render
+      // so the empty state stops saying "Loading documents…"
+      console.warn('hydrate fetch failed:', err);
+      state._hydrating = false;
+      renderCategoryGrid(); renderDocsList(); renderTagsList();
+      return;
+    }
+    if (!rows || rows.length === 0) {
+      // Phase 10.5 Their #5: zero-row path — the most common case for new
+      // users / empty submissions. Without the explicit re-render here, the
+      // "Loading documents…" message stays visible forever (until something
+      // else triggers a render, e.g. uploading a doc, switching tabs).
+      state._hydrating = false;
+      renderCategoryGrid(); renderDocsList(); renderTagsList();
+      return;
+    }
 
     // Merge-by-id instead of wiping. If the user uploaded a doc while the
     // hydrate request was in flight, that doc is in state.docs already —

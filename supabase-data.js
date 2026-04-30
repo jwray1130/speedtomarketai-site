@@ -1236,18 +1236,39 @@ async function sbDeleteDocumentPage(docId, storagePath) {
 // default sort matches the DB result without a re-sort.
 async function sbFetchDocumentPages() {
   const u = await sbUser(); if (!u) return [];
-  const { data, error } = await window.sb
-    .from(DOC_TABLE)
-    .select('*')
-    .eq('user_id', u.id)
-    .order('created_at', { ascending: false });
-  if (error) {
-    console.warn('sbFetchDocumentPages failed:', error.message);
-    _noteCloudFail();
-    return [];
+  // Phase 10.5 F5: paginate to bypass the 1000-row PostgREST default cap.
+  // With typical multi-page PDFs (loss runs 50-100 pages each), 10-20 normal
+  // submissions = ~1000 rows = silent truncation of everything older. We
+  // fetch in 1000-row pages with .range() until we get a short page.
+  // Hard ceiling of 50 pages (50,000 docs) prevents a runaway loop if
+  // something pathological is happening — the user would never realistically
+  // have that many docs and we'd want a different strategy (e.g. recent-only)
+  // anyway.
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 50;
+  const all = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * PAGE_SIZE;
+    const to   = from + PAGE_SIZE - 1;
+    const { data, error } = await window.sb
+      .from(DOC_TABLE)
+      .select('*')
+      .eq('user_id', u.id)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    if (error) {
+      console.warn('sbFetchDocumentPages page ' + page + ' failed:', error.message);
+      _noteCloudFail();
+      // Return what we got so far rather than nothing — partial hydration
+      // beats a blank docs view.
+      return all;
+    }
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE_SIZE) break;   // last page
   }
   _noteCloudOk();
-  return data || [];
+  return all;
 }
 
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.

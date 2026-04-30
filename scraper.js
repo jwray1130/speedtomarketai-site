@@ -56,6 +56,36 @@ function setWebStatus(msg, kind) {
   el.style.display = 'block';
 }
 
+// Phase 10.5 Their #6: HTML escape helper for setWebStatus interpolations.
+// Several call sites build status HTML by concatenating user-controlled
+// values: name/zip from the manual-find inputs, err.message from caught
+// network errors, url before normalization. setWebStatus uses innerHTML
+// (intentional — call sites also include trusted <strong> markup), so any
+// untrusted value going in needs to be escaped first. We have a local copy
+// to keep this self-contained — escapeHtml from app.js is also available
+// (app.js loads before scraper.js per app.html script order) but a local
+// helper avoids any future load-order coupling if the bundle is rearranged.
+function escapeWebStatus(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Phase 10.5 F9: single source of truth for HTML CORS proxies. Was duplicated
+// across fetchTextViaProxy (3 entries) and fetchViaProxy (4 entries) with a
+// drift-prone comment that said "three" while listing four. Lift to a single
+// const + named entries so both functions stay in sync and adding/removing
+// a proxy is a one-line change.
+const HTML_PROXIES = [
+  { name: 'corsproxy.io', mk: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
+  { name: 'allorigins',   mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+  { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) },
+  { name: 'cors.sh',      mk: u => 'https://proxy.cors.sh/' + u }
+];
+
 // Normalize input — ensure it has a protocol, strip whitespace
 function normalizeUrl(raw) {
   let url = (raw || '').trim();
@@ -254,14 +284,12 @@ async function discoverSitemapUrls(startUrl) {
 // sitemap.xml / robots.txt — small text files that don't need the
 // SPA-detection logic in fetchViaProxy.
 async function fetchTextViaProxy(url) {
-  const proxies = [
-    u => 'https://corsproxy.io/?' + encodeURIComponent(u),
-    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u)
-  ];
-  for (const mk of proxies) {
+  // Phase 10.5 F9: use the shared HTML_PROXIES const. Was a duplicate
+  // 3-entry list; the 4-entry version in fetchViaProxy now wins via single
+  // source of truth.
+  for (const proxy of HTML_PROXIES) {
     try {
-      const res = await fetch(mk(url), { method: 'GET' });
+      const res = await fetch(proxy.mk(url), { method: 'GET' });
       if (!res.ok) continue;
       const text = await res.text();
       if (text && text.length > 20) return text;
@@ -273,9 +301,9 @@ async function fetchTextViaProxy(url) {
 // Fetch a URL via a chain of fallback services. Returns { html, source } or throws.
 //
 // Strategy (in order):
-//   1) Three HTML CORS proxies (corsproxy.io, allorigins, codetabs, cors.sh).
-//      These return the raw HTML exactly as the server sent it — fast, cheap,
-//      works for server-rendered sites (WordPress, static, etc.).
+//   1) HTML CORS proxies (see HTML_PROXIES const at module top). These return
+//      raw HTML exactly as the server sent it — fast, cheap, works for
+//      server-rendered sites (WordPress, static, etc.).
 //   2) Jina Reader (r.jina.ai) — a free JS-rendering reader that executes
 //      JavaScript in a headless browser and returns clean markdown/text of
 //      the fully-rendered page. The escape hatch for React/Next.js/Vue SPAs
@@ -286,14 +314,8 @@ async function fetchTextViaProxy(url) {
 // normalize whitespace — safe to run either way.
 async function fetchViaProxy(url) {
   // Tier 1 — raw HTML proxies. Try each in order; any 2xx with non-tiny body wins.
-  const htmlProxies = [
-    { name: 'corsproxy.io', mk: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
-    { name: 'allorigins',   mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
-    { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) },
-    { name: 'cors.sh',      mk: u => 'https://proxy.cors.sh/' + u }
-  ];
   let lastErr = null;
-  for (const proxy of htmlProxies) {
+  for (const proxy of HTML_PROXIES) {
     try {
       const res = await fetch(proxy.mk(url), { method: 'GET' });
       if (!res.ok) { lastErr = new Error(proxy.name + ' HTTP ' + res.status); continue; }
@@ -382,7 +404,7 @@ async function scrapeUrl(url, options = {}) {
   const pagesScraped = [];  // { url, text, depth, linkText? }
   let failCount = 0;
 
-  setWebStatus('<strong>Starting crawl</strong> of ' + url.replace(/^https?:\/\//, '') + '…', 'running');
+  setWebStatus('<strong>Starting crawl</strong> of ' + escapeWebStatus(url.replace(/^https?:\/\//, '')) + '…', 'running');
   logAudit('Scrape', '=== CRAWL START · ' + url + ' · browser BFS (max ' + MAX_PAGES + ' pages, depth ' + MAX_DEPTH + ') ===', 'ok');
 
   // ---- Sitemap discovery ----
@@ -435,7 +457,7 @@ async function scrapeUrl(url, options = {}) {
     setWebStatus(
       '<strong>Crawling</strong> page ' + (pagesScraped.length + 1) + '/' + MAX_PAGES +
       ' (depth ' + depth + '): ' +
-      normUrl.pathname.slice(0, 50) + (normUrl.pathname.length > 50 ? '…' : '') +
+      escapeWebStatus(normUrl.pathname.slice(0, 50)) + (normUrl.pathname.length > 50 ? '…' : '') +
       '<br><span style="color: var(--text-3); font-size: 10px;">' +
       pagesScraped.length + ' scraped · ' + failCount + ' skipped · ' + Math.round(elapsed / 1000) + 's elapsed</span>',
       'running'
@@ -517,7 +539,7 @@ async function scrapeUrl(url, options = {}) {
 // more intelligently filtered scrape but costs API tokens.
 // ============================================================================
 async function scrapeUrlViaClaude(url) {
-  setWebStatus('<strong>Claude-driven crawl</strong> starting for ' + url.replace(/^https?:\/\//, '') + '…', 'running');
+  setWebStatus('<strong>Claude-driven crawl</strong> starting for ' + escapeWebStatus(url.replace(/^https?:\/\//, '')) + '…', 'running');
   logAudit('Scrape', '=== CRAWL START · ' + url + ' · Claude agentic (max 25 pages, AI-selected) ===', 'ok');
 
   const crawlPrompt = `You are an excess casualty insurance underwriter researching a commercial insured's website. Your goal is to extract every operationally-relevant fact from their public web presence.
@@ -629,7 +651,7 @@ async function scrapeWebsiteFromUrl() {
       elapsedMs: result.elapsedMs
     });
   } catch (err) {
-    setWebStatus('<strong>Scrape failed</strong> — ' + err.message, 'error');
+    setWebStatus('<strong>Scrape failed</strong> — ' + escapeWebStatus(err.message), 'error');
     logAudit('Classifier', 'Website scrape failed for ' + url + ': ' + err.message, 'error');
   } finally {
     btn.disabled = false;
@@ -655,7 +677,7 @@ async function findAndScrapeWebsite() {
   const btn = document.getElementById('btnFindAndScrape');
   btn.disabled = true;
   try {
-    setWebStatus('<strong>Searching</strong> for "' + name + (zip ? ' · ' + zip : '') + '"…', 'running');
+    setWebStatus('<strong>Searching</strong> for "' + escapeWebStatus(name) + (zip ? ' · ' + escapeWebStatus(zip) : '') + '"…', 'running');
     const url = await findWebsiteViaClaude(name, zip);
     if (!url) {
       // Claude ran but couldn't find an authoritative domain. Switch to Manual tab.

