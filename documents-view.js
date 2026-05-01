@@ -644,13 +644,17 @@ window.initDocumentsView = function() {
         // successful, so the user saw "No documents yet" with no recourse.
         if (state._lastHydrateError && !state._hydratedOnce) {
           titleEl.textContent = 'Sync paused — could not load documents';
-          // Show the error message but keep it short. supabaseCode 57014
-          // = statement timeout, the most common cause; surface it
-          // verbatim so the cause is visible without reading source.
-          const msg = state._lastHydrateError.length > 140
-            ? state._lastHydrateError.slice(0, 140) + '…'
-            : state._lastHydrateError;
-          subEl.textContent = msg + '  ·  Try refreshing the page, or run window.docsView.refreshFromCloud() in the console.';
+          // v8.5.2: structured error. Show message + code prominently
+          // so the failure mode is visible (e.g., 57014 = statement
+          // timeout), not just a wall of text.
+          const errObj = state._lastHydrateError;
+          const errMsg = typeof errObj === 'string'
+            ? errObj
+            : (errObj.message || 'Unknown error');
+          const errCode = (typeof errObj === 'object' && errObj.code) ? ' (code ' + errObj.code + ')' : '';
+          const trimmed = errMsg.length > 140 ? errMsg.slice(0, 140) + '…' : errMsg;
+          subEl.textContent = trimmed + errCode +
+            '  ·  Try refreshing the page, or run window.docsView.refreshFromCloud() in the console.';
         } else if (state._hydrating || !state._hydratedOnce) {
           titleEl.textContent = 'Loading documents…';
           subEl.textContent   = 'Fetching from cloud, hold on a moment.';
@@ -3818,9 +3822,16 @@ window.initDocumentsView = function() {
         // v8.5.1: explicitly handle a thrown error from the fetch (was
         // silently returning [] before, which downstream code couldn't
         // distinguish from "no rows" — leading to false-success render).
+        // v8.5.2: store structured error so debugReloadDocs and the UI
+        // can surface the Postgres code/hint/details, not just a string.
         fetchFailed = true;
         console.warn('[docs] hydrate fetch failed:', err);
-        state._lastHydrateError = String(err && err.message || err);
+        state._lastHydrateError = {
+          message: (err && err.message) || String(err),
+          code: (err && err.supabaseCode) || null,
+          details: (err && err.supabaseDetails) || null,
+          hint: (err && err.supabaseHint) || null,
+        };
         state._hydrating = false;
         // Do NOT set _hydratedOnce. The UI must keep showing "Loading…"
         // (or now "Sync paused" — see UI render below) so the user
@@ -4045,15 +4056,18 @@ window.initDocumentsView = function() {
       // their back without blocking interactions.
       await new Promise(r => setTimeout(r, 1500));
 
-      // Pick docs that are missing textContent (the trigger for
-      // enrichment). If submissionId is provided, restrict to that
-      // submission so we enrich what the user is actually looking at.
+      // Pick docs that are missing textContent OR thumbnailData (the
+      // triggers for enrichment). v8.5.2: thumbnailData is also lazy-
+      // loaded now since the slim hydrate dropped thumbnail_data_url
+      // to keep the query under the Postgres timeout threshold. If
+      // submissionId is provided, restrict to that submission.
       const candidates = state.docs.filter(d => {
         if (submissionId && d.submissionId !== submissionId) return false;
-        // Only enrich docs that are missing the heavy fields. If the
-        // doc was uploaded fresh in this session, textContent is already
-        // populated and we skip it.
-        return !d.textContent || d.textContent.length === 0;
+        // Enrich docs that are missing the heavy fields. Fresh-uploaded
+        // docs already have these populated and skip enrichment.
+        const missingText = !d.textContent || d.textContent.length === 0;
+        const missingThumb = !d.thumbnailData;
+        return missingText || missingThumb;
       });
 
       if (candidates.length === 0) {
@@ -4092,6 +4106,11 @@ window.initDocumentsView = function() {
           if (!doc) return;
           if (row.extracted_text != null) doc.textContent = row.extracted_text;
           if (row.html_content != null) doc.htmlContent = sanitizeHtml(row.html_content);
+          // v8.5.2: thumbnailData is lazy too. Populate from the full
+          // fetch so the thumbnail-grid catches up after initial render.
+          if (row.thumbnail_data_url != null && !doc.thumbnailData) {
+            doc.thumbnailData = row.thumbnail_data_url;
+          }
           if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
             state.annotations.store[doc.id] = {
               layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
@@ -4536,6 +4555,7 @@ window.initDocumentsView = function() {
   // v8.5: debug helper. Lets Justin or anyone reload docs from the
   // console without going through the UI flow. Use to verify that
   // hydrate works after auth has settled.
+  // v8.5.2: returns { ok: bool } so a failed hydrate is unmistakable.
   //   window.debugReloadDocs()                           — current submission
   //   window.debugReloadDocs('SUB-MOMDRPB8', 'Anahuac')  — specific
   window.debugReloadDocs = async function(submissionId, submissionTitle) {
@@ -4544,15 +4564,39 @@ window.initDocumentsView = function() {
     if (sid && window.docsView && window.docsView.setSubmissionContext) {
       window.docsView.setSubmissionContext(sid, title);
     }
+    let hydrateError = null;
     if (window.docsView && window.docsView.refreshFromCloud) {
-      await window.docsView.refreshFromCloud({ reason: 'debugReloadDocs', submissionId: sid });
+      try {
+        await window.docsView.refreshFromCloud({ reason: 'debugReloadDocs', submissionId: sid });
+      } catch (err) {
+        hydrateError = err;
+      }
     }
     const all = window.docsView && window.docsView.getDocs ? window.docsView.getDocs() : [];
     const scoped = sid ? all.filter(d => d.submissionId === sid) : all;
+    const hs = window.docsView && window.docsView.getHydrateState
+      ? window.docsView.getHydrateState()
+      : { hydratedOnce: false, lastError: null };
     return {
+      // v8.5.2: explicit success/failure flag. ok is true only when
+      // hydrate succeeded AND we have at least the metadata for the
+      // submission. Anything else (timeout, auth fail, RLS deny, no
+      // active session) returns ok=false with the error in lastError.
+      ok: !!hs.hydratedOnce && !hs.lastError && !hydrateError,
       total: all.length,
       forSubmission: scoped.length,
-      hydrateState: window.docsView.getHydrateState(),
+      hydrateState: {
+        hydratedOnce: hs.hydratedOnce,
+        hydrating: hs.hydrating,
+        lastHydratedAt: hs.lastHydratedAt,
+        lastError: hs.lastError ||
+          (hydrateError ? {
+            message: hydrateError.message || String(hydrateError),
+            code: hydrateError.supabaseCode || null,
+            details: hydrateError.supabaseDetails || null,
+            hint: hydrateError.supabaseHint || null,
+          } : null),
+      },
       sample: scoped.slice(0, 5).map(d => ({
         id: d.id, name: d.name, submissionId: d.submissionId, pageNumber: d.pageNumber,
       })),

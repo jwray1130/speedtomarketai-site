@@ -1240,47 +1240,25 @@ async function sbDeleteDocumentPage(docId, storagePath) {
 // Pull every doc for the current user. Ordered newest-first so the view's
 // default sort matches the DB result without a re-sort.
 // ════════════════════════════════════════════════════════════════════
-// v8.5.1 — FETCH FIX
+// v8.5.2 — METADATA-ONLY FETCH (slim + lazy thumbnails)
 //
-// The previous v8.5 query was `select('*').eq('user_id', u.id)` which
-// pulls every column including extracted_text (up to 500K chars per row),
-// thumbnail_data_url (up to 500KB base64), html_content, and the
-// annotations JSONB. With 449 rows × ~600KB each = 269MB per query.
-// Postgres cancels with statement timeout (error 57014) at ~10s.
+// v8.5.1 dropped extracted_text, html_content, and annotations from the
+// hydrate query, but kept thumbnail_data_url. Even with the slim list,
+// 223 rows × ~150KB thumbnail = ~33MB per fetch, which still hits the
+// Postgres statement timeout (error 57014) on the SUB-MOMDRPB8 dataset.
 //
-// The fetch returned [] on error, which downstream code couldn't
-// distinguish from "no rows" — so the UI showed "No documents yet"
-// after every refresh, identical to the original v8.3 disappearing-docs
-// symptom but caused by a server timeout instead of a client race.
+// The Extension's empirical evidence:
+//   • select=id,submission_id,page_number,created_at...     → 0.4s ✓
+//   • select=*                                              → timeout ✗
+//   • select=* with submission_id scope (still has thumb)   → timeout ✗
 //
-// Two fixes applied:
-//   1. Slim column list — pull metadata + thumbnail (capped at 500KB by
-//      sbInsertDocumentPage compression) but NOT extracted_text or
-//      html_content. Those are fetched on-demand by features that need
-//      them (OCR re-run, search, preview enlarge).
-//   2. Throw on error instead of returning []. The caller (hydrateFromCloud)
-//      catches and surfaces via state._lastHydrateError so the UI can
-//      show "Sync paused" with a real reason, not silently render empty.
+// Conclusion: thumbnail_data_url is the bottleneck. Drop it from hydrate
+// and lazy-load per-doc as thumbnails come into view, same pattern used
+// for extracted_text/html_content via sbFetchDocumentPageFull.
 //
-// Optional opts.submissionId scopes the fetch by submission. With the
-// slim column list, even 449 rows fetch in <1s, so global hydrate is
-// fine — but per-submission scope is an extra safety margin and used
-// when setSubmissionContext triggers a re-hydrate.
+// Result: hydrate row size drops from ~150KB to <500 bytes per row.
+// 223 rows = ~110KB total. Should complete in <1 second.
 // ════════════════════════════════════════════════════════════════════
-//
-// Columns explicitly NOT fetched (lazy-load on demand):
-//   • extracted_text     — used for OCR/search; refetch when user searches
-//   • html_content       — used for HTML preview; refetch on click
-//   • annotations        — used for annotation overlay; refetch when thumb opens
-//
-// Columns ARE fetched (cheap, every doc needs them):
-//   • id, user_id, submission_id, file_name, file_size, file_mime_type
-//   • storage_path, page_number, total_pages, display_name
-//   • category, color, tagged
-//   • pipeline_classification, pipeline_routed_to, pipeline_tag, primary_bucket
-//   • relabeled_by_user
-//   • thumbnail_data_url (500KB cap enforced at insert time)
-//   • created_at
 const DOC_HYDRATE_COLUMNS = [
   'id', 'user_id', 'submission_id',
   'file_name', 'file_size', 'file_mime_type',
@@ -1288,49 +1266,105 @@ const DOC_HYDRATE_COLUMNS = [
   'display_name', 'category', 'color', 'tagged',
   'pipeline_classification', 'pipeline_routed_to',
   'pipeline_tag', 'primary_bucket', 'relabeled_by_user',
-  'thumbnail_data_url',
   'created_at',
 ].join(',');
+
+// v8.5.2: pagination. Even with the metadata-only column list, paginate
+// in case the user has thousands of pages over time. PostgREST default
+// limit is 1000 and the server can also enforce its own cap, so explicit
+// pagination via .range() is more predictable than relying on defaults.
+const DOC_HYDRATE_PAGE_SIZE = 500;
 
 async function sbFetchDocumentPages(opts) {
   opts = opts || {};
   const u = await sbUser(); if (!u) return [];
-  let q = window.sb
-    .from(DOC_TABLE)
-    .select(DOC_HYDRATE_COLUMNS)
-    .eq('user_id', u.id);
-  if (opts.submissionId) {
-    q = q.eq('submission_id', opts.submissionId);
+
+  // Single-page fetch helper. Used by the loop below for pagination.
+  // Throws on error (no silent empty return).
+  async function fetchPage(offset) {
+    let q = window.sb
+      .from(DOC_TABLE)
+      .select(DOC_HYDRATE_COLUMNS);
+    if (opts.submissionId) {
+      q = q.eq('submission_id', opts.submissionId);
+    } else {
+      q = q.eq('user_id', u.id);
+    }
+    // Order matters for pagination consistency. file_name + page_number
+    // groups pages of the same source file together (matches Rule 3
+    // sortDocs grouping). created_at as tiebreaker.
+    q = q.order('file_name',   { ascending: true })
+         .order('page_number', { ascending: true })
+         .order('created_at',  { ascending: false })
+         .range(offset, offset + DOC_HYDRATE_PAGE_SIZE - 1);
+    const { data, error } = await q;
+    if (error) {
+      const err = new Error(
+        'document_pages fetch failed: ' + (error.message || 'unknown') +
+        (error.code ? ' (code ' + error.code + ')' : '')
+      );
+      err.supabaseCode = error.code;
+      err.supabaseMessage = error.message;
+      err.supabaseDetails = error.details || null;
+      err.supabaseHint = error.hint || null;
+      throw err;
+    }
+    return data || [];
   }
-  q = q.order('created_at', { ascending: false });
-  const { data, error } = await q;
-  if (error) {
-    console.warn('sbFetchDocumentPages failed:', error.message, error.code || '');
-    _noteCloudFail();
-    // v8.5.1: throw instead of returning []. Callers must distinguish
-    // "no rows" from "query failed" — the previous silent return made
-    // hydrate report success with 0 rows even when Postgres timed out.
-    const err = new Error(
-      'document_pages fetch failed: ' + (error.message || 'unknown') +
-      (error.code ? ' (code ' + error.code + ')' : '')
-    );
-    err.supabaseCode = error.code;
-    err.supabaseMessage = error.message;
-    throw err;
+
+  // Paginate until we get a short page (< page size). For most users
+  // this is a single round-trip; the loop only kicks in beyond 500
+  // docs per submission.
+  const all = [];
+  let offset = 0;
+  let safety = 20;  // hard cap = 10,000 docs per submission
+  while (safety-- > 0) {
+    let page;
+    try {
+      page = await fetchPage(offset);
+    } catch (err) {
+      console.warn('sbFetchDocumentPages failed:', err.message, err.supabaseCode || '');
+      _noteCloudFail();
+      throw err;
+    }
+    all.push(...page);
+    if (page.length < DOC_HYDRATE_PAGE_SIZE) break;
+    offset += DOC_HYDRATE_PAGE_SIZE;
   }
   _noteCloudOk();
-  return data || [];
+  return all;
+}
+
+// v8.5.2: lazy thumbnail loader. Fetches thumbnail_data_url for one doc
+// on demand. Used by the thumbnail enrichment pass that runs after
+// hydrate, and by any feature that needs a thumbnail right now (e.g.,
+// when a doc scrolls into view).
+async function sbFetchDocumentPageThumbnail(docId) {
+  const u = await sbUser(); if (!u) return null;
+  if (!docId) return null;
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .select('id, thumbnail_data_url')
+    .eq('user_id', u.id)
+    .eq('id', docId)
+    .maybeSingle();
+  if (error) {
+    console.warn('sbFetchDocumentPageThumbnail failed for ' + docId + ':', error.message);
+    return null;
+  }
+  return data || null;
 }
 
 // Lazy-load the heavy fields for a single document on demand.
 // Used by: OCR re-run (needs extracted_text), search (needs extracted_text),
 // preview enlarge (needs html_content), annotation overlay (needs annotations).
+// v8.5.2: also includes thumbnail_data_url since hydrate no longer fetches it.
 async function sbFetchDocumentPageFull(docId) {
   const u = await sbUser(); if (!u) return null;
   if (!docId) return null;
   const { data, error } = await window.sb
     .from(DOC_TABLE)
-    .select('id, extracted_text, html_content, annotations')
+    .select('id, extracted_text, html_content, annotations, thumbnail_data_url')
     .eq('user_id', u.id)
     .eq('id', docId)
     .maybeSingle();
@@ -1441,5 +1475,6 @@ window.sbUpdateDocumentAnnotations      = sbUpdateDocumentAnnotations;
 window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
 window.sbFetchDocumentPages             = sbFetchDocumentPages;
 window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
+window.sbFetchDocumentPageThumbnail     = sbFetchDocumentPageThumbnail;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
