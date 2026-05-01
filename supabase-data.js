@@ -101,6 +101,17 @@ async function sbSaveSubmission(sub) {
     title: sub.title || sub.account || null
   };
   if (sub.id) row.id = sub.id;   // omit on insert so DB generates uuid
+  // v8.6.9 (per GPT external audit): second tombstone check immediately
+  // before upsert. The check at the top of this function can race with a
+  // delete that fires while sbUser() is awaiting. Row construction is
+  // synchronous so there's no actual yield between the first check and
+  // the upsert call, but defense-in-depth costs nothing and protects
+  // against future async additions to the row-build path.
+  if (row.id && typeof window !== 'undefined' && window.STATE &&
+      window.STATE._deletedSubmissionIds && window.STATE._deletedSubmissionIds.has(row.id)) {
+    console.warn('sbSaveSubmission blocked at upsert — submission was deleted: ' + row.id);
+    return null;
+  }
   const { data, error } = await window.sb
     .from('submissions')
     .upsert(row, { onConflict: 'id' })
@@ -1546,99 +1557,87 @@ async function sbDeleteAllDocumentPages() {
 // Phase 5 — cascade delete for a single submission. Removes every doc row
 // linked to this submission_id plus its storage binaries. Called by
 // app.js when an Altitude submission is deleted.
-async function sbDeleteDocumentPagesForSubmission(submissionId) {
-  if (!submissionId) return null;
-  const u = await sbUser(); if (!u) return null;
-  // ============================================================================
-  // v8.6.8 (per Justin's diagnostic + GPT external audit): rewrote the failure
-  // contract from "throw on any error" to "log and continue."
-  //
-  // BACKGROUND: under v8.5.7 - v8.6.7, this function threw on any SELECT or
-  // DELETE error. The chained try/catch in deleteSubmission would catch the
-  // throw and skip the parent submission delete. The reasoning was: if child
-  // delete fails, don't run parent delete because Postgres will retry the same
-  // expensive cascade inside the parent transaction and timeout again.
-  //
-  // BUT: a controlled diagnostic on Justin's account showed empirically that
-  // when the explicit child DELETE timed out with 57014 (statement timeout),
-  // the SUBSEQUENT parent submission DELETE succeeded — and ON DELETE CASCADE
-  // cleaned up document_pages rows correctly. The v8.5.7 concern was theoretical
-  // and didn't materialize.
-  //
-  // What DID materialize: every time a submission had enough document_pages
-  // rows to trigger the timeout, the explicit DELETE threw, the parent DELETE
-  // was skipped, the row stayed in cloud, and on refresh it reappeared. This
-  // is the exact "items don't stay deleted" symptom Justin reported.
-  //
-  // FIX: log errors instead of throwing. The parent submission DELETE proceeds.
-  // The cascade does the row cleanup at the database level. Storage binaries
-  // are best-effort cleaned with whatever paths we managed to read.
-  //
-  // We retain this function (rather than dropping it from deleteSubmission's
-  // call chain) because reading storage_path BEFORE parent delete is required:
-  // once the parent is gone, the cascade nukes document_pages and we can't
-  // discover what files to remove from the storage bucket. Orphan binaries
-  // are a cosmetic issue, not a correctness one — but we should clean them up
-  // when we can.
-  // ============================================================================
-
-  // Try to gather storage paths. If this fails, we lose the chance to clean
-  // up binaries (orphaned files in storage bucket — cosmetic), but the
-  // cascade will still delete the document_pages rows when the parent is
-  // deleted, which is the correctness-critical part.
-  let paths = [];
+// ============================================================================
+// v8.6.9 (per Justin's diagnostic + GPT external audit, round N+1):
+// REMOVED the explicit document_pages DELETE entirely.
+//
+// HISTORY:
+//   v8.5.7: chained child + parent delete in single try, child throws blocked
+//           parent (revealed by Justin's "items don't stay deleted")
+//   v8.6.8: changed child error path from "throw" to "log and continue"
+//           so parent delete still runs after child error. BUT: still
+//           awaited the explicit child DELETE first, which timed out at ~10s
+//           on submissions with many pages (Carroll County: 223 pages).
+//           User waiting 10s before parent delete starts → tab close /
+//           navigation → parent never runs → row stays in cloud.
+//   v8.6.9: don't issue the client-side document_pages DELETE at all.
+//           Just collect storage paths (fast SELECT) for binary cleanup
+//           later. Parent submission DELETE then triggers ON DELETE
+//           CASCADE which Postgres executes server-side as part of the
+//           parent transaction — empirically faster than the equivalent
+//           client-issued DELETE (probably because the server-side cascade
+//           runs as a single SQL statement with all locks already held).
+//
+// CONTRACT: this function returns the array of storage_paths so the caller
+// (deleteSubmission in app.js) can clean up storage binaries AFTER the
+// parent delete succeeds. Failure to collect paths means binaries become
+// orphans in the storage bucket — cosmetic only, not a correctness issue.
+// ============================================================================
+async function sbCollectDocumentStoragePathsForSubmission(submissionId) {
+  if (!submissionId) return [];
+  const u = await sbUser();
+  if (!u) return [];
   try {
-    const { data: rows, error: selErr } = await window.sb
+    const { data: rows, error } = await window.sb
       .from(DOC_TABLE)
       .select('storage_path')
       .eq('user_id', u.id)
       .eq('submission_id', submissionId);
-    if (selErr) {
-      console.warn('[delete] document_pages SELECT failed (cascade will still handle rows):',
-        selErr.code || '', selErr.message);
-      _noteCloudFail();
-    } else {
-      paths = (rows || []).map(r => r.storage_path).filter(Boolean);
-    }
-  } catch (e) {
-    console.warn('[delete] document_pages SELECT threw (cascade will still handle rows):', e.message);
-  }
-
-  // Try the explicit row delete. If this times out (57014) or otherwise fails,
-  // we LOG and CONTINUE — the parent delete's CASCADE handles the rows
-  // database-side. This is the v8.6.8 behavior change.
-  try {
-    const { error } = await window.sb
-      .from(DOC_TABLE)
-      .delete()
-      .eq('user_id', u.id)
-      .eq('submission_id', submissionId);
     if (error) {
-      console.warn('[delete] document_pages explicit DELETE failed (cascade will handle):',
+      console.warn('[delete] storage_path collect failed; parent cascade will still delete rows:',
         error.code || '', error.message);
       _noteCloudFail();
-      // DO NOT THROW. Let the parent delete proceed.
+      return [];
+    }
+    return (rows || []).map(r => r.storage_path).filter(Boolean);
+  } catch (e) {
+    console.warn('[delete] storage_path collect threw; parent cascade will still delete rows:', e.message);
+    return [];
+  }
+}
+
+// v8.6.9: helper for post-parent-delete storage cleanup. Centralizes
+// access to STORAGE_BUCKET so app.js doesn't need a direct reference.
+// Returns void; errors are logged but do not throw — orphan binaries
+// are cosmetic only.
+async function sbDeleteStoragePaths(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return;
+  try {
+    const { error } = await window.sb.storage.from(STORAGE_BUCKET).remove(paths);
+    if (error) {
+      console.warn('[delete] storage cleanup (non-fatal):', error.message);
     }
   } catch (e) {
-    console.warn('[delete] document_pages explicit DELETE threw (cascade will handle):', e.message);
-    // DO NOT THROW.
+    console.warn('[delete] storage cleanup threw (non-fatal):', e.message);
   }
+}
 
-  // Storage cleanup — fire-and-forget. If we got paths, try to remove them.
-  // If anything fails, orphan binaries result, which is cosmetic only.
-  if (paths.length > 0) {
-    try {
-      const { error: stErr } = await window.sb.storage
-        .from(STORAGE_BUCKET)
-        .remove(paths);
-      if (stErr) console.warn('[delete] storage cleanup (non-fatal):', stErr.message);
-    } catch (e) {
-      console.warn('[delete] storage cleanup threw (non-fatal):', e.message);
-    }
-  }
-
-  _noteCloudOk();
-  return true;
+// Backwards-compatibility shim: any callers still invoking the old name
+// get the path-collection behavior, which is the only piece of work that
+// actually needed to happen client-side. The explicit DELETE is gone.
+// Returns true (matching old "ok" semantics) so callers that don't read
+// the return value continue to work.
+async function sbDeleteDocumentPagesForSubmission(submissionId) {
+  // This function is now a thin wrapper — it just collects paths and
+  // schedules a best-effort storage cleanup. The actual document_pages
+  // row deletion happens via ON DELETE CASCADE when the parent
+  // submission is deleted.
+  const paths = await sbCollectDocumentStoragePathsForSubmission(submissionId);
+  // Note: deletion of storage binaries is now handled by deleteSubmission
+  // in app.js AFTER the parent delete succeeds. We don't fire the storage
+  // remove() here because if the parent delete fails, we'd have stranded
+  // the binaries while their referencing rows are still in the database.
+  return paths;
 }
 
 window.sbUploadDocumentFile             = sbUploadDocumentFile;
@@ -1653,3 +1652,5 @@ window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
 window.sbFetchDocumentPageThumbnail     = sbFetchDocumentPageThumbnail;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
+window.sbCollectDocumentStoragePathsForSubmission = sbCollectDocumentStoragePathsForSubmission;
+window.sbDeleteStoragePaths = sbDeleteStoragePaths;
