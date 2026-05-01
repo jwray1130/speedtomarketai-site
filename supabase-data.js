@@ -58,6 +58,16 @@ async function sbLoadSubmissions() {
 
 async function sbSaveSubmission(sub) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
+  // v8.5.6: tombstone check. If this submission was just deleted in the
+  // local UI, refuse to save — otherwise an in-flight save fired before
+  // delete propagated would upsert the row right back. Set is populated
+  // by deleteSubmission() in app.js. Returns null to match the no-op
+  // contract callers already handle gracefully.
+  if (sub && sub.id && typeof window !== 'undefined' && window.STATE &&
+      window.STATE._deletedSubmissionIds && window.STATE._deletedSubmissionIds.has(sub.id)) {
+    console.warn('sbSaveSubmission blocked — submission was deleted: ' + sub.id);
+    return null;
+  }
   const row = {
     user_id: u.id,
     snapshot: sub.snapshot || null,
@@ -165,8 +175,47 @@ async function sbDeleteSubmission(id) {
     await window.sb.from('feedback_events').delete().eq('submission_id', id);
   } catch (e) { console.warn('Pre-delete of feedback_events failed (continuing)', id, e); }
   // audit_events: deliberately NOT pre-deleted. SET NULL preserves the trail.
-  const { error } = await window.sb.from('submissions').delete().eq('id', id);
+
+  // v8.5.6: explicit user_id scoping + return-row verification.
+  //
+  // Justin reported that deleted submissions reappear after refresh. Two
+  // failure modes were possible with the old code (`.delete().eq('id', id)`):
+  //
+  //   A) RLS allows DELETE but only on rows where user_id = auth.uid().
+  //      Without `.eq('user_id', u.id)` in the query, PostgREST sends a
+  //      DELETE matching only on id — and RLS silently filters to zero
+  //      rows affected. PostgREST returns 200/204 with empty data, no
+  //      error. The UI thinks success; the row is still in the database.
+  //
+  //   B) The id matches but a save-after-delete race recreates the row
+  //      via upsert in another code path before the next reload.
+  //
+  // Adding .eq('user_id', u.id) AND .select() catches case A by:
+  //   - Making the WHERE clause explicit (RLS becomes a redundant safety
+  //     net, not the only filter)
+  //   - Forcing PostgREST to return the deleted rows. Zero returned rows
+  //     means delete didn't match, and we throw — bubbling to the UI's
+  //     error toast at the call site.
+  //
+  // Case B (save-after-delete) is addressed separately in deleteSubmission
+  // (app.js) which now sets a tombstone in STATE._deletedSubmissionIds so
+  // any in-flight saves that fire AFTER delete will skip the upsert.
+  const u = await sbUser();
+  if (!u) throw new Error('not signed in');
+  const { data, error } = await window.sb
+    .from('submissions')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', u.id)
+    .select();
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(
+      'Delete affected 0 rows for ' + id + '. Either RLS blocked the delete, ' +
+      'the row belongs to a different user, or the row was already gone. ' +
+      'Check Supabase RLS policy on public.submissions and verify ownership.'
+    );
+  }
 }
 
 // ---- Edits / Custom cards / Hidden cards ---------------------------------

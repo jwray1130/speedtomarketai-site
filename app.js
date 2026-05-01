@@ -2546,6 +2546,13 @@ async function deleteSubmission(submissionId, confirmAlready) {
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
   const label = displayAccount(rec);
+  // v8.5.6: tombstone. Any in-flight save (resyncActiveSnapshot,
+  // backfillMissingAccountNames, status change handler, pipeline
+  // completion handler, etc.) checks this set BEFORE upserting. Without
+  // this, a save firing AFTER delete recreates the row via upsert and
+  // the user sees the deleted submission reappear on next refresh.
+  if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
+  STATE._deletedSubmissionIds.add(submissionId);
   STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
   if (STATE.activeSubmissionId === submissionId) {
     STATE.activeSubmissionId = null;
