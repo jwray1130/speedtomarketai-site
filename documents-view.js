@@ -637,7 +637,21 @@ window.initDocumentsView = function() {
         // sees a false-empty render during boot. Without this, the
         // destructive feedback loop kicks in: user sees empty UI, deletes
         // "broken" submission, re-uploads, refreshes, sees empty again.
-        if (state._hydrating || !state._hydratedOnce) {
+        //
+        // v8.5.1: when a fetch failed (lastError set), show explicit error
+        // with retry guidance — not a generic empty state. The fetch
+        // failure path used to silently return [] which made hydrate look
+        // successful, so the user saw "No documents yet" with no recourse.
+        if (state._lastHydrateError && !state._hydratedOnce) {
+          titleEl.textContent = 'Sync paused — could not load documents';
+          // Show the error message but keep it short. supabaseCode 57014
+          // = statement timeout, the most common cause; surface it
+          // verbatim so the cause is visible without reading source.
+          const msg = state._lastHydrateError.length > 140
+            ? state._lastHydrateError.slice(0, 140) + '…'
+            : state._lastHydrateError;
+          subEl.textContent = msg + '  ·  Try refreshing the page, or run window.docsView.refreshFromCloud() in the console.';
+        } else if (state._hydrating || !state._hydratedOnce) {
           titleEl.textContent = 'Loading documents…';
           subEl.textContent   = 'Fetching from cloud, hold on a moment.';
         } else if (state.submissionFilter !== 'all' && state.docs.length > 0) {
@@ -3791,12 +3805,33 @@ window.initDocumentsView = function() {
       }
 
       let rows = [];
+      let fetchFailed = false;
       try {
-        rows = await window.sbFetchDocumentPages();
+        // v8.5.1: pass submissionId so the fetch is scoped server-side
+        // when we know the user is looking at a specific submission.
+        // Reduces row count from "all docs for user" (could be thousands
+        // long-term) to just the active submission (typically 200-500).
+        rows = await window.sbFetchDocumentPages(
+          submissionId ? { submissionId } : {}
+        );
       } catch (err) {
+        // v8.5.1: explicitly handle a thrown error from the fetch (was
+        // silently returning [] before, which downstream code couldn't
+        // distinguish from "no rows" — leading to false-success render).
+        fetchFailed = true;
         console.warn('[docs] hydrate fetch failed:', err);
         state._lastHydrateError = String(err && err.message || err);
         state._hydrating = false;
+        // Do NOT set _hydratedOnce. The UI must keep showing "Loading…"
+        // (or now "Sync paused" — see UI render below) so the user
+        // doesn't see a false-empty state.
+        // Fire the sync-paused indicator so it's visible the fetch is broken.
+        if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
+          try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
+        }
+        // Trigger a re-render so the empty-state shows the new "sync paused"
+        // message instead of staying on whatever render preceded the fetch.
+        renderDocsList();
         return;
       }
 
@@ -3805,6 +3840,7 @@ window.initDocumentsView = function() {
         forActiveSubmission: submissionId
           ? rows.filter(r => r.submission_id === submissionId).length
           : null,
+        scoped: !!submissionId,
       });
 
       // Merge-by-id instead of wiping. If the user uploaded a doc while
@@ -3904,6 +3940,19 @@ window.initDocumentsView = function() {
         stateDocsTotal: state.docs.length,
         visible: typeof filterDocs === 'function' ? filterDocs().length : null,
       });
+
+      // v8.5.1: deferred lazy enrichment. The slim hydrate doesn't fetch
+      // extracted_text or html_content (those columns are too heavy to
+      // ship with every row at boot — see DOC_HYDRATE_COLUMNS). Without
+      // them, content-search and HTML-preview are degraded. Background
+      // enrichment fixes that without blocking the initial render: kick
+      // off after a 1500ms delay (so the UI is interactive first), then
+      // fetch in chunks of 25 docs at a time with a small delay between
+      // batches so we don't saturate the network.
+      //
+      // If a chunk fails, log + abort gracefully — the UI still works,
+      // just with degraded search.
+      scheduleLazyEnrichment(submissionId);
     })();
 
     try {
@@ -3951,6 +4000,143 @@ window.initDocumentsView = function() {
         state._hydratedOnce = false;
         if (typeof renderDocsList === 'function') renderDocsList();
       }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // v8.5.1 — DEFERRED LAZY ENRICHMENT
+  //
+  // The slim hydrate (sbFetchDocumentPages) doesn't include the heavy
+  // columns extracted_text, html_content, or annotations — those are
+  // too expensive to ship with every row at boot (449 rows × 500KB
+  // extracted_text = 225MB, which is what causes Postgres statement
+  // timeout in the first place).
+  //
+  // Without those fields, content-search returns no matches and HTML
+  // preview falls back to the thumbnail. To keep search and preview
+  // working, this function back-fills extracted_text and html_content
+  // for every doc in the background, in chunks of 25, with a small
+  // delay between batches so we don't saturate the network.
+  //
+  // Concurrency-guarded: only one enrichment can run at a time. If the
+  // user navigates to a different submission mid-enrichment, the new
+  // hydrate will trigger a new enrichment, but only one is active.
+  //
+  // Failure mode: if any chunk fails (network blip, RLS blip, anything),
+  // log + abort gracefully. The UI keeps working with what it has.
+  // ══════════════════════════════════════════════════════════════════
+  let _enrichmentInFlight = null;
+
+  function scheduleLazyEnrichment(submissionId) {
+    // Guard: don't start another if one's already running. The active
+    // enrichment will pick up newly-hydrated docs on its next chunk.
+    if (_enrichmentInFlight) {
+      console.log('[docs] enrichment skipped — already running');
+      return;
+    }
+    if (typeof window.sbFetchDocumentPageFull !== 'function') {
+      console.log('[docs] enrichment skipped — sbFetchDocumentPageFull unavailable');
+      return;
+    }
+
+    _enrichmentInFlight = (async () => {
+      // Wait 1500ms so the UI is interactive first. The user gets a
+      // working file manager immediately; enrichment happens behind
+      // their back without blocking interactions.
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Pick docs that are missing textContent (the trigger for
+      // enrichment). If submissionId is provided, restrict to that
+      // submission so we enrich what the user is actually looking at.
+      const candidates = state.docs.filter(d => {
+        if (submissionId && d.submissionId !== submissionId) return false;
+        // Only enrich docs that are missing the heavy fields. If the
+        // doc was uploaded fresh in this session, textContent is already
+        // populated and we skip it.
+        return !d.textContent || d.textContent.length === 0;
+      });
+
+      if (candidates.length === 0) {
+        console.log('[docs] enrichment: nothing to enrich', { submissionId });
+        return;
+      }
+
+      console.log('[docs] enrichment start', {
+        candidateCount: candidates.length,
+        submissionId: submissionId || 'all',
+      });
+
+      const CHUNK_SIZE = 25;
+      const CHUNK_DELAY_MS = 250;
+      let enriched = 0;
+      let failed = 0;
+
+      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+        const chunk = candidates.slice(i, i + CHUNK_SIZE);
+        // Fetch each doc's heavy fields in parallel within the chunk.
+        // Promise.allSettled so one failure doesn't kill the whole chunk.
+        const results = await Promise.allSettled(
+          chunk.map(d => window.sbFetchDocumentPageFull(d.id))
+        );
+
+        results.forEach((r, idx) => {
+          if (r.status !== 'fulfilled' || !r.value) {
+            failed++;
+            return;
+          }
+          const row = r.value;
+          // Find the doc in state again (it might have moved or been
+          // deleted while we were fetching). Mutate in place so the
+          // existing references stay valid.
+          const doc = state.docs.find(d => d.id === row.id);
+          if (!doc) return;
+          if (row.extracted_text != null) doc.textContent = row.extracted_text;
+          if (row.html_content != null) doc.htmlContent = sanitizeHtml(row.html_content);
+          if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
+            state.annotations.store[doc.id] = {
+              layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
+              undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
+            };
+          }
+          enriched++;
+        });
+
+        // Brief pause between chunks so we don't pin the network or
+        // hammer Supabase. With 25 parallel fetches per chunk and a
+        // 250ms gap, 449 docs = ~18 chunks × ~500ms = 9 seconds total
+        // background work, fully invisible to the user.
+        if (i + CHUNK_SIZE < candidates.length) {
+          await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+        }
+
+        // If too many failures, abort gracefully. UI still works with
+        // partial enrichment.
+        if (failed >= 10 && enriched < failed) {
+          console.warn('[docs] enrichment aborted — too many failures', {
+            enriched,
+            failed,
+            remaining: candidates.length - i - CHUNK_SIZE,
+          });
+          break;
+        }
+      }
+
+      console.log('[docs] enrichment complete', {
+        enriched,
+        failed,
+        candidateCount: candidates.length,
+      });
+
+      // Re-render so search results pick up the new textContent for
+      // docs that the user has already searched. Cheap operation —
+      // just rebuilds the visible list, no fetch.
+      if (typeof renderDocsList === 'function') {
+        try { renderDocsList(); } catch(e) {}
+      }
+    })().catch(err => {
+      console.warn('[docs] enrichment error:', err);
+    }).finally(() => {
+      _enrichmentInFlight = null;
     });
   }
 

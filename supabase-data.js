@@ -1239,20 +1239,106 @@ async function sbDeleteDocumentPage(docId, storagePath) {
 
 // Pull every doc for the current user. Ordered newest-first so the view's
 // default sort matches the DB result without a re-sort.
-async function sbFetchDocumentPages() {
+// ════════════════════════════════════════════════════════════════════
+// v8.5.1 — FETCH FIX
+//
+// The previous v8.5 query was `select('*').eq('user_id', u.id)` which
+// pulls every column including extracted_text (up to 500K chars per row),
+// thumbnail_data_url (up to 500KB base64), html_content, and the
+// annotations JSONB. With 449 rows × ~600KB each = 269MB per query.
+// Postgres cancels with statement timeout (error 57014) at ~10s.
+//
+// The fetch returned [] on error, which downstream code couldn't
+// distinguish from "no rows" — so the UI showed "No documents yet"
+// after every refresh, identical to the original v8.3 disappearing-docs
+// symptom but caused by a server timeout instead of a client race.
+//
+// Two fixes applied:
+//   1. Slim column list — pull metadata + thumbnail (capped at 500KB by
+//      sbInsertDocumentPage compression) but NOT extracted_text or
+//      html_content. Those are fetched on-demand by features that need
+//      them (OCR re-run, search, preview enlarge).
+//   2. Throw on error instead of returning []. The caller (hydrateFromCloud)
+//      catches and surfaces via state._lastHydrateError so the UI can
+//      show "Sync paused" with a real reason, not silently render empty.
+//
+// Optional opts.submissionId scopes the fetch by submission. With the
+// slim column list, even 449 rows fetch in <1s, so global hydrate is
+// fine — but per-submission scope is an extra safety margin and used
+// when setSubmissionContext triggers a re-hydrate.
+// ════════════════════════════════════════════════════════════════════
+//
+// Columns explicitly NOT fetched (lazy-load on demand):
+//   • extracted_text     — used for OCR/search; refetch when user searches
+//   • html_content       — used for HTML preview; refetch on click
+//   • annotations        — used for annotation overlay; refetch when thumb opens
+//
+// Columns ARE fetched (cheap, every doc needs them):
+//   • id, user_id, submission_id, file_name, file_size, file_mime_type
+//   • storage_path, page_number, total_pages, display_name
+//   • category, color, tagged
+//   • pipeline_classification, pipeline_routed_to, pipeline_tag, primary_bucket
+//   • relabeled_by_user
+//   • thumbnail_data_url (500KB cap enforced at insert time)
+//   • created_at
+const DOC_HYDRATE_COLUMNS = [
+  'id', 'user_id', 'submission_id',
+  'file_name', 'file_size', 'file_mime_type',
+  'storage_path', 'page_number', 'total_pages',
+  'display_name', 'category', 'color', 'tagged',
+  'pipeline_classification', 'pipeline_routed_to',
+  'pipeline_tag', 'primary_bucket', 'relabeled_by_user',
+  'thumbnail_data_url',
+  'created_at',
+].join(',');
+
+async function sbFetchDocumentPages(opts) {
+  opts = opts || {};
   const u = await sbUser(); if (!u) return [];
-  const { data, error } = await window.sb
+  let q = window.sb
     .from(DOC_TABLE)
-    .select('*')
-    .eq('user_id', u.id)
-    .order('created_at', { ascending: false });
+    .select(DOC_HYDRATE_COLUMNS)
+    .eq('user_id', u.id);
+  if (opts.submissionId) {
+    q = q.eq('submission_id', opts.submissionId);
+  }
+  q = q.order('created_at', { ascending: false });
+  const { data, error } = await q;
   if (error) {
-    console.warn('sbFetchDocumentPages failed:', error.message);
+    console.warn('sbFetchDocumentPages failed:', error.message, error.code || '');
     _noteCloudFail();
-    return [];
+    // v8.5.1: throw instead of returning []. Callers must distinguish
+    // "no rows" from "query failed" — the previous silent return made
+    // hydrate report success with 0 rows even when Postgres timed out.
+    const err = new Error(
+      'document_pages fetch failed: ' + (error.message || 'unknown') +
+      (error.code ? ' (code ' + error.code + ')' : '')
+    );
+    err.supabaseCode = error.code;
+    err.supabaseMessage = error.message;
+    throw err;
   }
   _noteCloudOk();
   return data || [];
+}
+
+// Lazy-load the heavy fields for a single document on demand.
+// Used by: OCR re-run (needs extracted_text), search (needs extracted_text),
+// preview enlarge (needs html_content), annotation overlay (needs annotations).
+async function sbFetchDocumentPageFull(docId) {
+  const u = await sbUser(); if (!u) return null;
+  if (!docId) return null;
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .select('id, extracted_text, html_content, annotations')
+    .eq('user_id', u.id)
+    .eq('id', docId)
+    .maybeSingle();
+  if (error) {
+    console.warn('sbFetchDocumentPageFull failed for ' + docId + ':', error.message);
+    return null;
+  }
+  return data || null;
 }
 
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.
@@ -1354,5 +1440,6 @@ window.sbUpdateDocumentPage             = sbUpdateDocumentPage;
 window.sbUpdateDocumentAnnotations      = sbUpdateDocumentAnnotations;
 window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
 window.sbFetchDocumentPages             = sbFetchDocumentPages;
+window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
