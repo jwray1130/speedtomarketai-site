@@ -633,6 +633,22 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   min-width: 240px;
 }
 .cr-controls select:focus { outline: none; border-color: var(--signal); }
+/* v8.6.12 — variable-limit input next to the tag dropdown.
+   Appears for Lead $XM / $XM xs $YM / $XM P/O $YM xs $ZM. */
+.cr-variable-input {
+  margin-top: 4px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-warm);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  min-width: 240px;
+  box-sizing: border-box;
+}
+.cr-variable-input:focus { outline: none; border-color: var(--signal); }
+.cr-variable-input::placeholder { color: var(--text-3); font-size: 11px; }
 .cr-controls button {
   padding: 6px 14px;
   font-family: var(--font-mono);

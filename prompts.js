@@ -219,17 +219,38 @@ together a Commercial App + Loss Runs + Subcontract. You MUST detect and
 return ALL applicable types in classifications[]. Do NOT collapse to the
 dominant one. The pipeline routes each classification independently.
 
-CRITICAL — for COMBINED ACORD packets (a single PDF containing ACORD 125 +
-126 + 127 + 129 + 131 + 139 + 140 + 152 etc.), you MUST emit one
-classification per ACORD form detected, NOT a single "package app" tag.
-Each ACORD form is a separate document type with separate extraction
-needs. Detect each by its ACORD form number printed on every page (e.g.,
-"ACORD 125 (2016/03)" appears on every page of the ACORD 125 section).
+CRITICAL — for COMBINED ACORD packets (a single PDF containing multiple
+ACORD forms — typically 125 + 126 + 127 + 129 + 131 + 139 + 140 etc.):
 
-For each classification of a section, set section_hint to the page range
-the section occupies — e.g., "pages 1-4" for the 125 section, "pages
-19-22" for the 126 section. The pipeline uses section_hint to slice the
-document text and pass only the relevant pages to each extraction module.
+  v8.6.11 (per Justin's review): we ONLY emit classifications for
+  ACORD 125, ACORD 126, and ACORD 131. The other ACORD forms in the
+  packet (127, 129, 137, 139, 140, 152, etc.) are processed as part of
+  the document but produce NO classification entries — they will not
+  appear in the chip layer.
+
+  For each of ACORD 125, 126, 131 that you detect in the combined PDF,
+  emit ONE classification entry with:
+    • type = "APPLICATIONS"
+    • tag = "ACORD 125" (or "ACORD 126" or "ACORD 131")
+    • section_hint set to the page range that ACORD form occupies
+      (e.g., "pages 1-4" for 125, "pages 5-8" for 126, "pages 9-12"
+      for 131)
+
+  ACORD 131 IS HIGH-PRIORITY. It is the Umbrella/Excess Section and
+  feeds directly into the excess casualty workflow. If a combined
+  packet contains an ACORD 131, you MUST detect it and emit a
+  classification entry. Look for the form number "ACORD 131" printed
+  in the form's header/footer area (often "ACORD 131 (YYYY/MM)").
+  Common signatures of the ACORD 131 section:
+    • Header text: "Umbrella/Excess Section" or
+      "Commercial Umbrella/Excess Liability Section"
+    • Fields for "Underlying Limits", "Aggregate Limits",
+      "Self-Insured Retention", "Excess Limits Required"
+    • Schedule of underlying coverages
+  If you see any of those signatures, emit the ACORD 131 entry.
+
+  Detect each ACORD form by its number printed on every page
+  (e.g., "ACORD 125 (2016/03)" appears on every page of the 125 section).
 
 ═══════════════════════════════════════════════════════════════════════════════
 TAGS YOU MUST NEVER EMIT — RULE 8
@@ -299,16 +320,31 @@ Use the most specific tag from the list below. If unsure, emit "???"
 with needs_review: true.
 
 APPLICATIONS bucket:
-  • "ACORD 125"               — Commercial Insurance App (general)
-  • "ACORD 126"               — Commercial GL Section
-  • "ACORD 127"               — Business Auto Section
-  • "ACORD 129"               — Property Section
-  • "ACORD 131"               — Umbrella/Excess Section
-  • "ACORD 137"               — Garage Section
-  • "ACORD 139"               — Statement of Values
-  • "ACORD 140"               — Property Section
-  • "ACORD 152"               — Commercial Inland Marine
+  • "ACORD 125"               — Commercial Insurance App (general info,
+                                operations, locations). EMIT THIS TAG.
+  • "ACORD 126"               — Commercial GL Section. EMIT THIS TAG.
+  • "ACORD 131"               — Umbrella/Excess Section. EMIT THIS TAG.
   • "Supp App"                — Generic carrier supplemental application
+
+  ⚠ ACORD POLICY (v8.6.11, per Justin's review):
+  ONLY ACORD 125, 126, and 131 are recognized as their own tags.
+  Other ACORD form numbers (127, 129, 137, 139, 140, 152, 829, etc.)
+  appear in submissions but are NOT used by the excess casualty workflow.
+  When you encounter them inside a combined ACORD packet:
+    • Do NOT emit a separate classification entry for them
+    • Do NOT include them in the classifications array as their own section
+    • Their pages are simply part of the broader APPLICATIONS bucket
+    • If the COMBINED PDF as a whole is APPLICATIONS, emit ONE entry
+      covering the whole document with type=APPLICATIONS and tag set
+      to whichever of {ACORD 125, ACORD 126, ACORD 131} appears first,
+      OR omit per-section entries entirely if none of those three are
+      present.
+  This means in a typical commercial submission with ACORD 125 + 126 +
+  127 + 129 + 131 + 140, you should emit exactly three section entries:
+  one for ACORD 125 (with section_hint of its page range), one for
+  ACORD 126, and one for ACORD 131. The 127, 129, and 140 sections
+  produce NO entries — they're invisible to the chip layer but the
+  pages still belong to the document and the APPLICATIONS bucket.
   • "Contractors Supp"        — Contractor industry supplemental
   • "Manufacturing Supp"      — Manufacturing supplemental
   • "HNOA Supp"               — Hired/non-owned auto supplemental
@@ -322,14 +358,61 @@ APPLICATIONS bucket:
 QUOTES_UNDERLYING bucket:
   • "GL Quote"                — Primary GL quote/proposal
   • "GL T&C"                  — GL terms and conditions
-  • "GL Exposure"             — GL exposure schedule
-  • "AL Quote"                — Primary auto quote/proposal
+  • "GL Exposure"             — GL exposure schedule. v8.6.11: emit this
+                                tag whenever a document or section lists
+                                GL exposure bases for rating. Common
+                                signatures:
+                                  • Header "GL Exposure", "General
+                                    Liability Exposure", "Schedule of
+                                    Operations & Exposures", "Class
+                                    Codes / Exposure Bases"
+                                  • Tabular layout with columns for
+                                    class code, classification description,
+                                    exposure basis (payroll/sales/area/
+                                    units), exposure amount, premium
+                                    base, rate
+                                  • ISO/CGL class codes (5-digit numerics
+                                    like 91585, 98305) with exposure
+                                    amounts
+                                The GL Exposure may appear as a standalone
+                                document, as a section within a GL Quote,
+                                or as a tab/sheet within a broker submission
+                                spreadsheet. In all cases, emit "GL Exposure"
+                                as the tag.
+  • "AL Quote"                — Primary auto quote/proposal. The AL Quote
+                                is the SOURCE OF TRUTH for fleet data.
+                                When classifying an AL Quote, you MUST
+                                also detect any fleet/vehicle schedule
+                                contained WITHIN the quote and emit it
+                                as a separate "AL Fleet" classification
+                                entry with section_hint pointing to the
+                                fleet pages. Most AL quotes have a
+                                schedule of vehicles section (sometimes
+                                titled "Schedule of Autos", "Vehicle
+                                Schedule", "Fleet Schedule", "Covered
+                                Autos"). That section is the Fleet.
   • "AL T&C"                  — Auto terms and conditions
-  • "AL Fleet"                — Vehicle/fleet schedule that's PART of an
-                                AL underwriting submission (paired with
-                                AL Quote, has VINs/values/coverage details
-                                relevant to rating). Routes to al_quote
-                                for extraction.
+  • "AL Fleet"                — Fleet/vehicle schedule that is PART OF
+                                the AL Quote document. EMIT THIS TAG
+                                ONLY when the fleet schedule is INSIDE
+                                an AL Quote PDF — never when it appears
+                                in an ACORD form, broker email, or
+                                standalone vehicle list.
+
+  ⚠ AL FLEET SOURCE-OF-TRUTH RULE (v8.6.11, per Justin's review):
+  The fleet's source of truth for excess casualty underwriting is
+  exclusively the AL Quote document. When detecting fleet data anywhere
+  else:
+    • In an ACORD 127 or ACORD 129 → DO NOT emit "AL Fleet". The pages
+      are part of the APPLICATIONS bucket (and per the ACORD policy
+      above, those forms produce no classification entries at all).
+    • In a broker email or cover note → DO NOT emit "AL Fleet". The
+      email goes to CORRESPONDENCE.
+    • In a standalone vehicle list PDF → DO NOT emit "AL Fleet".
+      Classify that doc as ADMINISTRATION with tag "Vehicle Schedule"
+      or leave un-tagged. It is reference only, not the source of truth.
+    • ONLY inside an AL Quote PDF → emit "AL Fleet" as a section
+      classification with section_hint pointing to the fleet pages.
   • "EL Quote"                — Employers Liability quote
   • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
   • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
@@ -372,29 +455,55 @@ ADMINISTRATION bucket:
   • "SOV" or "Schedule of Values" — Property SOV
   • "Work on Hand"            — WOH / backlog statement
   • "Site Inspection"         — Site/loss control inspection
-  • "Vehicle Schedule"        — STANDALONE reference vehicle list with no
-                                rating-relevant detail. Filed for reference
-                                only, not extracted.
-                                Classify as "AL Fleet" instead (routes to
-                                al_quote) if the schedule contains ANY of:
-                                  - VINs PAIRED with values or coverage limits
-                                  - Garaging zip/state per unit
-                                  - Driver assignments or driver schedules
-                                  - Radius of operation per unit
-                                  - Vehicle classification (PPT/light truck/
-                                    heavy truck) used for rating
-                                  - Auto exposure data (annual mileage,
-                                    business use percent)
-                                Default to "AL Fleet" when in doubt — it's
-                                better to extract and have the data than
-                                file-and-forget rating-relevant content.
+  • "Vehicle Schedule"        — Standalone vehicle list, file-and-forget.
+                                v8.6.11: per Justin's review, Vehicle
+                                Schedules are NEVER routed to al_quote.
+                                Fleet data for rating comes exclusively
+                                from the AL Quote document (see AL Fleet
+                                rule in QUOTES_UNDERLYING bucket above).
+                                A standalone vehicle list — regardless
+                                of detail level — is reference material,
+                                not the source of truth.
   • "Garaging Schedule"       — Standalone garaging-locations list (zip codes
                                 or addresses only, no VINs/values). File-and-
-                                forget. If paired with a vehicle list and AL
-                                quote, classify the combined doc as "AL Fleet".
+                                forget. Never routed to al_quote.
 
 UNIDENTIFIED:
   • "???"                     — emit with needs_review: true when uncertain
+
+═══════════════════════════════════════════════════════════════════════════════
+LINES OF BUSINESS WE DO NOT WRITE — RULE 9 (v8.6.11, per Justin's review)
+═══════════════════════════════════════════════════════════════════════════════
+This is an EXCESS CASUALTY underwriting workbench. We do NOT write over
+the following lines, and documents related to them are NOT relevant to
+the underwriting modules.
+
+When you detect any of these in a submission, do NOT emit a classification
+entry for them. Their pages are still part of the parent document and
+get filed (Applications, Underlying, etc. based on the parent), but they
+produce NO chip in the Tagged Pages layer and NO routing to any
+extraction module. Same treatment as the unrecognized ACORD numbers
+(127, 129, 140, etc.) — invisible to the chip layer.
+
+Lines of business that produce NO classification entries:
+
+  • PROPERTY (Commercial Property Quote, Property Proposal, SOV, Property
+    Statement of Values, ACORD 140 alone, building/contents schedules
+    when standalone). Do NOT emit a tag. Do NOT include as a section
+    classification. The pages just file under whatever bucket the parent
+    document belongs to.
+  • WORKERS' COMPENSATION quotes / proposals / payroll schedules.
+  • PROFESSIONAL LIABILITY / E&O / D&O standalone (we write Excess
+    Casualty over GL/AL, not over E&O towers).
+  • CYBER / TECH E&O standalone.
+  • CRIME / FIDELITY standalone.
+  • SURETY / BONDS.
+
+If a submission is ENTIRELY a non-excess-casualty line (e.g., a packet
+that contains only a Property quote and SOV with no GL/AL/Excess
+content), classify the whole document as ADMINISTRATION with type
+"ADMINISTRATION" and no tag, so it files but produces no chip and no
+routing. The user will see it in the docs view but not in the workflow.
 
 CRITICAL RULES FOR THE "tag" FIELD:
 1. NEVER include a page number in the tag (e.g. NOT "ACORD 125 page 1").

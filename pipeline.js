@@ -596,28 +596,152 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ============================================================================
 // CLASSIFIER REVIEW BANNER — post-hoc non-blocking flagging in the Summary view
 // ============================================================================
+// CLASSIFIER_TYPES (v8.6.12 — full tag taxonomy per Justin's review)
+//
+// Organized by bucket to match the prompt's mental model. Each entry has:
+//   value:    the tag string (what gets written to f.tag / pipelineTag)
+//   label:    what the dropdown shows
+//   bucket:   APPLICATIONS | QUOTES_UNDERLYING | QUOTES_INDICATIONS |
+//             LOSS_HISTORY | CORRESPONDENCE | PROJECT | ADMINISTRATION |
+//             SPECIAL (for Don't tag / Unknown)
+//   variable: optional — if true, dropdown shows an input field for the
+//             limit/dollar amount that gets substituted into the tag.
+//             Format placeholder shown via 'placeholder' field.
+//
+// Routing is derived automatically from (bucket, tag) via classifierToRoute()
+// and docsViewMappingFor(), so picking "AL Fleet" auto-routes to al_quote
+// without needing a separate routing dropdown.
+// ============================================================================
 const CLASSIFIER_TYPES = [
-  { value: 'supplemental_contractors',   label: 'Supp · Contractors (→ A2)',     group: 'supplemental' },
-  { value: 'supplemental_manufacturing', label: 'Supp · Manufacturing (→ A2)',   group: 'supplemental' },
-  { value: 'supplemental_hnoa',          label: 'Supp · HNOA (→ A2)',            group: 'supplemental' },
-  { value: 'supplemental_captive',       label: 'Supp · Captive / RRG (→ A2)',   group: 'supplemental' },
-  { value: 'supplemental',               label: 'Supp · Generic ACORD (→ A2)',   group: 'supplemental' },
-  { value: 'subcontract',                label: 'Subcontract Agreement (→ A3)' },
-  { value: 'vendor',                     label: 'Vendor Agreement (→ A4)' },
-  { value: 'safety',                     label: 'Safety Manual (→ A5)' },
-  { value: 'losses',                     label: 'Loss Runs (→ A11)' },
-  { value: 'gl_quote',                   label: 'Primary GL Quote (→ A12)' },
-  { value: 'al_quote',                   label: 'Primary AL Quote (→ A13)' },
-  { value: 'excess',                     label: 'Excess / Umbrella Policy (→ A14)' },
-  { value: 'website',                    label: 'Website Content (→ A1)' },
-  { value: 'email',                      label: 'Broker Email (→ A16)' },
-  { value: 'unknown',                    label: 'Unknown / skip this file' }
+  // ── APPLICATIONS ─────────────────────────────────────────────────────
+  { value: 'ACORD 125',         label: 'ACORD 125',                   bucket: 'APPLICATIONS' },
+  { value: 'ACORD 126',         label: 'ACORD 126',                   bucket: 'APPLICATIONS' },
+  { value: 'ACORD 131',         label: 'ACORD 131',                   bucket: 'APPLICATIONS' },
+  { value: 'Supp App',          label: 'Supp App (generic)',          bucket: 'APPLICATIONS' },
+  { value: 'Contractors Supp',  label: 'Contractors Supp',            bucket: 'APPLICATIONS' },
+  { value: 'Manufacturing Supp',label: 'Manufacturing Supp',          bucket: 'APPLICATIONS' },
+  { value: 'HNOA Supp',         label: 'HNOA Supp',                   bucket: 'APPLICATIONS' },
+  { value: 'Captive Supp',      label: 'Captive / RRG Supp',          bucket: 'APPLICATIONS' },
+  { value: 'Sub Agreement',     label: 'Sub Agreement',               bucket: 'APPLICATIONS' },
+  { value: 'Vendor Agreement',  label: 'Vendor Agreement',            bucket: 'APPLICATIONS' },
+  { value: 'Safety Program',    label: 'Safety Program',              bucket: 'APPLICATIONS' },
+  { value: 'Narrative',         label: 'Narrative',                   bucket: 'APPLICATIONS' },
+  { value: 'Description of Operations', label: 'Description of Operations', bucket: 'APPLICATIONS' },
+
+  // ── QUOTES / UNDERLYING ──────────────────────────────────────────────
+  { value: 'GL Quote',          label: 'GL Quote',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'GL T&C',            label: 'GL T&C',                      bucket: 'QUOTES_UNDERLYING' },
+  { value: 'GL Exposure',       label: 'GL Exposure',                 bucket: 'QUOTES_UNDERLYING' },
+  { value: 'AL Quote',          label: 'AL Quote',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'AL T&C',            label: 'AL T&C',                      bucket: 'QUOTES_UNDERLYING' },
+  { value: 'AL Fleet',          label: 'AL Fleet',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'EL Quote',          label: 'EL Quote',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'Lead $XM',          label: 'Lead $___M',                  bucket: 'QUOTES_UNDERLYING', variable: true, format: 'lead', placeholder: 'e.g. 2' },
+  { value: '$XM xs $YM',        label: '$___M xs $___M (Excess Layer)',bucket: 'QUOTES_UNDERLYING', variable: true, format: 'xs',   placeholder: 'limit, attachment' },
+  { value: '$XM P/O $YM xs $ZM',label: '$___M P/O $___M xs $___M (Quota Share)', bucket: 'QUOTES_UNDERLYING', variable: true, format: 'po', placeholder: 'share, total, attach' },
+  { value: 'Excess T&C',        label: 'Excess T&C',                  bucket: 'QUOTES_UNDERLYING' },
+  { value: 'Aircraft',          label: 'Aircraft',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'Stop Gap',          label: 'Stop Gap',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'Foreign',           label: 'Foreign',                     bucket: 'QUOTES_UNDERLYING' },
+
+  // ── QUOTES / INDICATIONS ─────────────────────────────────────────────
+  { value: 'Target Premium',    label: 'Target Premium',              bucket: 'QUOTES_INDICATIONS' },
+  { value: 'Carrier Indication',label: 'Carrier Indication',          bucket: 'QUOTES_INDICATIONS' },
+  { value: 'Peer Quote',        label: 'Peer Quote',                  bucket: 'QUOTES_INDICATIONS' },
+
+  // ── LOSS HISTORY ─────────────────────────────────────────────────────
+  { value: 'Loss Runs',         label: 'Loss Runs',                   bucket: 'LOSS_HISTORY' },
+  { value: 'Loss Summary',      label: 'Loss Summary',                bucket: 'LOSS_HISTORY' },
+  { value: 'Large Loss Detail', label: 'Large Loss Detail',           bucket: 'LOSS_HISTORY' },
+  { value: 'Loss Triangulation',label: 'Loss Triangulation',          bucket: 'LOSS_HISTORY' },
+
+  // ── CORRESPONDENCE ───────────────────────────────────────────────────
+  { value: 'Cover Note',        label: 'Cover Note',                  bucket: 'CORRESPONDENCE' },
+  { value: 'Broker Email',      label: 'Broker Email',                bucket: 'CORRESPONDENCE' },
+  { value: 'Carrier Email',     label: 'Carrier Email',               bucket: 'CORRESPONDENCE' },
+
+  // ── PROJECT ──────────────────────────────────────────────────────────
+  { value: 'AIA Contract',      label: 'AIA Contract',                bucket: 'PROJECT' },
+  { value: 'Site Plan',         label: 'Site Plan',                   bucket: 'PROJECT' },
+  { value: 'Geotech Report',    label: 'Geotech Report',              bucket: 'PROJECT' },
+  { value: 'Site Photos',       label: 'Site Photos',                 bucket: 'PROJECT' },
+
+  // ── ADMINISTRATION ───────────────────────────────────────────────────
+  { value: 'BOR Letter',        label: 'BOR Letter',                  bucket: 'ADMINISTRATION' },
+  { value: 'AOR',               label: 'AOR',                         bucket: 'ADMINISTRATION' },
+  { value: 'Org Chart',         label: 'Org Chart',                   bucket: 'ADMINISTRATION' },
+  { value: 'SAFER Report',      label: 'SAFER Report',                bucket: 'ADMINISTRATION' },
+  { value: 'PCAR',              label: 'PCAR',                        bucket: 'ADMINISTRATION' },
+  { value: 'Crime Score',       label: 'Crime Score',                 bucket: 'ADMINISTRATION' },
+  { value: 'SOV',               label: 'SOV',                         bucket: 'ADMINISTRATION' },
+  { value: 'Work on Hand',      label: 'Work on Hand',                bucket: 'ADMINISTRATION' },
+  { value: 'Site Inspection',   label: 'Site Inspection',             bucket: 'ADMINISTRATION' },
+
+  // ── SPECIAL ──────────────────────────────────────────────────────────
+  { value: '__no_tag__',        label: 'Don\'t tag (file only, no chip)', bucket: 'SPECIAL' },
+  { value: 'unknown',           label: 'Unknown / skip this file',    bucket: 'SPECIAL' },
 ];
+
+// Bucket display names (in dropdown optgroup labels)
+const BUCKET_LABELS = {
+  APPLICATIONS:       'Applications',
+  QUOTES_UNDERLYING:  'Quotes — Underlying',
+  QUOTES_INDICATIONS: 'Quotes — Indications',
+  LOSS_HISTORY:       'Loss History',
+  CORRESPONDENCE:     'Correspondence',
+  PROJECT:            'Project',
+  ADMINISTRATION:     'Administration',
+  SPECIAL:            '— Other —',
+};
+
+// ============================================================================
+// tagToBucket / tagToRoute — derive type and routing from a chosen tag
+//
+// When the user picks a tag from the Needs Classification dropdown, we use
+// these to translate that tag into:
+//   - the SCREAMING_CASE bucket (drives docs-view category/color)
+//   - the routing destination (which extraction module gets it)
+// Same logic the classifier itself uses (classifierToRoute / docsViewMappingFor).
+// ============================================================================
+function tagToBucket(tagValue) {
+  const t = CLASSIFIER_TYPES.find(x => x.value === tagValue);
+  return (t && t.bucket) || 'UNIDENTIFIED';
+}
+function tagToRoute(tagValue) {
+  if (tagValue === '__no_tag__' || tagValue === 'unknown') return null;
+  const bucket = tagToBucket(tagValue);
+  // Route by passing bucket as type and tag for fallback — same path the
+  // pipeline takes when the classifier emits these.
+  return classifierToRoute(bucket, null, tagValue);
+}
 
 // Pretty-label a classifier type for chips/cards
 function classifierTypeLabel(value) {
+  if (!value) return '';
   const t = CLASSIFIER_TYPES.find(x => x.value === value);
-  return t ? t.label : value;
+  if (t) return t.label;
+  // v8.6.12: backward-compat for files classified before the dropdown
+  // was rebuilt. The old routing-flavored values (supplemental_contractors,
+  // gl_quote, al_quote, excess, etc.) are translated to readable labels
+  // so existing files in the queue still display sensibly until they
+  // get re-classified or re-uploaded.
+  const legacy = {
+    'supplemental_contractors':   'Contractors Supp',
+    'supplemental_manufacturing': 'Manufacturing Supp',
+    'supplemental_hnoa':          'HNOA Supp',
+    'supplemental_captive':       'Captive / RRG Supp',
+    'supplemental':               'Supp App (generic)',
+    'subcontract':                'Sub Agreement',
+    'vendor':                     'Vendor Agreement',
+    'safety':                     'Safety Program',
+    'losses':                     'Loss Runs',
+    'gl_quote':                   'GL Quote',
+    'al_quote':                   'AL Quote',
+    'excess':                     'Excess / Umbrella',
+    'website':                    'Website Content',
+    'email':                      'Broker Email',
+  };
+  return legacy[value] || value;
 }
 // Tracks files whose reclassification by the user has been queued for re-run
 const RECLASSIFY_PENDING = new Map(); // fileId -> newType
@@ -641,14 +765,42 @@ function renderClassifierReview() {
 
   const rows = flagged.map(f => {
     const confPct = Math.round((f.confidence || 0) * 100);
-    const currentType = RECLASSIFY_PENDING.get(f.id) || f.classification;
-    const wasChanged = RECLASSIFY_PENDING.has(f.id) && RECLASSIFY_PENDING.get(f.id) !== f.classification;
-    // Grouped select: supplemental subtypes rolled into an optgroup
-    const suppOpts = CLASSIFIER_TYPES.filter(t => t.group === 'supplemental')
-      .map(t => `<option value="${t.value}"${t.value === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
-    const otherOpts = CLASSIFIER_TYPES.filter(t => !t.group)
-      .map(t => `<option value="${t.value}"${t.value === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
-    const options = `<optgroup label="Supplemental Subtypes">${suppOpts}</optgroup><optgroup label="Other Document Types">${otherOpts}</optgroup>`;
+    const pending = RECLASSIFY_PENDING.get(f.id);
+    // currentTag is the tag currently selected in the dropdown — either the
+    // pending user choice or the classifier's original tag (or fall back
+    // to legacy classification value if no tag was emitted).
+    const currentTag = (pending && pending.tag) || f.tag || f.classification || '';
+    // The user's typed limit for variable tags (e.g. "2" for Lead $2M).
+    // Stored alongside the chosen tag in RECLASSIFY_PENDING.
+    const currentLimit = (pending && pending.limit) || '';
+    const wasChanged = !!pending && (pending.tag !== f.classification || pending.limit !== '');
+
+    // v8.6.12: build dropdown options grouped by bucket. Each <optgroup>
+    // matches the prompt taxonomy. Tags marked variable get a placeholder
+    // hint so the user knows to fill in the input.
+    const buckets = ['APPLICATIONS','QUOTES_UNDERLYING','QUOTES_INDICATIONS',
+                     'LOSS_HISTORY','CORRESPONDENCE','PROJECT',
+                     'ADMINISTRATION','SPECIAL'];
+    const options = buckets.map(b => {
+      const inBucket = CLASSIFIER_TYPES.filter(t => t.bucket === b);
+      if (inBucket.length === 0) return '';
+      const opts = inBucket.map(t => {
+        const sel = (t.value === currentTag) ? ' selected' : '';
+        const flag = t.variable ? ' data-variable="1"' : '';
+        return `<option value="${escapeHtml(t.value)}"${sel}${flag}>${escapeHtml(t.label)}</option>`;
+      }).join('');
+      return `<optgroup label="${escapeHtml(BUCKET_LABELS[b] || b)}">${opts}</optgroup>`;
+    }).join('');
+
+    // Determine whether the currently-selected tag is a variable one.
+    // When yes, render an input box next to the dropdown so the user
+    // can type the limit. The input fires the same queueReclassify with
+    // the typed value combined into the tag.
+    const currentTagDef = CLASSIFIER_TYPES.find(t => t.value === currentTag);
+    const isVariable = !!(currentTagDef && currentTagDef.variable);
+    const variableInput = isVariable
+      ? `<input class="cr-variable-input" type="text" placeholder="${escapeHtml(currentTagDef.placeholder || '')}" value="${escapeHtml(currentLimit)}" oninput="queueReclassifyLimit('${f.id}', this.value)" />`
+      : '';
 
     // v8.5.4: prefer granular tag (e.g., "ACORD 125") over bucket name
     // ("APPLICATIONS") for sidebar display when the classifier emits it.
@@ -685,6 +837,7 @@ function renderClassifierReview() {
           <div class="cr-sendto-wrap">
             <label class="cr-sendto-label" for="cr-sendto-${escapeHtml(f.id)}">Send to…</label>
             <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${options}</select>
+            ${variableInput}
           </div>
           <button class="ghost" onclick="acceptClassification('${f.id}')" title="Accept the AI's classification as-is">Confirm</button>
         </div>
@@ -716,15 +869,39 @@ function toggleNcfCollapse() {
   if (btn) btn.textContent = folder.classList.contains('is-collapsed') ? '+' : '−';
 }
 
-function queueReclassify(fileId, newType) {
+// v8.6.12: queueReclassify now stores {tag, limit} so variable tags
+// (Lead $XM, $XM xs $YM) can carry the user's typed limit alongside
+// the chosen tag. For non-variable tags, limit stays empty string.
+function queueReclassify(fileId, newTag) {
   const f = STATE.files.find(ff => ff.id === fileId);
   if (!f) return;
-  if (newType === f.classification) {
+  // If the user picked the same tag the file already had, treat as no-change
+  if (newTag === f.classification && newTag === f.tag) {
     RECLASSIFY_PENDING.delete(fileId);
   } else {
-    RECLASSIFY_PENDING.set(fileId, newType);
+    // Preserve any previously-typed limit (input may have been filled
+    // before the user changed the dropdown — usually want to clear, but
+    // we'll only clear if the new tag is non-variable).
+    const newDef = CLASSIFIER_TYPES.find(t => t.value === newTag);
+    const prev = RECLASSIFY_PENDING.get(fileId) || {};
+    const limit = (newDef && newDef.variable) ? (prev.limit || '') : '';
+    RECLASSIFY_PENDING.set(fileId, { tag: newTag, limit: limit });
   }
   renderClassifierReview();
+}
+
+// v8.6.12: limit input handler — typed value is stored on the pending
+// entry. Re-renders so the row state stays consistent. Note: typing in
+// the input shouldn't tear down and rebuild the input itself (that
+// would lose focus). The render guards against that by checking if
+// the input value already matches.
+function queueReclassifyLimit(fileId, limitValue) {
+  const f = STATE.files.find(ff => ff.id === fileId);
+  if (!f) return;
+  const prev = RECLASSIFY_PENDING.get(fileId) || { tag: f.tag || f.classification };
+  RECLASSIFY_PENDING.set(fileId, { tag: prev.tag, limit: limitValue });
+  // Don't re-render on each keystroke — that would lose input focus.
+  // The footer count + final apply read RECLASSIFY_PENDING directly.
 }
 
 function acceptClassification(fileId) {
@@ -745,29 +922,101 @@ async function applyReclassifications() {
   const modulesToRerun = new Set();
   const changedFiles = [];
 
-  RECLASSIFY_PENDING.forEach((newType, fileId) => {
+  // v8.6.12: helper — substitute user-typed limit into a variable tag
+  // template. "Lead $XM" + "2"          → "Lead $2M"
+  // "$XM xs $YM"  + "5, 5"             → "$5M xs $5M"
+  // "$XM P/O $YM xs $ZM" + "10, 25, 5" → "$10M P/O $25M xs $5M"
+  // Falls back to the template if the limit input is blank/garbage.
+  function buildVariableTag(tagDef, limit) {
+    if (!tagDef || !tagDef.variable || !limit) return tagDef ? tagDef.value : '';
+    const parts = String(limit).split(/[,\s]+/).map(p => p.trim()).filter(Boolean);
+    if (tagDef.format === 'lead' && parts.length >= 1) {
+      return 'Lead $' + parts[0] + 'M';
+    }
+    if (tagDef.format === 'xs' && parts.length >= 2) {
+      return '$' + parts[0] + 'M xs $' + parts[1] + 'M';
+    }
+    if (tagDef.format === 'po' && parts.length >= 3) {
+      return '$' + parts[0] + 'M P/O $' + parts[1] + 'M xs $' + parts[2] + 'M';
+    }
+    return tagDef.value;
+  }
+
+  RECLASSIFY_PENDING.forEach((entry, fileId) => {
     const f = STATE.files.find(ff => ff.id === fileId);
-    if (!f || newType === f.classification) return;
+    if (!f) return;
+
+    // entry is now {tag, limit} — handle backward compat if any caller
+    // still passes a bare string.
+    const chosenTag = (typeof entry === 'string') ? entry : entry.tag;
+    const chosenLimit = (typeof entry === 'string') ? '' : (entry.limit || '');
+    if (!chosenTag) return;
+
+    const tagDef = CLASSIFIER_TYPES.find(t => t.value === chosenTag);
+    // Final tag string — for variable tags, substitute the limit.
+    // For "Don't tag" (__no_tag__), use null.
+    let finalTag;
+    if (chosenTag === '__no_tag__') {
+      finalTag = null;
+    } else if (tagDef && tagDef.variable) {
+      finalTag = buildVariableTag(tagDef, chosenLimit);
+    } else {
+      finalTag = chosenTag;
+    }
+
+    // Skip if nothing actually changed
+    if (finalTag === f.tag && chosenTag === f.classification) return;
 
     // Modules that WERE run against this file (old routing) — need to re-run because input changed
     const oldTargets = (f.routedToAll && f.routedToAll.length > 0) ? [...f.routedToAll] : (f.routedTo ? [f.routedTo] : []);
     oldTargets.forEach(mid => modulesToRerun.add(mid));
 
-    // Update the file's classification
+    // v8.6.12: derive routing from the chosen tag using tagToRoute,
+    // which uses the same classifierToRoute logic the AI itself uses.
+    // This means picking "AL Fleet" auto-routes to al_quote, picking
+    // "GL Quote" routes to gl_quote, etc. — matching what the
+    // classifier would have done if it had picked this tag originally.
+    const newRoute = tagToRoute(chosenTag);
+    const newBucket = tagToBucket(chosenTag);
+
     const oldType = f.classification;
-    f.classification = newType;
+    f.classification = chosenTag === '__no_tag__' ? 'unknown' : chosenTag;
+    f.tag = finalTag;
+    f.primary_bucket = newBucket;
     f.confidence = 1.0;  // user correction = 100%
-    f.classifications = [{ type: newType, confidence: 1.0, reasoning: 'user override', section_hint: 'entire document' }];
+    f.classifications = [{
+      type: newBucket,
+      tag: finalTag,
+      confidence: 1.0,
+      reasoning: 'user override',
+      section_hint: 'entire document',
+      primary_bucket: newBucket,
+    }];
     f.needsReview = false;
     f.isCombined = false;
-    f.routedTo = classifierToRoute(newType);
-    f.routedToAll = f.routedTo ? [f.routedTo] : [];
+    f.routedTo = newRoute;
+    f.routedToAll = newRoute ? [newRoute] : [];
 
     // Modules that WILL run against this file (new routing) — also need running
     f.routedToAll.forEach(mid => modulesToRerun.add(mid));
 
-    changedFiles.push({ name: f.name, from: oldType, to: newType });
-    logAudit('Classifier', 'User reclassified ' + f.name + ': ' + oldType + ' → ' + newType, 'user');
+    // v8.6.12: also push the new tag into the docs-view so the chip
+    // updates immediately. The docs view stores docs by id; we look up
+    // pages belonging to this file and rewrite their pipelineTag.
+    if (typeof window !== 'undefined' && window.docsView && window.docsView.relabelDocsForFile) {
+      try {
+        window.docsView.relabelDocsForFile(f.id, {
+          pipelineTag: finalTag,
+          primaryBucket: newBucket,
+          relabeledByUser: true,
+        });
+      } catch (e) {
+        console.warn('docsView.relabelDocsForFile failed:', e.message);
+      }
+    }
+
+    changedFiles.push({ name: f.name, from: oldType, to: finalTag || '(no tag)' });
+    logAudit('Classifier', 'User reclassified ' + f.name + ': ' + oldType + ' → ' + (finalTag || '(no tag)'), 'user');
   });
 
   RECLASSIFY_PENDING.clear();
@@ -2290,6 +2539,7 @@ window.classifierTypeLabel = classifierTypeLabel;
 window.renderClassifierReview = renderClassifierReview;
 window.toggleNcfCollapse = toggleNcfCollapse;
 window.queueReclassify = queueReclassify;
+window.queueReclassifyLimit = queueReclassifyLimit;
 window.acceptClassification = acceptClassification;
 window.applyReclassifications = applyReclassifications;
 window.computeDownstream = computeDownstream;

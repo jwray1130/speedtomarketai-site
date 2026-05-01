@@ -1815,14 +1815,27 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 #docs-view-root .tagged-body { flex: 1; min-width: 0; padding-left: 4px; }
 
 #docs-view-root .tagged-name {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  margin-bottom: 2px;
+}
+
+/* v8.6.11: filename / page reference shown as muted subtext below the
+   tag title. Clamped so it never expands past one short line. */
+#docs-view-root .tagged-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   margin-bottom: 3px;
 }
 

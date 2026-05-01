@@ -2632,19 +2632,22 @@ window.initDocumentsView = function() {
   function buildTaggedItem(doc) {
     const item = document.createElement('div');
     item.className = 'tagged-item' + (doc.color ? ' tag-' + doc.color : '');
-    // v8.6.3 (per GPT external audit): prefer the granular pipelineTag
-    // over the generic folder color label. ACORD 126 / Lead $5M / Loss
-    // Runs 2024-25 are more useful in the export and review workflow
-    // than "Applications" / "Underlying" / "Loss History". Falls back
-    // to the color label for manual-tagged docs that don't have a
-    // pipelineTag (user dragged a color onto a doc themselves).
-    const labelText = doc.pipelineTag ||
+    // v8.6.11 (per Justin's review): show ONLY the tag. No filename
+    // subtext, no page number, nothing else. The Tagged Pages list is
+    // a clean inventory of what was identified — "ACORD 125", "Lead
+    // $5M", "AL Quote". The full filename is preserved in the title
+    // tooltip (hover) and accessible via click-through to the doc card.
+    //
+    // Falls back through:
+    //   1. pipelineTag           — the classifier's granular tag
+    //   2. tagColorLabels[color] — manual color tag (folder name)
+    //   3. displayName           — last resort if no tag at all
+    const tagText = doc.pipelineTag ||
       (doc.color ? CONFIG.tagColorLabels[doc.color] : '') ||
-      '';
+      doc.displayName;
     item.innerHTML = `
       <div class="tagged-body">
-        <div class="tagged-name">${escapeHtml(doc.displayName)}</div>
-        ${labelText ? `<span class="tagged-label">${escapeHtml(labelText)}</span>` : ''}
+        <div class="tagged-name">${escapeHtml(tagText)}</div>
       </div>
       <div class="tagged-actions">
         <button class="doc-mini-btn tagged-remove" title="Remove tag">
@@ -4449,6 +4452,91 @@ window.initDocumentsView = function() {
       renderDocsList();
       renderTagsList();
       return doc.id;
+    },
+    // v8.6.12: relabel all docs that came from a given source file.
+    // Called after the user reclassifies a file in the Needs Classification
+    // panel — picking a new tag updates every page/slice the file produced
+    // so the chip + Tagged Pages list reflect the new tag immediately.
+    //
+    // patch may include: pipelineTag, primaryBucket, color, category,
+    //                    relabeledByUser
+    //
+    // Identifies the file's docs by matching workbookFileName / nativeFileName
+    // (the link the upload flow already establishes). Updates in-memory state
+    // and pushes per-doc updates to Supabase if available.
+    //
+    // Returns the count of docs relabeled.
+    relabelDocsForFile: (fileId, patch) => {
+      if (!patch || typeof patch !== 'object') return 0;
+      // Find the source file by id to get its name
+      const f = (window.STATE && window.STATE.files || []).find(ff => ff.id === fileId);
+      if (!f) {
+        console.warn('relabelDocsForFile: source file not found for id', fileId);
+        return 0;
+      }
+      const fname = f.name || '';
+      // Match docs by source-file linkage
+      const matches = state.docs.filter(d =>
+        d.workbookFileName === fname ||
+        d.nativeFileName === fname ||
+        (d.name && d.name.startsWith(fname + ' — Page'))
+      );
+      if (matches.length === 0) return 0;
+      // For combined-PDF page tagging: only stamp pipelineTag on the first
+      // page of the doc (matching addDoc's section-start convention). Other
+      // pages keep null pipelineTag so they don't all get duplicate chips.
+      // For non-combined relabels the whole file gets one tag, applied to
+      // page 1 and propagated as the bucket/color across all pages.
+      let count = 0;
+      matches.forEach(d => {
+        const isFirst = (d.pageNumber || 1) === 1;
+        if (typeof patch.pipelineTag !== 'undefined') {
+          d.pipelineTag = isFirst ? patch.pipelineTag : null;
+        }
+        if (typeof patch.primaryBucket !== 'undefined') {
+          d.primaryBucket = patch.primaryBucket;
+        }
+        if (typeof patch.color !== 'undefined') {
+          d.color = isFirst ? patch.color : null;
+          d.tagged = !!d.color;
+        }
+        if (typeof patch.category !== 'undefined') {
+          d.category = patch.category;
+        }
+        if (typeof patch.relabeledByUser !== 'undefined') {
+          d.relabeledByUser = !!patch.relabeledByUser;
+        }
+        // Persist to cloud if available
+        if (typeof window.sbUpdateDocumentPage === 'function') {
+          const cloudPatch = {};
+          if (typeof patch.pipelineTag !== 'undefined') {
+            cloudPatch.pipeline_tag = isFirst ? patch.pipelineTag : null;
+          }
+          if (typeof patch.primaryBucket !== 'undefined') {
+            cloudPatch.primary_bucket = patch.primaryBucket;
+          }
+          if (typeof patch.color !== 'undefined') {
+            cloudPatch.color = isFirst ? patch.color : null;
+            cloudPatch.tagged = !!cloudPatch.color;
+          }
+          if (typeof patch.category !== 'undefined') {
+            cloudPatch.category = patch.category;
+          }
+          if (typeof patch.relabeledByUser !== 'undefined') {
+            cloudPatch.relabeled_by_user = !!patch.relabeledByUser;
+          }
+          if (Object.keys(cloudPatch).length > 0) {
+            window.sbUpdateDocumentPage(d.id, cloudPatch).catch(e =>
+              console.warn('relabelDocsForFile cloud sync failed for', d.id, e.message));
+          }
+        }
+        count++;
+      });
+      // Re-render so chips and Tagged Pages reflect the change
+      renderDocsList();
+      renderTagsList();
+      renderCategoryGrid();
+      return count;
     },
     // Pipeline-driven full-fidelity ingestion. Unlike addDocFromPipeline
     // (metadata-only push, no thumbnails or storage), this takes the raw
