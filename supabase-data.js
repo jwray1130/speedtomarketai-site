@@ -740,7 +740,26 @@ async function sbHydrate() {
     // Submissions. Each DB row's `snapshot` holds the per-submission object;
     // we flatten it back into the shape the rest of the app expects so the
     // Queue / rehydrate paths keep working unchanged.
-    const subRows = await sbLoadSubmissions();
+    const subRowsRaw = await sbLoadSubmissions();
+    // v8.6.10 (per GPT external audit): filter out tombstoned IDs.
+    // If a hydrate fires while a delete is in flight (e.g. user clicks
+    // delete then immediately switches submissions, triggering hydrate),
+    // the cloud row may still exist briefly. Without this filter, that
+    // hydrate would re-add the deleted row to STATE.submissions and the
+    // UI would show it again. The tombstone is in-memory only, so this
+    // filter only protects the in-session window — across page refresh,
+    // tombstone is gone but cloud delete should also be complete by then.
+    const tombstones =
+      (typeof STATE !== 'undefined' && STATE._deletedSubmissionIds && STATE._deletedSubmissionIds.size)
+        ? STATE._deletedSubmissionIds
+        : null;
+    const subRows = tombstones
+      ? subRowsRaw.filter(r => !tombstones.has(r.id))
+      : subRowsRaw;
+    if (tombstones && subRows.length < subRowsRaw.length) {
+      console.warn('[hydrate] filtered ' + (subRowsRaw.length - subRows.length) +
+        ' tombstoned submission(s) from cloud response');
+    }
     STATE.submissions = subRows.map(r => {
       const d = (r.snapshot && r.snapshot.derived) || {};   // fallback for pre-step-6 rows
       // Phase 7 step 6 (post-test fix): recompute modulesRun/confidence from
