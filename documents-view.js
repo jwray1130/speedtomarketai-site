@@ -55,21 +55,23 @@ window.initDocumentsView = function() {
       black: 'Underwriting',
     },
     categories: [
-      { id: 'all',               name: 'All Documents',     desc: 'View all uploaded files',         iconId: 'folder-open' },
+      { id: 'all',               name: 'All Documents',     desc: 'View all uploaded files',         iconId: 'folder-open', color: null },
       // ── Pipeline-routed (auto-classified by Altitude) ──
-      { id: 'loss-history',      name: 'Loss History',      desc: 'GL/AL/Excess loss runs · summaries · large losses', iconId: 'trend-down' },
-      { id: 'applications',      name: 'Applications',      desc: 'Supp app · ACORD · narrative · subagreement · safety', iconId: 'file-sig' },
-      { id: 'underlying',        name: 'Underlying',        desc: 'Underlying carrier policies — GL, AL, EL, Lead, Excess', iconId: 'shield' },
-      { id: 'project',           name: 'Project',           desc: 'Site plans · geotech · budgets · owner/GC docs',  iconId: 'folder-plus' },
-      { id: 'correspondence',    name: 'Correspondence',    desc: 'Cover notes · bind requests · broker emails',       iconId: 'mail' },
-      { id: 'compliance',        name: 'Compliance',        desc: 'TRIA accepted/declined · surplus lines letter',     iconId: 'alert' },
-      { id: 'administration',    name: 'Administration',    desc: 'BOR/AOR · COI · accounting',                        iconId: 'file-edit' },
+      // v8.4 fix #3 (GPT audit): color field added so drag/drop folder moves
+      // also apply the matching visual tag. Mirrors tagColorLabels above.
+      { id: 'loss-history',      name: 'Loss History',      desc: 'GL/AL/Excess loss runs · summaries · large losses', iconId: 'trend-down', color: 'red' },
+      { id: 'applications',      name: 'Applications',      desc: 'Supp app · ACORD · narrative · subagreement · safety', iconId: 'file-sig', color: 'green' },
+      { id: 'underlying',        name: 'Underlying',        desc: 'Underlying carrier policies — GL, AL, EL, Lead, Excess', iconId: 'shield', color: 'yellow' },
+      { id: 'project',           name: 'Project',           desc: 'Site plans · geotech · budgets · owner/GC docs',  iconId: 'folder-plus', color: 'purple' },
+      { id: 'correspondence',    name: 'Correspondence',    desc: 'Cover notes · bind requests · broker emails',       iconId: 'mail', color: 'pink' },
+      { id: 'compliance',        name: 'Compliance',        desc: 'TRIA accepted/declined · surplus lines letter',     iconId: 'alert', color: 'orange' },
+      { id: 'administration',    name: 'Administration',    desc: 'BOR/AOR · COI · accounting',                        iconId: 'file-edit', color: 'maroon' },
       // ── Manual upload only — uploaded by you, never auto-classified ──
-      { id: 'quotes-indications', name: 'Quotes & Indications', desc: 'Your quotes, indications, pricing',         iconId: 'file-invoice' },
-      { id: 'cancellations',     name: 'Cancellations',     desc: 'Notice of cancellation · reinstatement',           iconId: 'alert' },
-      { id: 'policy',            name: 'Policy',            desc: 'Quote · binder · policy · endorsements',           iconId: 'shield' },
-      { id: 'subjectivity',      name: 'Subjectivity',      desc: 'Subjectivity letters · responses',                  iconId: 'file-plus' },
-      { id: 'underwriting',      name: 'Underwriting',      desc: 'Internal UW notes · referrals · approvals',         iconId: 'file-edit' },
+      { id: 'quotes-indications', name: 'Quotes & Indications', desc: 'Your quotes, indications, pricing',         iconId: 'file-invoice', color: 'teal' },
+      { id: 'cancellations',     name: 'Cancellations',     desc: 'Notice of cancellation · reinstatement',           iconId: 'alert', color: 'magenta' },
+      { id: 'policy',            name: 'Policy',            desc: 'Quote · binder · policy · endorsements',           iconId: 'shield', color: 'blue' },
+      { id: 'subjectivity',      name: 'Subjectivity',      desc: 'Subjectivity letters · responses',                  iconId: 'file-plus', color: 'coral' },
+      { id: 'underwriting',      name: 'Underwriting',      desc: 'Internal UW notes · referrals · approvals',         iconId: 'file-edit', color: 'black' },
     ],
     storageKeys: {
       theme: 'stm_docs_theme',
@@ -306,9 +308,17 @@ window.initDocumentsView = function() {
         const targetCat = CONFIG.categories.find(c => c.id === cat.id);
         const targetColor = targetCat && targetCat.color ? targetCat.color : null;
         doc.category = cat.id;
+        // Drop into a colored category → apply that category's color.
+        // Drop into All Documents (color: null) → clear existing color so
+        // the visual state matches "no specific bucket". Without this clear,
+        // a green Applications doc dragged into All Documents stays green
+        // and appears mis-tagged.
         if (targetColor) {
           doc.color = targetColor;
           doc.tagged = true;
+        } else {
+          doc.color = null;
+          doc.tagged = false;
         }
         doc._relabeledByUser = true;
         renderCategoryGrid();
@@ -1271,12 +1281,18 @@ window.initDocumentsView = function() {
               tagged: !!d.color,
             }).catch(err => console.warn('Auto-classify persist failed for ' + d.id + ':', err));
           }
+          // Self-audit fix: render after each successful classification so the
+          // UW sees chips fill in progressively (matches the comment intent).
+          // Without this, all 20 docs would sit chipless until the entire
+          // batch completed.
+          renderDocsList();
         } catch (err) {
           // Classification failure — leave the doc without a tag. UW can
           // manually label via the relabel modal.
           console.warn('Auto-classify failed for ' + (d.displayName || d.id) + ':', err);
           d.pipelineTag = '???';
           d.pipelineClassification = '???';
+          renderDocsList();
         }
       }
       renderDocsList();
@@ -4063,7 +4079,7 @@ window.initDocumentsView = function() {
       // Quota share preset shapes
       '$5M P/O $10M xs $5M', '$5M P/O $10M xs $10M', '$10M P/O $20M xs $30M',
       'Buffer Layer', 'Captive Quote',
-      'Tower Summary',  // Broker's whole-tower diagram — single classification, never fragmented
+      'Excess T&C',  // Upper excess layer forms schedule
       // ── Custom entry — last so it shows at the bottom of the bucket ──
       'Custom layer...',
     ],
@@ -4162,10 +4178,13 @@ window.initDocumentsView = function() {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
-    const close = () => overlay.remove();
+    const escHandler = (ev) => { if (ev.key === 'Escape') close(); };
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+    };
     document.getElementById('docsview-relabel-cancel').addEventListener('click', close);
     overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
-    const escHandler = (ev) => { if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); } };
     document.addEventListener('keydown', escHandler);
 
     // Tag picks
@@ -4202,7 +4221,13 @@ window.initDocumentsView = function() {
         doc.tagged = !!mapping.color;
         doc._relabeledByUser = true;  // flag for future training-signal collection
         close();
-        if (typeof renderDocs === 'function') renderDocs();
+        // v8.4 fix #2 (GPT audit): renderDocs() does not exist. The real
+        // render functions are renderDocsList / renderCategoryGrid / renderTagsList.
+        // Without this fix, relabel persisted to Supabase but the visible card
+        // didn't refresh — user thought relabel was broken.
+        renderCategoryGrid();
+        renderDocsList();
+        renderTagsList();
         // Persist to cloud — sbUpdateDocumentPage handles all of these fields.
         // sbUpdateDocumentPage is exposed by supabase-data.js and accepts
         // partial updates by id.

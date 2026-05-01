@@ -133,10 +133,10 @@ QUOTES_UNDERLYING bucket — LIMIT NOTATION IS REQUIRED in the tag for layer doc
   • "Lead $XM"              — Lead Umbrella/Lead Excess. Replace XM with the actual limit (e.g. "Lead $5M", "Lead $10M", "Lead $1M", "Lead $25M")
   • "Lead $XM T&C"          — Lead T&C / forms schedule (only label this for Lead — not other excess layers)
   • "$XM xs $YM"            — Excess layer document. Replace with actual numbers from dec page LIMIT and schedule of underlying ATTACHMENT (e.g. "$5M xs $5M", "$10M xs $10M", "$25M xs $50M")
+  • "Excess T&C"            — Excess layer Terms & Conditions / forms schedule. Use this for upper excess layers (above the lead) when you have the forms schedule but not a specific layer doc.
   • "$XM P/O $YM xs $ZM (Insurer Name N%)" — Quota share layer. P/O = participation. Read carrier name and percentage from dec page (e.g. "$5M P/O $10M xs $10M (Insurer A 50%)")
   • "Buffer Layer"          — Buffer between primary and lead (uncommon, use exact limits in note)
   • "Captive Quote"         — Captive program quote (treat like a primary or excess depending on position)
-  • "Tower Summary"         — Broker-prepared diagram showing the WHOLE tower (every layer at once). One classification, NEVER fragmented into per-layer entries. See "TOWER SUMMARY DIAGRAM vs PER-LAYER DOCUMENT" rules below.
 
 LOSS_HISTORY bucket — YEAR SPAN IS REQUIRED in the tag:
   • "GL Loss Runs YYYY-YY"  — Per-claim carrier loss run for GL. Read policy period from header (e.g. "GL Loss Runs 2020-21", "GL Loss Runs 2020-2024")
@@ -188,31 +188,6 @@ QUOTA SHARE: When two or more carriers participate in the SAME layer (same attac
   • Carrier B's doc: "$5M P/O $10M xs $10M (Insurer B 50%)"
 
 ═══════════════════════════════════════════════════════════════════════════════
-TOWER SUMMARY DIAGRAM vs PER-LAYER DOCUMENT
-═══════════════════════════════════════════════════════════════════════════════
-
-Brokers prepare TOWER SUMMARY DIAGRAMS that show the whole tower stacked on one page — every layer from primary up through the top, with each layer's carrier, limit, attachment, and premium in a single graphic or table. These are NOT per-layer policy documents. They are broker-prepared overview artifacts.
-
-When you see a TOWER SUMMARY DIAGRAM:
-  • Return ONE classification with tag "Tower Summary"
-  • DO NOT fragment the diagram into 15+ per-layer classifications
-  • The tower extraction module reads the data from the diagram separately
-  • Set primary_bucket = "QUOTES_UNDERLYING", routedTo = "tower"
-
-Signatures of a TOWER SUMMARY DIAGRAM:
-  • Multiple layers shown on a single page (Lead, $5M xs $5M, $10M xs $10M, etc. all visible at once)
-  • "Excess Tower", "Program Tower", "Layer Cake" headings
-  • Carrier names listed alongside their layer position
-  • Total program limit shown (e.g., "$110M Total Program")
-  • Single graphic / single table containing the full structure
-
-When you see a PER-LAYER POLICY DOCUMENT:
-  • That layer's dec page with its own limit and underlying schedule = one classification
-  • Use the layer-specific tags from the QUOTES_UNDERLYING bucket above
-  • A submission may contain multiple per-layer docs — each gets its own classification
-  • This is the LEAD/EXCESS discrimination rule from the prior section
-
-═══════════════════════════════════════════════════════════════════════════════
 LOSS RUN YEAR-SPAN PARSING
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -249,8 +224,7 @@ Most tags drive an extraction module. Some tags are file-and-forget (no extracti
   "losses"         — Any loss run / loss summary / large loss detail / open claim narrative
   "gl_quote"       — GL Quote, GL Exposure, GL T&C
   "al_quote"       — AL Quote, AL Fleet
-  "excess"         — Lead $XM, $XM xs $YM, quota share layers, EL Quote, Buffer Layer, Captive Quote, Lead T&C
-  "tower"          — Tower Summary (whole-tower diagram). Fires the tower extraction module to read the structured layer table.
+  "excess"         — Lead $XM, $XM xs $YM, quota share layers, EL Quote, Buffer Layer, Captive Quote, Lead T&C, Excess T&C
   "email_intel"    — Cover Note Email, Broker Email, Target Premiums
   "website"        — (used by scraper, not classifier)
   null             — File-and-forget tags: BOR, AOR, AIA Contract, Owner-GC Contract, Geotech Report, Site Plan, Project Budget, Photos of Operations, Wrap-Up Forms, Vehicle Schedule, Garaging Schedule, Org Chart, SOV, Work on Hand, PCAR Report, CAB Report, Crime Score Report, SAFER Snapshot, Site Inspection, "???"

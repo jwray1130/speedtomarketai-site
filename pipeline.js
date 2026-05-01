@@ -59,7 +59,6 @@ const ROUTING = {
   gl_quote: 'gl_quote',
   al_quote: 'al_quote',
   excess: 'excess',
-  tower: 'tower',          // v8.4 — broker tower-summary diagram fires the tower extraction module
   website: 'website',
   email: 'email_intel',   // email now feeds a dedicated extraction module (A16)
   email_intel: 'email_intel',  // pass-through alias for the module key itself
@@ -138,13 +137,67 @@ function docsViewMappingFor(classifierType) {
 // classifierToRoute returns the extraction-module key (the value in ROUTING).
 // classifierToDocsView returns the {category, color} for the docs view.
 
+// v8.4 fix #5 (GPT round 3) — canonical file-and-forget tags. These come from
+// the classifier prompt's routing list ("null" entry). They are findable docs
+// the UW wants visible in the file manager, but no extraction module reads
+// them. If the model accidentally emits a routedTo value for one of these
+// (model output drift), we override to null to prevent wasted API calls and
+// wrong-shape extraction inputs (e.g. AIA Contract → subcontract module
+// would interpret owner-prime clauses as sub-tier clauses).
+const FILE_AND_FORGET_TAGS = new Set([
+  'BOR', 'AOR', 'BOR Letter', 'AOR Letter',
+  'AIA Contract', 'Owner-GC Contract', 'Owner-Contractor Contract',
+  'Geotech Report', 'Site Plan', 'Project Budget',
+  'Photos of Operations', 'Wrap-Up Forms',
+  'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
+  'SOV', 'Schedule of Values',
+  'Work on Hand', 'PCAR Report', 'CAB Report',
+  'Crime Score Report', 'Crime Score',
+  'SAFER Snapshot', 'SAFER',
+  'Site Inspection',
+  '???',
+]);
+
 function classifierToRoute(c) {
   // v8.4: classifier emits routedTo directly. If present and non-empty, use it.
   // The model is given the canonical routing list in the prompt; it knows which
   // module to fire. We pass through verbatim instead of re-deriving from a tag
   // string (which would be brittle if the tag taxonomy expands).
+  //
+  // v8.4 fix #4 (GPT audit): allowlist validation. If the model emits a
+  // malformed key like "glquote" instead of "gl_quote", we'd otherwise
+  // silently fail to route. Cross-check against the MODULES registry — if
+  // the value isn't a real module key, fall through to the tag-derivation
+  // path below. MODULES is defined later in this file but classifierToRoute
+  // only runs at call time, so the lookup is safe.
+  //
+  // v8.4 fix #5 (GPT round 3): file-and-forget tags must never be routed to
+  // extraction modules even if the model emits a routedTo value. The prompt
+  // says these tags route to null; this enforces it server-side. Without
+  // this, an AIA Contract with routedTo="subcontract" would run a costly
+  // subcontract extraction with wrong-shape input.
+  const tagStr0 = (c && typeof c === 'object') ? String(c.tag || c.primaryTag || '').trim() : '';
+  if (tagStr0 && FILE_AND_FORGET_TAGS.has(tagStr0)) {
+    return null;
+  }
+
   if (c && typeof c === 'object' && c.routedTo !== undefined) {
-    return c.routedTo || null;
+    const rt = c.routedTo;
+    if (rt === null) return null;  // explicit null = no module (e.g. BOR/AOR)
+    if (typeof rt === 'string' && typeof MODULES !== 'undefined' && MODULES[rt]) {
+      return rt;  // valid module key
+    }
+    // Malformed — log and fall through to tag-based recovery
+    if (rt) {
+      try {
+        if (typeof logAudit === 'function') {
+          logAudit('Classifier', 'Invalid routedTo "' + rt + '" — falling back to tag-based routing', 'warn');
+        } else {
+          console.warn('classifierToRoute: invalid routedTo "' + rt + '" — falling back to tag-based routing');
+        }
+      } catch (e) {}
+    }
+    // Don't return — let the function continue to tag-based fallback below.
   }
 
   // c can be a classification object {type, subType} OR a string (legacy code paths).
@@ -182,6 +235,32 @@ function classifierToRoute(c) {
   }
   if (type === 'UNDERWRITING') return 'website';
 
+  // Self-audit fix #2: tag-prefix recovery for QUOTES_UNDERLYING when
+  // routedTo was malformed and primary_bucket fallback didn't apply.
+  // The v8.4 finite tag list has structured prefixes — recover from those.
+  // This catches model output drift where routedTo is mistyped but the
+  // tag is correct.
+  const tagStr = (typeof c === 'object' && c) ? String(c.tag || c.primaryTag || '').trim() : String(rawType).trim();
+  if (tagStr) {
+    // Quote/Underlying family
+    if (/^GL Quote\b/i.test(tagStr) || /^GL Exposure\b/i.test(tagStr) || /^GL T&C\b/i.test(tagStr)) return 'gl_quote';
+    if (/^AL Quote\b/i.test(tagStr) || /^AL Fleet\b/i.test(tagStr)) return 'al_quote';
+    if (/^Lead \$/i.test(tagStr) || /^Lead .*T&C\b/i.test(tagStr) || /^EL Quote\b/i.test(tagStr)) return 'excess';
+    if (/^\$\d+M xs \$\d+M\b/i.test(tagStr) || /^\$\d+M P\/O \$\d+M xs \$\d+M\b/i.test(tagStr)) return 'excess';
+    if (/^Buffer Layer\b/i.test(tagStr) || /^Captive Quote\b/i.test(tagStr) || /^Excess T&C\b/i.test(tagStr)) return 'excess';
+    // Loss family
+    if (/Loss Runs?\b/i.test(tagStr) || /Loss Summary\b/i.test(tagStr) || /Large Loss\b/i.test(tagStr) || /^Open Claim/i.test(tagStr)) return 'losses';
+    // Correspondence family
+    if (/^Cover Note\b/i.test(tagStr) || /^Broker Email\b/i.test(tagStr) || /^Target Premium/i.test(tagStr)) return 'email_intel';
+    // Application family — including specialized supp apps with type prefix
+    // (Contractors/Excess/HNOA/Captive/Manufacturing). Match \bSupp App\b
+    // anywhere in the tag, not just as a prefix.
+    if (/^ACORD\b/i.test(tagStr) || /\bSupp App\b/i.test(tagStr) || /Narrative\b/i.test(tagStr) || /^Description of Operations\b/i.test(tagStr)) return 'supplemental';
+    if (/^Sub ?Agreement\b/i.test(tagStr) || /^MSA\b/i.test(tagStr)) return 'subcontract';
+    if (/^Vendor\b/i.test(tagStr)) return 'vendor';
+    if (/^Safety Manual\b/i.test(tagStr)) return 'safety';
+  }
+
   return null;
 }
 
@@ -213,7 +292,7 @@ function classifierToDocsView(c) {
     // v8.3 backward-compat aliases — same docs-view destinations
     case 'UNDERLYING':         return { category: 'underlying',       color: 'yellow' };
     case 'COMPLIANCE':         return { category: 'compliance',       color: 'orange' };
-    case 'QUOTES_INDICATIONS': return { category: 'quotes',           color: 'teal' };
+    case 'QUOTES_INDICATIONS': return { category: 'quotes-indications', color: 'teal' };
     case 'CANCELLATIONS':      return { category: 'cancellations',    color: 'magenta' };
     case 'POLICY':             return { category: 'policy',           color: 'blue' };
     case 'SUBJECTIVITY':       return { category: 'subjectivity',     color: 'coral' };
@@ -624,7 +703,8 @@ async function incrementalProcess(newFiles) {
     // classification (model emits it). Falls back to v8.3 type/subType logic
     // if classifications are from a mock or older deployment.
     f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl)).filter(Boolean);
-    f.routedTo = c.primaryRoutedTo || classifierToRoute({ type: c.primaryType, subType: c.primarySubType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
+    // v8.4 fix #4 (GPT audit): always go through classifierToRoute so primaryRoutedTo gets allowlist-validated against MODULES.
+    f.routedTo = classifierToRoute({ type: c.primaryType, subType: c.primarySubType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
     f.state = 'classified';
     anyFilesProcessed = true;
 
@@ -1594,7 +1674,8 @@ async function runPipeline() {
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
     f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl)).filter(Boolean);
-    f.routedTo = c.primaryRoutedTo || classifierToRoute({ type: c.primaryType || c.type, subType: c.primarySubType || c.subType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
+    // v8.4 fix #4 (GPT audit): always go through classifierToRoute so primaryRoutedTo gets allowlist-validated against MODULES.
+    f.routedTo = classifierToRoute({ type: c.primaryType || c.type, subType: c.primarySubType || c.subType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
     f.state = 'classified';
     renderFileList();
     // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===

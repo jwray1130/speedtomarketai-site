@@ -1460,6 +1460,17 @@ async function callClaudeForPdfDocument(base64Pdf, fileName, totalPages) {
   };
   const data = await llmProxyFetch(body);
   const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
+  // v8.4 fix #6 (GPT audit) — truncation detection. Anthropic returns
+  // stop_reason: 'max_tokens' when output hits maxOutputTokens. Long scans
+  // with dense text can blow past 16,384 tokens for an 80-page chunk
+  // (~30k-60k tokens of OCR output). Surface this in the audit so the UW
+  // knows the OCR is incomplete and can re-upload as smaller chunks.
+  // We don't auto-retry here — re-chunking from this layer is invasive;
+  // a clear warning lets Justin decide whether to re-upload manually.
+  const truncated = data && data.stop_reason === 'max_tokens';
+  if (truncated && typeof logAudit === 'function') {
+    logAudit('Vision', '⚠ TRUNCATED · ' + fileName + ' · OCR output hit max_tokens (' + CLAUDE_VISION_CONFIG.maxOutputTokens + '). Re-upload as smaller PDFs (under ~50 pages each) for complete extraction.', 'warn');
+  }
   let confidence = 80;
   let text = rawText;
   const confMatch = rawText.match(/^\s*__OCR_CONFIDENCE__:(\d{1,3})\s*\n/);
@@ -1468,9 +1479,9 @@ async function callClaudeForPdfDocument(base64Pdf, fileName, totalPages) {
     text = rawText.slice(confMatch[0].length);
   }
   if (typeof logAudit === 'function') {
-    logAudit('Vision', 'Vision extraction · ' + fileName + ' · ' + totalPages + ' pages (native PDF block) · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%', 'ok');
+    logAudit('Vision', 'Vision extraction · ' + fileName + ' · ' + totalPages + ' pages (native PDF block) · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%' + (truncated ? ' · TRUNCATED' : ''), truncated ? 'warn' : 'ok');
   }
-  return { text, confidence };
+  return { text, confidence, truncated };
 }
 
 // Send a chunk of page images (base64 JPEGs) to Claude with an extraction prompt.
@@ -1513,6 +1524,11 @@ async function callClaudeForPdfImages(base64Pages, fileName, chunkIndex, totalCh
   // Phase 10. No separate retry layer needed here.
   const data = await llmProxyFetch(body);
   const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
+  // v8.4 fix #6 (GPT audit) — truncation detection. See PDF-block call for rationale.
+  const truncated = data && data.stop_reason === 'max_tokens';
+  if (truncated && typeof logAudit === 'function') {
+    logAudit('Vision', '⚠ TRUNCATED · ' + fileName + chunkLabel + ' · OCR output hit max_tokens (' + CLAUDE_VISION_CONFIG.maxOutputTokens + '). Chunk too dense — re-upload as smaller PDFs.', 'warn');
+  }
 
   // Parse the confidence marker. Default to 80 if the model didn't emit one
   // (defensive — production prompts should always emit it but we don't trust).
@@ -1526,10 +1542,10 @@ async function callClaudeForPdfImages(base64Pages, fileName, chunkIndex, totalCh
 
   // Audit the per-chunk call so cost/quality is visible in the admin pane.
   if (typeof logAudit === 'function') {
-    logAudit('Vision', 'Vision extraction · ' + fileName + chunkLabel + ' · ' + base64Pages.length + ' pages · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%', 'ok');
+    logAudit('Vision', 'Vision extraction · ' + fileName + chunkLabel + ' · ' + base64Pages.length + ' pages · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%' + (truncated ? ' · TRUNCATED' : ''), truncated ? 'warn' : 'ok');
   }
 
-  return { text, confidence };
+  return { text, confidence, truncated };
 }
 
 // Image-file variant: a single image block with the same extraction prompt.
