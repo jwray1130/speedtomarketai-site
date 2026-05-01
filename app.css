@@ -3561,5 +3561,14 @@ table.loss {
   animation: slideIn 0.22s;
   max-width: 360px;
 }
+/* v8.6.3 — severity variants. Color the left border + a subtle tint on
+   the background so info/warn/error/success are visually distinguishable
+   without overwhelming the underwriter's eye. */
+.toast-info    { border-left-color: var(--signal); }
+.toast-warn    { border-left-color: #c8a951; background: rgba(200, 169, 81, 0.08); }
+.toast-error   { border-left-color: #d9534f; background: rgba(217, 83, 79, 0.10); }
+.toast-success { border-left-color: #5fbf6e; background: rgba(95, 191, 110, 0.08); }
+.toast-title   { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.toast-msg     { font-size: 12px; opacity: 0.9; }
 @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 

@@ -1,6 +1,24 @@
 // ============================================================================
 // app.js — Altitude / Speed to Market AI
 // ============================================================================
+// v8.6 BUILD STAMP — visible in console on every page load, queryable via
+// window.debugBuildInfo(). Without this, it's impossible to tell from the
+// browser whether a deploy actually rolled out (cached old build vs. new
+// build serve identically except for behavior). Bumping this string is a
+// hard requirement on every code change going forward.
+window.STM_BUILD = 'v8.6.7-2026-05-01';
+console.log('[STM BUILD]', window.STM_BUILD);
+window.debugBuildInfo = function() {
+  return {
+    build: window.STM_BUILD,
+    loadedAt: new Date().toISOString(),
+    files: ['app.js', 'supabase-data.js', 'documents-view.js', 'pipeline.js',
+            'prompts.js', 'scraper.js', 'admin-views.js'],
+    hint: 'If this build string is older than your last deploy, hard-refresh ' +
+          '(Ctrl+Shift+R) or check Vercel deploy status.'
+  };
+};
+
 // Extracted from app.html as Phase 8 step 7 (the final maintainability split).
 // Everything that was inline JS in app.html is now here. After this split,
 // app.html is pure HTML markup — no inline <script> blocks except CDN tags.
@@ -855,6 +873,83 @@ async function resyncActiveSnapshot(reason) {
     console.warn('resyncActiveSnapshot save failed', sid, err);
     if (typeof logAudit === 'function') logAudit('Submissions', 'Snapshot resync FAILED (' + reason + ') · ' + sid + ' · ' + (err.message || err), 'error');
   }
+}
+
+// v8.6.5 (per GPT external audit): shared helper to flush any pending
+// debounced edit save BEFORE a submission state change. Two prior call
+// sites — startNewSubmission() and rehydrateSubmission() — had this
+// pattern inline but called saveEditsNow() WITHOUT await even though
+// saveEditsNow is async. The inline comments said "synchronously" but
+// the call was actually fire-and-forget. Result: a race window where
+// the user clicks New Submission / picks a different submission while
+// edits are within the 450ms debounce window — saveEditsNow upserts
+// the OLD edit row to the cloud while STATE.edits is being wiped or
+// rehydrated to the new submission.
+//
+// This helper centralizes the flush + await so both call sites can
+// share the same correct behavior. Returns a promise that resolves
+// once the flush completes (or immediately if there's nothing pending).
+async function flushEditsNow() {
+  if (typeof SAVE_DEBOUNCE !== 'undefined' && SAVE_DEBOUNCE) {
+    clearTimeout(SAVE_DEBOUNCE);
+    SAVE_DEBOUNCE = null;
+  }
+  if (typeof saveEditsNow === 'function') {
+    try {
+      await saveEditsNow();
+    } catch (err) {
+      // Don't block the state transition on save failure — the snapshot
+      // path is the resilience layer. Log so a real failure isn't silent.
+      console.warn('flushEditsNow: saveEditsNow rejected', err);
+      if (typeof logAudit === 'function') logAudit('Edits', 'Pre-transition flush FAILED · ' + (err && err.message ? err.message : String(err)) + ' · falling through to snapshot', 'warn');
+    }
+  }
+}
+
+// v8.6.6 (per GPT external audit): shared snapshot-save helper. Two
+// prior call sites — startNewSubmission and rehydrateSubmission —
+// wrapped the snapshot save in an async IIFE that fired and forgot.
+// In-memory state was correct (snapshot assignment is synchronous),
+// but the cloud snapshot upsert could land late: if the user closed
+// the browser within the IIFE's lifetime, the cloud version of the
+// previous submission would lag behind in-memory truth.
+//
+// Centralizing here lets both call sites await the upsert. The helper
+// builds the lite snapshot (text dropped, raw files removed) so each
+// call site doesn't reimplement the same payload shape.
+async function saveSubmissionSnapshot(rec, reason) {
+  if (!rec || !rec.snapshot) return null;
+  if (typeof sbSaveSubmission !== 'function') {
+    throw new Error('sbSaveSubmission not defined');
+  }
+  if (typeof logAudit === 'function') {
+    logAudit('Submissions', 'Saving ' + rec.id + ' to cloud (' + reason + ')…', 'ok');
+  }
+  const liteSnapshot = {
+    ...rec.snapshot,
+    files: (rec.snapshot.files || []).map(f => ({
+      ...f,
+      text: '',
+      textDropped: true,
+      pageTexts: undefined,
+      _rawFile: undefined
+    })),
+    derived: {
+      account:         rec.account || null,
+      broker:          rec.broker || null,
+      effectiveDate:   rec.effective || rec.effectiveDate || null,
+      requestedLimits: rec.requested || rec.requestedLimits || null,
+      missingInfo:     rec.missingInfo || null
+    }
+  };
+  const saved = await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+  if (typeof logAudit === 'function') {
+    logAudit('Submissions',
+      'Saved ' + rec.id + ' (' + reason + ') · row id ' +
+        (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'),
+      'ok');
+  }
+  return saved;
 }
 
 function updateSaveIndicator() {
@@ -2311,7 +2406,7 @@ function displayAccount(rec) {
 // Pull a submission's snapshot back into the workbench. Before doing so,
 // save the currently-active submission's state so the UW doesn't lose
 // anything when hopping between submissions.
-function rehydrateSubmission(submissionId) {
+async function rehydrateSubmission(submissionId) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec || !rec.snapshot) {
     toast('Could not load submission — snapshot missing', 'error');
@@ -2325,25 +2420,27 @@ function rehydrateSubmission(submissionId) {
     showStage('sum');
     return;
   }
+  // v8.6.6 (per GPT external audit): monotonic rehydrate token. Any
+  // async work started inside this call captures `myToken` and refuses
+  // to mutate STATE if a newer rehydrate has started since. Catches the
+  // race where the UW clicks A then B fast — A's sbLoadEdits resolves
+  // late and would otherwise overlay A's edits onto B's STATE. Also
+  // catches the A → B → A case where simply checking activeSubmissionId
+  // would let the first A fetch clobber the second A fetch's result.
+  STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+  const myToken = STATE._rehydrateToken;
   // Different submission: save active submission's current state before swapping
   // so the UW doesn't lose any live edits made since archive.
   if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
     if (activeRec && STATE.pipelineDone) {
-      // Phase 8.5 round 3 fix #4: flush any pending debounced edit save
-      // BEFORE snapshotting. Without this, an edit made within the 450ms
-      // debounce window before the user clicks a different submission would
-      // race: the snapshot captures the new edit, but submission_edits still
-      // holds the OLD edit (because the debounce hasn't fired yet). Then on
-      // later rehydrate, sbLoadEdits overlays the stale cloud row on top of
-      // the fresh snapshot edit, silently losing the edit. Cancelling the
-      // timer and calling saveEditsNow() synchronously here forces the cloud
-      // edit row to match the snapshot before we move on.
-      if (SAVE_DEBOUNCE) {
-        clearTimeout(SAVE_DEBOUNCE);
-        SAVE_DEBOUNCE = null;
-        if (typeof saveEditsNow === 'function') saveEditsNow();
-      }
+      // v8.6.5 (per GPT external audit): same race as startNewSubmission.
+      // Previous code called saveEditsNow() without await even though
+      // it's async — fire-and-forget meant the upsert could still be in
+      // flight when sbLoadEdits ran for the new submission, overlaying
+      // the stale cloud edit row on top of the fresh snapshot. Now uses
+      // shared flushEditsNow() helper which awaits the chain.
+      await flushEditsNow();
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
         files:          deepClone(STATE.files),
@@ -2362,33 +2459,37 @@ function rehydrateSubmission(submissionId) {
       // changeSubmissionStatus / deleteSubmission. Verbose audit on every step
       // so future silent failures become impossible to miss. No green success
       // toast on auto-saves — would confuse UX since the user navigated away.
-      (async () => {
-        if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + activeRec.id + ' to cloud (auto · switching submissions)…', 'ok');
-        try {
-          if (typeof sbSaveSubmission !== 'function') {
-            throw new Error('sbSaveSubmission not defined');
-          }
-          const liteSnapshot = activeRec.snapshot ? {
-            ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
-            derived: {
-              account:         activeRec.account || null,
-              broker:          activeRec.broker || null,
-              effectiveDate:   activeRec.effective || activeRec.effectiveDate || null,
-              requestedLimits: activeRec.requested || activeRec.requestedLimits || null,
-              missingInfo:     activeRec.missingInfo || null
-            }
-          } : null;
-          const saved = await sbSaveSubmission(buildSubmissionPayload(activeRec, liteSnapshot));
-          if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + activeRec.id + ' (auto · switching submissions) · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
-        } catch (err) {
-          console.error('Submission save failed (rehydrate path)', activeRec.id, err);
-          const msg = (err && err.message) ? err.message : String(err);
-          if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · switching submissions) · ' + msg + ' · kept in-memory', 'error');
-          if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
-        }
-      })();
+      // v8.6.6 (per GPT external audit): await the snapshot save. The
+      // previous async IIFE fire-and-forget meant the cloud snapshot of
+      // the submission we're switching AWAY FROM could still be in flight
+      // when we proceeded. Closing the browser inside the IIFE's lifetime
+      // would lose recent state on cloud reload. Awaiting blocks the
+      // submission switch by ~1 round-trip but guarantees the cloud
+      // snapshot is durable before we mutate STATE for the new submission.
+      try {
+        await saveSubmissionSnapshot(activeRec, 'auto · switching submissions');
+      } catch (err) {
+        console.error('Submission save failed (rehydrate path)', activeRec.id, err);
+        const msg = (err && err.message) ? err.message : String(err);
+        if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · switching submissions) · ' + msg + ' · kept in-memory', 'error');
+        if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+      }
     }
+  }
+  // v8.6.7 (per GPT external audit): stale-token guard BEFORE loading the
+  // target snapshot into STATE. The save above is awaited (~500ms), and
+  // during that window the user could have clicked another submission
+  // OR clicked New Submission. Without this guard, our submission's
+  // snapshot would land on STATE that's already been moved on.
+  // The token check returns early, leaving the newer caller in control.
+  if (myToken !== STATE._rehydrateToken) {
+    if (typeof logAudit === 'function') {
+      logAudit('Submissions',
+        'Skipped stale base snapshot hydrate · was for ' + submissionId +
+        ' · token ' + myToken + '/' + STATE._rehydrateToken,
+        'warn');
+    }
+    return;
   }
   // Load target snapshot
   const snap = rec.snapshot;
@@ -2416,6 +2517,20 @@ function rehydrateSubmission(submissionId) {
     (async () => {
       try {
         const editRows = await sbLoadEdits(submissionId);
+        // v8.6.6: stale-overlay guard. If the user switched submissions
+        // (or re-clicked this one) while sbLoadEdits was in flight, our
+        // editRows belong to a no-longer-active context. Bailing avoids
+        // overlaying stale edits onto whatever submission is now visible.
+        if (myToken !== STATE._rehydrateToken || STATE.activeSubmissionId !== submissionId) {
+          if (typeof logAudit === 'function') {
+            logAudit('Edits',
+              'Skipped stale edit hydrate · was for ' + submissionId +
+              ' · active is ' + (STATE.activeSubmissionId || '(none)') +
+              ' · token ' + myToken + '/' + STATE._rehydrateToken,
+              'warn');
+          }
+          return;
+        }
         if (!editRows || editRows.length === 0) {
           if (typeof logAudit === 'function') logAudit('Edits', 'Hydrate · ' + submissionId + ' · 0 cloud edit rows', 'ok');
           return;
@@ -2463,6 +2578,19 @@ function rehydrateSubmission(submissionId) {
     (async () => {
       try {
         const events = await sbLoadFeedbackForSubmission(submissionId);
+        // v8.6.6: stale-overlay guard. Same race as sbLoadEdits — if
+        // the user switched submissions while this fetch was in flight,
+        // bail rather than overlaying stale feedback onto wrong submission.
+        if (myToken !== STATE._rehydrateToken || STATE.activeSubmissionId !== submissionId) {
+          if (typeof logAudit === 'function') {
+            logAudit('Feedback',
+              'Skipped stale feedback hydrate · was for ' + submissionId +
+              ' · active is ' + (STATE.activeSubmissionId || '(none)') +
+              ' · token ' + myToken + '/' + STATE._rehydrateToken,
+              'warn');
+          }
+          return;
+        }
         // Merge: keep any in-memory events for other submissions, replace
         // this submission's events with the DB copy.
         const othersOnly = (STATE.feedback || []).filter(e => e.submissionId !== submissionId);
@@ -2578,15 +2706,28 @@ async function deleteSubmission(submissionId, confirmAlready) {
   // sees the actual cloud-deletion result before the function returns.
   // Previously fire-and-forget — UI removed the row claiming success while
   // the cloud delete might still be racing or failing silently.
+  // v8.5.7: child delete and parent delete are now chained in a single
+  // try/catch. If document_pages cleanup fails (statement timeout, RLS,
+  // anything), we DO NOT proceed to delete the parent submission. That
+  // matters because document_pages has ON DELETE CASCADE — if we let the
+  // parent delete run after a failed child delete, Postgres re-attempts
+  // the same expensive child delete inside the parent delete transaction,
+  // which can hit the same timeout and leave EVERYTHING undeleted.
+  //
+  // The previous code ran child + parent in separate try/catch blocks and
+  // swallowed child errors — that's the bug that made deleted submissions
+  // reappear on refresh.
+  //
+  // On failure, we now also re-hydrate from the cloud so the local UI
+  // matches the real database state, and we restore the local STATE entry
+  // so the user sees the row come back rather than a phantom-deleted state.
   try {
     if (typeof sbDeleteDocumentPagesForSubmission === 'function') {
       await sbDeleteDocumentPagesForSubmission(submissionId);
     }
-  } catch (err) {
-    console.warn('Document cascade delete failed for ' + submissionId + ':', err);
-  }
-  try {
-    if (typeof sbDeleteSubmission !== 'function') throw new Error('sbDeleteSubmission not defined');
+    if (typeof sbDeleteSubmission !== 'function') {
+      throw new Error('sbDeleteSubmission not defined');
+    }
     await sbDeleteSubmission(submissionId);
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
   } catch (err) {
@@ -2594,6 +2735,23 @@ async function deleteSubmission(submissionId, confirmAlready) {
     const msg = (err && err.message) ? err.message : String(err);
     if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
     if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh', 'error');
+    // v8.5.7: clear the tombstone so future legitimate saves can persist
+    // this submission. If we leave the tombstone in place, the row remains
+    // in the cloud database (delete failed) but the client refuses to save
+    // updates to it — confusing state.
+    if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
+    // Re-hydrate from cloud so the queue UI matches the actual database
+    // state. Without this, the user sees an empty row in the queue and
+    // thinks the delete worked when it didn't.
+    if (typeof sbHydrate === 'function') {
+      try {
+        await sbHydrate();
+        if (typeof renderQueueTable === 'function') renderQueueTable();
+        if (typeof updateQueueKpi === 'function') updateQueueKpi();
+      } catch (hydrateErr) {
+        console.warn('Re-hydrate after failed delete also failed:', hydrateErr);
+      }
+    }
   }
 }
 
@@ -5577,11 +5735,27 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
-function startNewSubmission() {
+async function startNewSubmission() {
+  // v8.6.7 (per GPT external audit): invalidate any in-flight rehydrate
+  // FIRST, before any awaited work. If a previous click started
+  // rehydrateSubmission(B) and it's currently parked on saveSubmissionSnapshot
+  // or sbLoadEdits, bumping the token here causes its post-await stale-token
+  // checks to bail. Without this bump, B's rehydrate could resume and
+  // overwrite the wiped state we're about to set up.
+  STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+
   // Save any in-flight edits to the active submission before wiping
   if (STATE.activeSubmissionId && STATE.pipelineDone) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
     if (activeRec) {
+      // v8.6.5 (per GPT external audit): await the edits flush before
+      // snapshotting. Previous code called saveEditsNow() without await
+      // even though it's async — fire-and-forget meant the upsert could
+      // still be in flight when STATE.edits got wiped below. Refresh,
+      // close, or rapid navigation would lose the in-flight save.
+      // flushEditsNow() awaits the async chain and swallows save errors
+      // (snapshot path is the resilience layer).
+      await flushEditsNow();
       activeRec.snapshot = {
         files:          deepClone(STATE.files),
         extractions:    deepClone(STATE.extractions),
@@ -5598,32 +5772,20 @@ function startNewSubmission() {
       // a direct single-record save. Same pattern as the rehydrate path above.
       // No green success toast — user clicked "new submission", we don't need
       // to celebrate the auto-save of the previous one.
-      (async () => {
-        if (typeof logAudit === 'function') logAudit('Submissions', 'Saving ' + activeRec.id + ' to cloud (auto · before new submission)…', 'ok');
-        try {
-          if (typeof sbSaveSubmission !== 'function') {
-            throw new Error('sbSaveSubmission not defined');
-          }
-          const liteSnapshot = activeRec.snapshot ? {
-            ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
-            derived: {
-              account:         activeRec.account || null,
-              broker:          activeRec.broker || null,
-              effectiveDate:   activeRec.effective || activeRec.effectiveDate || null,
-              requestedLimits: activeRec.requested || activeRec.requestedLimits || null,
-              missingInfo:     activeRec.missingInfo || null
-            }
-          } : null;
-          const saved = await sbSaveSubmission(buildSubmissionPayload(activeRec, liteSnapshot));
-          if (typeof logAudit === 'function') logAudit('Submissions', 'Saved ' + activeRec.id + ' (auto · before new submission) · row id ' + (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'), 'ok');
-        } catch (err) {
-          console.error('Submission save failed (startNew path)', activeRec.id, err);
-          const msg = (err && err.message) ? err.message : String(err);
-          if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · before new submission) · ' + msg + ' · kept in-memory', 'error');
-          if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
-        }
-      })();
+      // v8.6.6 (per GPT external audit): await the snapshot save before
+      // wiping STATE for the new submission. Previous async IIFE meant
+      // the cloud snapshot of the OLD submission could still be in
+      // flight while STATE.files / STATE.extractions / etc. were being
+      // emptied below. Closing the browser within that window would
+      // strand the cloud snapshot at an outdated version.
+      try {
+        await saveSubmissionSnapshot(activeRec, 'auto · before new submission');
+      } catch (err) {
+        console.error('Submission save failed (startNew path)', activeRec.id, err);
+        const msg = (err && err.message) ? err.message : String(err);
+        if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · before new submission) · ' + msg + ' · kept in-memory', 'error');
+        if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+      }
     }
   }
   // Fresh start — reset any lingering state from a previous submission
@@ -5759,14 +5921,58 @@ function showStage(stage) {
   }
 }
 
-function toast(msg) {
+// v8.6.3 (per GPT external audit): toast now supports three signatures
+// that callers in the codebase actually use:
+//   toast('msg')                  — info, single line
+//   toast('msg', 'warn')          — kind sets style (info/warn/error/success)
+//   toast('title', 'msg')         — title + body, info kind
+//   toast('title', 'msg', 'kind') — title + body + kind
+// Old single-arg implementation silently dropped severity and the body
+// when callers passed >1 arg. CSS classes 'toast-info' / 'toast-warn' /
+// 'toast-error' / 'toast-success' style the toast accordingly.
+function toast() {
+  const args = Array.from(arguments);
+  let title = null, msg = '', kind = 'info';
+  if (args.length === 1) {
+    msg = args[0];
+  } else if (args.length === 2) {
+    // Disambiguate: if 2nd arg is a known kind string, treat as (msg, kind);
+    // otherwise treat as (title, msg).
+    if (typeof args[1] === 'string' && /^(info|warn|warning|error|success)$/i.test(args[1])) {
+      msg = args[0];
+      kind = args[1].toLowerCase();
+    } else {
+      title = args[0];
+      msg = args[1];
+    }
+  } else if (args.length >= 3) {
+    title = args[0];
+    msg = args[1];
+    kind = (args[2] || 'info').toLowerCase();
+  }
+  // Normalize 'warning' to 'warn' for CSS class compatibility.
+  if (kind === 'warning') kind = 'warn';
   const w = document.getElementById('toastWrap');
+  if (!w) return;
   const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
+  t.className = 'toast toast-' + kind;
+  if (title) {
+    const titleEl = document.createElement('div');
+    titleEl.className = 'toast-title';
+    titleEl.textContent = String(title);
+    t.appendChild(titleEl);
+    const msgEl = document.createElement('div');
+    msgEl.className = 'toast-msg';
+    msgEl.textContent = String(msg);
+    t.appendChild(msgEl);
+  } else {
+    t.textContent = String(msg);
+  }
   w.appendChild(t);
-  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 2600);
-  setTimeout(() => t.remove(), 3000);
+  // Errors and warnings stay visible longer so the user can read them.
+  const lingerMs = (kind === 'error') ? 5500 : (kind === 'warn' ? 4000 : 2600);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, lingerMs);
+  setTimeout(() => t.remove(), lingerMs + 400);
 }
 
 function toggleTheme() {

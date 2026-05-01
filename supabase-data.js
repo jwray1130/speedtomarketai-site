@@ -48,9 +48,18 @@ async function sbUser() {
 // One row per submission. The whole per-submission object (files-lite,
 // extractions, edits, etc.) goes into the `snapshot` jsonb column.
 async function sbLoadSubmissions() {
+  // v8.6.1: explicit user_id scope. Previously this relied entirely on
+  // RLS to filter results by current user, which is correct in theory
+  // but fragile in practice — any RLS policy regression or admin-mode
+  // session would silently return other users' rows. Hard-scoping here
+  // is defense in depth: even if RLS is misconfigured, the WHERE clause
+  // protects the user's view. Per GPT's external audit recommendation.
+  const u = await sbUser();
+  if (!u) throw new Error('not signed in');
   const { data, error } = await window.sb
     .from('submissions')
     .select('id, snapshot, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at')
+    .eq('user_id', u.id)
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -1361,7 +1370,18 @@ const DOC_HYDRATE_PAGE_SIZE = 500;
 
 async function sbFetchDocumentPages(opts) {
   opts = opts || {};
-  const u = await sbUser(); if (!u) return [];
+  const u = await sbUser();
+  // v8.6: throw instead of returning [] when not signed in. The previous
+  // behavior masked auth-not-ready as "0 docs found", which made debugging
+  // confusing — the UI showed "No documents yet" with no signal that auth
+  // was the actual problem. The hydrate caller (hydrateFromCloud) already
+  // calls waitForAuth(5000) earlier, so this throw path only fires if the
+  // data layer is called directly from a code path that didn't wait.
+  if (!u) {
+    const err = new Error('Not signed in / auth not ready');
+    err.supabaseCode = 'AUTH_NOT_READY';
+    throw err;
+  }
 
   // Single-page fetch helper. Used by the loop below for pagination.
   // Throws on error (no silent empty return).
@@ -1538,9 +1558,23 @@ async function sbDeleteDocumentPagesForSubmission(submissionId) {
     .eq('user_id', u.id)
     .eq('submission_id', submissionId);
   if (selErr) {
-    console.warn('sbDeleteDocumentPagesForSubmission select failed:', selErr.message);
+    // v8.5.7: throw instead of returning null. The previous return-null
+    // contract caused deleteSubmission() to swallow the error and proceed
+    // to delete the parent submission anyway. With ON DELETE CASCADE on
+    // document_pages, that means Postgres re-attempts the same expensive
+    // child delete during the parent delete, which can hit the same
+    // statement timeout (57014) and leave the parent row in place. Net
+    // effect: row reappears on next refresh.
+    console.warn('sbDeleteDocumentPagesForSubmission select failed:', selErr.message, selErr.code || '');
     _noteCloudFail();
-    return null;
+    const err = new Error(
+      'document_pages select failed for submission ' + submissionId + ': ' +
+      (selErr.message || 'unknown') +
+      (selErr.code ? ' (code ' + selErr.code + ')' : '')
+    );
+    err.supabaseCode = selErr.code;
+    err.supabaseMessage = selErr.message;
+    throw err;
   }
   const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
   // STEP 1: Delete database rows first. If this fails, abort — never
@@ -1551,11 +1585,21 @@ async function sbDeleteDocumentPagesForSubmission(submissionId) {
     .eq('user_id', u.id)
     .eq('submission_id', submissionId);
   if (error) {
-    console.warn('sbDeleteDocumentPagesForSubmission row delete failed:', error.message);
+    // v8.5.7: throw, see comment above on selErr.
+    console.warn('sbDeleteDocumentPagesForSubmission row delete failed:', error.message, error.code || '');
     _noteCloudFail();
-    return null;
+    const err = new Error(
+      'document_pages delete failed for submission ' + submissionId + ': ' +
+      (error.message || 'unknown') +
+      (error.code ? ' (code ' + error.code + ')' : '')
+    );
+    err.supabaseCode = error.code;
+    err.supabaseMessage = error.message;
+    throw err;
   }
   // STEP 2: Rows are gone — clean up storage. Non-fatal if it fails.
+  // Storage cleanup failure leaves orphan binaries in the bucket — a
+  // cosmetic issue, not a correctness one. Logged but doesn't propagate.
   if (paths.length > 0) {
     const { error: stErr } = await window.sb.storage
       .from(STORAGE_BUCKET)

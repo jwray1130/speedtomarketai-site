@@ -663,7 +663,13 @@ window.initDocumentsView = function() {
           subEl.textContent   = 'Drop files here or click Upload Documents · or × the chip to see all';
         } else if (state.searchQuery && state.docs.length > 0) {
           titleEl.textContent = 'No matches';
-          subEl.textContent   = 'No documents match "' + state.searchQuery + '"';
+          // v8.6: if enrichment is still in progress, the user might be
+          // searching against incomplete data — extracted_text is loaded
+          // lazily after hydrate. Tell them so they can wait + retry
+          // instead of assuming the doc isn't there.
+          const enriching = !!_enrichmentInFlight;
+          subEl.textContent = 'No documents match "' + state.searchQuery + '"' +
+            (enriching ? ' · (still loading full text — try again in a few seconds)' : '');
         } else {
           titleEl.textContent = 'No documents yet';
           subEl.textContent   = 'Drop files here or click Upload Documents';
@@ -2362,6 +2368,60 @@ window.initDocumentsView = function() {
     return s;
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // v8.6: PER-PAGE TAG RESOLUTION FOR COMBINED PDFs
+  //
+  // For combined PDFs (e.g. Carroll Co Pkg App = ACORD 125 + ACORD 126 +
+  // ACORD 131), pctx.sectionClassifications contains per-section tags +
+  // section_hint page ranges. _resolvePerPageTag finds which section a
+  // given page belongs to and returns its tag if the page is the section's
+  // first page (so each section gets exactly one chip on its starting
+  // page, not on every page).
+  //
+  // Rules:
+  //   1. If pctx.sectionClassifications is present:
+  //      - Page is the start of a section → return that section's tag
+  //      - Page is mid-section → return null (no chip)
+  //   2. Fall back to legacy first-page-only behavior if no
+  //      sectionClassifications provided (single-section docs).
+  // ════════════════════════════════════════════════════════════════════
+  function _parsePageRangeForChip(hint, totalPages) {
+    if (!hint || typeof hint !== 'string') return null;
+    const h = hint.toLowerCase().trim();
+    if (h === 'entire document' || h === 'all pages' || h === 'all') {
+      return [1, totalPages || 1];
+    }
+    const m = h.match(/(?:pages?|p\.?)\s*(\d+)\s*(?:[-–—\sto]+\s*(\d+))?/);
+    if (!m) return null;
+    const start = parseInt(m[1], 10);
+    const end = m[2] ? parseInt(m[2], 10) : start;
+    return [start, end];
+  }
+  function _resolvePerPageTag(opts, pctx) {
+    const pageNum = opts.pageNumber || 1;
+    // v8.6.7: prefer pctx.sectionClassifications (pipeline-driven path),
+    // fall back to opts.sectionClassifications (direct caller path).
+    // Either source yields the same shape: array of {tag, section_hint, ...}.
+    const sections =
+      (pctx && Array.isArray(pctx.sectionClassifications) && pctx.sectionClassifications) ||
+      (opts && Array.isArray(opts.sectionClassifications) && opts.sectionClassifications) ||
+      null;
+    if (Array.isArray(sections) && sections.length > 0) {
+      // Find a section whose range STARTS at this page
+      for (const s of sections) {
+        const range = _parsePageRangeForChip(s.section_hint, opts.totalPages);
+        if (range && range[0] === pageNum) {
+          return s.tag || null;
+        }
+      }
+      // No section starts at this exact page → no chip
+      return null;
+    }
+    // Legacy single-classification path: chip on page 1 only
+    if (pageNum === 1) return opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
+    return null;
+  }
+
   function addDoc(opts) {
     const now = Date.now();
     // Pull upload context (storage_path, file_size, etc.) set by processFile
@@ -2374,6 +2434,13 @@ window.initDocumentsView = function() {
     // category/color/classification metadata. Explicit opts always win
     // (callers can override per-page if needed) — defaults flow from ctx.
     const pctx = state._pipelineCtx || {};
+    // v8.6.2: compute resolved per-page tag ONCE so we can use it for
+    // both pipelineTag AND tagged/color decisions. Without this, section
+    // starts beyond page 1 (e.g. ACORD 126 starting at page 5) get a chip
+    // visually but don't show up in Tagged Pages because tagged was still
+    // gated on pageNumber === 1.
+    const resolvedPipelineTag = _resolvePerPageTag(opts, pctx);
+    const isSectionStart = !!resolvedPipelineTag;
     // Cap display_name at 250 chars. Most filenames are <50 chars; some
     // generated names like 'Long Doc — Page 47' grow but still fit. A
     // pathologically long name (10K chars from a renamed export) would
@@ -2429,9 +2496,12 @@ window.initDocumentsView = function() {
       // (so they live in the same folder) but do NOT get their own chip
       // — that's why the chip rendering in buildDocItem checks for
       // (pageNumber === 1) when falling back to pipelineClassification.
-      pipelineTag: ((opts.pageNumber || 1) === 1)
-        ? (opts.pipelineTag || pctx.pipelineTag || null)
-        : null,
+      //
+      // v8.6: per-page tag resolution accounts for multi-section combined
+      // PDFs. See _resolvePerPageTag() above the doc construction. The
+      // resolved tag is computed once at the top of addDoc as
+      // resolvedPipelineTag and used here.
+      pipelineTag: resolvedPipelineTag,
       primaryBucket: opts.primaryBucket || pctx.primaryBucket || null,
       relabeledByUser: !!(opts.relabeledByUser),
       // Color tag — usually null on user upload (user picks via tag menu),
@@ -2440,18 +2510,21 @@ window.initDocumentsView = function() {
       // category color. Setting a color implies tagged=true so the doc shows
       // up in the Tagged Pages panel filterable by color.
       //
-      // FIRST-PAGE-ONLY TAGGING for pipeline ingestion:
-      // The pipeline-driven path stamps every page from a multi-page PDF
-      // with the same category (so they all live in the right bucket and
-      // are findable via the category panel). But we only paint the COLOR
-      // TAG on page 1 — the marker for where the doc starts. Pages 2..N
-      // share the same submission/category but stay un-tagged so the
-      // Tagged Pages count reflects "number of distinct docs", not
-      // "number of total pages." Manual uploads (no pctx) keep the
-      // legacy behavior — opts.color paints whatever page the caller
-      // specifies, since manual users tag pages individually anyway.
-      color: opts.color || (pctx.color && (opts.pageNumber || 1) === 1 ? pctx.color : null) || null,
-      tagged: !!(opts.color || (pctx.color && (opts.pageNumber || 1) === 1)),
+      // v8.6.2: SECTION-START TAGGING (was: FIRST-PAGE-ONLY).
+      // Previously color/tagged were only set when (pageNumber === 1).
+      // That broke combined PDFs: page 5 of Carroll Co Pkg App is the
+      // start of ACORD 126 and SHOULD count as a tagged page (so it
+      // appears in Tagged Pages, gets exported, etc.) — but the old
+      // logic only tagged literal page 1.
+      //
+      // Now: any page with a resolvedPipelineTag is treated as a
+      // section start, gets the color/tagged stamp. Mid-section pages
+      // (resolvedPipelineTag === null) stay un-tagged so the count
+      // still reflects "number of distinct sections" not "total pages."
+      // Manual uploads (no pctx) keep legacy behavior — opts.color
+      // paints whatever page the caller specifies.
+      color: opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
+      tagged: !!(opts.color || (pctx.color && isSectionStart)),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
@@ -2559,7 +2632,15 @@ window.initDocumentsView = function() {
   function buildTaggedItem(doc) {
     const item = document.createElement('div');
     item.className = 'tagged-item' + (doc.color ? ' tag-' + doc.color : '');
-    const labelText = doc.color ? CONFIG.tagColorLabels[doc.color] : '';
+    // v8.6.3 (per GPT external audit): prefer the granular pipelineTag
+    // over the generic folder color label. ACORD 126 / Lead $5M / Loss
+    // Runs 2024-25 are more useful in the export and review workflow
+    // than "Applications" / "Underlying" / "Loss History". Falls back
+    // to the color label for manual-tagged docs that don't have a
+    // pipelineTag (user dragged a color onto a doc themselves).
+    const labelText = doc.pipelineTag ||
+      (doc.color ? CONFIG.tagColorLabels[doc.color] : '') ||
+      '';
     item.innerHTML = `
       <div class="tagged-body">
         <div class="tagged-name">${escapeHtml(doc.displayName)}</div>
@@ -4429,6 +4510,17 @@ window.initDocumentsView = function() {
           pipelineTag: (ctx && ctx.pipelineTag) || null,
           primaryBucket: (ctx && ctx.primaryBucket) || null,
           submissionId: (ctx && ctx.submissionId) || null,
+          // v8.6.7 (per GPT external audit): CRITICAL — pipe per-section
+          // classifications through to addDoc so combined PDFs (Carroll
+          // Co Pkg App with ACORD 125 + 126 + 131) get a different chip
+          // on each section's first page. The pipeline builds this array
+          // in ingestCtx; if we don't carry it here, _resolvePerPageTag
+          // sees pctx.sectionClassifications === undefined and silently
+          // falls back to legacy "page 1 only" tagging. The v8.6 chip
+          // work in pipeline.js was effectively a no-op before this fix.
+          sectionClassifications: (ctx && Array.isArray(ctx.sectionClassifications))
+            ? ctx.sectionClassifications
+            : null,
         };
         const beforeIds = new Set(state.docs.map(d => d.id));
         try {
@@ -4600,9 +4692,16 @@ window.initDocumentsView = function() {
   // console without going through the UI flow. Use to verify that
   // hydrate works after auth has settled.
   // v8.5.2: returns { ok: bool } so a failed hydrate is unmistakable.
-  //   window.debugReloadDocs()                           — current submission
-  //   window.debugReloadDocs('SUB-MOMDRPB8', 'Anahuac')  — specific
-  window.debugReloadDocs = async function(submissionId, submissionTitle) {
+  // v8.6: accepts opts.expectedMin so probes against KNOWN-existing
+  // submissions can fail loudly when 0 rows load. Without it, a hydrate
+  // that returns 0 docs for SUB-MOMDRPB8 still says ok=true (because
+  // hydratedOnce is true and there's no error) — misleading when we
+  // know that submission has 223 docs.
+  //   window.debugReloadDocs()                                    — current submission
+  //   window.debugReloadDocs('SUB-MOMDRPB8', 'Anahuac')           — specific
+  //   window.debugReloadDocs('SUB-MOMDRPB8', 'Anahuac', { expectedMin: 223 })  — verify count
+  window.debugReloadDocs = async function(submissionId, submissionTitle, opts) {
+    opts = opts || {};
     const sid = submissionId || (window.STATE && window.STATE.activeSubmissionId) || null;
     const title = submissionTitle || 'Debug';
     if (sid && window.docsView && window.docsView.setSubmissionContext) {
@@ -4621,14 +4720,18 @@ window.initDocumentsView = function() {
     const hs = window.docsView && window.docsView.getHydrateState
       ? window.docsView.getHydrateState()
       : { hydratedOnce: false, lastError: null };
+    // v8.6: expectedMin gate. If caller said "I expect at least N docs",
+    // we only return ok=true when the scoped count meets that threshold.
+    // Defaults: when no sid is provided, we don't enforce a min.
+    const meetsExpectation = (typeof opts.expectedMin === 'number')
+      ? scoped.length >= opts.expectedMin
+      : true;
     return {
-      // v8.5.2: explicit success/failure flag. ok is true only when
-      // hydrate succeeded AND we have at least the metadata for the
-      // submission. Anything else (timeout, auth fail, RLS deny, no
-      // active session) returns ok=false with the error in lastError.
-      ok: !!hs.hydratedOnce && !hs.lastError && !hydrateError,
+      ok: !!hs.hydratedOnce && !hs.lastError && !hydrateError && meetsExpectation,
       total: all.length,
       forSubmission: scoped.length,
+      expectedMin: typeof opts.expectedMin === 'number' ? opts.expectedMin : null,
+      meetsExpectation,
       hydrateState: {
         hydratedOnce: hs.hydratedOnce,
         hydrating: hs.hydrating,

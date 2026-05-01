@@ -272,7 +272,7 @@ OUTPUT — STRICT JSON only, no prose, no markdown
       "signaturePhrases": ["phrase 1", "phrase 2"],
       "section_hint": "e.g. pages 1-8 or 'entire document'",
       "tag": "<granular display tag — see TAG TAXONOMY below>",
-      "primary_bucket": "<one of: CORRESPONDENCE | APPLICATIONS | QUOTES_UNDERLYING | LOSS_HISTORY | PROJECT | ADMINISTRATION | UNIDENTIFIED>"
+      "primary_bucket": "<one of: CORRESPONDENCE | APPLICATIONS | QUOTES_UNDERLYING | QUOTES_INDICATIONS | LOSS_HISTORY | PROJECT | COMPLIANCE | ADMINISTRATION | CANCELLATIONS | POLICY | SUBJECTIVITY | UNDERWRITING | UNIDENTIFIED>"
     }
   ],
   "primary_type": "<the single best-fit primary category>",
@@ -325,7 +325,11 @@ QUOTES_UNDERLYING bucket:
   • "GL Exposure"             — GL exposure schedule
   • "AL Quote"                — Primary auto quote/proposal
   • "AL T&C"                  — Auto terms and conditions
-  • "AL Fleet"                — Vehicle/fleet schedule
+  • "AL Fleet"                — Vehicle/fleet schedule that's PART of an
+                                AL underwriting submission (paired with
+                                AL Quote, has VINs/values/coverage details
+                                relevant to rating). Routes to al_quote
+                                for extraction.
   • "EL Quote"                — Employers Liability quote
   • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
   • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
@@ -368,8 +372,26 @@ ADMINISTRATION bucket:
   • "SOV" or "Schedule of Values" — Property SOV
   • "Work on Hand"            — WOH / backlog statement
   • "Site Inspection"         — Site/loss control inspection
-  • "Vehicle Schedule"        — Standalone vehicle schedule
-  • "Garaging Schedule"       — Garaging locations schedule
+  • "Vehicle Schedule"        — STANDALONE reference vehicle list with no
+                                rating-relevant detail. Filed for reference
+                                only, not extracted.
+                                Classify as "AL Fleet" instead (routes to
+                                al_quote) if the schedule contains ANY of:
+                                  - VINs PAIRED with values or coverage limits
+                                  - Garaging zip/state per unit
+                                  - Driver assignments or driver schedules
+                                  - Radius of operation per unit
+                                  - Vehicle classification (PPT/light truck/
+                                    heavy truck) used for rating
+                                  - Auto exposure data (annual mileage,
+                                    business use percent)
+                                Default to "AL Fleet" when in doubt — it's
+                                better to extract and have the data than
+                                file-and-forget rating-relevant content.
+  • "Garaging Schedule"       — Standalone garaging-locations list (zip codes
+                                or addresses only, no VINs/values). File-and-
+                                forget. If paired with a vehicle list and AL
+                                quote, classify the combined doc as "AL Fleet".
 
 UNIDENTIFIED:
   • "???"                     — emit with needs_review: true when uncertain

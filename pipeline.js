@@ -103,7 +103,7 @@ const FILE_AND_FORGET_TAGS = new Set([
 //
 // Returns: a module id string, or null if no extraction needed.
 // ============================================================================
-function classifierToRoute(classifierType, subType) {
+function classifierToRoute(classifierType, subType, tag) {
   if (!classifierType) return null;
   const t = String(classifierType).trim();
 
@@ -133,17 +133,48 @@ function classifierToRoute(classifierType, subType) {
   // layer, classifications like type:"APPLICATIONS" never matched
   // anything in ROUTING and got skipped silently — that's the bug
   // Justin caught: 6 files parsed, only 1 module ran.
+  //
+  // v8.6.2: tag-fallback within bucket recovery. The classifier prompt
+  // defines APPLICATIONS as covering Supp App, ACORD, Sub Agreement,
+  // Safety Manual, Vendor Agreement — five very different routes. The
+  // prompt doesn't always require subType, so APPLICATIONS docs may
+  // arrive with type:"APPLICATIONS", subType:null, tag:"Sub Agreement".
+  // Without checking tag, those collapse to supplemental — wrong.
+  // Same problem for UNDERLYING (GL vs AL vs Lead vs Excess).
+  //
+  // Per GPT's 0.86-confidence external audit recommendation. Verified
+  // by tracing the prompt's TAG TAXONOMY against ROUTING outcomes.
   const tUpper = t.toUpperCase();
+  // Build a combined "label" for tag-based recovery within a bucket.
+  // Prefer subType when present (it's the intentional disambiguator),
+  // fall back to tag (granular display label), then to type itself.
+  const labelForRecovery = String(subType || arguments[2] || t).toLowerCase();
   switch (tUpper) {
     case 'APPLICATIONS':
-      // Could be supp app, ACORD, sub agreement, vendor, safety. Use
-      // subType when present to disambiguate; default to supplemental
-      // since that's the most common APPLICATIONS doc.
+      // APPLICATIONS spans 5 routing destinations. Use subType when set,
+      // else fall back to tag-based prefix matching (passed via 3rd arg
+      // in v8.6.2-aware callers).
       if (subType) {
         const stl = String(subType).toLowerCase();
         if (stl.includes('safety')) return 'safety';
         if (stl.includes('subcontract') || stl.includes('sub agreement')) return 'subcontract';
         if (stl.includes('vendor')) return 'vendor';
+      }
+      // v8.6.2: tag-based fallback when subType is missing. Caller passes
+      // tag as 3rd arg.
+      if (arguments.length >= 3 && arguments[2]) {
+        const tagLower = String(arguments[2]).toLowerCase();
+        if (tagLower.includes('safety')) return 'safety';
+        if (tagLower.includes('sub agreement') || tagLower.includes('subcontract')) return 'subcontract';
+        if (tagLower.includes('vendor')) return 'vendor';
+        // ACORD 125/126/131, Supp App, Narrative, Description of Operations
+        // → all collapse to supplemental which is the right route
+        if (tagLower.includes('acord') || tagLower.includes('supp app') ||
+            tagLower.includes('contractors supp') || tagLower.includes('manufacturing supp') ||
+            tagLower.includes('hnoa supp') || tagLower.includes('captive supp') ||
+            tagLower.includes('narrative') || tagLower.includes('description of operations')) {
+          return 'supplemental';
+        }
       }
       return 'supplemental';
 
@@ -154,8 +185,8 @@ function classifierToRoute(classifierType, subType) {
     case 'QUOTES_UNDERLYING':
     case 'QUOTES_INDICATIONS':
       // Use subType to route to the right quote module. Without subType,
-      // default to excess since most quote-side docs in our flow are
-      // umbrella/excess. The user can relabel via the chip if wrong.
+      // fall back to tag prefix (v8.6.2). Default excess for Lead/Excess
+      // tags or unknown — the most common quote-side doc in our flow.
       if (subType) {
         const stl = String(subType).toLowerCase();
         if (stl === 'gl' || stl.startsWith('foreign_gl')) return 'gl_quote';
@@ -165,6 +196,15 @@ function classifierToRoute(classifierType, subType) {
         if (stl === 'aircraft' || stl === 'stop_gap' || stl === 'liquor' || stl === 'garage') {
           return 'excess';  // these all funnel through excess module today
         }
+      }
+      // v8.6.2: tag-based fallback for UNDERLYING when subType is missing
+      if (arguments.length >= 3 && arguments[2]) {
+        const tagLower = String(arguments[2]).toLowerCase();
+        if (tagLower.startsWith('gl ') || tagLower.includes('gl quote') || tagLower.includes('gl t&c') || tagLower.includes('gl exposure')) return 'gl_quote';
+        if (tagLower.startsWith('al ') || tagLower.includes('al quote') || tagLower.includes('al t&c') || tagLower.includes('al fleet')) return 'al_quote';
+        if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $')) return 'excess';
+        if (tagLower.includes('excess t&c') || tagLower.includes('el quote') || tagLower.includes('aircraft') ||
+            tagLower.includes('stop gap') || tagLower.includes('foreign')) return 'excess';
       }
       return 'excess';
 
@@ -195,35 +235,26 @@ function classifierToRoute(classifierType, subType) {
 }
 
 // ============================================================================
-// v8.4: BUCKET_TO_CATEGORY — translates classifier's primary_bucket emission
-// into the docs view's category folder. Used to assign the docs view bucket
-// AT INGEST time so docs land in the right folder (Underlying, Loss History,
-// Applications, etc.) regardless of the legacy ROUTING table.
+// v8.6.4 (per GPT external audit): BUCKET_TO_CATEGORY removed.
 //
-// The classifier's primary_bucket values are the v8.4+ taxonomy:
-//   CORRESPONDENCE      → Cover Notes, Broker Emails, Target Premiums
-//   APPLICATIONS        → ACORDs, Supp Apps, Sub/Vendor agreements
-//   QUOTES_UNDERLYING   → GL/AL/Excess quotes, T&Cs, Fleet schedules
-//   LOSS_HISTORY        → Loss runs, Loss summaries, Large loss detail
-//   PROJECT             → AIA contracts, Site plans, Geotech, Photos
-//   ADMINISTRATION      → BOR, AOR, Org charts, SAFER, PCAR, Crime
-//   UNIDENTIFIED        → ??? — classifier was uncertain
-// ============================================================================
-const BUCKET_TO_CATEGORY = {
-  CORRESPONDENCE:    'correspondence',
-  APPLICATIONS:      'applications',
-  QUOTES_UNDERLYING: 'underlying',
-  LOSS_HISTORY:      'loss-history',
-  PROJECT:           'project',
-  ADMINISTRATION:    'administration',
-  UNIDENTIFIED:      'all',
-};
-
-function bucketToCategory(primaryBucket) {
-  if (!primaryBucket) return 'all';
-  return BUCKET_TO_CATEGORY[primaryBucket] || 'all';
-}
-
+// Previously two parallel bucket → category maps existed:
+//   1. BUCKET_TO_CATEGORY (7 entries) — used by ingest paths to derive
+//      docs-view category from primary_bucket.
+//   2. bucketMap inside docsViewMappingFor (14 entries) — used everywhere
+//      else.
+//
+// The 7-entry map was missing COMPLIANCE, QUOTES_INDICATIONS, CANCELLATIONS,
+// POLICY, SUBJECTIVITY, UNDERWRITING. When the classifier emitted any of
+// those as primary_bucket, the ingest path called bucketToCategory(),
+// got 'all', and the doc landed in All Documents — even though
+// docsViewMappingFor would have routed it correctly with the right
+// color. Color and category disagreed silently.
+//
+// Single source of truth from here on: docsViewMappingFor(type, tag).
+// Callers pass either the bucket name (primary_bucket) or the legacy
+// classifier type, plus the optional granular tag. The function handles
+// all cases: legacy lowercase keys, SCREAMING_CASE bucket names, and
+// tag-based granular fallback.
 // ============================================================================
 // v8.5 RULE 9: per-section combined-PDF extraction.
 //
@@ -292,7 +323,7 @@ function sliceTextForModule(f, mid) {
   if (cls.length <= 1) return f.text || '';
 
   // Find the classifications that route to THIS module
-  const matchingSections = cls.filter(c => classifierToRoute(c.type, c.subType) === mid);
+  const matchingSections = cls.filter(c => classifierToRoute(c.type, c.subType, c.tag) === mid);
   if (matchingSections.length === 0) {
     // No section explicitly routes here — fall back to whole text rather
     // than send empty input (the module will see the full doc and decide).
@@ -366,8 +397,87 @@ const DOCS_VIEW_MAP = {
   // (not in any specific bucket; user reviews and re-files manually).
   unknown:                    { category: 'all',          color: null },
 };
-function docsViewMappingFor(classifierType) {
-  return DOCS_VIEW_MAP[classifierType] || { category: 'all', color: null };
+// v8.6.2: docsViewMappingFor — now handles classifier bucket names and
+// tag-based recovery in addition to direct routing keys.
+//
+// The classifier prompt's primary_type taxonomy is uppercase bucket names
+// (APPLICATIONS, LOSS_HISTORY, UNDERLYING, etc.) but DOCS_VIEW_MAP keys
+// are lowercase routing names (supplemental, losses, gl_quote, etc.).
+// Without translation, every uppercase bucket fell through to "all"/null
+// — wrong category, no color, no Tagged Pages entry.
+//
+// Per GPT external audit (claim 1B verified).
+//
+// Resolution order:
+//   1. Direct lookup (legacy lowercase keys still work)
+//   2. Bucket-name → category mapping
+//   3. Tag-based granular mapping (when tag passed as 2nd arg)
+function docsViewMappingFor(classifierType, tag) {
+  if (!classifierType) return { category: 'all', color: null };
+  // Layer 1: direct lookup (legacy lowercase keys: supplemental, losses, ...)
+  if (DOCS_VIEW_MAP[classifierType]) return DOCS_VIEW_MAP[classifierType];
+  // Layer 2: bucket-name mapping
+  const tUpper = String(classifierType).toUpperCase();
+  // Layer 2: bucket-name mapping. Maps the classifier's primary_type
+  // bucket names to docs-view category + color. Colors must come from
+  // the canonical tagColorLabels list in documents-view.js CONFIG so
+  // the chip and the Tagged Pages sidebar render consistently.
+  //
+  // v8.6.3 (per GPT external audit): full coverage of the docs view's
+  // 12-folder taxonomy. Previously PROJECT was 'gray' (not a real tag
+  // color), ADMINISTRATION was uncolored, and COMPLIANCE / POLICY /
+  // CANCELLATIONS / SUBJECTIVITY had no mapping at all — meaning a
+  // classifier emitting those (or any future bucket name) would fall
+  // to the "all" folder with no color, breaking the sidebar workflow.
+  const bucketMap = {
+    'APPLICATIONS':       { category: 'applications',        color: 'green'   },
+    'LOSS_HISTORY':       { category: 'loss-history',        color: 'red'     },
+    'UNDERLYING':         { category: 'underlying',          color: 'yellow'  },
+    'QUOTES_UNDERLYING':  { category: 'underlying',          color: 'yellow'  },
+    'QUOTES_INDICATIONS': { category: 'quotes-indications',  color: 'teal'    },
+    'CORRESPONDENCE':     { category: 'correspondence',      color: 'pink'    },
+    'PROJECT':            { category: 'project',             color: 'purple'  },
+    'COMPLIANCE':         { category: 'compliance',          color: 'orange'  },
+    'ADMINISTRATION':     { category: 'administration',      color: 'maroon'  },
+    'CANCELLATIONS':      { category: 'cancellations',       color: 'magenta' },
+    'POLICY':             { category: 'policy',              color: 'blue'    },
+    'SUBJECTIVITY':       { category: 'subjectivity',        color: 'coral'   },
+    'UNDERWRITING':       { category: 'underwriting',        color: 'black'   },
+    'UNIDENTIFIED':       { category: 'all',                 color: null      },
+    // Granular bucket-style tags some prompts emit:
+    'SUBCONTRACT_AGREEMENT': { category: 'applications', color: 'green' },
+    'SUB_AGREEMENT':         { category: 'applications', color: 'green' },
+    'VENDOR_AGREEMENT':      { category: 'applications', color: 'green' },
+    'SAFETY_PROGRAM':        { category: 'applications', color: 'green' },
+    'SAFETY_MANUAL':         { category: 'applications', color: 'green' },
+  };
+  if (bucketMap[tUpper]) return bucketMap[tUpper];
+  // Layer 3: tag-based granular fallback (e.g., "Sub Agreement" → applications/green)
+  if (tag) {
+    const tagLower = String(tag).toLowerCase();
+    if (tagLower.includes('acord') || tagLower.includes('supp') ||
+        tagLower.includes('narrative') || tagLower.includes('description of operations') ||
+        tagLower.includes('sub agreement') || tagLower.includes('subcontract') ||
+        tagLower.includes('vendor') || tagLower.includes('safety')) {
+      return { category: 'applications', color: 'green' };
+    }
+    if (tagLower.includes('loss run') || tagLower.includes('loss summary') ||
+        tagLower.includes('large loss')) {
+      return { category: 'loss-history', color: 'red' };
+    }
+    if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
+        tagLower.startsWith('gl ') || tagLower.startsWith('al ') ||
+        tagLower.includes('quote') || tagLower.includes('t&c') ||
+        tagLower.includes('excess') || tagLower.includes('aircraft') ||
+        tagLower.includes('stop gap')) {
+      return { category: 'underlying', color: 'yellow' };
+    }
+    if (tagLower.includes('cover note') || tagLower.includes('broker email') ||
+        tagLower.includes('carrier email') || tagLower.includes('target prem')) {
+      return { category: 'correspondence', color: 'pink' };
+    }
+  }
+  return { category: 'all', color: null };
 }
 
 // ============================================================================
@@ -758,8 +868,8 @@ async function incrementalProcess(newFiles) {
     f.needsReview = !!c.needsReview;
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType)).filter(Boolean);
-    f.routedTo = classifierToRoute(c.type, c.subType);
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);
     f.state = 'classified';
     anyFilesProcessed = true;
 
@@ -796,22 +906,35 @@ async function incrementalProcess(newFiles) {
         console.warn('Docs view duplicate check failed in incremental, proceeding with push:', e);
       }
       if (!alreadyPushed) {
-        const mapping = docsViewMappingFor(c.type);
-        // v8.4: derive pipelineTag and primaryBucket from the classifier
-        // output. pipelineTag is the human-readable tag for the chip;
-        // primaryBucket is the docs-view category. Both persist to
-        // document_pages so they survive refresh.
+        // v8.6.4: single source of truth for docs-view mapping. Pass
+        // primary_bucket if the classifier emitted it, else fall back to
+        // legacy type. Tag is always passed so granular fallback works
+        // when neither bucket nor type maps cleanly.
         const pipelineTag = c.tag || c.subType || c.type;
         const primaryBucket = c.primary_bucket || null;
-        const category = primaryBucket ? bucketToCategory(primaryBucket) : mapping.category;
+        const mapping = docsViewMappingFor(primaryBucket || c.type, c.tag);
         const ingestCtx = {
-          category: category,
+          category: mapping.category,
           color: mapping.color,
           submissionId: STATE.activeSubmissionId || null,
           pipelineClassification: c.type,
           pipelineRoutedTo: f.routedTo || null,
           pipelineTag: pipelineTag,
           primaryBucket: primaryBucket,
+          // v8.6: pass per-section classifications so the docs view can
+          // stamp DIFFERENT pipelineTags on each section-start page of a
+          // combined PDF. Without this, only page 1 of the whole PDF gets
+          // a chip — pages 5, 9, etc. (where ACORD 126, ACORD 131 start)
+          // show no chip even though the classifier knows they're there.
+          sectionClassifications: Array.isArray(f.classifications)
+            ? f.classifications.map(cl => ({
+                tag: cl.tag || cl.subType || cl.type,
+                type: cl.type,
+                subType: cl.subType || null,
+                section_hint: cl.section_hint || null,
+                primary_bucket: cl.primary_bucket || null,
+              }))
+            : null,
         };
         if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
           try {
@@ -1291,9 +1414,24 @@ async function classifyFile(file) {
         if (vjm) {
           const verified = JSON.parse(vjm[0]);
           const verifiedNorm = normalizeClassifierResult(verified);
+          // v8.6.2: compare full signature (type|subType|tag|primary_bucket|section_hint)
+          // not just type. Without this, pass 2 corrections that only
+          // change tag or section_hint (e.g. "ACORD 125 pages 1-4" →
+          // "ACORD 126 pages 5-8") get discarded because both sides
+          // look like APPLICATIONS,APPLICATIONS to the type-only diff.
+          // Per GPT external audit.
+          const _classificationSig = (c) => [
+            c.type || '',
+            c.subType || '',
+            c.tag || '',
+            c.primary_bucket || c.primaryBucket || '',
+            c.section_hint || ''
+          ].join('|').toLowerCase();
+          const firstSigs = normalized.classifications.map(_classificationSig).sort().join(';');
+          const verifiedSigs = verifiedNorm.classifications.map(_classificationSig).sort().join(';');
           const firstTypes = normalized.classifications.map(c => c.type).sort().join(',');
           const verifiedTypes = verifiedNorm.classifications.map(c => c.type).sort().join(',');
-          if (firstTypes !== verifiedTypes || verifiedNorm.primaryType !== normalized.primaryType) {
+          if (firstSigs !== verifiedSigs || verifiedNorm.primaryType !== normalized.primaryType) {
             logAudit('Classifier', 'Pass 2 CORRECTED: ' + file.name + ' → ' + verifiedTypes + ' (was: ' + firstTypes + ')', STATE.api.model);
             parsed = verified;
           } else {
@@ -1312,15 +1450,42 @@ async function classifyFile(file) {
 
   const final = normalizeClassifierResult(parsed);
 
+  // v8.6.2: surface tag, subType, primary_bucket from the primary
+  // classification at the top level so downstream code (routing,
+  // docs-view mapping) can read them directly without traversing
+  // the classifications array. The "primary" classification is the
+  // one whose type matches primaryType; fall back to classifications[0].
+  const primaryClassification =
+    (final.classifications || []).find(c => c.type === final.primaryType) ||
+    (final.classifications || [])[0] ||
+    {};
+
+  // v8.6.2: needsReview now considers more than just primary confidence.
+  // Per GPT external audit: ambiguity in subType / tag / section_hint
+  // matters as much as ambiguity in primary type — Lead vs Excess vs
+  // GL vs AL routes to different modules. needs_review from the model
+  // is also honored.
+  const needsReviewFlags = [];
+  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
+  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+
   // Return the FULL classification record — caller decides how to use it
   return {
     type: final.primaryType,                      // backward-compat
     confidence: final.primaryConfidence,          // backward-compat
+    subType: primaryClassification.subType || null,        // v8.6.2: surface for routing
+    tag: primaryClassification.tag || null,                // v8.6.2: surface for routing
+    primary_bucket: primaryClassification.primary_bucket || null,  // v8.6.2: surface for docs view
     reasoning: final.reasoning,
     classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
     isCombined: final.isCombined,
     signatures: final.signatures,
-    needsReview: final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold
+    needsReview: needsReviewFlags.length > 0,
+    needsReviewReasons: needsReviewFlags,         // v8.6.2: why review was flagged
   };
 }
 
@@ -1635,8 +1800,8 @@ async function runPipeline() {
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
     // Route to ALL applicable modules (supports combined docs)
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType)).filter(Boolean);
-    f.routedTo = classifierToRoute(c.type, c.subType);  // primary routing (backward compat)
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();
     // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
@@ -1700,19 +1865,34 @@ async function runPipeline() {
         // push duplicates, which is the previous behavior.
         console.warn('Docs view duplicate check failed, proceeding with push:', e);
       }
-      const mapping = docsViewMappingFor(c.type);
-      // v8.4: derive pipelineTag and primaryBucket from classifier output.
+      // v8.6.4: single source of truth for docs-view mapping. Pass
+      // primary_bucket if the classifier emitted it, else fall back to
+      // legacy type. Tag is always passed so granular fallback works
+      // when neither bucket nor type maps cleanly. See the v8.6.4 block
+      // comment above docsViewMappingFor for why BUCKET_TO_CATEGORY
+      // was removed.
       const pipelineTag = c.tag || c.subType || c.type;
       const primaryBucket = c.primary_bucket || null;
-      const category = primaryBucket ? bucketToCategory(primaryBucket) : mapping.category;
+      const mapping = docsViewMappingFor(primaryBucket || c.type, c.tag);
       const ingestCtx = {
-        category: category,
+        category: mapping.category,
         color: mapping.color,
         submissionId: STATE.activeSubmissionId || null,
         pipelineClassification: c.type,
         pipelineRoutedTo: f.routedTo || null,
         pipelineTag: pipelineTag,
         primaryBucket: primaryBucket,
+        // v8.6: pass per-section classifications so combined PDFs get
+        // a chip on every section-start page, not just page 1.
+        sectionClassifications: Array.isArray(f.classifications)
+          ? f.classifications.map(cl => ({
+              tag: cl.tag || cl.subType || cl.type,
+              type: cl.type,
+              subType: cl.subType || null,
+              section_hint: cl.section_hint || null,
+              primary_bucket: cl.primary_bucket || null,
+            }))
+          : null,
       };
       // Skip both push paths if we already determined a duplicate exists.
       if (!alreadyPushed) {
@@ -1942,15 +2122,21 @@ async function runPipeline() {
   // Excess Tower — synthesizes supplemental + (optional) excess / gl_quote / al_quote extractions
   // into a visual stacked tower diagram. Runs in parallel with summary-ops since both depend on
   // the same wave-1 extractor outputs but don't depend on each other.
+  //
+  // v8.6: tower now runs if ANY relevant extraction is present, not just
+  // supplemental. The previous logic required supplemental as a hard dep
+  // even though the tower's primary purpose is showing the LIMIT STACK,
+  // which comes from excess/gl_quote/al_quote extractions. A submission
+  // with a quote proposal but no supp app would skip the tower under the
+  // old rules — wrong, since the tower data is right there in the quote.
   const towerMod = MODULES.tower;
-  const towerRequired = towerMod.deps.filter(d => STATE.extractions[d]);
-  const towerOptional = (towerMod.optionalDeps || []).filter(d => STATE.extractions[d]);
-  const towerAvailable = [...towerRequired, ...towerOptional];
-  if (towerRequired.length >= towerMod.deps.length) {
-    const towerInput = towerAvailable.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerAvailable.map(d => MODULES[d].code).join('+')));
+  const towerCandidates = [...(towerMod.deps || []), ...(towerMod.optionalDeps || [])];
+  const towerPresent = towerCandidates.filter(d => STATE.extractions[d]);
+  if (towerPresent.length > 0) {
+    const towerInput = towerPresent.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
+    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+')));
   } else {
-    skipModule('tower', 'no supplemental extraction available');
+    skipModule('tower', 'no supplemental, excess, gl_quote, or al_quote extraction available');
   }
 
   await Promise.all(wave2Tasks);
