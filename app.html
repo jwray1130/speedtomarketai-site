@@ -157,7 +157,7 @@
         </div>
         <div class="dropzone" id="dropzone">
           <div class="dropzone-icon">+</div>
-          <div class="dropzone-text">Drop submission docs</div>
+          <div class="dropzone-text">Drop submission docs to run pipeline</div>
           <div class="dropzone-hint">PDF · DOCX · XLSX · MSG · EML · CSV · TXT · HTML · RTF</div>
           <input type="file" id="fileInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.eml,.msg,.html,.htm,.rtf">
         </div>
@@ -488,9 +488,9 @@
             <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
             </button>
-            <button class="btn btn-primary" id="uploadBtn">
+            <button class="btn btn-primary" id="uploadBtn" title="Upload files into the file manager only — no pipeline run, no extraction cost. Use this for indications, internal quotes, broker emails, and any reference material you want in the file manager but don't need processed.">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Upload Documents
+              Add to File Manager
             </button>
             <input type="file" id="dvFileInput" multiple accept=".pdf,.xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm,.doc,.docx,.rtf,.jpg,.jpeg,.png,.tiff,.tif,.gif,.webp,.bmp,.eml,.msg,.oft,.pptx,.ppt,.ppsx,.potx,.potm,.pptm,.csv,.tsv,.txt,.log,.md,.zip,.rar,.7z,.tar,.gz" style="display:none">
           </div>

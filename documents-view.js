@@ -276,6 +276,57 @@ window.initDocumentsView = function() {
         <div class="cat-count">${count}</div>
       `;
       card.onclick = () => selectCategory(cat.id);
+      // ── v8.4 — drag-and-drop target ──
+      // When user drags a doc thumb onto a category card, the doc's category
+      // updates and (if a category color exists) it gets the matching tag.
+      // dragover must preventDefault for drop to fire. The visual highlight
+      // class is added/removed for UX feedback. dragenter is needed alongside
+      // dragover because some browsers only fire dragenter on the first hit.
+      card.addEventListener('dragover', (ev) => {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        card.classList.add('drag-target');
+      });
+      card.addEventListener('dragenter', (ev) => {
+        ev.preventDefault();
+        card.classList.add('drag-target');
+      });
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-target');
+      });
+      card.addEventListener('drop', async (ev) => {
+        ev.preventDefault();
+        card.classList.remove('drag-target');
+        const docId = ev.dataTransfer.getData('text/x-docs-view-doc-id');
+        if (!docId) return;
+        const doc = state.docs.find(d => d.id === docId);
+        if (!doc) return;
+        // Apply locally first for instant feedback. The category color is
+        // pulled from CONFIG.categories so cat-specific palettes work.
+        const targetCat = CONFIG.categories.find(c => c.id === cat.id);
+        const targetColor = targetCat && targetCat.color ? targetCat.color : null;
+        doc.category = cat.id;
+        if (targetColor) {
+          doc.color = targetColor;
+          doc.tagged = true;
+        }
+        doc._relabeledByUser = true;
+        renderCategoryGrid();
+        renderDocsList();
+        // Persist
+        if (typeof window.sbUpdateDocumentPage === 'function') {
+          try {
+            await window.sbUpdateDocumentPage(doc.id, {
+              category: cat.id,
+              color: doc.color,
+              tagged: !!doc.color,
+              relabeled_by_user: true,
+            });
+          } catch (err) {
+            console.warn('Drag-drop persist failed for ' + doc.id + ':', err);
+          }
+        }
+      });
       grid.appendChild(card);
     });
   }
@@ -602,6 +653,21 @@ window.initDocumentsView = function() {
     if (state.selectedIds.has(doc.id)) item.classList.add('selected');
     if (doc.color) { item.classList.add('has-color', 'tag-' + doc.color); }
 
+    // ── v8.4 — drag-and-drop source ──
+    // The doc card is the drag source. dataTransfer carries the doc id so
+    // the category-card drop handler can locate the doc. effectAllowed=move
+    // tells the browser this is a move operation. The dragging class
+    // dims the source for visual feedback during the operation.
+    item.draggable = true;
+    item.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/x-docs-view-doc-id', doc.id);
+      ev.dataTransfer.effectAllowed = 'move';
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+    });
+
     const colorBar = document.createElement('div');
     colorBar.className = 'doc-color-bar';
     item.appendChild(colorBar);
@@ -609,17 +675,38 @@ window.initDocumentsView = function() {
     const thumb = document.createElement('div');
     thumb.className = 'doc-thumb';
 
-    // Phase 5 — pipeline-classified docs get a small "AUTO" badge so the
-    // user can tell at a glance which docs came from the pipeline vs.
-    // a manual upload. Tooltip shows the classification label.
-    if (doc.pipelineClassification) {
+    // v8.4 — tag chip on the thumbnail. Shows the specific tag emitted by
+    // the classifier ("Lead $5M", "GL Loss Runs 2020-21", "ACORD 125") so
+    // the UW can identify the doc at a glance without opening it. Falls
+    // back to the generic "AUTO" + pipelineClassification for legacy data.
+    // Clicking the chip opens the relabel modal — the UW's correction loop.
+    if (doc.pipelineTag || doc.pipelineClassification) {
       const badge = document.createElement('div');
       badge.className = 'pipeline-badge';
-      badge.title = 'Auto-classified by pipeline: ' + doc.pipelineClassification;
-      badge.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
-          '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' +
-        '</svg>AUTO';
+      const labelText = doc.pipelineTag || doc.pipelineClassification;
+      // Click → relabel. stopPropagation so the thumb's open-doc handler
+      // doesn't also fire. Pointer cursor on the badge tells the user it's
+      // interactive.
+      badge.style.cursor = 'pointer';
+      badge.title = 'Tag: ' + labelText + ' — click to change';
+      badge.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (typeof window.docsView_openRelabelModal === 'function') {
+          window.docsView_openRelabelModal(doc.id);
+        }
+      });
+      // Special case for "???" tag — no lightning bolt icon, just the chip
+      // text in amber to draw the eye. UW will resolve manually.
+      if (labelText === '???') {
+        badge.innerHTML = '???';
+        badge.style.background = 'var(--warning, #f5a623)';
+        badge.style.color = '#0A0E1A';
+      } else {
+        badge.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
+            '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' +
+          '</svg>' + escapeHtml(String(labelText));
+      }
       thumb.appendChild(badge);
     }
 
@@ -1034,6 +1121,12 @@ window.initDocumentsView = function() {
     // Reset the storage-fail counter at batch start; processFile bumps it
     // when storage upload returns null while the user is signed in.
     state._batchStorageFails = 0;
+    // v8.4: snapshot doc IDs that exist BEFORE the batch starts. After the
+    // batch finishes, anything in state.docs with an ID not in this set is
+    // a new addition we should attempt to auto-classify (best-guess tag,
+    // no pipeline extraction). The set membership check is O(1) and the
+    // memory cost is one Set per upload — trivial.
+    const preBatchIds = new Set(state.docs.map(d => d.id));
     // Track storage paths used by this batch so we can clean orphans at
     // the end. processFile sets state._uploadCtx with the storagePath
     // before dispatching to the type-specific processor; we capture it
@@ -1110,6 +1203,83 @@ window.initDocumentsView = function() {
       );
     } else {
       toast('Upload complete', success + ' file' + (success !== 1 ? 's' : '') + ' ready', 'success');
+    }
+
+    // ── v8.4 — auto-classify file-manager-only uploads ──
+    // Per Justin: the "Add to File Manager" path should still attempt a
+    // best-guess tag using the classifier so the chip shows something
+    // meaningful. Pipeline extraction modules NEVER run from this path —
+    // only the classifier itself, which is cheap (a few cents per doc).
+    // Files that fail classification or come back low-confidence get the
+    // ??? chip and the UW relabels manually.
+    //
+    // We only auto-classify docs that:
+    //   1. Were added during this batch (id not in preBatchIds)
+    //   2. Were NOT already tagged by a pipeline run (pipelineTag is null)
+    //   3. Have extracted text we can feed the classifier
+    //   4. Are page 1 of their source — only the cover page gets a tag,
+    //      consistent with "tag the first page only" rule.
+    const newDocs = state.docs.filter(d =>
+      !preBatchIds.has(d.id) &&
+      !d.pipelineTag &&
+      (d.pageNumber || 1) === 1 &&
+      typeof d.textContent === 'string' &&
+      d.textContent.length > 50  // skip empty / near-empty pages
+    );
+    if (newDocs.length > 0 && typeof window.classifyFile === 'function') {
+      // Process serially with a tiny delay between calls — better UX
+      // (progressively-filling chips) and lighter on the API.
+      for (const d of newDocs) {
+        try {
+          // classifyFile expects a file-shaped object with .name and .text
+          // — reuse the existing pipeline classifier via window.classifyFile.
+          const result = await window.classifyFile({
+            name: d.displayName || d.name || 'Untitled',
+            text: d.textContent
+          });
+          // Stamp tag onto the doc. result.primaryTag is the v8.4 specific
+          // tag; result.tag is the alias; result.type is the bucket.
+          const tag    = result.primaryTag || result.tag || '???';
+          const bucket = result.primaryBucket || result.type || 'UNIDENTIFIED';
+          // Confidence floor — anything below 0.50 we treat as ??? rather
+          // than risk a wrong commitment that the UW has to undo.
+          const conf = result.primaryConfidence || result.confidence || 0;
+          const finalTag    = (conf >= 0.50 && tag && tag !== 'unknown') ? tag : '???';
+          const finalBucket = (conf >= 0.50 && bucket) ? bucket : 'UNIDENTIFIED';
+          // Look up the docs-view category/color for the bucket.
+          const mapping = BUCKET_TO_CATEGORY[finalBucket] || { category: 'all', color: null };
+          d.pipelineTag            = finalTag;
+          d.pipelineClassification = finalTag;  // mirror for legacy renderers
+          d.primaryBucket          = finalBucket;
+          // Only override category if the doc is currently in the generic
+          // 'all' bucket — respect any explicit category the user set.
+          if (d.category === 'all' && mapping.category !== 'all') {
+            d.category = mapping.category;
+          }
+          if (!d.color && mapping.color) {
+            d.color = mapping.color;
+            d.tagged = true;
+          }
+          // Persist if Supabase is available.
+          if (typeof window.sbUpdateDocumentPage === 'function') {
+            window.sbUpdateDocumentPage(d.id, {
+              pipeline_tag: finalTag,
+              pipeline_classification: finalTag,
+              primary_bucket: finalBucket,
+              category: d.category,
+              color: d.color,
+              tagged: !!d.color,
+            }).catch(err => console.warn('Auto-classify persist failed for ' + d.id + ':', err));
+          }
+        } catch (err) {
+          // Classification failure — leave the doc without a tag. UW can
+          // manually label via the relabel modal.
+          console.warn('Auto-classify failed for ' + (d.displayName || d.id) + ':', err);
+          d.pipelineTag = '???';
+          d.pipelineClassification = '???';
+        }
+      }
+      renderDocsList();
     }
 
     if (category !== 'all' && state.currentCategory === 'all') selectCategory(category);
@@ -2306,6 +2476,14 @@ window.initDocumentsView = function() {
       // processFileFromPipeline was the entry point.
       pipelineClassification: opts.pipelineClassification || pctx.pipelineClassification || null,
       pipelineRoutedTo: opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
+      // v8.4 — first-page-only specific tag and primary bucket. The tag is
+      // the SPECIFIC identifier the chip displays ("Lead $5M", "GL Loss Runs
+      // 2020-21", "ACORD 125"). primaryBucket is the docs-view folder.
+      // Pages 2..N of a multi-page doc inherit the bucket (so they live in
+      // the same folder) but only page 1 carries the tag chip — that's the
+      // identifying page per Justin's "tag the first page only" rule.
+      pipelineTag:    ((opts.pageNumber || 1) === 1) ? (opts.pipelineTag || pctx.pipelineTag || null) : null,
+      primaryBucket:  opts.pipelineBucket || pctx.pipelineBucket || null,
       // Color tag — usually null on user upload (user picks via tag menu),
       // but the pipeline-push path (addDocFromPipeline / processFileFromPipeline)
       // sets it from the CATEGORY_MAP so classified docs auto-tag with their
@@ -3694,6 +3872,10 @@ window.initDocumentsView = function() {
         submissionId:      row.submission_id || null,
         pipelineClassification: row.pipeline_classification || null,
         pipelineRoutedTo:  row.pipeline_routed_to || null,
+        // v8.4 — specific tag and bucket. Tolerant of missing columns so
+        // a stale schema doesn't break hydration; tag chip just won't render.
+        pipelineTag:       row.pipeline_tag || null,
+        primaryBucket:     row.primary_bucket || null,
         color:             row.color || null,
         tagged:            !!row.tagged,
         uploadDate:        formatDate(new Date(row.created_at)),
@@ -3826,6 +4008,226 @@ window.initDocumentsView = function() {
   //                                           doc.id or null on bad input
   //   • pruneSubmission(id)                 — id required; returns count
   //                                           dropped (0 if id missing)
+  // ============================================================================
+  // v8.4 — RELABEL MODAL (manual tag correction)
+  // ============================================================================
+  // Click any tag chip on a doc thumbnail → opens a modal showing every valid
+  // tag grouped by primary bucket. UW picks the correct one, the doc relabels
+  // immediately, the docs view re-renders, and the change persists to Supabase
+  // (so a refresh keeps the corrected label).
+  //
+  // Why this matters: when the AI mis-tags a document, the UW's correction
+  // becomes training data. Even though we're not yet feeding corrections back
+  // into model fine-tuning, the persisted tag overrides the classifier's
+  // output forever — so the same submission viewed tomorrow shows the right
+  // tags. Step 3 of the roadmap turns the persisted overrides into training
+  // signal for a smarter classifier.
+  //
+  // The TAG_LIST below MUST stay in sync with the finite tag list in
+  // prompts.js classifier prompt. If the prompt grows new tags, mirror them
+  // here so the relabel dropdown can reach them.
+
+  const TAG_LIST = {
+    CORRESPONDENCE: ['Cover Note Email', 'Target Premiums', 'Broker Email'],
+    APPLICATIONS: [
+      'ACORD 125', 'ACORD 126', 'ACORD 131',
+      'Excess Supp App', 'Contractors Supp App', 'HNOA Supp App',
+      'Manufacturing Supp App', 'Captive Supp App', 'Habitational Supp App',
+      'Hospitality Supp App', 'Energy Supp App', 'Supp App',
+      'Description of Operations',
+      'Sub Agreement', 'Vendor Agreement', 'MSA',
+      'AIA Contract', 'Owner-GC Contract',
+      'Safety Manual',
+      'Vehicle Schedule', 'Garaging Schedule',
+      'Org Chart', 'SOV', 'Work on Hand',
+      'PCAR Report', 'CAB Report', 'Crime Score Report',
+      'SAFER Snapshot', 'Site Inspection',
+    ],
+    QUOTES_UNDERLYING: [
+      'GL Quote', 'GL Exposure', 'GL T&C',
+      'AL Quote', 'AL Fleet',
+      'EL Quote $1/1/1', 'EL Quote $2/2/2', 'EL Quote $500/500/500', 'EL Quote',
+      // Lead limits — the realistic range for excess casualty
+      'Lead $1M', 'Lead $2M', 'Lead $3M', 'Lead $4M', 'Lead $5M',
+      'Lead $10M', 'Lead $15M', 'Lead $25M',
+      'Lead T&C',
+      // Excess layer presets — covers most submissions Justin sees.
+      // For anything outside this range, the "Custom layer..." entry below
+      // pops a text input so the UW can type the exact label.
+      '$1M xs $1M', '$2M xs $2M', '$3M xs $2M', '$4M xs $1M', '$4M xs $5M',
+      '$5M xs $5M', '$5M xs $10M', '$5M xs $25M', '$5M xs $50M',
+      '$10M xs $10M', '$10M xs $25M', '$10M xs $50M', '$10M xs $90M',
+      '$15M xs $25M', '$15M xs $30M',
+      '$25M xs $25M', '$25M xs $50M', '$25M xs $75M', '$25M xs $100M',
+      '$50M xs $50M', '$50M xs $100M',
+      // Quota share preset shapes
+      '$5M P/O $10M xs $5M', '$5M P/O $10M xs $10M', '$10M P/O $20M xs $30M',
+      'Buffer Layer', 'Captive Quote',
+      'Tower Summary',  // Broker's whole-tower diagram — single classification, never fragmented
+      // ── Custom entry — last so it shows at the bottom of the bucket ──
+      'Custom layer...',
+    ],
+    LOSS_HISTORY: [
+      // Per-line, per-policy-year — most common shape. Justin tags the first
+      // page of each year-span. Covers a realistic span of recent years.
+      'GL Loss Runs 2024-25', 'GL Loss Runs 2023-24', 'GL Loss Runs 2022-23',
+      'GL Loss Runs 2021-22', 'GL Loss Runs 2020-21', 'GL Loss Runs 2019-20',
+      'AL Loss Runs 2024-25', 'AL Loss Runs 2023-24', 'AL Loss Runs 2022-23',
+      'AL Loss Runs 2021-22', 'AL Loss Runs 2020-21', 'AL Loss Runs 2019-20',
+      'Excess Loss Runs 2024-25', 'Excess Loss Runs 2023-24',
+      'Excess Loss Runs 2022-23', 'Excess Loss Runs 2021-22',
+      'Excess Loss Runs 2020-21',
+      // Multi-year combined runs (one PDF covering 5 years)
+      'GL Loss Runs 2020-2024', 'AL Loss Runs 2020-2024', 'Excess Loss Runs 2020-2024',
+      // Generic — when no year span readable
+      'GL Loss Runs', 'AL Loss Runs', 'Excess Loss Runs',
+      // Summaries (multi-year rollup tables)
+      'GL Loss Summary', 'AL Loss Summary', 'Excess Loss Summary',
+      // Large loss detail narratives
+      'GL Large Loss Detail', 'AL Large Loss Detail',
+      'Open Claim Detail',
+      // Custom — for anything else with a unusual year span or LOB combo
+      'Custom loss runs...',
+    ],
+    PROJECT: [
+      'Geotech Report', 'Site Plan', 'Project Budget',
+      'Photos of Operations', 'Wrap-Up Forms',
+    ],
+    ADMINISTRATION: ['BOR', 'AOR'],
+    UNIDENTIFIED: ['???'],
+  };
+
+  // Bucket → docs-view mapping mirrors classifierToDocsView in pipeline.js.
+  // Used so the relabel applies the right category folder when bucket changes.
+  const BUCKET_TO_CATEGORY = {
+    CORRESPONDENCE:    { category: 'correspondence', color: 'pink' },
+    APPLICATIONS:      { category: 'applications',   color: 'green' },
+    QUOTES_UNDERLYING: { category: 'underlying',     color: 'yellow' },
+    LOSS_HISTORY:      { category: 'loss-history',   color: 'red' },
+    PROJECT:           { category: 'project',        color: 'purple' },
+    ADMINISTRATION:    { category: 'administration', color: 'maroon' },
+    UNIDENTIFIED:      { category: 'all',            color: null },
+  };
+
+  function openRelabelModal(docId) {
+    const doc = state.docs.find(d => d.id === docId);
+    if (!doc) {
+      console.warn('openRelabelModal: doc not found', docId);
+      return;
+    }
+    // Existing modal? Remove it first — guard against double-open from
+    // rapid clicks.
+    const existing = document.getElementById('docsview-relabel-modal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'docsview-relabel-modal';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(10,14,26,0.78); z-index:99998; display:flex; align-items:center; justify-content:center; padding:24px;';
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:var(--surface, #161b2c); color:var(--text, #e8eaf0); border-radius:12px; max-width:760px; width:100%; max-height:80vh; overflow-y:auto; padding:24px; box-shadow:0 24px 64px rgba(0,0,0,0.5); font-family:var(--font-sans, system-ui);';
+
+    const currentTag = doc.pipelineTag || doc.pipelineClassification || '???';
+    const headerHtml =
+      '<div style="margin-bottom:16px;">' +
+        '<div style="font-size:18px; font-weight:700; margin-bottom:4px;">Relabel document</div>' +
+        '<div style="font-size:13px; opacity:0.7;">' + escapeHtml(doc.displayName || doc.name || 'Untitled') + '</div>' +
+        '<div style="font-size:12px; opacity:0.6; margin-top:6px;">Current tag: <span style="color:var(--signal, #c6f432); font-family:var(--font-mono, monospace);">' + escapeHtml(currentTag) + '</span></div>' +
+      '</div>';
+
+    let bodyHtml = '';
+    Object.keys(TAG_LIST).forEach(bucket => {
+      const tags = TAG_LIST[bucket];
+      bodyHtml +=
+        '<div style="margin-bottom:18px;">' +
+          '<div style="font-size:11px; font-weight:700; letter-spacing:0.08em; opacity:0.6; margin-bottom:8px;">' + bucket.replace(/_/g, ' ') + '</div>' +
+          '<div style="display:flex; flex-wrap:wrap; gap:6px;">' +
+            tags.map(tag => {
+              const isCurrent = tag === currentTag;
+              const bg = isCurrent ? 'var(--signal, #c6f432)' : 'rgba(255,255,255,0.05)';
+              const fg = isCurrent ? '#0A0E1A' : 'var(--text, #e8eaf0)';
+              return '<button data-tag="' + escapeHtml(tag) + '" data-bucket="' + bucket + '" style="background:' + bg + '; color:' + fg + '; border:1px solid rgba(255,255,255,0.1); padding:6px 10px; border-radius:4px; font-family:var(--font-mono, monospace); font-size:11px; cursor:pointer; transition:all 0.1s;">' + escapeHtml(tag) + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>';
+    });
+
+    const footerHtml =
+      '<div style="display:flex; justify-content:space-between; align-items:center; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08); margin-top:8px;">' +
+        '<div style="font-size:11px; opacity:0.6;">Esc to cancel</div>' +
+        '<button id="docsview-relabel-cancel" style="background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text, #e8eaf0); padding:6px 14px; border-radius:4px; cursor:pointer; font-size:13px;">Cancel</button>' +
+      '</div>';
+
+    modal.innerHTML = headerHtml + bodyHtml + footerHtml;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    document.getElementById('docsview-relabel-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+    const escHandler = (ev) => { if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+
+    // Tag picks
+    modal.querySelectorAll('button[data-tag]').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        let newTag      = btn.getAttribute('data-tag');
+        const newBucket = btn.getAttribute('data-bucket');
+        // ── Custom-tag flow ──
+        // Special entries "Custom layer..." and "Custom loss runs..." don't
+        // commit immediately — they prompt for the actual tag text first.
+        // Cancellation (empty or null) aborts the relabel cleanly without
+        // touching the doc state.
+        if (newTag === 'Custom layer...') {
+          const example = 'e.g. "$35M xs $215M" or "$7.5M P/O $15M xs $30M (Insurer X 50%)" or "Lead $7M"';
+          const typed = window.prompt('Type the layer label exactly as you want it shown.\n\n' + example, '');
+          if (!typed || !typed.trim()) return;  // cancelled
+          newTag = typed.trim();
+        } else if (newTag === 'Custom loss runs...') {
+          const example = 'e.g. "GL Loss Runs 2017-18" or "GL/AL Loss Runs 2018-23"';
+          const typed = window.prompt('Type the loss runs label exactly as you want it shown.\n\n' + example, '');
+          if (!typed || !typed.trim()) return;
+          newTag = typed.trim();
+        }
+        const mapping   = BUCKET_TO_CATEGORY[newBucket] || { category: 'all', color: null };
+        // Apply locally — instant visual feedback. The Supabase update runs in
+        // the background; if it fails we keep the local change but log a warn
+        // (the user can re-relabel; we don't unwind the UI on remote failure).
+        doc.pipelineTag = newTag;
+        doc.pipelineClassification = newTag;  // mirror so legacy renderers see it
+        doc.primaryBucket = newBucket;
+        doc.category = mapping.category;
+        doc.color = mapping.color;
+        doc.tagged = !!mapping.color;
+        doc._relabeledByUser = true;  // flag for future training-signal collection
+        close();
+        if (typeof renderDocs === 'function') renderDocs();
+        // Persist to cloud — sbUpdateDocumentPage handles all of these fields.
+        // sbUpdateDocumentPage is exposed by supabase-data.js and accepts
+        // partial updates by id.
+        if (typeof window.sbUpdateDocumentPage === 'function') {
+          try {
+            await window.sbUpdateDocumentPage(doc.id, {
+              pipeline_tag: newTag,
+              pipeline_classification: newTag,
+              primary_bucket: newBucket,
+              category: mapping.category,
+              color: mapping.color,
+              tagged: !!mapping.color,
+              relabeled_by_user: true,
+            });
+          } catch (err) {
+            console.warn('Relabel cloud update failed for ' + doc.id + ':', err);
+          }
+        }
+      });
+    });
+  }
+
+  // Expose for the badge click handler (which lives outside this IIFE scope).
+  window.docsView_openRelabelModal = openRelabelModal;
+
   window.docsView = {
     setSubmissionContext: (submissionId, submissionTitle) => {
       // Coerce to safe types. Anything truthy non-string gets stringified;
@@ -3845,6 +4247,8 @@ window.initDocumentsView = function() {
       tagged: d.tagged,
       color: d.color,
       pipelineClassification: d.pipelineClassification,
+      pipelineTag: d.pipelineTag,                  // v8.4
+      primaryBucket: d.primaryBucket,              // v8.4
       storagePath: d.storagePath,
     })),
     // Programmatic doc insertion. Lets Altitude's pipeline push a
@@ -3919,6 +4323,12 @@ window.initDocumentsView = function() {
         state._pipelineCtx = {
           category: (ctx && ctx.category) || 'all',
           color: (ctx && ctx.color) || null,
+          // v8.4: pipelineTag is the specific identifier ("Lead $5M",
+          // "GL Loss Runs 2020-21", "ACORD 125") that the doc-thumb chip
+          // displays. pipelineBucket is the docs-view folder. Both flow
+          // through addDoc → state.docs[i].tag/primaryBucket → render.
+          pipelineTag: (ctx && ctx.pipelineTag) || null,
+          pipelineBucket: (ctx && ctx.pipelineBucket) || null,
           pipelineClassification: (ctx && ctx.pipelineClassification) || null,
           pipelineRoutedTo: (ctx && ctx.pipelineRoutedTo) || null,
           submissionId: (ctx && ctx.submissionId) || null,

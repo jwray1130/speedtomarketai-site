@@ -998,6 +998,16 @@ function buildDocPageRow(doc, userId) {
     tagged:                   !!doc.tagged,
     pipeline_classification:  doc.pipelineClassification || null,
     pipeline_routed_to:       doc.pipelineRoutedTo || null,
+    // v8.4 — specific tag and primary bucket. Migration required: add
+    //   pipeline_tag    TEXT NULL
+    //   primary_bucket  TEXT NULL
+    //   relabeled_by_user BOOLEAN NULL DEFAULT FALSE
+    // to document_pages before deploying v8.4. Without those columns,
+    // inserts/updates that include these fields will FAIL — the docs view
+    // will appear to swallow uploads. Migration is a 30-second SQL run.
+    pipeline_tag:             doc.pipelineTag || null,
+    primary_bucket:           doc.primaryBucket || null,
+    relabeled_by_user:        !!doc._relabeledByUser,
     extracted_text:           (doc.textContent || '').slice(0, 500000),  // hard cap 500k chars
     thumbnail_data_url:       doc.thumbnailData || null,
     html_content:             doc.htmlContent || null,

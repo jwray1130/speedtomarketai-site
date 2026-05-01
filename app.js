@@ -2464,18 +2464,23 @@ function renderFileList() {
       stateClass = 'classified';
       // Helper to render a classifier type as a compact file-list label.
       // Turns "supplemental_contractors" into "SUPP · CONTRACTORS", leaves simple types uppercased.
+      // Used as fallback when f.tag isn't present (legacy mocks, older data).
       const prettyType = (t) => {
         if (!t) return '';
         if (t.startsWith('supplemental_')) return 'SUPP · ' + t.slice('supplemental_'.length).toUpperCase();
         if (t === 'supplemental') return 'SUPP · GENERIC';
         return t.toUpperCase();
       };
-      // Show combined-doc info
+      // v8.4: show f.tag (specific identifier like "Lead $5M", "GL Loss Runs
+      // 2020-21", "ACORD 125") as the chip text. This is what the UW
+      // actually wants to see — not the bucket name. Falls back to the
+      // bucket label when tag isn't present (legacy classifications).
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
+        // Combined: show every tag joined. Each classification has its own tag.
+        stateText = f.classifications.map(c => c.tag || prettyType(c.type)).join(' · ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
-        stateText = prettyType(f.classification);
+        stateText = f.tag || prettyType(f.classification);
       }
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border

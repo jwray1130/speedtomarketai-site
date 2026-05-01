@@ -1532,6 +1532,27 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
 }
 
+/* v8.4 — drag-and-drop visual states */
+#docs-view-root .cat-card.drag-target {
+  border-color: var(--signal);
+  border-left-color: var(--signal);
+  border-width: 2px;
+  background: var(--signal-pale, rgba(198, 244, 50, 0.08));
+  box-shadow: 0 0 0 2px var(--signal);
+  transform: scale(1.02);
+  transition: transform 0.1s, background 0.1s, border-color 0.1s;
+}
+#docs-view-root .doc-item.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+#docs-view-root .doc-item[draggable="true"] {
+  cursor: grab;
+}
+#docs-view-root .doc-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 #docs-view-root .cat-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
