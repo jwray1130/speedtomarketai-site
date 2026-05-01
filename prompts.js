@@ -270,7 +270,9 @@ OUTPUT — STRICT JSON only, no prose, no markdown
       "subTypeConfidence": 0.XX,
       "reasoning": "one-line reasoning",
       "signaturePhrases": ["phrase 1", "phrase 2"],
-      "section_hint": "e.g. pages 1-8 or 'entire document'"
+      "section_hint": "e.g. pages 1-8 or 'entire document'",
+      "tag": "<granular display tag — see TAG TAXONOMY below>",
+      "primary_bucket": "<one of: CORRESPONDENCE | APPLICATIONS | QUOTES_UNDERLYING | LOSS_HISTORY | PROJECT | ADMINISTRATION | UNIDENTIFIED>"
     }
   ],
   "primary_type": "<the single best-fit primary category>",
@@ -284,6 +286,103 @@ OUTPUT — STRICT JSON only, no prose, no markdown
 For single-type, classifications has one entry. For combined, ALL types listed.
 Be strict about confidence: only ≥0.90 if certain. Honest 0.50-0.75 lets the
 underwriter override on ambiguous docs.
+
+═══════════════════════════════════════════════════════════════════════════════
+TAG TAXONOMY — what to put in the "tag" field (v8.5.3+)
+═══════════════════════════════════════════════════════════════════════════════
+The "tag" is the GRANULAR display label shown on the document chip in the
+file manager (e.g., "ACORD 125", "Lead $5M", "Loss Runs 2024-25"). Distinct
+from "type" which is the routing-level category. The pipeline routes by
+"type"; the file manager displays "tag".
+
+Use the most specific tag from the list below. If unsure, emit "???"
+with needs_review: true.
+
+APPLICATIONS bucket:
+  • "ACORD 125"               — Commercial Insurance App (general)
+  • "ACORD 126"               — Commercial GL Section
+  • "ACORD 127"               — Business Auto Section
+  • "ACORD 129"               — Property Section
+  • "ACORD 131"               — Umbrella/Excess Section
+  • "ACORD 137"               — Garage Section
+  • "ACORD 139"               — Statement of Values
+  • "ACORD 140"               — Property Section
+  • "ACORD 152"               — Commercial Inland Marine
+  • "Supp App"                — Generic carrier supplemental application
+  • "Contractors Supp"        — Contractor industry supplemental
+  • "Manufacturing Supp"      — Manufacturing supplemental
+  • "HNOA Supp"               — Hired/non-owned auto supplemental
+  • "Captive Supp"            — Captive program supplemental
+  • "Sub Agreement"           — Subcontractor/subcontract agreement
+  • "Vendor Agreement"        — Vendor contract / vendor master
+  • "Safety Program"          — Safety manual / safety policy
+  • "Narrative"               — Free-form account narrative
+  • "Description of Operations" — DOO writeup
+
+QUOTES_UNDERLYING bucket:
+  • "GL Quote"                — Primary GL quote/proposal
+  • "GL T&C"                  — GL terms and conditions
+  • "GL Exposure"             — GL exposure schedule
+  • "AL Quote"                — Primary auto quote/proposal
+  • "AL T&C"                  — Auto terms and conditions
+  • "AL Fleet"                — Vehicle/fleet schedule
+  • "EL Quote"                — Employers Liability quote
+  • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
+  • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
+  • "$XM P/O $YM xs $ZM"      — Quota share layer
+  • "Excess T&C"              — Excess terms and conditions
+  • "Stop Gap"                — Stop gap EL coverage
+  • "Aircraft Quote"          — Aircraft liability
+  • "Foreign GL/AL/EL"        — Foreign coverage quotes
+
+LOSS_HISTORY bucket:
+  • "Loss Runs"               — Generic loss runs
+  • "Loss Runs YYYY-YY"       — Year-specific (e.g., "Loss Runs 2024-25")
+  • "GL Loss Runs"            — GL-specific loss runs
+  • "AL Loss Runs"            — AL-specific loss runs
+  • "Excess Loss Runs"        — Umbrella/excess loss runs
+  • "Large Loss Detail"       — Detailed large-loss writeup
+  • "Loss Summary"            — Aggregate summary
+
+CORRESPONDENCE bucket:
+  • "Cover Note"              — Broker cover letter / submission email body
+  • "Broker Email"            — Email correspondence from broker
+  • "Target Premiums"         — Target/desired premium signals
+  • "Carrier Email"            — Email from a carrier
+
+PROJECT bucket:
+  • "AIA Contract"            — Owner-GC contract (AIA forms)
+  • "Owner-GC Contract"       — Generic owner-GC agreement
+  • "Geotech Report"          — Geotechnical/soils report
+  • "Site Plan"               — Site/site plan
+  • "Project Budget"          — Project budget
+  • "Photos of Operations"    — Photos
+  • "Wrap-Up Forms"           — OCIP/CCIP wrap-up forms
+
+ADMINISTRATION bucket:
+  • "BOR" or "AOR"            — Broker/Agent of Record letter
+  • "Org Chart"               — Organizational chart
+  • "SAFER Snapshot" or "SAFER" — DOT SAFER report
+  • "PCAR Report" or "CAB Report" — Carrier safety reports
+  • "Crime Score"             — Crime score / risk score report
+  • "SOV" or "Schedule of Values" — Property SOV
+  • "Work on Hand"            — WOH / backlog statement
+  • "Site Inspection"         — Site/loss control inspection
+  • "Vehicle Schedule"        — Standalone vehicle schedule
+  • "Garaging Schedule"       — Garaging locations schedule
+
+UNIDENTIFIED:
+  • "???"                     — emit with needs_review: true when uncertain
+
+CRITICAL RULES FOR THE "tag" FIELD:
+1. NEVER include a page number in the tag (e.g. NOT "ACORD 125 page 1").
+2. NEVER use a filename or filename fragment as the tag.
+3. NEVER use a heading copied from inside the document as the tag.
+4. For Lead vs Excess: extract the LIMIT from the dec page or quote summary.
+   If you can't determine limit/attachment, emit "???".
+5. If the document is a section of a larger combined PDF, emit the tag for
+   that section only, with section_hint set to the page range of that
+   section.
 `,
 
   classifier_verify: `You are a second-pass verification classifier. You are given:

@@ -3765,6 +3765,13 @@ window.initDocumentsView = function() {
   // Public API: window.docsView.refreshFromCloud({reason, submissionId})
   // is exposed below — same function, same semantics, callable from
   // setSubmissionContext, showStage('docs'), and debugReloadDocs().
+  // v8.5.3 Issue #6: telemetry gating. The 9 [docs] log lines per hydrate
+  // are useful for debugging now but become noise as the app stabilizes.
+  // Default OFF; flip via window.docsView._setVerbose(true) when needed.
+  // Errors and warnings always print regardless of this flag.
+  let _verbose = false;
+  function dlog(...args) { if (_verbose) console.log(...args); }
+
   let _hydrateInFlight = null;
   async function hydrateFromCloud(opts) {
     opts = opts || {};
@@ -3788,7 +3795,7 @@ window.initDocumentsView = function() {
       // before that completes, RLS filters out every row and we get [].
       // Poll auth.getUser() until non-null OR timeout.
       const authReady = await waitForAuth(5000);
-      console.log('[docs] hydrate start', {
+      dlog('[docs] hydrate start', {
         reason,
         authReady,
         activeSubmissionId: state.activeSubmissionId,
@@ -3846,7 +3853,7 @@ window.initDocumentsView = function() {
         return;
       }
 
-      console.log('[docs] hydrate rows received', {
+      dlog('[docs] hydrate rows received', {
         total: rows.length,
         forActiveSubmission: submissionId
           ? rows.filter(r => r.submission_id === submissionId).length
@@ -3945,7 +3952,7 @@ window.initDocumentsView = function() {
         try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
       }
 
-      console.log('[docs] hydrate complete', {
+      dlog('[docs] hydrate complete', {
         reason,
         rowsFetched: rows.length,
         stateDocsTotal: state.docs.length,
@@ -3997,7 +4004,7 @@ window.initDocumentsView = function() {
     if (!window.sb || !window.sb.auth || typeof window.sb.auth.onAuthStateChange !== 'function') return;
     _authListenerRegistered = true;
     window.sb.auth.onAuthStateChange((event, session) => {
-      console.log('[docs] auth state change:', event, session ? '(have session)' : '(no session)');
+      dlog('[docs] auth state change:', event, session ? '(have session)' : '(no session)');
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session) {
         // Reset _hydratedOnce so the next hydrate is treated as the
         // first successful one. Without this, a hydrate that earlier
@@ -4042,11 +4049,11 @@ window.initDocumentsView = function() {
     // Guard: don't start another if one's already running. The active
     // enrichment will pick up newly-hydrated docs on its next chunk.
     if (_enrichmentInFlight) {
-      console.log('[docs] enrichment skipped — already running');
+      dlog('[docs] enrichment skipped — already running');
       return;
     }
     if (typeof window.sbFetchDocumentPageFull !== 'function') {
-      console.log('[docs] enrichment skipped — sbFetchDocumentPageFull unavailable');
+      dlog('[docs] enrichment skipped — sbFetchDocumentPageFull unavailable');
       return;
     }
 
@@ -4071,11 +4078,11 @@ window.initDocumentsView = function() {
       });
 
       if (candidates.length === 0) {
-        console.log('[docs] enrichment: nothing to enrich', { submissionId });
+        dlog('[docs] enrichment: nothing to enrich', { submissionId });
         return;
       }
 
-      console.log('[docs] enrichment start', {
+      dlog('[docs] enrichment start', {
         candidateCount: candidates.length,
         submissionId: submissionId || 'all',
       });
@@ -4104,8 +4111,22 @@ window.initDocumentsView = function() {
           // existing references stay valid.
           const doc = state.docs.find(d => d.id === row.id);
           if (!doc) return;
-          if (row.extracted_text != null) doc.textContent = row.extracted_text;
-          if (row.html_content != null) doc.htmlContent = sanitizeHtml(row.html_content);
+          if (row.extracted_text != null) {
+            // v8.5.3 Issue #1: only overwrite if local copy is missing.
+            // Without this guard, if the user uploads new content during
+            // the 1.5s enrichment delay, the stale cloud row (which was
+            // queued for fetch BEFORE the upload) will overwrite the
+            // freshly-populated textContent.
+            if (!doc.textContent || doc.textContent.length === 0) {
+              doc.textContent = row.extracted_text;
+            }
+          }
+          if (row.html_content != null) {
+            // Same guard for html_content.
+            if (!doc.htmlContent) {
+              doc.htmlContent = sanitizeHtml(row.html_content);
+            }
+          }
           // v8.5.2: thumbnailData is lazy too. Populate from the full
           // fetch so the thumbnail-grid catches up after initial render.
           if (row.thumbnail_data_url != null && !doc.thumbnailData) {
@@ -4140,7 +4161,7 @@ window.initDocumentsView = function() {
         }
       }
 
-      console.log('[docs] enrichment complete', {
+      dlog('[docs] enrichment complete', {
         enriched,
         failed,
         candidateCount: candidates.length,
@@ -4280,7 +4301,26 @@ window.initDocumentsView = function() {
     // Concurrent calls return the in-flight promise instead of starting
     // a second fetch. Use opts.reason for telemetry, opts.submissionId
     // for context tagging in logs.
-    refreshFromCloud: (opts) => hydrateFromCloud(opts || { reason: 'public_api' }),
+    // v8.5.3 Issue #7: refreshFromCloud now re-throws on failure so
+    // try/catch around the public API works. Internally hydrateFromCloud
+    // also stores the error in state._lastHydrateError for the UI's
+    // sync-paused render — this addition is purely so programmatic
+    // callers can react to failures.
+    refreshFromCloud: async (opts) => {
+      await hydrateFromCloud(opts || { reason: 'public_api' });
+      // After hydrate completes, surface any structured error so the
+      // caller doesn't have to also poll getHydrateState() to find out.
+      if (state._lastHydrateError) {
+        const e = state._lastHydrateError;
+        const err = new Error(typeof e === 'string' ? e : (e.message || 'hydrate failed'));
+        if (typeof e === 'object') {
+          err.supabaseCode = e.code || null;
+          err.supabaseDetails = e.details || null;
+          err.supabaseHint = e.hint || null;
+        }
+        throw err;
+      }
+    },
     // v8.5: read hydrate state for diagnostics. Returns null fields if
     // no hydrate has run yet.
     getHydrateState: () => ({
@@ -4289,6 +4329,10 @@ window.initDocumentsView = function() {
       lastHydratedAt: state._lastHydratedAt,
       lastError: state._lastHydrateError,
     }),
+    // v8.5.3 Issue #6: toggle verbose telemetry. Call _setVerbose(true) in
+    // the console to see hydrate/enrichment logs. Defaults off so the
+    // console isn't noisy in production.
+    _setVerbose: (on) => { _verbose = !!on; return _verbose; },
     // Snapshot of current docs (sanitized for external read; internal
     // mutable arrays not exposed). v8.5 adds pipelineTag, primaryBucket,
     // pageNumber, totalPages so debug probes can verify field mapping.

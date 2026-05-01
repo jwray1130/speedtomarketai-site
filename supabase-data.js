@@ -1138,6 +1138,41 @@ async function sbInsertDocumentPage(doc) {
       (error.hint ? ' [hint=' + error.hint + ']' : '')
     );
     _noteCloudFail();
+    // v8.5.3 Issue #2: surface the failure to the user. Without this,
+    // a missing schema migration or RLS misconfiguration drops every
+    // upload silently — local docs work in this session but vanish on
+    // the next refresh because they never persisted. The toast doesn't
+    // fire on every failure (would spam during batch failures), only
+    // once per session per error code so the user sees ONE actionable
+    // signal, not 100 duplicates.
+    if (!window._sbInsertErrorReported) window._sbInsertErrorReported = new Set();
+    const errKey = (error.code || 'unknown') + ':' + (error.message || '').slice(0, 40);
+    if (!window._sbInsertErrorReported.has(errKey)) {
+      window._sbInsertErrorReported.add(errKey);
+      // Best-effort toast; if no toast available, the console.warn above
+      // is the next-best signal.
+      if (typeof window.toast === 'function') {
+        try {
+          window.toast(
+            'Cloud save failed',
+            'Doc upload not persisted: ' + (error.message || 'unknown') +
+            (error.code ? ' (' + error.code + ')' : '') +
+            ' — refresh may lose this doc.',
+            'warning'
+          );
+        } catch(e) {}
+      }
+      if (typeof window.logAudit === 'function') {
+        try {
+          window.logAudit(
+            'Cloud',
+            'Doc insert failed · ' + (error.message || 'unknown') +
+            (error.code ? ' (code ' + error.code + ')' : ''),
+            'error'
+          );
+        } catch(e) {}
+      }
+    }
     // NOTE: Storage cleanup deliberately NOT done here. A previous attempt
     // to remove the storage binary on insert failure had a race: when
     // page 1 of a multi-page PDF fails first, pages 2..99 inserts may
@@ -1330,6 +1365,22 @@ async function sbFetchDocumentPages(opts) {
     all.push(...page);
     if (page.length < DOC_HYDRATE_PAGE_SIZE) break;
     offset += DOC_HYDRATE_PAGE_SIZE;
+  }
+  // v8.5.3 Issue #3: warn loudly if we hit the safety limit. Silent
+  // truncation at 10,000 rows would mean the user has more docs than
+  // we returned, but no signal anywhere — they'd see "all" their docs
+  // and not know some are missing. With this warning, the cause shows
+  // up in console and audit log so we can grow the limit if it ever
+  // becomes a real problem.
+  if (safety <= 0) {
+    const msg = 'sbFetchDocumentPages safety cap hit at offset=' + offset +
+                ' (returned ' + all.length + ' rows; more may exist). ' +
+                'Increase DOC_HYDRATE_PAGE_SIZE or the safety counter if ' +
+                'this is real production load, not a bug.';
+    console.warn('[hydrate]', msg);
+    if (typeof window.logAudit === 'function') {
+      try { window.logAudit('Cloud', 'Hydrate truncated · ' + msg, 'warning'); } catch(e) {}
+    }
   }
   _noteCloudOk();
   return all;

@@ -87,18 +87,23 @@ const FILE_AND_FORGET_TAGS = new Set([
 ]);
 
 // ============================================================================
-// v8.4: classifierToRoute — single source of truth for "given a classifier
-// output, what extraction module (if any) handles it?" Uses three layers:
+// v8.5.4: classifierToRoute — single source of truth for "given a classifier
+// output, what extraction module (if any) handles it?" Uses these layers:
 //
 //   1. Direct lookup in ROUTING table
 //   2. File-and-forget short-circuit (returns null intentionally)
 //   3. Tag-prefix recovery: classifier sometimes emits malformed routedTo
 //      values like "Lead $5M" or "Loss Runs 2024-25" — these don't match
 //      ROUTING keys directly. Recover by checking known prefixes.
+//   4. Bucket-name recovery: classifier emits SCREAMING_CASE bucket names
+//      (APPLICATIONS, LOSS_HISTORY, UNDERLYING, etc.) per the prompt's
+//      primary_type taxonomy. ROUTING uses lowercase keys. This layer
+//      bridges them and uses subType to disambiguate UNDERLYING into
+//      gl_quote / al_quote / excess.
 //
 // Returns: a module id string, or null if no extraction needed.
 // ============================================================================
-function classifierToRoute(classifierType) {
+function classifierToRoute(classifierType, subType) {
   if (!classifierType) return null;
   const t = String(classifierType).trim();
 
@@ -122,6 +127,67 @@ function classifierToRoute(classifierType) {
   if (tLower.startsWith('safety')) return 'safety';
   if (tLower.startsWith('sub agreement') || tLower.startsWith('subcontract')) return 'subcontract';
   if (tLower.startsWith('vendor agreement')) return 'vendor';
+
+  // v8.5.4: BUCKET NAME RECOVERY. The classifier's primary_type emits
+  // SCREAMING_CASE bucket names per the prompt taxonomy. Without this
+  // layer, classifications like type:"APPLICATIONS" never matched
+  // anything in ROUTING and got skipped silently — that's the bug
+  // Justin caught: 6 files parsed, only 1 module ran.
+  const tUpper = t.toUpperCase();
+  switch (tUpper) {
+    case 'APPLICATIONS':
+      // Could be supp app, ACORD, sub agreement, vendor, safety. Use
+      // subType when present to disambiguate; default to supplemental
+      // since that's the most common APPLICATIONS doc.
+      if (subType) {
+        const stl = String(subType).toLowerCase();
+        if (stl.includes('safety')) return 'safety';
+        if (stl.includes('subcontract') || stl.includes('sub agreement')) return 'subcontract';
+        if (stl.includes('vendor')) return 'vendor';
+      }
+      return 'supplemental';
+
+    case 'LOSS_HISTORY':
+      return 'losses';
+
+    case 'UNDERLYING':
+    case 'QUOTES_UNDERLYING':
+    case 'QUOTES_INDICATIONS':
+      // Use subType to route to the right quote module. Without subType,
+      // default to excess since most quote-side docs in our flow are
+      // umbrella/excess. The user can relabel via the chip if wrong.
+      if (subType) {
+        const stl = String(subType).toLowerCase();
+        if (stl === 'gl' || stl.startsWith('foreign_gl')) return 'gl_quote';
+        if (stl === 'al' || stl.startsWith('foreign_al')) return 'al_quote';
+        if (stl === 'lead' || stl === 'excess' || stl.startsWith('foreign_excess') ||
+            stl === 'el' || stl.startsWith('foreign_el')) return 'excess';
+        if (stl === 'aircraft' || stl === 'stop_gap' || stl === 'liquor' || stl === 'garage') {
+          return 'excess';  // these all funnel through excess module today
+        }
+      }
+      return 'excess';
+
+    case 'SUBCONTRACT_AGREEMENT':
+    case 'SUB_AGREEMENT':
+      return 'subcontract';
+
+    case 'VENDOR_AGREEMENT':
+      return 'vendor';
+
+    case 'SAFETY_PROGRAM':
+    case 'SAFETY_MANUAL':
+      return 'safety';
+
+    case 'CORRESPONDENCE':
+      return 'email_intel';
+
+    case 'PROJECT':
+    case 'ADMINISTRATION':
+    case 'UNIDENTIFIED':
+      // No extraction module today — user reviews and re-files manually.
+      return null;
+  }
 
   // Unrecognized — log so we can grow this list
   console.warn('[pipeline] classifierToRoute: no route for', t);
@@ -173,6 +239,15 @@ function bucketToCategory(primaryBucket) {
 // given module. It uses f.pageTexts (an array of per-page text strings,
 // indexed 0-based) which the PDF processor populates during ingest.
 //
+// SESSION SCOPE NOTE (v8.5.3 Issue #4): f.pageTexts and f.text are both
+// in-memory only. When the user refreshes the page, the submission
+// snapshot reload restores extraction RESULTS (STATE.extractions) but
+// NOT the source file text. That's by design — file bytes are dropped
+// from the snapshot to stay under the DB row size limit. The user can
+// view existing extractions but cannot re-run the pipeline without
+// re-uploading the source files. When they re-upload, f.pageTexts is
+// rebuilt by extractText, so Rule 9 works on every fresh ingestion.
+//
 // Inputs:
 //   f   — the file record (must have classifications[], routedToAll[],
 //          and ideally pageTexts[]; falls back to f.text if no pageTexts)
@@ -217,7 +292,7 @@ function sliceTextForModule(f, mid) {
   if (cls.length <= 1) return f.text || '';
 
   // Find the classifications that route to THIS module
-  const matchingSections = cls.filter(c => classifierToRoute(c.type) === mid);
+  const matchingSections = cls.filter(c => classifierToRoute(c.type, c.subType) === mid);
   if (matchingSections.length === 0) {
     // No section explicitly routes here — fall back to whole text rather
     // than send empty input (the module will see the full doc and decide).
@@ -465,8 +540,15 @@ function renderClassifierReview() {
       .map(t => `<option value="${t.value}"${t.value === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
     const options = `<optgroup label="Supplemental Subtypes">${suppOpts}</optgroup><optgroup label="Other Document Types">${otherOpts}</optgroup>`;
 
+    // v8.5.4: prefer granular tag (e.g., "ACORD 125") over bucket name
+    // ("APPLICATIONS") for sidebar display when the classifier emits it.
+    // This makes the combined-PDF breakout actually show the user what's
+    // inside instead of "APPLICATIONS + APPLICATIONS + APPLICATIONS".
     const combinedNote = f.isCombined && f.classifications && f.classifications.length > 1
-      ? ` · <strong>COMBINED</strong> ${f.classifications.map(c => classifierTypeLabel(c.type).replace(/\s*\(→ .+\)$/, '')).join(' + ')}`
+      ? ` · <strong>COMBINED</strong> ${f.classifications.map(c => {
+          const display = c.tag || classifierTypeLabel(c.type).replace(/\s*\(→ .+\)$/, '');
+          return escapeHtml(display);
+        }).join(' + ')}`
       : '';
     const signaturesSnippet = (f.signatures && f.signatures.length > 0)
       ? ' · signatures: ' + f.signatures.slice(0, 4).map(s => `<code>${escapeHtml(s)}</code>`).join('')
@@ -676,8 +758,8 @@ async function incrementalProcess(newFiles) {
     f.needsReview = !!c.needsReview;
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type)).filter(Boolean);
-    f.routedTo = classifierToRoute(c.type);
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type, c.subType);
     f.state = 'classified';
     anyFilesProcessed = true;
 
@@ -1553,8 +1635,8 @@ async function runPipeline() {
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
     // Route to ALL applicable modules (supports combined docs)
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type)).filter(Boolean);
-    f.routedTo = classifierToRoute(c.type);  // primary routing (backward compat)
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type, c.subType);  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();
     // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
@@ -1702,6 +1784,113 @@ async function runPipeline() {
       if (!filesByModule[mid].includes(f)) filesByModule[mid].push(f);
     });
   });
+
+  // ════════════════════════════════════════════════════════════════════
+  // v8.5.5 PRE-FLIGHT COST GUARD
+  //
+  // Bug class this catches: classifier emits a value that classifierToRoute
+  // doesn't recognize, every file's routedTo is null, the pipeline runs
+  // every wave-1 module against zero files, all skip with "no matching
+  // file", but the classifier already burned API tokens AND wave-2/3
+  // modules then run on whatever extractions are present (or none).
+  //
+  // The historical cost of this bug: 3 separate Carroll County test runs
+  // where 5 of 6 files routed nowhere (APPLICATIONS / LOSS_HISTORY /
+  // UNDERLYING bucket names didn't match lowercase ROUTING keys). Each
+  // run cost real Anthropic API spend. The pipeline reported "complete"
+  // and "no output" without surfacing the structural failure.
+  //
+  // What this guard checks:
+  //   1. Classified files exist (not all 'error' or 'parsing')
+  //   2. Of the classified files, > 50% have at least one routedTo
+  //      (or ALL of them are file-and-forget — that's a valid run)
+  //   3. At least one wave-1 module will fire
+  //
+  // If any check fails, abort with an error toast, write a diagnostic
+  // audit row, and stop the pipeline BEFORE wave-1 spends tokens.
+  // ════════════════════════════════════════════════════════════════════
+  {
+    const classified = STATE.files.filter(f => f.state === 'classified');
+    if (classified.length === 0) {
+      const msg = 'Pre-flight: no files classified successfully. Check classifier errors above.';
+      console.warn('[pipeline]', msg);
+      logAudit('Pipeline', msg, 'error');
+      if (typeof toast === 'function') toast(msg, 'error');
+      updateProgress(100, '<strong>Pipeline aborted</strong> · no files to extract');
+      return;
+    }
+
+    // Files with at least one route (excluding pure file-and-forget tags
+    // which are LEGITIMATELY meant to skip extraction).
+    const routed = classified.filter(f =>
+      (f.routedToAll && f.routedToAll.length > 0) ||
+      (f.routedTo && f.routedTo !== null)
+    );
+
+    // File-and-forget detection: type matches FILE_AND_FORGET_TAGS, OR
+    // classifierToRoute correctly returns null for an intentional non-routed
+    // tag. We only treat a file as "intentionally skipped" if the classifier
+    // is confident — low confidence means we don't know, so it counts as
+    // unrouted/suspicious.
+    const intentionallySkipped = classified.filter(f =>
+      !routed.includes(f) &&
+      f.confidence >= 0.70 &&
+      FILE_AND_FORGET_TAGS.has(f.classification)
+    );
+
+    const validlyHandled = routed.length + intentionallySkipped.length;
+    const handlingRatio = validlyHandled / classified.length;
+
+    // The core check. If less than 50% of classified files have a valid
+    // route OR are intentionally file-and-forget, the routing layer is
+    // broken and we should NOT spend money on wave-1.
+    if (handlingRatio < 0.5) {
+      const detail = classified.map(f => ({
+        name: f.name,
+        type: f.classification,
+        subType: (f.classifications && f.classifications[0] && f.classifications[0].subType) || null,
+        routedTo: f.routedTo,
+        routedToAll: f.routedToAll || [],
+      }));
+      const msg = 'Pre-flight ABORT · ' + (classified.length - validlyHandled) +
+        ' of ' + classified.length + ' classified files have no extraction route. ' +
+        'Likely a classifier-routing mismatch. Aborting before wave-1 to save API spend.';
+      console.warn('[pipeline]', msg);
+      console.warn('[pipeline] unrouted file detail:', detail);
+      logAudit('Pipeline', msg + ' · Detail: ' + JSON.stringify(detail), 'error');
+      if (typeof toast === 'function') {
+        toast('Pipeline routing broken', msg + ' Check console for details.', 'error');
+      }
+      updateProgress(100, '<strong>Pipeline aborted</strong> · routing layer rejected ' +
+        (classified.length - validlyHandled) + '/' + classified.length + ' files');
+      return;
+    }
+
+    // Will any wave-1 module actually fire?
+    const wave1ModulesWithFiles = Object.entries(MODULES)
+      .filter(([mid, m]) => m.wave === 1 && m.inputsFrom === 'file')
+      .filter(([mid]) => filesByModule[mid] && filesByModule[mid].length > 0)
+      .map(([mid]) => mid);
+
+    if (wave1ModulesWithFiles.length === 0) {
+      const msg = 'Pre-flight ABORT · classification produced routes but no wave-1 file-input modules will fire. Routing table out of sync with module definitions.';
+      console.warn('[pipeline]', msg);
+      logAudit('Pipeline', msg, 'error');
+      if (typeof toast === 'function') toast('Pipeline misconfigured', msg, 'error');
+      updateProgress(100, '<strong>Pipeline aborted</strong> · no extraction modules will fire');
+      return;
+    }
+
+    // All checks passed. Log a concise pre-flight summary so we can verify
+    // the routing layer is healthy on every successful run.
+    logAudit('Pipeline',
+      'Pre-flight OK · ' + classified.length + ' classified, ' +
+      routed.length + ' routed, ' +
+      intentionallySkipped.length + ' file-and-forget, ' +
+      wave1ModulesWithFiles.length + ' wave-1 modules will fire (' +
+      wave1ModulesWithFiles.join(', ') + ')',
+      'ok');
+  }
 
   // === Stage 1: Wave 1 modules run in parallel ===
   updateProgress(12, '<strong>Wave 1</strong> · parallel extraction across matched files');

@@ -840,7 +840,7 @@ async function resyncActiveSnapshot(reason) {
     if (typeof sbSaveSubmission !== 'function') return;
     const liteSnapshot = {
       ...rec.snapshot,
-      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
       derived: {
         account:         rec.account || null,
         broker:          rec.broker || null,
@@ -2207,7 +2207,7 @@ async function archiveCurrentSubmission(opts) {
     // Build lite snapshot (drop raw file text bytes to stay under row-size limits)
     const liteSnapshot = rec.snapshot ? {
       ...rec.snapshot,
-      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
       derived: {
         account:         rec.account || null,
         broker:          rec.broker || null,
@@ -2284,7 +2284,7 @@ async function changeSubmissionStatus(submissionId, newStatus) {
     if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
     const liteSnapshot = rec.snapshot ? {
       ...rec.snapshot,
-      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
       derived: {
         account:         rec.account || null,
         broker:          rec.broker || null,
@@ -2370,7 +2370,7 @@ function rehydrateSubmission(submissionId) {
           }
           const liteSnapshot = activeRec.snapshot ? {
             ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
             derived: {
               account:         activeRec.account || null,
               broker:          activeRec.broker || null,
@@ -2646,7 +2646,7 @@ function backfillMissingAccountNames() {
             try {
               const liteSnapshot = rec.snapshot ? {
                 ...rec.snapshot,
-                files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+                files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
                 derived: {
                   account:         rec.account || null,
                   broker:          rec.broker || null,
@@ -5599,7 +5599,7 @@ function startNewSubmission() {
           }
           const liteSnapshot = activeRec.snapshot ? {
             ...activeRec.snapshot,
-            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, _rawFile: undefined })),
+            files: (activeRec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
             derived: {
               account:         activeRec.account || null,
               broker:          activeRec.broker || null,
