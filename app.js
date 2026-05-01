@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.7-2026-05-01';
+window.STM_BUILD = 'v8.6.8-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2702,25 +2702,19 @@ async function deleteSubmission(submissionId, confirmAlready) {
     try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
   }
   // Now run the cloud-side cleanup with explicit ordering: documents first
-  // (storage + rows), then submission row. Now awaited inline so the user
-  // sees the actual cloud-deletion result before the function returns.
-  // Previously fire-and-forget — UI removed the row claiming success while
-  // the cloud delete might still be racing or failing silently.
-  // v8.5.7: child delete and parent delete are now chained in a single
-  // try/catch. If document_pages cleanup fails (statement timeout, RLS,
-  // anything), we DO NOT proceed to delete the parent submission. That
-  // matters because document_pages has ON DELETE CASCADE — if we let the
-  // parent delete run after a failed child delete, Postgres re-attempts
-  // the same expensive child delete inside the parent delete transaction,
-  // which can hit the same timeout and leave EVERYTHING undeleted.
+  // (storage paths gathered + best-effort cleanup), then submission row.
   //
-  // The previous code ran child + parent in separate try/catch blocks and
-  // swallowed child errors — that's the bug that made deleted submissions
-  // reappear on refresh.
+  // v8.6.8: sbDeleteDocumentPagesForSubmission no longer throws on errors.
+  // It tries to clean up storage binaries proactively but leaves row deletion
+  // to ON DELETE CASCADE on the parent submission delete. This was the v8.5.7
+  // theoretical concern (cascade compound-timeout) being empirically refuted
+  // by Justin's diagnostic — when explicit child DELETE timed out with 57014,
+  // the parent DELETE + cascade still succeeded. Under the old "throw on
+  // error" contract, the explicit child DELETE timeout was blocking the
+  // parent delete entirely, causing rows to reappear on refresh.
   //
-  // On failure, we now also re-hydrate from the cloud so the local UI
-  // matches the real database state, and we restore the local STATE entry
-  // so the user sees the row come back rather than a phantom-deleted state.
+  // The parent sbDeleteSubmission still throws on its own failure (RLS deny,
+  // 0 rows affected, etc.) and that error path still surfaces an error toast.
   try {
     if (typeof sbDeleteDocumentPagesForSubmission === 'function') {
       await sbDeleteDocumentPagesForSubmission(submissionId);
