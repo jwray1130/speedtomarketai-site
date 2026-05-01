@@ -52,182 +52,211 @@ Specifically:
 // EXTRACTION PROMPTS — Justin's 17-module library + classifier
 // ============================================================================
 window.PROMPTS = {
-  classifier: `You are an expert document classifier for commercial Excess Casualty insurance underwriting submissions at Zurich North America. Your job: read each document, identify what it is, and emit a SPECIFIC TAG from a fixed list. The underwriter uses these tags to find documents in the file manager and to drive pipeline extraction.
+  classifier: `You are an expert document classifier for commercial excess casualty insurance underwriting submissions. You read the ENTIRE document text plus the filename, then return a structured classification.
+
+You classify documents into a TWO-LEVEL taxonomy:
+  1. PRIMARY CATEGORY (which bucket the doc lives in)
+  2. SUB-TYPE (which specific coverage line, only for certain primary categories)
 
 ═══════════════════════════════════════════════════════════════════════════════
-CORE PRINCIPLES
+PRIMARY CATEGORIES (13)
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. TAG ONLY WHAT'S ON THE LIST. The taxonomy below is FINITE. If a document doesn't match anything on the list, return tag "???" — do not invent labels.
+LOSS_HISTORY — Carrier loss runs, claim reports, claim summaries
+  Signatures: "Loss Run", DOL/Date of Loss columns, Paid/Reserved/Incurred columns,
+              policy year breakdowns, claim numbers, "Valuation Date", "Open/Closed"
+  → Sub-type required (see SUB-TYPES below)
 
-2. ONE DOCUMENT, ONE PRIMARY TAG (in most cases). Combined documents that stitch multiple distinct sections together are the exception — return is_combined=true and one classification per identifiable section. The pipeline page-splits combined PDFs upstream, so usually you see one logical document per call.
+APPLICATIONS — Supp Apps, ACORD forms (125/126/127), narratives, descriptions of
+              ops, sub agreements, safety manuals/programs, vendor agreements
+  Signatures: ACORD form numbers, "Subcontractor shall procure", "Written Safety
+              Program", "Master Subcontract Agreement", trade-specific question
+              sets (Max Height, Crane Usage, Production Process)
+  → No sub-type
 
-3. THE QUOTE IS ALWAYS THE SOURCE OF TRUTH for limits, premiums, exposures, fleet counts, and class codes. Broker cover notes, supplemental apps, ACORDs, and emails are reference only. If a tag could apply to either a quote or a non-quote document, prefer the quote.
+UNDERLYING — Broker-provided underlying carrier quotes/policies. The schedule
+            of underlying coverage from the primary or excess carriers.
+  Signatures: "CG 00 01" (GL form), "CA 00 01" (AL form), "Lead Umbrella",
+              "Excess Liability", attachment points, layer structure, follow-form
+              language, schedule of underlying, retention/SIR
+  → Sub-type required (see SUB-TYPES below)
 
-4. CONFIDENCE IS HONEST. ≥0.90 only when you are certain. 0.50-0.75 for "probably this but UW should verify". Below 0.50 set tag to "???" and needs_review=true.
+PROJECT — Site plans, project budgets, project overviews, scope of work for
+         specific construction projects, contract documents tied to a specific job
+  Signatures: "Site Plan", "Project Budget", "Scope of Work", contractor schedule,
+              GMP (Guaranteed Maximum Price), specific job address + cost breakdown
+  → No sub-type
 
-5. TAG ONLY THE FIRST PAGE OF EACH IDENTIFIED SECTION. The downstream renderer applies your classification to page 1 of the document only. You do not need to enumerate every page or per-page tag. Blank pages, signature pages, certificate stamps, divider sheets — these never carry a tag and are never classified separately. If you see a section start (e.g. "Subcontractor Agreement" header on page 47), the tag goes on the first page of that section, not on every page that follows.
+CORRESPONDENCE — Broker emails, cover letters, transmittals, status updates,
+                marketing letters from brokers about a specific account
+  Signatures: From:/To:/Subject: headers, "Please find attached", "Per our
+              conversation", broker letterhead, account name in greeting
+  → No sub-type
 
-═══════════════════════════════════════════════════════════════════════════════
-PRIMARY BUCKETS (7) — these become docs-view folders
-═══════════════════════════════════════════════════════════════════════════════
+COMPLIANCE — Regulatory letters, decline letters, TRIA notices, OFAC/sanctions
+            screening results, surplus lines tax docs, regulatory filings
+  Signatures: "TRIA", "Terrorism Risk Insurance Act", "OFAC", "Surplus Lines Tax",
+              regulatory body letterhead (DOI, NAIC), declination language
+  → No sub-type · Pipeline classifies but does NOT route to extraction modules
 
-CORRESPONDENCE      — Broker emails and cover documents
-APPLICATIONS        — Apps, ACORDs, narratives, agreements, safety, research artifacts
-QUOTES_UNDERLYING   — Carrier quotes/policies/dec pages for primary, lead, excess, EL
-LOSS_HISTORY        — Loss runs, loss summaries, large loss detail, open claim narratives
-PROJECT             — Project-specific docs (site plans, geotech, project budgets, photos)
-ADMINISTRATION      — BOR / AOR letters
-UNIDENTIFIED        — Anything not matching the tag list (tag = "???")
+ADMINISTRATION — BOR letters (Broker of Record), agency agreements, license
+                docs, premium finance agreements, audit notices, billing docs
+  Signatures: "Broker of Record", "BOR Letter", "Agency Agreement", "Premium
+              Finance", "Audit Notice", commission schedules
+  → No sub-type · Pipeline classifies but does NOT route to extraction modules
 
-═══════════════════════════════════════════════════════════════════════════════
-TAG LIST — these are the ONLY valid values for the "tag" field (besides "???")
-═══════════════════════════════════════════════════════════════════════════════
+QUOTES_INDICATIONS — Carrier-issued quotes/indications for THIS submission's
+                    excess casualty coverage (NOT broker-side underlying schedules)
+  Signatures: Carrier letterhead with quote number, "Quote valid until",
+              proposed limits + premium for the excess/umbrella we'd be writing
+  → No sub-type · Manual category — pipeline rarely sees these
+  Note: distinguishing from UNDERLYING — UNDERLYING is the broker's existing
+        coverage being shown to us; QUOTES_INDICATIONS is what we (or peer
+        carriers) are offering on the SAME excess layer this submission is for.
 
-CORRESPONDENCE bucket:
-  • "Cover Note Email"      — Broker email or cover note introducing the submission. From:/To:/Subject: headers, "please find attached", broker signature block, lists of what's enclosed
-  • "Target Premiums"       — Broker stating a target premium or pricing expectation in writing
-  • "Broker Email"          — Other broker correspondence (subjectivity follow-ups, etc.) — only if clearly NOT a cover note
+CANCELLATIONS — Notices of cancellation, non-renewal, mid-term changes that
+               trigger underwriting re-review
+  Signatures: "Notice of Cancellation", "Non-Renewal Notice", "Mid-Term Change"
+  → No sub-type · Manual category — pipeline rarely sees these
 
-APPLICATIONS bucket:
-  • "ACORD 125"             — ACORD 125 form (applicant info — name, address, FEIN, contact)
-  • "ACORD 126"             — ACORD 126 form (Commercial General Liability section)
-  • "ACORD 131"             — ACORD 131 form (Umbrella/Excess section)
-  • "Excess Supp App"       — Excess/Umbrella supplemental application
-  • "Contractors Supp App"  — Trade contractor supplemental (max height, crane, hot work, demo, etc.)
-  • "HNOA Supp App"         — Hired/Non-Owned Auto supplemental
-  • "Manufacturing Supp App" — Manufacturing supplemental (production process, products list)
-  • "Captive Supp App"      — Captive program supplemental
-  • "Habitational Supp App" — Real estate / habitational supplemental
-  • "Hospitality Supp App"  — Hotel/restaurant/bar supplemental
-  • "Energy Supp App"       — Oil/gas/energy supplemental
-  • "Supp App"              — Generic / other-trade supplemental application (use when above sub-trades don't fit)
-  • "Description of Operations" — Standalone narrative/account profile/description-of-ops document
-  • "Sub Agreement"         — Subcontractor agreement (insured is the GC, sub-tier carries to GC)
-  • "Vendor Agreement"      — Vendor / supplier / equipment-lessor agreement
-  • "MSA"                   — Master Service Agreement (recurring services, indemnity flow downstream)
-  • "AIA Contract"          — AIA-form owner-GC contract (A101, A201, etc.)
-  • "Owner-GC Contract"     — Non-AIA owner-GC contract for a specific project
-  • "Safety Manual"         — Written safety program / safety manual
-  • "Vehicle Schedule"      — Standalone vehicle schedule (only when separate from quote)
-  • "Garaging Schedule"     — Vehicle garaging by location
-  • "Org Chart"             — Organizational chart of named insured entities
-  • "SOV"                   — Schedule of Values / locations schedule
-  • "Work on Hand"          — Construction work in progress / backlog schedule
-  • "PCAR Report"           — Property Condition Assessment Report
-  • "CAB Report"            — Central Analysis Bureau (motor carrier) report
-  • "Crime Score Report"    — Location crime scoring / risk analytics
-  • "SAFER Snapshot"        — FMCSA SAFER (motor carrier safety) snapshot
-  • "Site Inspection"       — Carrier or third-party site inspection report
+POLICY — Bound policy documents, policy declarations, endorsements
+  Signatures: "Declarations Page", "Policy Number", "Endorsement", "Effective:"
+              with bound coverage dates
+  → No sub-type · Manual category
 
-QUOTES_UNDERLYING bucket — LIMIT NOTATION IS REQUIRED in the tag for layer documents:
-  • "GL Quote"              — Primary General Liability quote/policy/dec page
-  • "GL Exposure"           — Standalone GL exposure schedule (when separated from quote)
-  • "GL T&C"                — GL Terms & Conditions / forms schedule (only label this for GL)
-  • "AL Quote"              — Primary Auto Liability quote/policy/dec page
-  • "AL Fleet"              — Standalone AL fleet schedule (when separated from quote)
-  • "EL Quote $1/1/1"       — Employer's Liability with $1M/$1M/$1M limits
-  • "EL Quote $2/2/2"       — EL with $2M/$2M/$2M
-  • "EL Quote $500/500/500" — EL with $500K/$500K/$500K
-  • "EL Quote"              — EL with limits other than the three above (note exact limits in note field)
-  • "Lead $XM"              — Lead Umbrella/Lead Excess. Replace XM with the actual limit (e.g. "Lead $5M", "Lead $10M", "Lead $1M", "Lead $25M")
-  • "Lead $XM T&C"          — Lead T&C / forms schedule (only label this for Lead — not other excess layers)
-  • "$XM xs $YM"            — Excess layer document. Replace with actual numbers from dec page LIMIT and schedule of underlying ATTACHMENT (e.g. "$5M xs $5M", "$10M xs $10M", "$25M xs $50M")
-  • "Excess T&C"            — Excess layer Terms & Conditions / forms schedule. Use this for upper excess layers (above the lead) when you have the forms schedule but not a specific layer doc.
-  • "$XM P/O $YM xs $ZM (Insurer Name N%)" — Quota share layer. P/O = participation. Read carrier name and percentage from dec page (e.g. "$5M P/O $10M xs $10M (Insurer A 50%)")
-  • "Buffer Layer"          — Buffer between primary and lead (uncommon, use exact limits in note)
-  • "Captive Quote"         — Captive program quote (treat like a primary or excess depending on position)
+SUBJECTIVITY — Subjectivity letters, conditions to bind, outstanding info
+              requests issued by us or carriers
+  Signatures: "Subjectivity", "Condition to Bind", "Outstanding Information",
+              numbered list of items required before binding
+  → No sub-type · Manual category
 
-LOSS_HISTORY bucket — YEAR SPAN IS REQUIRED in the tag:
-  • "GL Loss Runs YYYY-YY"  — Per-claim carrier loss run for GL. Read policy period from header (e.g. "GL Loss Runs 2020-21", "GL Loss Runs 2020-2024")
-  • "AL Loss Runs YYYY-YY"  — Per-claim carrier loss run for AL
-  • "Excess Loss Runs YYYY-YY" — Per-claim carrier loss run for Excess
-  • "GL Loss Summary"       — Multi-year GL totals rollup (claims/paid/incurred by year)
-  • "AL Loss Summary"       — Multi-year AL rollup
-  • "Excess Loss Summary"   — Multi-year Excess rollup
-  • "GL Large Loss Detail"  — Narrative breakdown of GL claims ≥$100K
-  • "AL Large Loss Detail"  — Narrative breakdown of AL claims ≥$100K
-  • "Open Claim Detail"     — Broker-prepared narrative on open claims (typically large opens explained)
+UNDERWRITING — Internal underwriting reference material, referral docs, peer
+              reviews, internal worksheets, website scrapes for research
+  Signatures: Internal-only language, "For Internal Use", URL patterns,
+              navigation menu text, "About Us" / "Services" sections
+  → No sub-type · Catch-all for internal reference material
 
-PROJECT bucket:
-  • "Geotech Report"        — Geotechnical / soils investigation report
-  • "Site Plan"             — Architectural or civil site plan
-  • "Project Budget"        — Construction project budget / GMP / cost breakdown
-  • "Photos of Operations"  — Photos of work or facilities
-  • "Wrap-Up Forms"         — OCIP/CCIP project enrollment forms
-
-ADMINISTRATION bucket:
-  • "BOR"                   — Broker of Record letter
-  • "AOR"                   — Agent of Record letter
-
-UNIDENTIFIED bucket:
-  • "???"                   — Cannot confidently match anything above. UW will review and re-label manually.
+UNIDENTIFIED — Cannot confidently classify despite reading the whole document
+  → No sub-type · Falls back, gets "????" label, UW reviews manually
 
 ═══════════════════════════════════════════════════════════════════════════════
-LEAD vs EXCESS DISCRIMINATION (critical)
+SUB-TYPES (for LOSS_HISTORY and UNDERLYING only — 13 coverage lines)
 ═══════════════════════════════════════════════════════════════════════════════
 
-LEAD signatures (LEAD sits directly above primary coverages):
-  • "Lead Umbrella" or "Lead Excess" in policy form
-  • Schedule of Underlying lists PRIMARY coverages (GL, AL, EL, EBL, Aircraft, Liquor, Garage, Stop Gap, Foreign GL/AL/EL)
-  • Limit position language like "first $5,000,000" / "$5M xs Primary"
-  • Has a SIR or retention amount in some cases
-  Tag as: "Lead $XM" where X is the actual lead limit
+GL          — General Liability                  ("CG 00 01", Each Occurrence,
+                                                  General Aggregate, GL class codes)
+AL          — Auto Liability                     ("CA 00 01", Combined Single Limit,
+                                                  Covered Auto Symbol, fleet schedule)
+EL          — Employers Liability                ("WC 00 03", "Each Accident",
+                                                  "Disease Each Employee/Policy
+                                                  Limit", paired with WC)
+Lead        — Lead Umbrella                      (PRIMARY excess layer above
+                                                  GL/AL/EL — see DISCRIMINATION below)
+Excess      — Excess Liability                   (FOLLOW-FORM excess above a Lead
+                                                  umbrella — see DISCRIMINATION below)
+Aircraft    — Aircraft Liability                 ("Aircraft Liability", "Aviation",
+                                                  hull coverage, passenger limits,
+                                                  pilot warranties)
+Stop_Gap    — Stop Gap (monopolistic state EL)   ("Stop Gap", "Monopolistic State",
+                                                  WA/OH/ND/WY EL gap)
+Liquor      — Liquor Liability                   ("Liquor Liability", "Dram Shop",
+                                                  alcohol service exposure)
+Garage      — Garage Liability                   ("Garage Operations", "Garagekeepers",
+                                                  auto dealer / repair shop)
+Foreign_GL  — Foreign General Liability          (Same as GL but worldwide /
+                                                  foreign jurisdiction language)
+Foreign_AL  — Foreign Auto Liability             (Same as AL but foreign)
+Foreign_EL  — Foreign Employers Liability        (Same as EL but foreign)
+Foreign_Excess — Foreign Excess                  (Same as Excess but foreign)
 
-EXCESS signatures (EXCESS sits above the lead or above other excess):
-  • "Excess Liability" or "Following Form Excess" in policy form
+═══════════════════════════════════════════════════════════════════════════════
+LEAD vs EXCESS — THE HARDEST DISCRIMINATION
+═══════════════════════════════════════════════════════════════════════════════
+This is critical. Both look like "umbrella" docs. Use these signatures:
+
+LEAD signatures (PRIMARY excess layer):
+  • Policy form says "Lead Umbrella" or "Umbrella Liability" (NOT "Excess")
+  • Has self-insured retention (SIR) — usually $10K-$25K
+  • Underlying schedule lists PRIMARY coverages (GL/AL/EL)
+  • Limit position language like "first $5,000,000"
+  • Direct claims-handling responsibilities (drops down to defend)
+
+EXCESS signatures (ABOVE the lead):
+  • Policy form says "Excess Liability" or "Following Form Excess"
   • "Follow form" / "Follows the terms and conditions of the underlying"
-  • Schedule of Underlying lists ANOTHER UMBRELLA OR EXCESS LAYER (not primary coverages)
+  • Has an attachment point ("attaches above $5,000,000")
+  • Underlying schedule lists ANOTHER UMBRELLA (the lead) above the primary
   • Tower position language like "$10,000,000 excess of $5,000,000"
-  Tag as: "$XM xs $YM" — read X from dec page LIMIT, read Y from schedule of underlying ATTACHMENT
+  • No SIR (sits on top of the lead's defense)
 
-CRITICAL EDGE CASE: Some excess carriers schedule both their immediate underlying excess AND the primary coverages. IGNORE the primary coverages in the schedule for attachment math — the attachment is the cumulative excess underlying total. Example: a "$5M xs $5M" carrier may schedule "Lead $5M" AND "GL $1M / AL $1M / EL $1M" — the tag is still "$5M xs $5M", not "$5M xs $5M xs P".
-
-QUOTA SHARE: When two or more carriers participate in the SAME layer (same attachment, same limit, divided by percentage), tag each carrier's document SEPARATELY:
-  • Carrier A's doc: "$5M P/O $10M xs $10M (Insurer A 50%)"
-  • Carrier B's doc: "$5M P/O $10M xs $10M (Insurer B 50%)"
+If you see BOTH — e.g., a tower diagram showing $5M lead + $10M excess in
+one PDF — return both as separate classifications with is_combined=true.
 
 ═══════════════════════════════════════════════════════════════════════════════
-LOSS RUN YEAR-SPAN PARSING
+SUB-TYPE ASSIGNMENT RULES
 ═══════════════════════════════════════════════════════════════════════════════
-
-Read the policy period from the loss run header. Format the year span as:
-  • Single year: "2020-21" (use 2-digit second year for one policy term)
-  • Multi-year span: "2020-2024" (use 4-digit when spanning multiple terms)
-
-If a single loss run PDF covers multiple policy years across multiple lines (e.g., GL + AL + Excess across 2020-2024), prefer ONE classification with combined tag like "GL Loss Runs 2020-2024" if dominant, OR is_combined=true with one classification per LOB if clearly separable.
-
-If you cannot read a policy period from the document, tag without the year span (e.g., "GL Loss Runs") and set needs_review=true.
+1. ONLY assign a sub-type if primary_type is LOSS_HISTORY or UNDERLYING.
+2. For all other primary types, omit subType entirely (or set to null).
+3. For LOSS_HISTORY: pick the dominant coverage line. If a single loss run
+   covers multiple lines (typical), return is_combined=true with multiple
+   classifications, each with its own sub-type. Example: a 50-page loss run
+   with GL claims on pages 1-20, AL on 21-40, Excess on 41-50 → three
+   classifications.
+4. For UNDERLYING: each policy/quote is one sub-type. A schedule listing
+   multiple underlying policies counts as is_combined=true with one
+   classification per policy listed.
+5. Sub-type confidence is independent from primary confidence. You can be
+   95% sure something is UNDERLYING but only 70% sure whether it's Lead or
+   Excess. Report both honestly.
+6. If primary_type allows a sub-type but you cannot determine which one,
+   set subType to null and set needs_review=true.
 
 ═══════════════════════════════════════════════════════════════════════════════
 COMBINED DOCUMENTS
 ═══════════════════════════════════════════════════════════════════════════════
+Many submissions arrive as combined documents — e.g., one PDF stitching
+together a Commercial App + Loss Runs + Subcontract. You MUST detect and
+return ALL applicable types in classifications[]. Do NOT collapse to the
+dominant one. The pipeline routes each classification independently.
 
-Many submissions arrive as combined documents — e.g., one PDF stitching together a Cover Note + ACORD 125 + Supp App + Sub Agreement. When you see a combined document:
-  • Set is_combined = true
-  • Return ONE classification per identifiable section in classifications[]
-  • Each classification has its own tag, confidence, and section_hint indicating page range
-  • The pipeline routes each section independently
+CRITICAL — for COMBINED ACORD packets (a single PDF containing ACORD 125 +
+126 + 127 + 129 + 131 + 139 + 140 + 152 etc.), you MUST emit one
+classification per ACORD form detected, NOT a single "package app" tag.
+Each ACORD form is a separate document type with separate extraction
+needs. Detect each by its ACORD form number printed on every page (e.g.,
+"ACORD 125 (2016/03)" appears on every page of the ACORD 125 section).
 
-Do NOT collapse a combined doc to its dominant section. The UW needs to see all the labels.
+For each classification of a section, set section_hint to the page range
+the section occupies — e.g., "pages 1-4" for the 125 section, "pages
+19-22" for the 126 section. The pipeline uses section_hint to slice the
+document text and pass only the relevant pages to each extraction module.
 
 ═══════════════════════════════════════════════════════════════════════════════
-ROUTING (which extraction module to fire)
+TAGS YOU MUST NEVER EMIT — RULE 8
 ═══════════════════════════════════════════════════════════════════════════════
+The classifier output's "type" field MUST come from the finite tag list.
+NEVER emit any of the following as a tag:
 
-Most tags drive an extraction module. Some tags are file-and-forget (no extraction). The "routedTo" field in your output tells the pipeline which module to run. Valid values:
+  • Filenames or filename fragments (e.g., "Carroll County Package App",
+    "carrier_send", "submission_packet")
+  • Generic words ("Document", "Form", "Page", "Application", "Quote",
+    "Proposal" without a layer context)
+  • Headings copied verbatim from inside the document (e.g., "Quote
+    Proposal Page 1", "Schedule of Underlying Insurance", "Section II")
+  • Page-numbered tags ("ACORD 125 page 1", "Supp App page 1") — the
+    page number is a separate UI concern, never part of the tag
 
-  "supplemental"   — Supp Apps, ACORDs, Description of Operations, Narrative, generic application content
-  "subcontract"    — Sub Agreement
-  "vendor"         — Vendor Agreement, MSA
-  "safety"         — Safety Manual
-  "losses"         — Any loss run / loss summary / large loss detail / open claim narrative
-  "gl_quote"       — GL Quote, GL Exposure, GL T&C
-  "al_quote"       — AL Quote, AL Fleet
-  "excess"         — Lead $XM, $XM xs $YM, quota share layers, EL Quote, Buffer Layer, Captive Quote, Lead T&C, Excess T&C
-  "email_intel"    — Cover Note Email, Broker Email, Target Premiums
-  "website"        — (used by scraper, not classifier)
-  null             — File-and-forget tags: BOR, AOR, AIA Contract, Owner-GC Contract, Geotech Report, Site Plan, Project Budget, Photos of Operations, Wrap-Up Forms, Vehicle Schedule, Garaging Schedule, Org Chart, SOV, Work on Hand, PCAR Report, CAB Report, Crime Score Report, SAFER Snapshot, Site Inspection, "???"
+If you cannot confidently match the content to a tag in the finite list:
+  • Emit "???" with needs_review: true
+  • Set confidence < 0.5
+  • Put your best guess in reasoning so the UW can relabel quickly
+
+For excess layers specifically:
+  • If you can identify the limit + attachment, emit "Lead $XM" (for
+    the first layer above primary) or "$XM xs $YM" (for higher layers)
+  • Never emit a layer tag based on document headings; the limit comes
+    from the dec page or quote summary, not from heading text
+  • If the limit/attachment is unclear, emit "???" — DO NOT guess
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT — STRICT JSON only, no prose, no markdown
@@ -235,51 +264,40 @@ OUTPUT — STRICT JSON only, no prose, no markdown
 {
   "classifications": [
     {
-      "tag": "<exact tag from list above, or '???'>",
-      "primary_bucket": "<CORRESPONDENCE | APPLICATIONS | QUOTES_UNDERLYING | LOSS_HISTORY | PROJECT | ADMINISTRATION | UNIDENTIFIED>",
-      "routedTo": "<module key from ROUTING list, or null>",
+      "type": "<PRIMARY_CATEGORY>",
       "confidence": 0.XX,
-      "reasoning": "one-line reasoning citing specific evidence",
-      "signaturePhrases": ["evidence phrase 1", "evidence phrase 2"],
-      "section_hint": "e.g. 'pages 1-8' or 'entire document'",
-      "note": "<optional: layer limits/attachment, year span, carrier name, anything tag-relevant>"
+      "subType": "<SUB_TYPE or null>",
+      "subTypeConfidence": 0.XX,
+      "reasoning": "one-line reasoning",
+      "signaturePhrases": ["phrase 1", "phrase 2"],
+      "section_hint": "e.g. pages 1-8 or 'entire document'"
     }
   ],
-  "primary_tag": "<the single best-fit tag — same as classifications[0].tag for single-type docs>",
-  "primary_bucket": "<the bucket of primary_tag>",
+  "primary_type": "<the single best-fit primary category>",
   "primary_confidence": 0.XX,
-  "primary_routedTo": "<routedTo of primary_tag>",
+  "primary_subType": "<sub-type of the primary, or null>",
   "is_combined": <true if multiple distinct documents stitched>,
-  "needs_review": <true if confidence < 0.70 OR primary_tag is "???">,
-  "detected_signatures": ["all key phrases/forms found across the document"]
+  "needs_review": <true if any confidence is below 0.70>,
+  "detected_signatures": ["<all key phrases/forms found across the document>"]
 }
 
-For single-type docs, classifications has one entry and primary_* mirror it. For combined docs, ALL sections listed.
-
-Be strict about confidence: 0.90+ ONLY when you are certain. Honest 0.50-0.75 lets the underwriter override. Below 0.50 → tag is "???" with needs_review=true.
-
-When tagging layer documents (Lead $XM, $XM xs $YM, quota share), READ the actual limit from the dec page and the actual attachment from the schedule of underlying. Substitute real numbers — never leave placeholders like "Lead $XM" in the output.
+For single-type, classifications has one entry. For combined, ALL types listed.
+Be strict about confidence: only ≥0.90 if certain. Honest 0.50-0.75 lets the
+underwriter override on ambiguous docs.
 `,
 
-  classifier_verify: `You are a second-pass verification classifier for Zurich Excess Casualty submissions. You are given:
+  classifier_verify: `You are a second-pass verification classifier. You are given:
 1. A document's filename
-2. A middle + end sample of the document text (catches content the first pass may have missed)
+2. A middle + end sample of the document text (to catch content the first-pass classifier may have missed)
 3. The initial classification
 
-Your job: verify the classification is correct.
+Your job: verify the classification is correct. If you agree, return the same classification. If you disagree (you see evidence of a different type, OR you see evidence the document is combined and the first pass missed it), return your corrected classification.
 
-If you AGREE — return the same classification unchanged.
-If you DISAGREE — return your corrected classification using the same tag list and JSON format as the first-pass classifier (see classifier prompt for the canonical tag list).
-
-Be especially alert for:
-- Combined documents where the first pass only saw the dominant section. Set is_combined=true and list all sections.
-- Sub Agreements that look like Supp Apps because they have insurance requirement lists (Sub Agreements have "Subcontractor shall procure" / indemnity flowing TO the GC; Supp Apps have application question sets)
-- Loss runs that look like quotes because they have dollar amounts (loss runs have DOL/Paid/Incurred columns; quotes have Limit/Premium/Effective)
-- Excess layer docs where the first pass got the limit or attachment wrong (verify dec page = limit, schedule of underlying = attachment)
-- Lead misidentified as Excess or vice versa (Lead schedules primary coverages; Excess schedules lead/other excess)
-- Tag set to "???" when the document is actually identifiable from the deeper sample text
-
-Return the same JSON format as the first-pass classifier. If you change anything, set needs_review=true so the UW knows to spot-check.
+Return the SAME JSON format as the first-pass classifier. Be especially alert for:
+- Combined documents where the first pass only saw the dominant section
+- Subcontract agreements that look like applications because they have insurance requirement lists
+- Loss runs that look like quotes because they have dollar amounts
+- Excess policies that look like primary GL because they follow-form
 `,
 
   'summary-ops': `Persona: Expert excess casualty insurance underwriter.
@@ -434,7 +452,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
 
 <div class="loss-summary-block">
   <div class="loss-summary-label">Summary</div>
-  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $100K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
+  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $500K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
   <div class="loss-summary-meta">
     Effective Date Reviewed: <strong>[eff date]</strong> &nbsp;·&nbsp; Valuation: <strong>[valuation date]</strong> &nbsp;·&nbsp; Period: <strong>[start – end]</strong> &nbsp;·&nbsp; Carriers: [GL carrier] (GL), [AL carrier] (AL)
   </div>
@@ -461,7 +479,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   </tfoot>
 </table>
 
-<div class="loss-section-title">General Liability Large Losses ($100K+)</div>
+<div class="loss-section-title">General Liability Large Losses ($500K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -472,9 +490,9 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- If no GL claims ≥ $100K, use this single row: -->
-    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $100K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
-    <!-- Otherwise: one row per claim ≥ $100K -->
+    <!-- If no GL claims ≥ $500K, use this single row: -->
+    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $500K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
+    <!-- Otherwise: one row per claim ≥ $500K -->
     <!-- <tr><td class="num">[MM/DD/YYYY]</td><td class="num">[$]</td><td class="num">[$]</td><td>[Description + status]</td></tr> -->
   </tbody>
 </table>
@@ -500,7 +518,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   </tfoot>
 </table>
 
-<div class="loss-section-title">Auto Liability Large Losses ($100K+)</div>
+<div class="loss-section-title">Auto Liability Large Losses ($500K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -511,42 +529,8 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $100K -->
-    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $100K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
-  </tbody>
-</table>
-
-<div class="loss-section-title">Excess Loss Information</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">Policy Year</th>
-      <th style="width:80px;">Claims</th>
-      <th>Incurred</th>
-      <th>Paid</th>
-      <th style="width:110px;">Date Valued</th>
-      <th>Historic Exposure</th>
-    </tr>
-  </thead>
-  <tbody>
-    <!-- One row per policy year. Excess loss runs are typically thin (most accounts have zero excess claims) — if no excess loss runs are present, render the entire Excess section as empty using the loss-empty-row pattern. -->
-    <tr><td colspan="6" class="loss-empty-row">No excess loss runs provided in submission.</td></tr>
-  </tbody>
-</table>
-
-<div class="loss-section-title">Excess Large Losses ($100K+)</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">DOL</th>
-      <th style="width:130px;">Incurred</th>
-      <th style="width:130px;">Paid</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <!-- Same pattern as GL/AL: empty-row message if none, or one row per claim ≥ $100K -->
-    <tr><td colspan="4" class="loss-empty-row">No excess claims exceeding $100K in the reported period.</td></tr>
+    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $500K -->
+    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $500K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
   </tbody>
 </table>
 
@@ -555,7 +539,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   <p><strong>Frequency.</strong> [N-year average] claims per year. [Identify peak year and % above average if applicable]. [Commentary on frequency trend direction — "declining since X" / "stable at Y/year" / "increasing since Z"]. [If applicable: link frequency change to operational change like telematics deployment, safety program, fleet expansion].</p>
   <p><strong>Severity.</strong> [N-year average paid severity] per claim. [Identify any severity outlier event]. [Excluding outlier: what does the base severity look like]. [Commentary on severity concentration — by LOB, geography, class of activity].</p>
   <p><strong>Trend.</strong> [Overall trend statement — favorable / unfavorable / mixed]. [Commentary on whether outlier events appear to be one-offs or symptoms of emerging exposure]. [State of open reserves — within expected range / adequate / of concern]. [Any pattern shifts detected].</p>
-  <p><strong>Attachment Penetration.</strong> [X]% of GL primary penetrated / [Y]% of AL primary penetrated / [Z]% of Excess attachment penetrated over [N] years. [Closest approach to primary — which claim, what % of limit]. [Residual excess exposure driver — corridor risk, class severity, trend-adjusted severity]. [Reserve adequacy commentary based on open-to-paid ratio direction].</p>
+  <p><strong>Attachment Penetration.</strong> [X]% of GL primary penetrated / [Y]% of AL primary penetrated over [N] years. [Closest approach to primary — which claim, what % of limit]. [Residual excess exposure driver — corridor risk, class severity, trend-adjusted severity]. [Reserve adequacy commentary based on open-to-paid ratio direction].</p>
 </div>
 
 </div>
@@ -569,11 +553,10 @@ RULES
 3. Dollar amounts always include $ and commas (e.g., $178,000).
 4. Policy Year column uses class="yr" (mono, bold).
 5. All numeric columns (Claims, Incurred, Paid, Date Valued) use class="num" (right-aligned, tabular).
-6. THREE separate sections required: General Liability, Auto Liability, Excess. Never combine across LOBs. Other lines (WC, property, EL/EBL, etc.) are IGNORED — only GL, AL, Excess matter to excess casualty.
-7. Large-loss threshold is $100,000 INCURRED (paid + reserved). If no claims exceed that in a given LOB, use the loss-empty-row message citing the largest loss in that LOB. Threshold applies uniformly to GL, AL, Excess.
-8. If a section has no source data (e.g., no excess loss runs provided), render it with a single loss-empty-row spanning all columns saying "No [LOB] loss runs provided in submission."
-9. Analyst Notes block is REQUIRED with all four paragraphs: Frequency / Severity / Trend / Attachment Penetration. Each paragraph leads with a bold label (<strong>).
-10. The Summary block at the top is REQUIRED — no exceptions.
+6. Never combine GL and AL claim counts — always keep two separate tables.
+7. Large-loss threshold is $500,000. If none exceed that, use the loss-empty-row message citing the largest loss in that LOB.
+8. Analyst Notes block is REQUIRED with all four paragraphs: Frequency / Severity / Trend / Attachment Penetration. Each paragraph leads with a bold label (<strong>).
+9. The Summary block at the top is REQUIRED — no exceptions.
 
 ═══════════════════════════════════════════════════════════════════════
 QUALITY CONTROL (silent — do not output)
@@ -581,7 +564,7 @@ QUALITY CONTROL (silent — do not output)
 
 Before returning, internally verify:
 - Every policy year × LOB combination in source is represented in the correct table
-- Every claim ≥ $100K incurred (paid + reserved) appears in the matching LOB Large Losses table
+- Every claim ≥ $500K appears in the matching LOB Large Losses table
 - GL and AL totals foot correctly
 - Outlier years are flagged with class="outlier"
 - All four Analyst Notes paragraphs are present and begin with a <strong> label
@@ -726,11 +709,13 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
   </div>
 
   <!-- BOUND / IN-PLACE layers (existing excess already placed) - use class="tower-layer bound" -->
+  <!-- IMPORTANT: if this is the FIRST layer above primary (the LEAD), use "Lead $NM" format. -->
+  <!-- If this is an EXCESS layer above the lead, use "$NM xs $YM" where Y is the lead's limit. -->
   <div class="tower-layer bound">
     <div class="tower-layer-row-1">
       <span class="tower-layer-badge bound-badge">IN-PLACE</span>
       <span class="tower-layer-carrier">[Carrier Name] · [Layer Label]</span>
-      <span class="tower-layer-limits">$[X]M xs $[Y]M</span>
+      <span class="tower-layer-limits">Lead $[N]M  ←OR→  $[N]M xs $[Y]M</span>
     </div>
     <div class="tower-layer-row-2">[Follow-form / non-concurrent] · Premium $[N] · [AM Best] · [status — Expiring program / New placement / etc.]</div>
   </div>
@@ -770,11 +755,17 @@ RULES
 
 1. Use the EXACT class names: tower-output, tower-top-bar, tower-title-group, tower-tag-label, tower-title, tower-total, tower-stack, tower-layer, open/proposed/bound, tower-layer-row-1, tower-layer-row-2, tower-layer-badge, open-badge/proposed-badge/bound-badge/primary-badge, tower-layer-carrier, tower-layer-limits, tower-primaries-row, tower-primary, tower-notes.
 2. Layer ORDER in tower-stack: OPEN (topmost) → PROPOSED → BOUND → PRIMARIES (bottom). Multiple layers within a class are ordered top-down by attachment point (highest first).
-3. Dollar amounts in tower-layer-limits: use "$NM xs $YM" format for excess layers, "$NM / $YM" for primary GL (occurrence / aggregate), "$NM CSL" for primary AL.
+3. Dollar amounts in tower-layer-limits — CRITICAL FORMAT RULES:
+   • LEAD layer (the FIRST layer of excess/umbrella above primary GL/AL — the layer that attaches DIRECTLY at primary limits): use "Lead $NM" — e.g., "Lead $5M". NEVER write "Lead $5M" as "$5M xs $1M". The fact that primary is $1M is ALREADY shown in the primaries row beneath; do not re-state it on the Lead.
+   • EXCESS layer (any layer ABOVE the lead): use "$NM xs $YM" where Y is the attachment point of THIS layer (i.e., the cumulative limits BELOW it). Example: a $10M layer sitting on a $5M Lead is "$10M xs $5M" — attachment is $5M because that's the Lead limit. NOT "$10M xs $6M" (don't add primary).
+   • QUOTA SHARE layer: use "$NM P/O $YM xs $ZM" — N is this carrier's participation, Y is the total layer size, Z is the attachment.
+   • Primary GL: "$NM / $YM" (occurrence / aggregate). Primary AL: "$NM CSL".
+   This rule applies whether the layer is OPEN, PROPOSED, or BOUND. The label format is determined by POSITION in the tower, not by status.
 4. ★ symbol ONLY on the proposed Zurich layer.
 5. tower-total in top-bar summarizes: bound capacity + proposed capacity + open/unfilled capacity (three numbers).
 6. Three notes paragraphs are REQUIRED: Ask vs Offer / Tower Completion / Primary Adequacy. Each begins with a bold label.
 7. If the submission is primary-only with no excess requested, emit just the primaries row and a note block explaining "no excess tower proposed at this time."
+8. NEVER use a heading found inside the source document (e.g., "Quote Proposal Page 1") as a layer label. Layer labels come from carrier name + position; if you cannot determine position confidently, write "??? (review)" and explain in the notes.
 
 ═══════════════════════════════════════════════════════════════════════
 QUALITY CONTROL (silent — do not output)

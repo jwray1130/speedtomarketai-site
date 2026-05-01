@@ -1532,27 +1532,6 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
 }
 
-/* v8.4 — drag-and-drop visual states */
-#docs-view-root .cat-card.drag-target {
-  border-color: var(--signal);
-  border-left-color: var(--signal);
-  border-width: 2px;
-  background: var(--signal-pale, rgba(198, 244, 50, 0.08));
-  box-shadow: 0 0 0 2px var(--signal);
-  transform: scale(1.02);
-  transition: transform 0.1s, background 0.1s, border-color 0.1s;
-}
-#docs-view-root .doc-item.dragging {
-  opacity: 0.4;
-  cursor: grabbing;
-}
-#docs-view-root .doc-item[draggable="true"] {
-  cursor: grab;
-}
-#docs-view-root .doc-item[draggable="true"]:active {
-  cursor: grabbing;
-}
-
 #docs-view-root .cat-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
@@ -3177,7 +3156,11 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 /* ──── PHASE 5 · PIPELINE CLASSIFICATION BADGE ────
    Small chip on each thumbnail indicating an auto-classification from
    Altitude's pipeline. Distinguishes pipeline-pushed docs from
-   user-uploaded ones at a glance. */
+   user-uploaded ones at a glance.
+   v8.5 Rule 2: chip displays the actual pipeline tag (e.g., "ACORD 125",
+   "Lead $5M"), not a generic "AUTO" label, and never includes a page
+   number. The tag text is wrapped in a label span so it can ellipsis
+   when long without breaking the lightning-bolt icon alignment. */
 #docs-view-root .pipeline-badge {
   position: absolute;
   top: 6px;
@@ -3196,8 +3179,16 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   z-index: 4;
   pointer-events: none;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  max-width: calc(100% - 12px);
 }
 #docs-view-root .pipeline-badge svg {
   width: 9px; height: 9px;
   stroke-width: 2.4;
+  flex-shrink: 0;
+}
+#docs-view-root .pipeline-badge-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }

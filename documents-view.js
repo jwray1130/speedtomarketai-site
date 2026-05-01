@@ -55,23 +55,21 @@ window.initDocumentsView = function() {
       black: 'Underwriting',
     },
     categories: [
-      { id: 'all',               name: 'All Documents',     desc: 'View all uploaded files',         iconId: 'folder-open', color: null },
+      { id: 'all',               name: 'All Documents',     desc: 'View all uploaded files',         iconId: 'folder-open' },
       // ── Pipeline-routed (auto-classified by Altitude) ──
-      // v8.4 fix #3 (GPT audit): color field added so drag/drop folder moves
-      // also apply the matching visual tag. Mirrors tagColorLabels above.
-      { id: 'loss-history',      name: 'Loss History',      desc: 'GL/AL/Excess loss runs · summaries · large losses', iconId: 'trend-down', color: 'red' },
-      { id: 'applications',      name: 'Applications',      desc: 'Supp app · ACORD · narrative · subagreement · safety', iconId: 'file-sig', color: 'green' },
-      { id: 'underlying',        name: 'Underlying',        desc: 'Underlying carrier policies — GL, AL, EL, Lead, Excess', iconId: 'shield', color: 'yellow' },
-      { id: 'project',           name: 'Project',           desc: 'Site plans · geotech · budgets · owner/GC docs',  iconId: 'folder-plus', color: 'purple' },
-      { id: 'correspondence',    name: 'Correspondence',    desc: 'Cover notes · bind requests · broker emails',       iconId: 'mail', color: 'pink' },
-      { id: 'compliance',        name: 'Compliance',        desc: 'TRIA accepted/declined · surplus lines letter',     iconId: 'alert', color: 'orange' },
-      { id: 'administration',    name: 'Administration',    desc: 'BOR/AOR · COI · accounting',                        iconId: 'file-edit', color: 'maroon' },
+      { id: 'loss-history',      name: 'Loss History',      desc: 'GL/AL/Excess loss runs · summaries · large losses', iconId: 'trend-down' },
+      { id: 'applications',      name: 'Applications',      desc: 'Supp app · ACORD · narrative · subagreement · safety', iconId: 'file-sig' },
+      { id: 'underlying',        name: 'Underlying',        desc: 'Underlying carrier policies — GL, AL, EL, Lead, Excess', iconId: 'shield' },
+      { id: 'project',           name: 'Project',           desc: 'Site plans · geotech · budgets · owner/GC docs',  iconId: 'folder-plus' },
+      { id: 'correspondence',    name: 'Correspondence',    desc: 'Cover notes · bind requests · broker emails',       iconId: 'mail' },
+      { id: 'compliance',        name: 'Compliance',        desc: 'TRIA accepted/declined · surplus lines letter',     iconId: 'alert' },
+      { id: 'administration',    name: 'Administration',    desc: 'BOR/AOR · COI · accounting',                        iconId: 'file-edit' },
       // ── Manual upload only — uploaded by you, never auto-classified ──
-      { id: 'quotes-indications', name: 'Quotes & Indications', desc: 'Your quotes, indications, pricing',         iconId: 'file-invoice', color: 'teal' },
-      { id: 'cancellations',     name: 'Cancellations',     desc: 'Notice of cancellation · reinstatement',           iconId: 'alert', color: 'magenta' },
-      { id: 'policy',            name: 'Policy',            desc: 'Quote · binder · policy · endorsements',           iconId: 'shield', color: 'blue' },
-      { id: 'subjectivity',      name: 'Subjectivity',      desc: 'Subjectivity letters · responses',                  iconId: 'file-plus', color: 'coral' },
-      { id: 'underwriting',      name: 'Underwriting',      desc: 'Internal UW notes · referrals · approvals',         iconId: 'file-edit', color: 'black' },
+      { id: 'quotes-indications', name: 'Quotes & Indications', desc: 'Your quotes, indications, pricing',         iconId: 'file-invoice' },
+      { id: 'cancellations',     name: 'Cancellations',     desc: 'Notice of cancellation · reinstatement',           iconId: 'alert' },
+      { id: 'policy',            name: 'Policy',            desc: 'Quote · binder · policy · endorsements',           iconId: 'shield' },
+      { id: 'subjectivity',      name: 'Subjectivity',      desc: 'Subjectivity letters · responses',                  iconId: 'file-plus' },
+      { id: 'underwriting',      name: 'Underwriting',      desc: 'Internal UW notes · referrals · approvals',         iconId: 'file-edit' },
     ],
     storageKeys: {
       theme: 'stm_docs_theme',
@@ -129,6 +127,28 @@ window.initDocumentsView = function() {
     activeSubmissionId: null,
     activeSubmissionTitle: null,
     submissionFilter: 'all',  // 'all' or a submission_id
+
+    // ══════ v8.5 HYDRATE STATE (auth-aware, self-healing) ══════
+    // These fields prevent the "documents disappear on refresh" destructive
+    // feedback loop. The bug: hydrate fired before Supabase auth restored,
+    // got [] back from RLS-filtered query, exited silently, never retried.
+    // User saw empty UI, deleted "broken" submission, re-uploaded, refreshed,
+    // saw empty again. Each cycle wiped good data.
+    //
+    // _hydratedOnce      true once a fetch has completed successfully (even
+    //                    if zero rows). The "No documents yet" empty state
+    //                    only renders when this is true. Before that, the
+    //                    UI shows "Loading documents…".
+    // _hydrating         true while a fetch is in flight OR while waiting
+    //                    for auth. Guards against concurrent hydrates.
+    // _lastHydratedAt    ms timestamp of last successful hydrate. Used by
+    //                    debug helpers and to throttle refreshFromCloud.
+    // _lastHydrateError  last error message string. Surfaced in audit log
+    //                    when hydrate fails repeatedly.
+    _hydratedOnce: false,
+    _hydrating: false,
+    _lastHydratedAt: null,
+    _lastHydrateError: null,
   };
 
 
@@ -278,65 +298,6 @@ window.initDocumentsView = function() {
         <div class="cat-count">${count}</div>
       `;
       card.onclick = () => selectCategory(cat.id);
-      // ── v8.4 — drag-and-drop target ──
-      // When user drags a doc thumb onto a category card, the doc's category
-      // updates and (if a category color exists) it gets the matching tag.
-      // dragover must preventDefault for drop to fire. The visual highlight
-      // class is added/removed for UX feedback. dragenter is needed alongside
-      // dragover because some browsers only fire dragenter on the first hit.
-      card.addEventListener('dragover', (ev) => {
-        ev.preventDefault();
-        ev.dataTransfer.dropEffect = 'move';
-        card.classList.add('drag-target');
-      });
-      card.addEventListener('dragenter', (ev) => {
-        ev.preventDefault();
-        card.classList.add('drag-target');
-      });
-      card.addEventListener('dragleave', () => {
-        card.classList.remove('drag-target');
-      });
-      card.addEventListener('drop', async (ev) => {
-        ev.preventDefault();
-        card.classList.remove('drag-target');
-        const docId = ev.dataTransfer.getData('text/x-docs-view-doc-id');
-        if (!docId) return;
-        const doc = state.docs.find(d => d.id === docId);
-        if (!doc) return;
-        // Apply locally first for instant feedback. The category color is
-        // pulled from CONFIG.categories so cat-specific palettes work.
-        const targetCat = CONFIG.categories.find(c => c.id === cat.id);
-        const targetColor = targetCat && targetCat.color ? targetCat.color : null;
-        doc.category = cat.id;
-        // Drop into a colored category → apply that category's color.
-        // Drop into All Documents (color: null) → clear existing color so
-        // the visual state matches "no specific bucket". Without this clear,
-        // a green Applications doc dragged into All Documents stays green
-        // and appears mis-tagged.
-        if (targetColor) {
-          doc.color = targetColor;
-          doc.tagged = true;
-        } else {
-          doc.color = null;
-          doc.tagged = false;
-        }
-        doc._relabeledByUser = true;
-        renderCategoryGrid();
-        renderDocsList();
-        // Persist
-        if (typeof window.sbUpdateDocumentPage === 'function') {
-          try {
-            await window.sbUpdateDocumentPage(doc.id, {
-              category: cat.id,
-              color: doc.color,
-              tagged: !!doc.color,
-              relabeled_by_user: true,
-            });
-          } catch (err) {
-            console.warn('Drag-drop persist failed for ' + doc.id + ':', err);
-          }
-        }
-      });
       grid.appendChild(card);
     });
   }
@@ -591,16 +552,64 @@ window.initDocumentsView = function() {
 
   function sortDocs(docs) {
     const order = state.sortOrder;
-    return [...docs].sort((a, b) => {
+
+    // v8.5 Rule 3: pages of the same source file always sort by pageNumber
+    // ASC, regardless of the global sort. Without this, a 45-page PDF
+    // ingested page-by-page produces pages with addedAt values increasing
+    // monotonically — so "newest" sort puts page 45 at top and page 1 at
+    // bottom. User has to scroll UP to see page 1. This was the literal
+    // root cause of "thumbnails reversed."
+    //
+    // Approach: group docs by source-file key (storagePath || workbookFileName
+    // || nativeFileName), sort the groups by the chosen order using each
+    // group's representative page (page 1 if available, otherwise the lowest
+    // page number), then within each group sort by pageNumber ASC.
+    function sourceKey(d) {
+      // storagePath is most reliable when present (set by Supabase ingest);
+      // workbookFileName/nativeFileName are fallbacks for local-only docs.
+      // pipelineRun (set by pipeline) groups all pages of a single
+      // pipeline execution together.
+      return d.storagePath || d.workbookFileName || d.nativeFileName || d.id;
+    }
+
+    // Group by source file
+    const groups = new Map();
+    docs.forEach(d => {
+      const key = sourceKey(d);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(d);
+    });
+
+    // Each group's "representative" doc — used to sort the groups against
+    // each other. Page 1 if available, otherwise lowest pageNumber.
+    function groupRep(group) {
+      const sorted = [...group].sort((a, b) => (a.pageNumber || 1) - (b.pageNumber || 1));
+      return sorted[0];
+    }
+
+    // Sort groups against each other by the chosen global order
+    const groupKeys = Array.from(groups.keys());
+    groupKeys.sort((kA, kB) => {
+      const a = groupRep(groups.get(kA));
+      const b = groupRep(groups.get(kB));
       switch (order) {
-        case 'newest': return b.addedAt - a.addedAt;
-        case 'oldest': return a.addedAt - b.addedAt;
-        case 'name-asc': return a.displayName.localeCompare(b.displayName);
-        case 'name-desc': return b.displayName.localeCompare(a.displayName);
-        case 'type': return (a.type || '').localeCompare(b.type || '');
-        default: return 0;
+        case 'newest':   return b.addedAt - a.addedAt;
+        case 'oldest':   return a.addedAt - b.addedAt;
+        case 'name-asc': return (a.displayName || '').localeCompare(b.displayName || '');
+        case 'name-desc':return (b.displayName || '').localeCompare(a.displayName || '');
+        case 'type':     return (a.type || '').localeCompare(b.type || '');
+        default:         return 0;
       }
     });
+
+    // Flatten: each group sorted internally by pageNumber ASC
+    const result = [];
+    groupKeys.forEach(key => {
+      const group = groups.get(key);
+      group.sort((a, b) => (a.pageNumber || 1) - (b.pageNumber || 1));
+      group.forEach(d => result.push(d));
+    });
+    return result;
   }
 
   function renderDocsList() {
@@ -624,7 +633,11 @@ window.initDocumentsView = function() {
       const titleEl = empty.querySelector('.docs-empty-title');
       const subEl   = empty.querySelector('.docs-empty-sub');
       if (titleEl && subEl) {
-        if (state._hydrating) {
+        // v8.5: gate "No documents yet" on _hydratedOnce so the user never
+        // sees a false-empty render during boot. Without this, the
+        // destructive feedback loop kicks in: user sees empty UI, deletes
+        // "broken" submission, re-uploads, refreshes, sees empty again.
+        if (state._hydrating || !state._hydratedOnce) {
           titleEl.textContent = 'Loading documents…';
           subEl.textContent   = 'Fetching from cloud, hold on a moment.';
         } else if (state.submissionFilter !== 'all' && state.docs.length > 0) {
@@ -663,21 +676,6 @@ window.initDocumentsView = function() {
     if (state.selectedIds.has(doc.id)) item.classList.add('selected');
     if (doc.color) { item.classList.add('has-color', 'tag-' + doc.color); }
 
-    // ── v8.4 — drag-and-drop source ──
-    // The doc card is the drag source. dataTransfer carries the doc id so
-    // the category-card drop handler can locate the doc. effectAllowed=move
-    // tells the browser this is a move operation. The dragging class
-    // dims the source for visual feedback during the operation.
-    item.draggable = true;
-    item.addEventListener('dragstart', (ev) => {
-      ev.dataTransfer.setData('text/x-docs-view-doc-id', doc.id);
-      ev.dataTransfer.effectAllowed = 'move';
-      item.classList.add('dragging');
-    });
-    item.addEventListener('dragend', () => {
-      item.classList.remove('dragging');
-    });
-
     const colorBar = document.createElement('div');
     colorBar.className = 'doc-color-bar';
     item.appendChild(colorBar);
@@ -685,38 +683,39 @@ window.initDocumentsView = function() {
     const thumb = document.createElement('div');
     thumb.className = 'doc-thumb';
 
-    // v8.4 — tag chip on the thumbnail. Shows the specific tag emitted by
-    // the classifier ("Lead $5M", "GL Loss Runs 2020-21", "ACORD 125") so
-    // the UW can identify the doc at a glance without opening it. Falls
-    // back to the generic "AUTO" + pipelineClassification for legacy data.
-    // Clicking the chip opens the relabel modal — the UW's correction loop.
-    if (doc.pipelineTag || doc.pipelineClassification) {
+    // v8.5 Rule 2: pipeline tag chip shows the actual tag (e.g., "ACORD 125",
+    // "Lead $5M", "Loss Runs 2024-25"), NOT the generic "AUTO" label, NOT a
+    // page number. The chip appears ONLY on the first page of each detected
+    // section — pages 2..N inherit the bucket/category but do not get their
+    // own chip.
+    //
+    // Backward compat: older docs may have only `pipelineClassification`
+    // populated (no `pipelineTag`). For those, fall back to "AUTO" as the
+    // chip text and avoid showing the chip on pages > 1 (best effort —
+    // we don't know the section start without pipelineTag).
+    const isFirstPageOfDoc = (doc.pageNumber || 1) === 1;
+    const showChip = !!doc.pipelineTag || (doc.pipelineClassification && isFirstPageOfDoc);
+    if (showChip) {
       const badge = document.createElement('div');
       badge.className = 'pipeline-badge';
-      const labelText = doc.pipelineTag || doc.pipelineClassification;
-      // Click → relabel. stopPropagation so the thumb's open-doc handler
-      // doesn't also fire. Pointer cursor on the badge tells the user it's
-      // interactive.
-      badge.style.cursor = 'pointer';
-      badge.title = 'Tag: ' + labelText + ' — click to change';
-      badge.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (typeof window.docsView_openRelabelModal === 'function') {
-          window.docsView_openRelabelModal(doc.id);
-        }
-      });
-      // Special case for "???" tag — no lightning bolt icon, just the chip
-      // text in amber to draw the eye. UW will resolve manually.
-      if (labelText === '???') {
-        badge.innerHTML = '???';
-        badge.style.background = 'var(--warning, #f5a623)';
-        badge.style.color = '#0A0E1A';
-      } else {
-        badge.innerHTML =
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
-            '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' +
-          '</svg>' + escapeHtml(String(labelText));
-      }
+      // Strip any "page N" suffix the classifier or filename might have
+      // injected — chip text is the tag, never the page reference.
+      const rawText = doc.pipelineTag || 'AUTO';
+      const chipText = String(rawText)
+        .replace(/\s*[—–-]?\s*page\s+\d+\s*(of\s*\d+)?\s*$/i, '')
+        .replace(/\s+page\s+\d+\b/gi, '')
+        .trim() || 'AUTO';
+      badge.title = 'Auto-classified by pipeline: ' + (doc.pipelineClassification || rawText);
+      // Use textContent for the chip label to avoid HTML injection from
+      // tag strings (which include user-influenced data like "$5M xs $1M").
+      badge.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
+          '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' +
+        '</svg>';
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'pipeline-badge-label';
+      labelSpan.textContent = chipText;
+      badge.appendChild(labelSpan);
       thumb.appendChild(badge);
     }
 
@@ -1131,12 +1130,6 @@ window.initDocumentsView = function() {
     // Reset the storage-fail counter at batch start; processFile bumps it
     // when storage upload returns null while the user is signed in.
     state._batchStorageFails = 0;
-    // v8.4: snapshot doc IDs that exist BEFORE the batch starts. After the
-    // batch finishes, anything in state.docs with an ID not in this set is
-    // a new addition we should attempt to auto-classify (best-guess tag,
-    // no pipeline extraction). The set membership check is O(1) and the
-    // memory cost is one Set per upload — trivial.
-    const preBatchIds = new Set(state.docs.map(d => d.id));
     // Track storage paths used by this batch so we can clean orphans at
     // the end. processFile sets state._uploadCtx with the storagePath
     // before dispatching to the type-specific processor; we capture it
@@ -1213,89 +1206,6 @@ window.initDocumentsView = function() {
       );
     } else {
       toast('Upload complete', success + ' file' + (success !== 1 ? 's' : '') + ' ready', 'success');
-    }
-
-    // ── v8.4 — auto-classify file-manager-only uploads ──
-    // Per Justin: the "Add to File Manager" path should still attempt a
-    // best-guess tag using the classifier so the chip shows something
-    // meaningful. Pipeline extraction modules NEVER run from this path —
-    // only the classifier itself, which is cheap (a few cents per doc).
-    // Files that fail classification or come back low-confidence get the
-    // ??? chip and the UW relabels manually.
-    //
-    // We only auto-classify docs that:
-    //   1. Were added during this batch (id not in preBatchIds)
-    //   2. Were NOT already tagged by a pipeline run (pipelineTag is null)
-    //   3. Have extracted text we can feed the classifier
-    //   4. Are page 1 of their source — only the cover page gets a tag,
-    //      consistent with "tag the first page only" rule.
-    const newDocs = state.docs.filter(d =>
-      !preBatchIds.has(d.id) &&
-      !d.pipelineTag &&
-      (d.pageNumber || 1) === 1 &&
-      typeof d.textContent === 'string' &&
-      d.textContent.length > 50  // skip empty / near-empty pages
-    );
-    if (newDocs.length > 0 && typeof window.classifyFile === 'function') {
-      // Process serially with a tiny delay between calls — better UX
-      // (progressively-filling chips) and lighter on the API.
-      for (const d of newDocs) {
-        try {
-          // classifyFile expects a file-shaped object with .name and .text
-          // — reuse the existing pipeline classifier via window.classifyFile.
-          const result = await window.classifyFile({
-            name: d.displayName || d.name || 'Untitled',
-            text: d.textContent
-          });
-          // Stamp tag onto the doc. result.primaryTag is the v8.4 specific
-          // tag; result.tag is the alias; result.type is the bucket.
-          const tag    = result.primaryTag || result.tag || '???';
-          const bucket = result.primaryBucket || result.type || 'UNIDENTIFIED';
-          // Confidence floor — anything below 0.50 we treat as ??? rather
-          // than risk a wrong commitment that the UW has to undo.
-          const conf = result.primaryConfidence || result.confidence || 0;
-          const finalTag    = (conf >= 0.50 && tag && tag !== 'unknown') ? tag : '???';
-          const finalBucket = (conf >= 0.50 && bucket) ? bucket : 'UNIDENTIFIED';
-          // Look up the docs-view category/color for the bucket.
-          const mapping = BUCKET_TO_CATEGORY[finalBucket] || { category: 'all', color: null };
-          d.pipelineTag            = finalTag;
-          d.pipelineClassification = finalTag;  // mirror for legacy renderers
-          d.primaryBucket          = finalBucket;
-          // Only override category if the doc is currently in the generic
-          // 'all' bucket — respect any explicit category the user set.
-          if (d.category === 'all' && mapping.category !== 'all') {
-            d.category = mapping.category;
-          }
-          if (!d.color && mapping.color) {
-            d.color = mapping.color;
-            d.tagged = true;
-          }
-          // Persist if Supabase is available.
-          if (typeof window.sbUpdateDocumentPage === 'function') {
-            window.sbUpdateDocumentPage(d.id, {
-              pipeline_tag: finalTag,
-              pipeline_classification: finalTag,
-              primary_bucket: finalBucket,
-              category: d.category,
-              color: d.color,
-              tagged: !!d.color,
-            }).catch(err => console.warn('Auto-classify persist failed for ' + d.id + ':', err));
-          }
-          // Self-audit fix: render after each successful classification so the
-          // UW sees chips fill in progressively (matches the comment intent).
-          // Without this, all 20 docs would sit chipless until the entire
-          // batch completed.
-          renderDocsList();
-        } catch (err) {
-          // Classification failure — leave the doc without a tag. UW can
-          // manually label via the relabel modal.
-          console.warn('Auto-classify failed for ' + (d.displayName || d.id) + ':', err);
-          d.pipelineTag = '???';
-          d.pipelineClassification = '???';
-          renderDocsList();
-        }
-      }
-      renderDocsList();
     }
 
     if (category !== 'all' && state.currentCategory === 'all') selectCategory(category);
@@ -2492,14 +2402,20 @@ window.initDocumentsView = function() {
       // processFileFromPipeline was the entry point.
       pipelineClassification: opts.pipelineClassification || pctx.pipelineClassification || null,
       pipelineRoutedTo: opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
-      // v8.4 — first-page-only specific tag and primary bucket. The tag is
-      // the SPECIFIC identifier the chip displays ("Lead $5M", "GL Loss Runs
-      // 2020-21", "ACORD 125"). primaryBucket is the docs-view folder.
-      // Pages 2..N of a multi-page doc inherit the bucket (so they live in
-      // the same folder) but only page 1 carries the tag chip — that's the
-      // identifying page per Justin's "tag the first page only" rule.
-      pipelineTag:    ((opts.pageNumber || 1) === 1) ? (opts.pipelineTag || pctx.pipelineTag || null) : null,
-      primaryBucket:  opts.pipelineBucket || pctx.pipelineBucket || null,
+      // v8.4 fields. pipelineTag is the chip label (e.g., "ACORD 125",
+      // "Lead $5M"); primaryBucket is the docs-view category enum from
+      // the classifier (CORRESPONDENCE, APPLICATIONS, etc.).
+      //
+      // FIRST-PAGE-ONLY TAGGING (Rule 2): pipelineTag is set ONLY on
+      // page 1 of each section. Pages 2..N inherit the bucket/category
+      // (so they live in the same folder) but do NOT get their own chip
+      // — that's why the chip rendering in buildDocItem checks for
+      // (pageNumber === 1) when falling back to pipelineClassification.
+      pipelineTag: ((opts.pageNumber || 1) === 1)
+        ? (opts.pipelineTag || pctx.pipelineTag || null)
+        : null,
+      primaryBucket: opts.primaryBucket || pctx.primaryBucket || null,
+      relabeledByUser: !!(opts.relabeledByUser),
       // Color tag — usually null on user upload (user picks via tag menu),
       // but the pipeline-push path (addDocFromPipeline / processFileFromPipeline)
       // sets it from the CATEGORY_MAP so classified docs auto-tag with their
@@ -3807,132 +3723,235 @@ window.initDocumentsView = function() {
     }
   }
 
-  // ══════ HYDRATE FROM SUPABASE ══════
+  // ══════ HYDRATE FROM SUPABASE (v8.5 — auth-aware, self-healing) ══════
   // Pull every document_pages row for the current user and rebuild
   // state.docs. Lazy fields (pdfData, highResData, nativeDataUrl) are left
   // null — they'll be re-fetched from storage on demand (preview, OCR,
   // download). Annotations come back as a JSON store and rebuild on
   // first render of each thumbnail.
-  async function hydrateFromCloud() {
+  //
+  // v8.5 changes (block the destructive feedback loop):
+  //   1. Wait for auth (poll up to 5 sec) before fetching. Without this,
+  //      the fetch fires during the SDK's session-restore window, RLS
+  //      filters out every row, returns 200 with [], we exit silently.
+  //   2. Don't bail on empty rows; mark _hydratedOnce so the UI can
+  //      transition from "Loading…" to a real state. Empty is a valid
+  //      result for a brand-new user, just not for one with 449 rows.
+  //   3. opts.reason and opts.submissionId for telemetry — every call
+  //      logs why hydrate ran, which helps diagnose any regression.
+  //   4. Concurrent-fetch guard: if already hydrating, return the
+  //      in-flight promise instead of starting a second fetch.
+  //   5. Permanent low-volume console logging (kept, not "temporary") —
+  //      this is your early-warning system if hydrate ever regresses.
+  //
+  // Public API: window.docsView.refreshFromCloud({reason, submissionId})
+  // is exposed below — same function, same semantics, callable from
+  // setSubmissionContext, showStage('docs'), and debugReloadDocs().
+  let _hydrateInFlight = null;
+  async function hydrateFromCloud(opts) {
+    opts = opts || {};
+    const reason = opts.reason || 'unspecified';
+    const submissionId = opts.submissionId || state.activeSubmissionId || null;
+
+    // Concurrent-fetch guard. If a hydrate is already running, return
+    // its promise so callers all wait on the same fetch.
+    if (_hydrateInFlight) return _hydrateInFlight;
+
     if (typeof window.sbFetchDocumentPages !== 'function') {
-      // Phase 10.5 Their #5: even when the helper isn't available, we still
-      // need to render once. The empty state is gated on state._hydrating
-      // (see renderDocsList) — without an explicit render after we flip the
-      // flag (or never set it), a fresh load with no docs would never repaint
-      // and the user sees a stale loading state. This early-return path is
-      // unusual (only hits during partial bundle deploys) but cheap to cover.
-      state._hydrating = false;
-      renderCategoryGrid(); renderDocsList(); renderTagsList();
-      return;
-    }
-    state._hydrating = true;
-    let rows = [];
-    try { rows = await window.sbFetchDocumentPages(); }
-    catch (err) {
-      // Phase 10.5 Their #5: cloud fetch failure path — flip flag AND re-render
-      // so the empty state stops saying "Loading documents…"
-      console.warn('hydrate fetch failed:', err);
-      state._hydrating = false;
-      renderCategoryGrid(); renderDocsList(); renderTagsList();
-      return;
-    }
-    if (!rows || rows.length === 0) {
-      // Phase 10.5 Their #5: zero-row path — the most common case for new
-      // users / empty submissions. Without the explicit re-render here, the
-      // "Loading documents…" message stays visible forever (until something
-      // else triggers a render, e.g. uploading a doc, switching tabs).
-      state._hydrating = false;
-      renderCategoryGrid(); renderDocsList(); renderTagsList();
+      console.warn('[docs] hydrate skipped — sbFetchDocumentPages unavailable', { reason });
       return;
     }
 
-    // Merge-by-id instead of wiping. If the user uploaded a doc while the
-    // hydrate request was in flight, that doc is in state.docs already —
-    // we don't want to drop it. We also don't want to overwrite it with
-    // a stale cloud row (the one currently uploading). So:
-    //   - Keep existing docs that aren't represented in `rows` (fresh uploads).
-    //   - For rows that ARE represented, the local copy wins (uploaded mid-
-    //     hydrate, so cloud might not have all fields yet).
-    //   - For rows NOT represented locally, push from cloud.
-    const localById = new Map(state.docs.map(d => [d.id, d]));
+    _hydrateInFlight = (async () => {
+      state._hydrating = true;
 
-    rows.forEach(row => {
-      if (localById.has(row.id)) return;  // local copy wins
-      // Build a doc shape from the cloud row. Lazy fields are nulled —
-      // they re-fetch from storage on demand for OCR/preview/download.
-      const doc = {
-        id:                row.id,
-        name:              row.display_name,
-        displayName:       row.display_name,
-        type:              detectTypeFromRow(row),
-        category:          row.category || 'all',
-        thumbnailData:     row.thumbnail_data_url || null,
-        highResData:       null,                        // re-rendered on demand
-        htmlContent:       sanitizeHtml(row.html_content) || null,
-        textContent:       row.extracted_text || '',
-        pageNumber:        row.page_number || 1,
-        totalPages:        row.total_pages || 1,
-        pdfData:           null,                        // refetched from storage on OCR
-        sheetName:         null,
-        nativeDataUrl:     null,                        // refetched from storage on download
-        nativeFileName:    row.file_name,
-        nativeMimeType:    row.file_mime_type,
-        workbookFileName:  row.file_name,
-        sheetCount:        1,
-        sheetNames:        null,
-        dimensions:        null,
-        fileSize:          row.file_size,
-        nativeExt:         (row.file_name || '').split('.').pop()?.toLowerCase() || null,
-        emailMeta:         null,
-        storagePath:       row.storage_path || null,
-        submissionId:      row.submission_id || null,
-        pipelineClassification: row.pipeline_classification || null,
-        pipelineRoutedTo:  row.pipeline_routed_to || null,
-        // v8.4 — specific tag and bucket. Tolerant of missing columns so
-        // a stale schema doesn't break hydration; tag chip just won't render.
-        pipelineTag:       row.pipeline_tag || null,
-        primaryBucket:     row.primary_bucket || null,
-        color:             row.color || null,
-        tagged:            !!row.tagged,
-        uploadDate:        formatDate(new Date(row.created_at)),
-        addedAt:           new Date(row.created_at).getTime(),
-        ocrText:           null,
-        ocrConfidence:     null,
-      };
-      state.docs.push(doc);
+      // Wait for auth. The Supabase JS SDK takes 50-300ms to restore the
+      // persisted session from localStorage on page load. If we fetch
+      // before that completes, RLS filters out every row and we get [].
+      // Poll auth.getUser() until non-null OR timeout.
+      const authReady = await waitForAuth(5000);
+      console.log('[docs] hydrate start', {
+        reason,
+        authReady,
+        activeSubmissionId: state.activeSubmissionId,
+        submissionFilter: state.submissionFilter,
+        targetSubmissionId: submissionId,
+      });
 
-      // Restore annotations layer store. The DOM `el` refs were stripped
-      // before save and will be recreated by the annotation engine when
-      // ensureCanvas runs against each thumbnail.
-      if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
-        state.annotations.store[doc.id] = {
-          layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
-          undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
+      if (!authReady) {
+        // Auth never resolved. Don't mark _hydratedOnce — keep the UI in
+        // "Loading…" state so the user doesn't see "No documents yet"
+        // and conclude the submission is broken. Schedule a retry on
+        // the next auth state change.
+        state._lastHydrateError = 'auth not ready after 5s';
+        state._hydrating = false;
+        console.warn('[docs] hydrate aborted — auth not ready, listening for sign-in');
+        listenForAuthAndRetry();
+        return;
+      }
+
+      let rows = [];
+      try {
+        rows = await window.sbFetchDocumentPages();
+      } catch (err) {
+        console.warn('[docs] hydrate fetch failed:', err);
+        state._lastHydrateError = String(err && err.message || err);
+        state._hydrating = false;
+        return;
+      }
+
+      console.log('[docs] hydrate rows received', {
+        total: rows.length,
+        forActiveSubmission: submissionId
+          ? rows.filter(r => r.submission_id === submissionId).length
+          : null,
+      });
+
+      // Merge-by-id instead of wiping. If the user uploaded a doc while
+      // the hydrate request was in flight, that doc is in state.docs
+      // already — we don't want to drop it. We also don't want to
+      // overwrite it with a stale cloud row (the one currently uploading).
+      //   - Keep existing docs that aren't represented in `rows` (fresh uploads).
+      //   - For rows that ARE represented, the local copy wins (uploaded mid-
+      //     hydrate, so cloud might not have all fields yet).
+      //   - For rows NOT represented locally, push from cloud.
+      const localById = new Map(state.docs.map(d => [d.id, d]));
+
+      rows.forEach(row => {
+        if (localById.has(row.id)) return;  // local copy wins
+        // Build a doc shape from the cloud row. Lazy fields are nulled —
+        // they re-fetch from storage on demand for OCR/preview/download.
+        const doc = {
+          id:                row.id,
+          name:              row.display_name,
+          displayName:       row.display_name,
+          type:              detectTypeFromRow(row),
+          category:          row.category || 'all',
+          thumbnailData:     row.thumbnail_data_url || null,
+          highResData:       null,                        // re-rendered on demand
+          htmlContent:       sanitizeHtml(row.html_content) || null,
+          textContent:       row.extracted_text || '',
+          pageNumber:        row.page_number || 1,
+          totalPages:        row.total_pages || 1,
+          pdfData:           null,                        // refetched from storage on OCR
+          sheetName:         null,
+          nativeDataUrl:     null,                        // refetched from storage on download
+          nativeFileName:    row.file_name,
+          nativeMimeType:    row.file_mime_type,
+          workbookFileName:  row.file_name,
+          sheetCount:        1,
+          sheetNames:        null,
+          dimensions:        null,
+          fileSize:          row.file_size,
+          nativeExt:         (row.file_name || '').split('.').pop()?.toLowerCase() || null,
+          emailMeta:         null,
+          storagePath:       row.storage_path || null,
+          submissionId:      row.submission_id || null,
+          pipelineClassification: row.pipeline_classification || null,
+          pipelineRoutedTo:  row.pipeline_routed_to || null,
+          // v8.4 fields (safe-default to null if columns don't exist yet)
+          pipelineTag:       row.pipeline_tag || null,
+          primaryBucket:     row.primary_bucket || null,
+          relabeledByUser:   !!row.relabeled_by_user,
+          color:             row.color || null,
+          tagged:            !!row.tagged,
+          uploadDate:        formatDate(new Date(row.created_at)),
+          addedAt:           new Date(row.created_at).getTime(),
+          ocrText:           null,
+          ocrConfidence:     null,
         };
+        state.docs.push(doc);
+
+        // Restore annotations layer store. The DOM `el` refs were stripped
+        // before save and will be recreated by the annotation engine when
+        // ensureCanvas runs against each thumbnail.
+        if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
+          state.annotations.store[doc.id] = {
+            layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
+            undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
+          };
+        }
+      });
+
+      // Bump nextId past the highest hydrated id digits so new docs don't collide.
+      let maxN = 0;
+      state.docs.forEach(d => {
+        const m = String(d.id).match(/^doc-(\d+)-/);
+        if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; }
+      });
+      state.nextId = Math.max(state.nextId, maxN + 1);
+
+      // Mark hydrate complete BEFORE rendering so the empty-state path
+      // shows the right message. Setting _hydratedOnce before the render
+      // means a hydrate that returned 0 rows will correctly show "No
+      // documents yet" instead of staying stuck on "Loading…".
+      state._hydratedOnce = true;
+      state._lastHydratedAt = Date.now();
+      state._lastHydrateError = null;
+      state._hydrating = false;
+
+      renderCategoryGrid();
+      renderDocsList();
+      renderTagsList();
+      if (typeof updateSubmissionChip === 'function') updateSubmissionChip();
+      if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
+        try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
+      }
+
+      console.log('[docs] hydrate complete', {
+        reason,
+        rowsFetched: rows.length,
+        stateDocsTotal: state.docs.length,
+        visible: typeof filterDocs === 'function' ? filterDocs().length : null,
+      });
+    })();
+
+    try {
+      await _hydrateInFlight;
+    } finally {
+      _hydrateInFlight = null;
+    }
+  }
+
+  // Wait for Supabase auth to be ready. Polls auth.getUser() at 100ms
+  // intervals until it returns a non-null user OR maxMs elapses. Returns
+  // true if auth resolved, false on timeout. Safe to call repeatedly.
+  async function waitForAuth(maxMs) {
+    if (!window.sb || !window.sb.auth) return false;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < maxMs) {
+      try {
+        const { data: { user } } = await window.sb.auth.getUser();
+        if (user) return true;
+      } catch (e) { /* swallow — keep polling */ }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return false;
+  }
+
+  // Listen for auth state changes and retry hydrate when sign-in or
+  // token-refresh occurs. Idempotent — only registers the listener once.
+  let _authListenerRegistered = false;
+  function listenForAuthAndRetry() {
+    if (_authListenerRegistered) return;
+    if (!window.sb || !window.sb.auth || typeof window.sb.auth.onAuthStateChange !== 'function') return;
+    _authListenerRegistered = true;
+    window.sb.auth.onAuthStateChange((event, session) => {
+      console.log('[docs] auth state change:', event, session ? '(have session)' : '(no session)');
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session) {
+        // Reset _hydratedOnce so the next hydrate is treated as the
+        // first successful one. Without this, a hydrate that earlier
+        // failed with auth-not-ready could leave _hydratedOnce false
+        // permanently, and we'd never trust the UI state.
+        hydrateFromCloud({ reason: 'auth_state_change_' + event }).catch(err => {
+          console.warn('[docs] post-auth hydrate failed:', err);
+        });
+      } else if (event === 'SIGNED_OUT') {
+        state.docs = [];
+        state._hydratedOnce = false;
+        if (typeof renderDocsList === 'function') renderDocsList();
       }
     });
-
-    // Bump nextId past the highest hydrated id digits so new docs don't collide.
-    let maxN = 0;
-    state.docs.forEach(d => {
-      const m = String(d.id).match(/^doc-(\d+)-/);
-      if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; }
-    });
-    state.nextId = Math.max(state.nextId, maxN + 1);
-
-    // Clear hydrating flag BEFORE the renders so the empty state path
-    // shows the right message. If we leave it true through the renders,
-    // a hydration that returns 0 rows would render "Loading documents…"
-    // but never re-render to show the real empty state. This ordering
-    // ensures the final state is consistent with the actual data.
-    state._hydrating = false;
-    renderCategoryGrid();
-    renderDocsList();
-    renderTagsList();
-    if (rows.length > 0) {
-      console.log('%c✓ Hydrated ' + rows.length + ' document pages from cloud',
-        'color: #C6F432; font-size: 11px;');
-    }
   }
 
   // Detect doc type from the persisted row. We don't store type explicitly
@@ -3985,6 +4004,25 @@ window.initDocumentsView = function() {
     renderCategoryGrid();
     renderDocsList();
     renderTagsList();
+
+    // v8.5: trigger hydrate when local state is empty for this submission.
+    // After a fresh page load, local state.docs is empty but the user has
+    // hundreds of rows in document_pages. Without this trigger, switching
+    // to a submission would show "No documents in this submission yet"
+    // forever — which is exactly the false-empty render that triggered
+    // the destructive feedback loop pre-v8.5.
+    //
+    // Guarded against concurrent fetches by hydrateFromCloud's internal
+    // _hydrateInFlight check. Safe to call even mid-hydrate.
+    if (submissionId) {
+      const haveDocsForSubmission = state.docs.some(d => d.submissionId === submissionId);
+      if (!haveDocsForSubmission && !state._hydrating) {
+        hydrateFromCloud({
+          reason: 'setSubmissionContext_empty_scope',
+          submissionId: submissionId
+        }).catch(err => console.warn('[docs] hydrate-on-context failed:', err));
+      }
+    }
   }
 
   // Sync chip visibility + label to current submission state.
@@ -4024,235 +4062,6 @@ window.initDocumentsView = function() {
   //                                           doc.id or null on bad input
   //   • pruneSubmission(id)                 — id required; returns count
   //                                           dropped (0 if id missing)
-  // ============================================================================
-  // v8.4 — RELABEL MODAL (manual tag correction)
-  // ============================================================================
-  // Click any tag chip on a doc thumbnail → opens a modal showing every valid
-  // tag grouped by primary bucket. UW picks the correct one, the doc relabels
-  // immediately, the docs view re-renders, and the change persists to Supabase
-  // (so a refresh keeps the corrected label).
-  //
-  // Why this matters: when the AI mis-tags a document, the UW's correction
-  // becomes training data. Even though we're not yet feeding corrections back
-  // into model fine-tuning, the persisted tag overrides the classifier's
-  // output forever — so the same submission viewed tomorrow shows the right
-  // tags. Step 3 of the roadmap turns the persisted overrides into training
-  // signal for a smarter classifier.
-  //
-  // The TAG_LIST below MUST stay in sync with the finite tag list in
-  // prompts.js classifier prompt. If the prompt grows new tags, mirror them
-  // here so the relabel dropdown can reach them.
-
-  const TAG_LIST = {
-    CORRESPONDENCE: ['Cover Note Email', 'Target Premiums', 'Broker Email'],
-    APPLICATIONS: [
-      'ACORD 125', 'ACORD 126', 'ACORD 131',
-      'Excess Supp App', 'Contractors Supp App', 'HNOA Supp App',
-      'Manufacturing Supp App', 'Captive Supp App', 'Habitational Supp App',
-      'Hospitality Supp App', 'Energy Supp App', 'Supp App',
-      'Description of Operations',
-      'Sub Agreement', 'Vendor Agreement', 'MSA',
-      'AIA Contract', 'Owner-GC Contract',
-      'Safety Manual',
-      'Vehicle Schedule', 'Garaging Schedule',
-      'Org Chart', 'SOV', 'Work on Hand',
-      'PCAR Report', 'CAB Report', 'Crime Score Report',
-      'SAFER Snapshot', 'Site Inspection',
-    ],
-    QUOTES_UNDERLYING: [
-      'GL Quote', 'GL Exposure', 'GL T&C',
-      'AL Quote', 'AL Fleet',
-      'EL Quote $1/1/1', 'EL Quote $2/2/2', 'EL Quote $500/500/500', 'EL Quote',
-      // Lead limits — the realistic range for excess casualty
-      'Lead $1M', 'Lead $2M', 'Lead $3M', 'Lead $4M', 'Lead $5M',
-      'Lead $10M', 'Lead $15M', 'Lead $25M',
-      'Lead T&C',
-      // Excess layer presets — covers most submissions Justin sees.
-      // For anything outside this range, the "Custom layer..." entry below
-      // pops a text input so the UW can type the exact label.
-      '$1M xs $1M', '$2M xs $2M', '$3M xs $2M', '$4M xs $1M', '$4M xs $5M',
-      '$5M xs $5M', '$5M xs $10M', '$5M xs $25M', '$5M xs $50M',
-      '$10M xs $10M', '$10M xs $25M', '$10M xs $50M', '$10M xs $90M',
-      '$15M xs $25M', '$15M xs $30M',
-      '$25M xs $25M', '$25M xs $50M', '$25M xs $75M', '$25M xs $100M',
-      '$50M xs $50M', '$50M xs $100M',
-      // Quota share preset shapes
-      '$5M P/O $10M xs $5M', '$5M P/O $10M xs $10M', '$10M P/O $20M xs $30M',
-      'Buffer Layer', 'Captive Quote',
-      'Excess T&C',  // Upper excess layer forms schedule
-      // ── Custom entry — last so it shows at the bottom of the bucket ──
-      'Custom layer...',
-    ],
-    LOSS_HISTORY: [
-      // Per-line, per-policy-year — most common shape. Justin tags the first
-      // page of each year-span. Covers a realistic span of recent years.
-      'GL Loss Runs 2024-25', 'GL Loss Runs 2023-24', 'GL Loss Runs 2022-23',
-      'GL Loss Runs 2021-22', 'GL Loss Runs 2020-21', 'GL Loss Runs 2019-20',
-      'AL Loss Runs 2024-25', 'AL Loss Runs 2023-24', 'AL Loss Runs 2022-23',
-      'AL Loss Runs 2021-22', 'AL Loss Runs 2020-21', 'AL Loss Runs 2019-20',
-      'Excess Loss Runs 2024-25', 'Excess Loss Runs 2023-24',
-      'Excess Loss Runs 2022-23', 'Excess Loss Runs 2021-22',
-      'Excess Loss Runs 2020-21',
-      // Multi-year combined runs (one PDF covering 5 years)
-      'GL Loss Runs 2020-2024', 'AL Loss Runs 2020-2024', 'Excess Loss Runs 2020-2024',
-      // Generic — when no year span readable
-      'GL Loss Runs', 'AL Loss Runs', 'Excess Loss Runs',
-      // Summaries (multi-year rollup tables)
-      'GL Loss Summary', 'AL Loss Summary', 'Excess Loss Summary',
-      // Large loss detail narratives
-      'GL Large Loss Detail', 'AL Large Loss Detail',
-      'Open Claim Detail',
-      // Custom — for anything else with a unusual year span or LOB combo
-      'Custom loss runs...',
-    ],
-    PROJECT: [
-      'Geotech Report', 'Site Plan', 'Project Budget',
-      'Photos of Operations', 'Wrap-Up Forms',
-    ],
-    ADMINISTRATION: ['BOR', 'AOR'],
-    UNIDENTIFIED: ['???'],
-  };
-
-  // Bucket → docs-view mapping mirrors classifierToDocsView in pipeline.js.
-  // Used so the relabel applies the right category folder when bucket changes.
-  const BUCKET_TO_CATEGORY = {
-    CORRESPONDENCE:    { category: 'correspondence', color: 'pink' },
-    APPLICATIONS:      { category: 'applications',   color: 'green' },
-    QUOTES_UNDERLYING: { category: 'underlying',     color: 'yellow' },
-    LOSS_HISTORY:      { category: 'loss-history',   color: 'red' },
-    PROJECT:           { category: 'project',        color: 'purple' },
-    ADMINISTRATION:    { category: 'administration', color: 'maroon' },
-    UNIDENTIFIED:      { category: 'all',            color: null },
-  };
-
-  function openRelabelModal(docId) {
-    const doc = state.docs.find(d => d.id === docId);
-    if (!doc) {
-      console.warn('openRelabelModal: doc not found', docId);
-      return;
-    }
-    // Existing modal? Remove it first — guard against double-open from
-    // rapid clicks.
-    const existing = document.getElementById('docsview-relabel-modal');
-    if (existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'docsview-relabel-modal';
-    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(10,14,26,0.78); z-index:99998; display:flex; align-items:center; justify-content:center; padding:24px;';
-
-    const modal = document.createElement('div');
-    modal.style.cssText = 'background:var(--surface, #161b2c); color:var(--text, #e8eaf0); border-radius:12px; max-width:760px; width:100%; max-height:80vh; overflow-y:auto; padding:24px; box-shadow:0 24px 64px rgba(0,0,0,0.5); font-family:var(--font-sans, system-ui);';
-
-    const currentTag = doc.pipelineTag || doc.pipelineClassification || '???';
-    const headerHtml =
-      '<div style="margin-bottom:16px;">' +
-        '<div style="font-size:18px; font-weight:700; margin-bottom:4px;">Relabel document</div>' +
-        '<div style="font-size:13px; opacity:0.7;">' + escapeHtml(doc.displayName || doc.name || 'Untitled') + '</div>' +
-        '<div style="font-size:12px; opacity:0.6; margin-top:6px;">Current tag: <span style="color:var(--signal, #c6f432); font-family:var(--font-mono, monospace);">' + escapeHtml(currentTag) + '</span></div>' +
-      '</div>';
-
-    let bodyHtml = '';
-    Object.keys(TAG_LIST).forEach(bucket => {
-      const tags = TAG_LIST[bucket];
-      bodyHtml +=
-        '<div style="margin-bottom:18px;">' +
-          '<div style="font-size:11px; font-weight:700; letter-spacing:0.08em; opacity:0.6; margin-bottom:8px;">' + bucket.replace(/_/g, ' ') + '</div>' +
-          '<div style="display:flex; flex-wrap:wrap; gap:6px;">' +
-            tags.map(tag => {
-              const isCurrent = tag === currentTag;
-              const bg = isCurrent ? 'var(--signal, #c6f432)' : 'rgba(255,255,255,0.05)';
-              const fg = isCurrent ? '#0A0E1A' : 'var(--text, #e8eaf0)';
-              return '<button data-tag="' + escapeHtml(tag) + '" data-bucket="' + bucket + '" style="background:' + bg + '; color:' + fg + '; border:1px solid rgba(255,255,255,0.1); padding:6px 10px; border-radius:4px; font-family:var(--font-mono, monospace); font-size:11px; cursor:pointer; transition:all 0.1s;">' + escapeHtml(tag) + '</button>';
-            }).join('') +
-          '</div>' +
-        '</div>';
-    });
-
-    const footerHtml =
-      '<div style="display:flex; justify-content:space-between; align-items:center; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08); margin-top:8px;">' +
-        '<div style="font-size:11px; opacity:0.6;">Esc to cancel</div>' +
-        '<button id="docsview-relabel-cancel" style="background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text, #e8eaf0); padding:6px 14px; border-radius:4px; cursor:pointer; font-size:13px;">Cancel</button>' +
-      '</div>';
-
-    modal.innerHTML = headerHtml + bodyHtml + footerHtml;
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    const escHandler = (ev) => { if (ev.key === 'Escape') close(); };
-    const close = () => {
-      overlay.remove();
-      document.removeEventListener('keydown', escHandler);
-    };
-    document.getElementById('docsview-relabel-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
-    document.addEventListener('keydown', escHandler);
-
-    // Tag picks
-    modal.querySelectorAll('button[data-tag]').forEach(btn => {
-      btn.addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        let newTag      = btn.getAttribute('data-tag');
-        const newBucket = btn.getAttribute('data-bucket');
-        // ── Custom-tag flow ──
-        // Special entries "Custom layer..." and "Custom loss runs..." don't
-        // commit immediately — they prompt for the actual tag text first.
-        // Cancellation (empty or null) aborts the relabel cleanly without
-        // touching the doc state.
-        if (newTag === 'Custom layer...') {
-          const example = 'e.g. "$35M xs $215M" or "$7.5M P/O $15M xs $30M (Insurer X 50%)" or "Lead $7M"';
-          const typed = window.prompt('Type the layer label exactly as you want it shown.\n\n' + example, '');
-          if (!typed || !typed.trim()) return;  // cancelled
-          newTag = typed.trim();
-        } else if (newTag === 'Custom loss runs...') {
-          const example = 'e.g. "GL Loss Runs 2017-18" or "GL/AL Loss Runs 2018-23"';
-          const typed = window.prompt('Type the loss runs label exactly as you want it shown.\n\n' + example, '');
-          if (!typed || !typed.trim()) return;
-          newTag = typed.trim();
-        }
-        const mapping   = BUCKET_TO_CATEGORY[newBucket] || { category: 'all', color: null };
-        // Apply locally — instant visual feedback. The Supabase update runs in
-        // the background; if it fails we keep the local change but log a warn
-        // (the user can re-relabel; we don't unwind the UI on remote failure).
-        doc.pipelineTag = newTag;
-        doc.pipelineClassification = newTag;  // mirror so legacy renderers see it
-        doc.primaryBucket = newBucket;
-        doc.category = mapping.category;
-        doc.color = mapping.color;
-        doc.tagged = !!mapping.color;
-        doc._relabeledByUser = true;  // flag for future training-signal collection
-        close();
-        // v8.4 fix #2 (GPT audit): renderDocs() does not exist. The real
-        // render functions are renderDocsList / renderCategoryGrid / renderTagsList.
-        // Without this fix, relabel persisted to Supabase but the visible card
-        // didn't refresh — user thought relabel was broken.
-        renderCategoryGrid();
-        renderDocsList();
-        renderTagsList();
-        // Persist to cloud — sbUpdateDocumentPage handles all of these fields.
-        // sbUpdateDocumentPage is exposed by supabase-data.js and accepts
-        // partial updates by id.
-        if (typeof window.sbUpdateDocumentPage === 'function') {
-          try {
-            await window.sbUpdateDocumentPage(doc.id, {
-              pipeline_tag: newTag,
-              pipeline_classification: newTag,
-              primary_bucket: newBucket,
-              category: mapping.category,
-              color: mapping.color,
-              tagged: !!mapping.color,
-              relabeled_by_user: true,
-            });
-          } catch (err) {
-            console.warn('Relabel cloud update failed for ' + doc.id + ':', err);
-          }
-        }
-      });
-    });
-  }
-
-  // Expose for the badge click handler (which lives outside this IIFE scope).
-  window.docsView_openRelabelModal = openRelabelModal;
-
   window.docsView = {
     setSubmissionContext: (submissionId, submissionTitle) => {
       // Coerce to safe types. Anything truthy non-string gets stringified;
@@ -4262,8 +4071,22 @@ window.initDocumentsView = function() {
       return setSubmissionContext(sid, title);
     },
     clearSubmissionFilter,
+    // v8.5: public refresh API. Idempotent — safe to call repeatedly.
+    // Concurrent calls return the in-flight promise instead of starting
+    // a second fetch. Use opts.reason for telemetry, opts.submissionId
+    // for context tagging in logs.
+    refreshFromCloud: (opts) => hydrateFromCloud(opts || { reason: 'public_api' }),
+    // v8.5: read hydrate state for diagnostics. Returns null fields if
+    // no hydrate has run yet.
+    getHydrateState: () => ({
+      hydratedOnce: state._hydratedOnce,
+      hydrating: state._hydrating,
+      lastHydratedAt: state._lastHydratedAt,
+      lastError: state._lastHydrateError,
+    }),
     // Snapshot of current docs (sanitized for external read; internal
-    // mutable arrays not exposed).
+    // mutable arrays not exposed). v8.5 adds pipelineTag, primaryBucket,
+    // pageNumber, totalPages so debug probes can verify field mapping.
     getDocs: () => state.docs.map(d => ({
       id: d.id,
       name: d.displayName,
@@ -4272,8 +4095,10 @@ window.initDocumentsView = function() {
       tagged: d.tagged,
       color: d.color,
       pipelineClassification: d.pipelineClassification,
-      pipelineTag: d.pipelineTag,                  // v8.4
-      primaryBucket: d.primaryBucket,              // v8.4
+      pipelineTag: d.pipelineTag,
+      primaryBucket: d.primaryBucket,
+      pageNumber: d.pageNumber,
+      totalPages: d.totalPages,
       storagePath: d.storagePath,
     })),
     // Programmatic doc insertion. Lets Altitude's pipeline push a
@@ -4348,14 +4173,12 @@ window.initDocumentsView = function() {
         state._pipelineCtx = {
           category: (ctx && ctx.category) || 'all',
           color: (ctx && ctx.color) || null,
-          // v8.4: pipelineTag is the specific identifier ("Lead $5M",
-          // "GL Loss Runs 2020-21", "ACORD 125") that the doc-thumb chip
-          // displays. pipelineBucket is the docs-view folder. Both flow
-          // through addDoc → state.docs[i].tag/primaryBucket → render.
-          pipelineTag: (ctx && ctx.pipelineTag) || null,
-          pipelineBucket: (ctx && ctx.pipelineBucket) || null,
           pipelineClassification: (ctx && ctx.pipelineClassification) || null,
           pipelineRoutedTo: (ctx && ctx.pipelineRoutedTo) || null,
+          // v8.4 fields propagate through to every page addDoc creates.
+          // addDoc applies the first-page-only rule on pipelineTag.
+          pipelineTag: (ctx && ctx.pipelineTag) || null,
+          primaryBucket: (ctx && ctx.primaryBucket) || null,
           submissionId: (ctx && ctx.submissionId) || null,
         };
         const beforeIds = new Set(state.docs.map(d => d.id));
@@ -4493,7 +4316,7 @@ window.initDocumentsView = function() {
         // Hydrate is the cheapest read and also surfaces any cloud-only
         // edits that happened from another device while we were offline.
         try {
-          await hydrateFromCloud();
+          await hydrateFromCloud({ reason: 'cloud_recovery_retry' });
           // If the badge is now hidden, sync recovered.
           if ((window.docsCloudHealth && window.docsCloudHealth.consecutiveFailures) === 0) {
             toast('Sync resumed', 'Cloud connection restored', 'success');
@@ -4508,13 +4331,47 @@ window.initDocumentsView = function() {
       if (!badge) return;
       badge.style.display = consecutiveFailures >= 3 ? 'inline-flex' : 'none';
     };
-    // Hydrate runs async — UI shows empty state instantly, then populates
-    // with cloud docs as they arrive. Failure is silent (logged to console)
-    // so the view always works in local-only mode.
-    hydrateFromCloud().catch(err => console.warn('hydrate failed:', err));
-    console.log('%c✓ Speed to Market · Document Workspace ready',
+    // v8.5: register auth state listener BEFORE the initial hydrate so
+    // that if the first hydrate races and loses, the listener will catch
+    // the eventual SIGNED_IN / TOKEN_REFRESHED event and retry.
+    listenForAuthAndRetry();
+
+    // Hydrate runs async — UI shows "Loading documents…" until the
+    // fetch completes (success or empty). Failure is logged. The
+    // self-healing logic in hydrateFromCloud retries via auth listener
+    // if the first attempt fires before auth is ready.
+    hydrateFromCloud({ reason: 'init_boot' }).catch(err => {
+      console.warn('[docs] initial hydrate failed:', err);
+    });
+    console.log('%c✓ Speed to Market · Document Workspace ready (v8.5)',
       'color: #C6F432; font-weight: bold; font-size: 12px;');
   }
+
+  // v8.5: debug helper. Lets Justin or anyone reload docs from the
+  // console without going through the UI flow. Use to verify that
+  // hydrate works after auth has settled.
+  //   window.debugReloadDocs()                           — current submission
+  //   window.debugReloadDocs('SUB-MOMDRPB8', 'Anahuac')  — specific
+  window.debugReloadDocs = async function(submissionId, submissionTitle) {
+    const sid = submissionId || (window.STATE && window.STATE.activeSubmissionId) || null;
+    const title = submissionTitle || 'Debug';
+    if (sid && window.docsView && window.docsView.setSubmissionContext) {
+      window.docsView.setSubmissionContext(sid, title);
+    }
+    if (window.docsView && window.docsView.refreshFromCloud) {
+      await window.docsView.refreshFromCloud({ reason: 'debugReloadDocs', submissionId: sid });
+    }
+    const all = window.docsView && window.docsView.getDocs ? window.docsView.getDocs() : [];
+    const scoped = sid ? all.filter(d => d.submissionId === sid) : all;
+    return {
+      total: all.length,
+      forSubmission: scoped.length,
+      hydrateState: window.docsView.getHydrateState(),
+      sample: scoped.slice(0, 5).map(d => ({
+        id: d.id, name: d.name, submissionId: d.submissionId, pageNumber: d.pageNumber,
+      })),
+    };
+  };
 
   // ══════ TOOLS DROPDOWN (topbar button → annotation panel) ══════
   function initToolsDropdown() {

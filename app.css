@@ -3561,12 +3561,5 @@ table.loss {
   animation: slideIn 0.22s;
   max-width: 360px;
 }
-/* Phase 10.5 Their #4: severity variants. Body styles inherit from .toast;
-   only the left-edge stripe changes. Uses existing --warning/--danger/
-   --success/--signal palette so we don't introduce new theme colors. */
-.toast.toast-info    { border-left-color: var(--signal); }
-.toast.toast-success { border-left-color: var(--success); }
-.toast.toast-warn    { border-left-color: var(--warning); }
-.toast.toast-error   { border-left-color: var(--danger); }
 @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 

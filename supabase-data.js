@@ -998,16 +998,11 @@ function buildDocPageRow(doc, userId) {
     tagged:                   !!doc.tagged,
     pipeline_classification:  doc.pipelineClassification || null,
     pipeline_routed_to:       doc.pipelineRoutedTo || null,
-    // v8.4 — specific tag and primary bucket. Migration required: add
-    //   pipeline_tag    TEXT NULL
-    //   primary_bucket  TEXT NULL
-    //   relabeled_by_user BOOLEAN NULL DEFAULT FALSE
-    // to document_pages before deploying v8.4. Without those columns,
-    // inserts/updates that include these fields will FAIL — the docs view
-    // will appear to swallow uploads. Migration is a 30-second SQL run.
+    // v8.4 fields — require migration to be applied (ALTER TABLE adds
+    // pipeline_tag, primary_bucket, relabeled_by_user columns).
     pipeline_tag:             doc.pipelineTag || null,
     primary_bucket:           doc.primaryBucket || null,
-    relabeled_by_user:        !!doc._relabeledByUser,
+    relabeled_by_user:        !!doc.relabeledByUser,
     extracted_text:           (doc.textContent || '').slice(0, 500000),  // hard cap 500k chars
     thumbnail_data_url:       doc.thumbnailData || null,
     html_content:             doc.htmlContent || null,
@@ -1246,39 +1241,18 @@ async function sbDeleteDocumentPage(docId, storagePath) {
 // default sort matches the DB result without a re-sort.
 async function sbFetchDocumentPages() {
   const u = await sbUser(); if (!u) return [];
-  // Phase 10.5 F5: paginate to bypass the 1000-row PostgREST default cap.
-  // With typical multi-page PDFs (loss runs 50-100 pages each), 10-20 normal
-  // submissions = ~1000 rows = silent truncation of everything older. We
-  // fetch in 1000-row pages with .range() until we get a short page.
-  // Hard ceiling of 50 pages (50,000 docs) prevents a runaway loop if
-  // something pathological is happening — the user would never realistically
-  // have that many docs and we'd want a different strategy (e.g. recent-only)
-  // anyway.
-  const PAGE_SIZE = 1000;
-  const MAX_PAGES = 50;
-  const all = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * PAGE_SIZE;
-    const to   = from + PAGE_SIZE - 1;
-    const { data, error } = await window.sb
-      .from(DOC_TABLE)
-      .select('*')
-      .eq('user_id', u.id)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-    if (error) {
-      console.warn('sbFetchDocumentPages page ' + page + ' failed:', error.message);
-      _noteCloudFail();
-      // Return what we got so far rather than nothing — partial hydration
-      // beats a blank docs view.
-      return all;
-    }
-    if (!data || data.length === 0) break;
-    all.push(...data);
-    if (data.length < PAGE_SIZE) break;   // last page
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .select('*')
+    .eq('user_id', u.id)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('sbFetchDocumentPages failed:', error.message);
+    _noteCloudFail();
+    return [];
   }
   _noteCloudOk();
-  return all;
+  return data || [];
 }
 
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.

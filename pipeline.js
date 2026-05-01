@@ -61,9 +61,187 @@ const ROUTING = {
   excess: 'excess',
   website: 'website',
   email: 'email_intel',   // email now feeds a dedicated extraction module (A16)
-  email_intel: 'email_intel',  // pass-through alias for the module key itself
   unknown: null
 };
+
+// ============================================================================
+// v8.4: FILE-AND-FORGET TAGS — these document types are surfaced to the UW
+// (chip in file manager, listed in tagged-pages panel) but do NOT need an
+// extraction module to run. Saves API cost and avoids the "ran extraction
+// against a 1-page form schedule and produced garbage" failure mode.
+//
+// When the classifier emits one of these tags, classifierToRoute() returns
+// null instead of trying to look up a module — keeping the chip but skipping
+// extraction. Justin's UW workflow uses these for visual reference only.
+// ============================================================================
+const FILE_AND_FORGET_TAGS = new Set([
+  'BOR', 'AOR', 'BOR Letter', 'AOR Letter',
+  'AIA Contract', 'Owner-GC Contract', 'Owner-Contractor Contract',
+  'Geotech Report', 'Site Plan', 'Project Budget',
+  'Photos of Operations', 'Wrap-Up Forms',
+  'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
+  'SOV', 'Schedule of Values', 'Work on Hand',
+  'PCAR Report', 'CAB Report', 'Crime Score Report', 'Crime Score',
+  'SAFER Snapshot', 'SAFER', 'Site Inspection',
+  '???',
+]);
+
+// ============================================================================
+// v8.4: classifierToRoute — single source of truth for "given a classifier
+// output, what extraction module (if any) handles it?" Uses three layers:
+//
+//   1. Direct lookup in ROUTING table
+//   2. File-and-forget short-circuit (returns null intentionally)
+//   3. Tag-prefix recovery: classifier sometimes emits malformed routedTo
+//      values like "Lead $5M" or "Loss Runs 2024-25" — these don't match
+//      ROUTING keys directly. Recover by checking known prefixes.
+//
+// Returns: a module id string, or null if no extraction needed.
+// ============================================================================
+function classifierToRoute(classifierType) {
+  if (!classifierType) return null;
+  const t = String(classifierType).trim();
+
+  // File-and-forget: chip-only, no extraction
+  if (FILE_AND_FORGET_TAGS.has(t)) return null;
+
+  // Direct lookup
+  if (ROUTING[t]) return ROUTING[t];
+
+  // Tag-prefix recovery for human-readable tags from v8.4+ classifier
+  const tLower = t.toLowerCase();
+  if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
+  if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
+  if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
+  if (tLower.startsWith('gl ') || tLower.startsWith('gl quote') || tLower.includes('gl t&c') || tLower.includes('gl exposure')) return 'gl_quote';
+  if (tLower.startsWith('al ') || tLower.startsWith('al quote') || tLower.includes('al t&c') || tLower.includes('al fleet')) return 'al_quote';
+  if (tLower.startsWith('el quote') || tLower.includes('employers liability')) return 'excess';
+  if (tLower.startsWith('acord 125') || tLower.startsWith('acord 126') || tLower.startsWith('acord 131')) return 'supplemental';
+  if (tLower.startsWith('supp app') || tLower.startsWith('contractors supp') || tLower.startsWith('manufacturing supp')) return 'supplemental';
+  if (tLower.startsWith('cover note') || tLower.startsWith('broker email') || tLower.startsWith('target prem')) return 'email_intel';
+  if (tLower.startsWith('safety')) return 'safety';
+  if (tLower.startsWith('sub agreement') || tLower.startsWith('subcontract')) return 'subcontract';
+  if (tLower.startsWith('vendor agreement')) return 'vendor';
+
+  // Unrecognized — log so we can grow this list
+  console.warn('[pipeline] classifierToRoute: no route for', t);
+  return null;
+}
+
+// ============================================================================
+// v8.4: BUCKET_TO_CATEGORY — translates classifier's primary_bucket emission
+// into the docs view's category folder. Used to assign the docs view bucket
+// AT INGEST time so docs land in the right folder (Underlying, Loss History,
+// Applications, etc.) regardless of the legacy ROUTING table.
+//
+// The classifier's primary_bucket values are the v8.4+ taxonomy:
+//   CORRESPONDENCE      → Cover Notes, Broker Emails, Target Premiums
+//   APPLICATIONS        → ACORDs, Supp Apps, Sub/Vendor agreements
+//   QUOTES_UNDERLYING   → GL/AL/Excess quotes, T&Cs, Fleet schedules
+//   LOSS_HISTORY        → Loss runs, Loss summaries, Large loss detail
+//   PROJECT             → AIA contracts, Site plans, Geotech, Photos
+//   ADMINISTRATION      → BOR, AOR, Org charts, SAFER, PCAR, Crime
+//   UNIDENTIFIED        → ??? — classifier was uncertain
+// ============================================================================
+const BUCKET_TO_CATEGORY = {
+  CORRESPONDENCE:    'correspondence',
+  APPLICATIONS:      'applications',
+  QUOTES_UNDERLYING: 'underlying',
+  LOSS_HISTORY:      'loss-history',
+  PROJECT:           'project',
+  ADMINISTRATION:    'administration',
+  UNIDENTIFIED:      'all',
+};
+
+function bucketToCategory(primaryBucket) {
+  if (!primaryBucket) return 'all';
+  return BUCKET_TO_CATEGORY[primaryBucket] || 'all';
+}
+
+// ============================================================================
+// v8.5 RULE 9: per-section combined-PDF extraction.
+//
+// When a single PDF contains multiple ACORD forms or sections (e.g. ACORD
+// 125 + 126 + 131 + Loss Runs), the classifier returns f.classifications
+// as an array with multiple entries, each with its own section_hint
+// describing the page range the section occupies. Without per-section
+// slicing, the supplemental module would receive the entire text including
+// loss runs and subcontracts — leading to bad extractions and confused
+// outputs.
+//
+// This function returns ONLY the text from the sections that route to the
+// given module. It uses f.pageTexts (an array of per-page text strings,
+// indexed 0-based) which the PDF processor populates during ingest.
+//
+// Inputs:
+//   f   — the file record (must have classifications[], routedToAll[],
+//          and ideally pageTexts[]; falls back to f.text if no pageTexts)
+//   mid — the module id we're building input for ('supplemental', 'losses',
+//          'gl_quote', etc.)
+//
+// Returns: a string of the relevant text. If no per-section slicing is
+// possible (single-section file, no pageTexts, no section_hints), returns
+// f.text unchanged for backward compat.
+// ============================================================================
+function parseSectionHint(hint, totalPages) {
+  // Recognized formats:
+  //   "pages 1-4"     → [1,4]
+  //   "pages 1 - 4"   → [1,4]
+  //   "page 5"        → [5,5]
+  //   "p. 1-3"        → [1,3]
+  //   "entire document" / "all pages" / "" → [1, totalPages]
+  if (!hint) return [1, totalPages || 1];
+  const h = String(hint).toLowerCase().trim();
+  if (h === 'entire document' || h === 'all pages' || h === 'all') {
+    return [1, totalPages || 1];
+  }
+  // Match "pages 1-4" or "page 5" or "p. 1-3"
+  const range = h.match(/(?:pages?|p\.?)\s*(\d+)\s*[-–to]+\s*(\d+)/);
+  if (range) return [parseInt(range[1], 10), parseInt(range[2], 10)];
+  const single = h.match(/(?:pages?|p\.?)\s*(\d+)/);
+  if (single) {
+    const n = parseInt(single[1], 10);
+    return [n, n];
+  }
+  // Couldn't parse — return full doc
+  return [1, totalPages || 1];
+}
+
+function sliceTextForModule(f, mid) {
+  // No per-page text available? Return whole-file text (legacy behavior).
+  if (!f.pageTexts || !Array.isArray(f.pageTexts) || f.pageTexts.length === 0) {
+    return f.text || '';
+  }
+  // Single-classification file with no section hints? Return whole text.
+  const cls = f.classifications || [];
+  if (cls.length <= 1) return f.text || '';
+
+  // Find the classifications that route to THIS module
+  const matchingSections = cls.filter(c => classifierToRoute(c.type) === mid);
+  if (matchingSections.length === 0) {
+    // No section explicitly routes here — fall back to whole text rather
+    // than send empty input (the module will see the full doc and decide).
+    return f.text || '';
+  }
+
+  // Build a slice from the relevant sections only. Each section_hint
+  // gives a 1-based page range; pageTexts is 0-based.
+  const totalPages = f.pageTexts.length;
+  const sliceParts = [];
+  matchingSections.forEach(section => {
+    const [startPage, endPage] = parseSectionHint(section.section_hint, totalPages);
+    const startIdx = Math.max(0, startPage - 1);
+    const endIdx = Math.min(totalPages - 1, endPage - 1);
+    if (startIdx > endIdx) return;
+    const sectionText = f.pageTexts.slice(startIdx, endIdx + 1).join('\n\n');
+    sliceParts.push(
+      `=== SECTION: ${section.type} (pages ${startPage}-${endPage}) ===\n\n${sectionText}`
+    );
+  });
+
+  if (sliceParts.length === 0) return f.text || '';
+  return sliceParts.join('\n\n');
+}
 
 // ============================================================================
 // DOCS-VIEW CATEGORY MAP — translates classifier types into docs view
@@ -115,191 +293,6 @@ const DOCS_VIEW_MAP = {
 };
 function docsViewMappingFor(classifierType) {
   return DOCS_VIEW_MAP[classifierType] || { category: 'all', color: null };
-}
-
-// ============================================================================
-// CLASSIFIER ADAPTER — bridge between new uppercase taxonomy and legacy keys
-// ============================================================================
-// The classifier prompt emits new-format primary types (LOSS_HISTORY,
-// APPLICATIONS, UNDERLYING, etc.) with optional sub-types. The legacy
-// ROUTING and DOCS_VIEW_MAP tables above were keyed off old lowercase types
-// (losses, supplemental, gl_quote, excess, etc.). Without translation, every
-// new-format classification falls through to "All Documents" with no routing
-// — which is exactly the failure mode that produced 226 docs in All Documents
-// and 6/17 modules in the v8.2 production run.
-//
-// These adapters handle BOTH formats:
-//   - Old lowercase ('losses', 'supplemental', 'gl_quote', ...) — passes through
-//     unchanged, maintains backward compat with mocks and any cached data.
-//   - New uppercase ('LOSS_HISTORY', 'APPLICATIONS', 'UNDERLYING', ...) +
-//     subType — translates to the right legacy routing key.
-//
-// classifierToRoute returns the extraction-module key (the value in ROUTING).
-// classifierToDocsView returns the {category, color} for the docs view.
-
-// v8.4 fix #5 (GPT round 3) — canonical file-and-forget tags. These come from
-// the classifier prompt's routing list ("null" entry). They are findable docs
-// the UW wants visible in the file manager, but no extraction module reads
-// them. If the model accidentally emits a routedTo value for one of these
-// (model output drift), we override to null to prevent wasted API calls and
-// wrong-shape extraction inputs (e.g. AIA Contract → subcontract module
-// would interpret owner-prime clauses as sub-tier clauses).
-const FILE_AND_FORGET_TAGS = new Set([
-  'BOR', 'AOR', 'BOR Letter', 'AOR Letter',
-  'AIA Contract', 'Owner-GC Contract', 'Owner-Contractor Contract',
-  'Geotech Report', 'Site Plan', 'Project Budget',
-  'Photos of Operations', 'Wrap-Up Forms',
-  'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
-  'SOV', 'Schedule of Values',
-  'Work on Hand', 'PCAR Report', 'CAB Report',
-  'Crime Score Report', 'Crime Score',
-  'SAFER Snapshot', 'SAFER',
-  'Site Inspection',
-  '???',
-]);
-
-function classifierToRoute(c) {
-  // v8.4: classifier emits routedTo directly. If present and non-empty, use it.
-  // The model is given the canonical routing list in the prompt; it knows which
-  // module to fire. We pass through verbatim instead of re-deriving from a tag
-  // string (which would be brittle if the tag taxonomy expands).
-  //
-  // v8.4 fix #4 (GPT audit): allowlist validation. If the model emits a
-  // malformed key like "glquote" instead of "gl_quote", we'd otherwise
-  // silently fail to route. Cross-check against the MODULES registry — if
-  // the value isn't a real module key, fall through to the tag-derivation
-  // path below. MODULES is defined later in this file but classifierToRoute
-  // only runs at call time, so the lookup is safe.
-  //
-  // v8.4 fix #5 (GPT round 3): file-and-forget tags must never be routed to
-  // extraction modules even if the model emits a routedTo value. The prompt
-  // says these tags route to null; this enforces it server-side. Without
-  // this, an AIA Contract with routedTo="subcontract" would run a costly
-  // subcontract extraction with wrong-shape input.
-  const tagStr0 = (c && typeof c === 'object') ? String(c.tag || c.primaryTag || '').trim() : '';
-  if (tagStr0 && FILE_AND_FORGET_TAGS.has(tagStr0)) {
-    return null;
-  }
-
-  if (c && typeof c === 'object' && c.routedTo !== undefined) {
-    const rt = c.routedTo;
-    if (rt === null) return null;  // explicit null = no module (e.g. BOR/AOR)
-    if (typeof rt === 'string' && typeof MODULES !== 'undefined' && MODULES[rt]) {
-      return rt;  // valid module key
-    }
-    // Malformed — log and fall through to tag-based recovery
-    if (rt) {
-      try {
-        if (typeof logAudit === 'function') {
-          logAudit('Classifier', 'Invalid routedTo "' + rt + '" — falling back to tag-based routing', 'warn');
-        } else {
-          console.warn('classifierToRoute: invalid routedTo "' + rt + '" — falling back to tag-based routing');
-        }
-      } catch (e) {}
-    }
-    // Don't return — let the function continue to tag-based fallback below.
-  }
-
-  // c can be a classification object {type, subType} OR a string (legacy code paths).
-  const rawType = (typeof c === 'string') ? c : (c && (c.type || c.tag));
-  const subType = (typeof c === 'string') ? null : (c && c.subType);
-  if (!rawType) return null;
-
-  // Old lowercase format — passthrough through ROUTING table.
-  if (ROUTING[rawType] !== undefined) return ROUTING[rawType];
-
-  const type = String(rawType).toUpperCase();
-  const sub = subType ? String(subType).toUpperCase() : null;
-
-  // v8.4 primary buckets — most are routed via routedTo on the classification.
-  // These fallbacks only fire when classification was emitted without routedTo
-  // (mocks, manual reroute, or older deployments).
-  if (type === 'LOSS_HISTORY') return 'losses';
-  if (type === 'QUOTES_UNDERLYING') return null;  // v8.4 — needs tag-level routing
-  if (type === 'CORRESPONDENCE') return 'email_intel';
-  if (type === 'PROJECT' || type === 'ADMINISTRATION' || type === 'UNIDENTIFIED') return null;
-
-  // v8.3 backward-compat sub-type routing for APPLICATIONS / UNDERLYING
-  if (type === 'APPLICATIONS') {
-    if (sub === 'SUBCONTRACT')   return 'subcontract';
-    if (sub === 'VENDOR')        return 'vendor';
-    if (sub === 'SAFETY')        return 'safety';
-    if (sub === 'SUPP_APP' || sub === 'ACORD_FORM' || sub === 'NARRATIVE') return 'supplemental';
-    return 'supplemental';
-  }
-  if (type === 'UNDERLYING') {
-    if (sub === 'GL') return 'gl_quote';
-    if (sub === 'AL') return 'al_quote';
-    if (sub === 'LEAD' || sub === 'EXCESS' || sub === 'FOREIGN_EXCESS') return 'excess';
-    return null;
-  }
-  if (type === 'UNDERWRITING') return 'website';
-
-  // Self-audit fix #2: tag-prefix recovery for QUOTES_UNDERLYING when
-  // routedTo was malformed and primary_bucket fallback didn't apply.
-  // The v8.4 finite tag list has structured prefixes — recover from those.
-  // This catches model output drift where routedTo is mistyped but the
-  // tag is correct.
-  const tagStr = (typeof c === 'object' && c) ? String(c.tag || c.primaryTag || '').trim() : String(rawType).trim();
-  if (tagStr) {
-    // Quote/Underlying family
-    if (/^GL Quote\b/i.test(tagStr) || /^GL Exposure\b/i.test(tagStr) || /^GL T&C\b/i.test(tagStr)) return 'gl_quote';
-    if (/^AL Quote\b/i.test(tagStr) || /^AL Fleet\b/i.test(tagStr)) return 'al_quote';
-    if (/^Lead \$/i.test(tagStr) || /^Lead .*T&C\b/i.test(tagStr) || /^EL Quote\b/i.test(tagStr)) return 'excess';
-    if (/^\$\d+M xs \$\d+M\b/i.test(tagStr) || /^\$\d+M P\/O \$\d+M xs \$\d+M\b/i.test(tagStr)) return 'excess';
-    if (/^Buffer Layer\b/i.test(tagStr) || /^Captive Quote\b/i.test(tagStr) || /^Excess T&C\b/i.test(tagStr)) return 'excess';
-    // Loss family
-    if (/Loss Runs?\b/i.test(tagStr) || /Loss Summary\b/i.test(tagStr) || /Large Loss\b/i.test(tagStr) || /^Open Claim/i.test(tagStr)) return 'losses';
-    // Correspondence family
-    if (/^Cover Note\b/i.test(tagStr) || /^Broker Email\b/i.test(tagStr) || /^Target Premium/i.test(tagStr)) return 'email_intel';
-    // Application family — including specialized supp apps with type prefix
-    // (Contractors/Excess/HNOA/Captive/Manufacturing). Match \bSupp App\b
-    // anywhere in the tag, not just as a prefix.
-    if (/^ACORD\b/i.test(tagStr) || /\bSupp App\b/i.test(tagStr) || /Narrative\b/i.test(tagStr) || /^Description of Operations\b/i.test(tagStr)) return 'supplemental';
-    if (/^Sub ?Agreement\b/i.test(tagStr) || /^MSA\b/i.test(tagStr)) return 'subcontract';
-    if (/^Vendor\b/i.test(tagStr)) return 'vendor';
-    if (/^Safety Manual\b/i.test(tagStr)) return 'safety';
-  }
-
-  return null;
-}
-
-function classifierToDocsView(c) {
-  // v8.4: prefer primary_bucket from the classification (model emits this directly).
-  let rawBucket = null;
-  if (c && typeof c === 'object') {
-    rawBucket = c.primary_bucket || c.primaryBucket || c.type || c.tag;
-  } else if (typeof c === 'string') {
-    rawBucket = c;
-  }
-  if (!rawBucket) return { category: 'all', color: null };
-
-  // Old lowercase format — passthrough through DOCS_VIEW_MAP.
-  if (DOCS_VIEW_MAP[rawBucket] !== undefined) return DOCS_VIEW_MAP[rawBucket];
-
-  const bucket = String(rawBucket).toUpperCase();
-
-  // v8.4 — 7 primary buckets map to docs-view category folders.
-  // Colors match the existing docs-view palette (red/green/yellow/purple/pink/maroon/teal).
-  switch (bucket) {
-    case 'LOSS_HISTORY':       return { category: 'loss-history',     color: 'red' };
-    case 'APPLICATIONS':       return { category: 'applications',     color: 'green' };
-    case 'QUOTES_UNDERLYING':  return { category: 'underlying',       color: 'yellow' };
-    case 'PROJECT':            return { category: 'project',          color: 'purple' };
-    case 'CORRESPONDENCE':     return { category: 'correspondence',   color: 'pink' };
-    case 'ADMINISTRATION':     return { category: 'administration',   color: 'maroon' };
-    case 'UNIDENTIFIED':       return { category: 'all',              color: null };
-    // v8.3 backward-compat aliases — same docs-view destinations
-    case 'UNDERLYING':         return { category: 'underlying',       color: 'yellow' };
-    case 'COMPLIANCE':         return { category: 'compliance',       color: 'orange' };
-    case 'QUOTES_INDICATIONS': return { category: 'quotes-indications', color: 'teal' };
-    case 'CANCELLATIONS':      return { category: 'cancellations',    color: 'magenta' };
-    case 'POLICY':             return { category: 'policy',           color: 'blue' };
-    case 'SUBJECTIVITY':       return { category: 'subjectivity',     color: 'coral' };
-    case 'UNDERWRITING':       return { category: 'underwriting',     color: 'black' };
-    default:
-      return { category: 'all', color: null };
-  }
 }
 
 // ============================================================================
@@ -575,8 +568,7 @@ async function applyReclassifications() {
     f.classifications = [{ type: newType, confidence: 1.0, reasoning: 'user override', section_hint: 'entire document' }];
     f.needsReview = false;
     f.isCombined = false;
-    // v8.3: classifierToRoute handles both old lowercase and new uppercase types.
-    f.routedTo = classifierToRoute({ type: newType });
+    f.routedTo = classifierToRoute(newType);
     f.routedToAll = f.routedTo ? [f.routedTo] : [];
 
     // Modules that WILL run against this file (new routing) — also need running
@@ -677,34 +669,15 @@ async function incrementalProcess(newFiles) {
     f.state = 'parsing';
     renderFileList();
     const c = await classifyFile(f);
-    // v8.4: tag is the specific identifier ("Lead $5M", "GL Loss Runs 2020-21",
-    // "ACORD 125", "???"). primary_bucket is the docs-view folder. type kept
-    // as backward-compat mirror for any consumer still reading it.
-    f.tag = c.primaryTag || c.tag || null;
-    f.primaryBucket = c.primaryBucket || null;
-    f.classification = c.type;            // backward-compat
+    f.classification = c.type;
     f.confidence = c.confidence;
     f.classifications = c.classifications || [];
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
-    f.subType = c.primarySubType || null;
-    f.subTypeConfidence = c.primarySubTypeConfidence || 0;
-    // Auto-flag OCR-derived files with low confidence for UW review. Low
-    // confidence OCR can yield text that looks plausible but has misread
-    // numbers (limits / dates / dollar amounts) — exactly the fields that
-    // matter most for binding. The needsReview flag already drives the
-    // review banner; this just expands the trigger conditions.
-    if (f.ocrApplied && (f.ocrConfidence || 0) < 70) {
-      f.needsReview = true;
-    }
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
-    // v8.4: classifierToRoute prefers the explicit routedTo on each
-    // classification (model emits it). Falls back to v8.3 type/subType logic
-    // if classifications are from a mock or older deployment.
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl)).filter(Boolean);
-    // v8.4 fix #4 (GPT audit): always go through classifierToRoute so primaryRoutedTo gets allowlist-validated against MODULES.
-    f.routedTo = classifierToRoute({ type: c.primaryType, subType: c.primarySubType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type);
     f.state = 'classified';
     anyFilesProcessed = true;
 
@@ -741,20 +714,22 @@ async function incrementalProcess(newFiles) {
         console.warn('Docs view duplicate check failed in incremental, proceeding with push:', e);
       }
       if (!alreadyPushed) {
-        // v8.4: classifierToDocsView reads primary_bucket (model-emitted) and
-        // maps to the docs-view folder. pipelineTag carries the specific
-        // identifier ("Lead $5M", "GL Loss Runs 2020-21") that the docs-view
-        // chip displays on the doc thumbnail.
-        const mapping = classifierToDocsView({ primary_bucket: c.primaryBucket, type: c.primaryType });
+        const mapping = docsViewMappingFor(c.type);
+        // v8.4: derive pipelineTag and primaryBucket from the classifier
+        // output. pipelineTag is the human-readable tag for the chip;
+        // primaryBucket is the docs-view category. Both persist to
+        // document_pages so they survive refresh.
+        const pipelineTag = c.tag || c.subType || c.type;
+        const primaryBucket = c.primary_bucket || null;
+        const category = primaryBucket ? bucketToCategory(primaryBucket) : mapping.category;
         const ingestCtx = {
-          category: mapping.category,
+          category: category,
           color: mapping.color,
           submissionId: STATE.activeSubmissionId || null,
-          pipelineTag: c.primaryTag || null,                  // v8.4 specific tag
-          pipelineBucket: c.primaryBucket || c.primaryType,   // v8.4 docs-view bucket
-          pipelineClassification: c.primaryTag || c.primaryType,  // backward-compat
-          pipelineSubType: c.primarySubType || null,          // v8.3 backward-compat
+          pipelineClassification: c.type,
           pipelineRoutedTo: f.routedTo || null,
+          pipelineTag: pipelineTag,
+          primaryBucket: primaryBucket,
         };
         if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
           try {
@@ -978,7 +953,12 @@ async function rerunModules(moduleIds) {
       if (m.inputsFrom === 'file') {
         const matched = filesByModule[mid];
         if (matched && matched.length > 0) {
-          const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + f.text).join('\n\n');
+          // v8.5 Rule 9: slice each file's text to only the section(s)
+          // that route to this module. For combined PDFs (e.g., one file
+          // containing ACORD 125 + 126 + Loss Runs), this prevents the
+          // supplemental module from receiving loss-run text and vice versa.
+          // Falls back to f.text for non-combined or pre-v8.5 files.
+          const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
           const src = matched.map(f => f.name).join(', ');
           runResult = await runModule(mid, PROMPTS[mid], combined, src);
         } else {
@@ -1133,95 +1113,25 @@ function truncateForLLM(text, maxChars) {
 }
 
 function normalizeClassifierResult(parsed, fallbackType) {
-  // v8.4 — accepts THREE formats for backward compat:
-  //   (newest)  {classifications:[{tag, primary_bucket, routedTo, confidence, ...}], primary_tag, primary_bucket, primary_routedTo, primary_confidence, ...}
-  //   (v8.3)    {classifications:[{type, subType, ...}], primary_type, primary_subType, ...}
-  //   (legacy)  {type, confidence}
-  //
-  // The v8.4 finite-tag classifier returns tag + primary_bucket + routedTo
-  // directly. This is the path Justin's deployment uses going forward.
-  // The v8.3/legacy fallbacks let mocks and any pre-deploy data still work.
+  // Accept both old-format ({type, confidence}) and new-format ({classifications, primary_type, ...})
   let classifications = parsed.classifications;
-  // PRIMARY tag/bucket/routing — try v8.4 fields first, fall back to v8.3/legacy
-  let primaryTag        = parsed.primary_tag || parsed.primaryTag || null;
-  let primaryBucket     = parsed.primary_bucket || parsed.primaryBucket || parsed.primary_type || parsed.type || null;
-  let primaryRoutedTo   = parsed.primary_routedTo || parsed.primaryRoutedTo || null;
+  let primaryType = parsed.primary_type || parsed.type;
   let primaryConfidence = parsed.primary_confidence || parsed.confidence || 0;
-  // v8.3 backward-compat fields — only used by mocks and stale data now
-  let primarySubType            = parsed.primary_subType || parsed.primarySubType || null;
-  let primarySubTypeConfidence  = parsed.primary_subTypeConfidence || 0;
-  let isCombined  = !!parsed.is_combined;
-  let signatures  = parsed.detected_signatures || [];
-  let reasoning   = parsed.reasoning || '';
-  let needsReview = !!parsed.needs_review;
+  let isCombined = !!parsed.is_combined;
+  let signatures = parsed.detected_signatures || [];
+  let reasoning = parsed.reasoning || '';
 
   if (!classifications) {
-    // Normalize legacy single-classification shape into the array form.
-    classifications = [{
-      tag: primaryTag || (primaryBucket || fallbackType || 'unknown'),
-      primary_bucket: primaryBucket || 'UNIDENTIFIED',
-      routedTo: primaryRoutedTo,
-      confidence: primaryConfidence,
-      // legacy mirror — keeps any old code reading .type / .subType happy
-      type: primaryBucket || primaryTag,
-      subType: primarySubType,
-      subTypeConfidence: primarySubTypeConfidence,
-      reasoning,
-      section_hint: 'entire document'
-    }];
-  } else {
-    // Each classification: backfill missing v8.4 fields from v8.3 fields when
-    // the upstream is mock data or older deployments.
-    classifications = classifications.map(c => {
-      const tag    = c.tag || c.type || null;
-      const bucket = c.primary_bucket || c.primaryBucket || c.type || null;
-      const routed = (c.routedTo !== undefined) ? c.routedTo : null;
-      return Object.assign({}, c, {
-        tag, primary_bucket: bucket, routedTo: routed,
-        // legacy mirror — for any consumer still reading .type
-        type: c.type || tag
-      });
-    });
+    // Normalize old-format to new
+    classifications = [{ type: primaryType || fallbackType || 'unknown', confidence: primaryConfidence, reasoning, section_hint: 'entire document' }];
   }
-
-  if (!primaryTag && classifications.length > 0) {
-    // Pick highest-confidence as primary if not explicitly named.
+  if (!primaryType && classifications.length > 0) {
+    // Pick highest-confidence as primary
     const sorted = [...classifications].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-    primaryTag        = sorted[0].tag;
-    primaryBucket     = sorted[0].primary_bucket || primaryBucket;
-    primaryRoutedTo   = sorted[0].routedTo;
+    primaryType = sorted[0].type;
     primaryConfidence = sorted[0].confidence || 0;
-    primarySubType            = sorted[0].subType || primarySubType;
-    primarySubTypeConfidence  = sorted[0].subTypeConfidence || 0;
   }
-
-  // v8.4 review triggers: tag is "???", primary confidence below threshold,
-  // or any classification missing a tag entirely.
-  if (!primaryTag || primaryTag === '???') {
-    needsReview = true;
-  }
-  if (primaryConfidence > 0 && primaryConfidence < 0.70) {
-    needsReview = true;
-  }
-  // Backward-compat: v8.3 sub-type missing/low triggers review for the three
-  // primary types that required sub-types in that scheme. Harmless under v8.4
-  // (those primaries are now explicit tags so primarySubType will be null).
-  const upperPrimary = String(primaryBucket || '').toUpperCase();
-  const requiresSubType = (upperPrimary === 'LOSS_HISTORY' || upperPrimary === 'UNDERLYING' || upperPrimary === 'APPLICATIONS');
-  if (requiresSubType && primarySubType && primarySubTypeConfidence > 0 && primarySubTypeConfidence < 0.70) {
-    needsReview = true;
-  }
-
-  return {
-    classifications,
-    // v8.4 first-class fields
-    primaryTag, primaryBucket, primaryRoutedTo, primaryConfidence,
-    // v8.3 mirror (kept for any consumer still reading these)
-    primaryType: primaryBucket,
-    primarySubType, primarySubTypeConfidence,
-    // shared
-    isCombined, signatures, reasoning, needsReview
-  };
+  return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning };
 }
 
 async function classifyFile(file) {
@@ -1320,36 +1230,15 @@ async function classifyFile(file) {
 
   const final = normalizeClassifierResult(parsed);
 
-  // Return the FULL classification record — caller decides how to use it.
-  // v8.4: tag (specific identifier like "Lead $5M") + primary_bucket
-  // (docs-view folder) + primary_routedTo (extraction module) are now
-  // first-class fields. v8.3 sub-type fields are still mirrored for
-  // backward-compat with mocks and any consumer that reads them.
+  // Return the FULL classification record — caller decides how to use it
   return {
-    // v8.4 — primary fields
-    primaryTag:        final.primaryTag,
-    primaryBucket:     final.primaryBucket,
-    primaryRoutedTo:   final.primaryRoutedTo,
-    primaryConfidence: final.primaryConfidence,
-    // backward-compat aliases (v8.3 and earlier consumers)
-    tag:        final.primaryTag,                 // alias for callers reading .tag
-    type:       final.primaryBucket,              // bucket goes here for legacy code
-    confidence: final.primaryConfidence,
-    subType:               final.primarySubType,
-    subTypeConfidence:     final.primarySubTypeConfidence,
-    primaryType:           final.primaryBucket,
-    primarySubType:        final.primarySubType,
-    primarySubTypeConfidence: final.primarySubTypeConfidence,
-    // shared
-    reasoning:      final.reasoning,
-    classifications: final.classifications,
-    isCombined:     final.isCombined,
-    signatures:     final.signatures,
-    // Two paths trigger review:
-    //   1) Primary confidence is below the high-confidence threshold (legacy)
-    //   2) The classifier itself reported needs_review (low confidence,
-    //      tag is "???", or explicit ambiguity flag from the prompt)
-    needsReview: final.needsReview || (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold)
+    type: final.primaryType,                      // backward-compat
+    confidence: final.primaryConfidence,          // backward-compat
+    reasoning: final.reasoning,
+    classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
+    isCombined: final.isCombined,
+    signatures: final.signatures,
+    needsReview: final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold
   };
 }
 
@@ -1649,33 +1538,23 @@ async function runPipeline() {
   await Promise.all(ready.map(async f => {
     // Skip reclassification for files already classified with high confidence — saves $ on re-runs
     if (f.state === 'classified' && f.classification && f.confidence > 0.85 && !f.needsReview) {
-      logAudit('Classifier', 'Cached ' + f.name + ' as ' + (f.tag || f.classification) + ' (' + Math.round(f.confidence * 100) + '% · skipped reclassify)', '—');
+      logAudit('Classifier', 'Cached ' + f.name + ' as ' + f.classification + ' (' + Math.round(f.confidence * 100) + '% · skipped reclassify)', '—');
       return;
     }
     const original = f.state;
     f.state = 'parsing';
     renderFileList();
     const c = await classifyFile(f);
-    // v8.4 tag stamping (see incrementalProcess for design notes).
-    f.tag = c.primaryTag || c.tag || null;
-    f.primaryBucket = c.primaryBucket || null;
-    f.classification = c.type;                    // backward compat
-    f.confidence = c.confidence;
-    f.classifications = c.classifications || [];
+    f.classification = c.type;                    // primary type (backward compat)
+    f.confidence = c.confidence;                  // primary confidence
+    f.classifications = c.classifications || [];  // multi-type list for combined docs
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
-    f.subType = c.primarySubType || c.subType || null;
-    f.subTypeConfidence = c.primarySubTypeConfidence || c.subTypeConfidence || 0;
-    // Auto-flag OCR-derived files with low confidence for UW review (matches
-    // incrementalProcess behavior — see comment there).
-    if (f.ocrApplied && (f.ocrConfidence || 0) < 70) {
-      f.needsReview = true;
-    }
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl)).filter(Boolean);
-    // v8.4 fix #4 (GPT audit): always go through classifierToRoute so primaryRoutedTo gets allowlist-validated against MODULES.
-    f.routedTo = classifierToRoute({ type: c.primaryType || c.type, subType: c.primarySubType || c.subType, primary_bucket: c.primaryBucket, routedTo: c.primaryRoutedTo });
+    // Route to ALL applicable modules (supports combined docs)
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type);  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();
     // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
@@ -1739,18 +1618,19 @@ async function runPipeline() {
         // push duplicates, which is the previous behavior.
         console.warn('Docs view duplicate check failed, proceeding with push:', e);
       }
-      // v8.4: classifierToDocsView reads primary_bucket (model-emitted).
-      // pipelineTag is the specific identifier the docs-view chip displays.
-      const mapping = classifierToDocsView({ primary_bucket: c.primaryBucket, type: c.primaryType || c.type });
+      const mapping = docsViewMappingFor(c.type);
+      // v8.4: derive pipelineTag and primaryBucket from classifier output.
+      const pipelineTag = c.tag || c.subType || c.type;
+      const primaryBucket = c.primary_bucket || null;
+      const category = primaryBucket ? bucketToCategory(primaryBucket) : mapping.category;
       const ingestCtx = {
-        category: mapping.category,
+        category: category,
         color: mapping.color,
         submissionId: STATE.activeSubmissionId || null,
-        pipelineTag: c.primaryTag || null,
-        pipelineBucket: c.primaryBucket || c.primaryType || c.type,
-        pipelineClassification: c.primaryTag || c.primaryType || c.type,
-        pipelineSubType: c.primarySubType || c.subType || null,
+        pipelineClassification: c.type,
         pipelineRoutedTo: f.routedTo || null,
+        pipelineTag: pipelineTag,
+        primaryBucket: primaryBucket,
       };
       // Skip both push paths if we already determined a duplicate exists.
       if (!alreadyPushed) {
@@ -1831,7 +1711,8 @@ async function runPipeline() {
     if (m.inputsFrom === 'file') {
       const matched = filesByModule[mid];
       if (matched && matched.length > 0) {
-        const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + f.text).join('\n\n');
+        // v8.5 Rule 9: per-section text slicing. See sliceTextForModule.
+        const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
         const src = matched.map(f => f.name).join(', ');
         wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src));
       } else {
