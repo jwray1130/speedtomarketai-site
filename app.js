@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.16-2026-05-01';
+window.STM_BUILD = 'v8.6.17-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2441,11 +2441,20 @@ function renderFileList() {
         return t.toUpperCase();
       };
       // Show combined-doc info
+      // v8.6.17 (per Justin's File Manager review): show granular tag
+      // (e.g. "ACORD 125 + ACORD 126 + ACORD 131") instead of repeating
+      // the bucket name ("APPLICATIONS + APPLICATIONS + APPLICATIONS").
+      // The reclassify panel in pipeline.js:810 has done this since v8.5.4
+      // — this just brings the intake list into parity. Falls back to
+      // prettyType(c.type) when the classifier didn't emit a granular tag,
+      // preserving existing behavior for that case.
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
+        stateText = f.classifications.map(c => c.tag || prettyType(c.type)).join(' + ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
-        stateText = prettyType(f.classification);
+        stateText = (f.classifications && f.classifications[0] && f.classifications[0].tag)
+          ? f.classifications[0].tag
+          : prettyType(f.classification);
       }
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border

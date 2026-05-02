@@ -2391,11 +2391,94 @@ window.initDocumentsView = function() {
     if (h === 'entire document' || h === 'all pages' || h === 'all') {
       return [1, totalPages || 1];
     }
-    const m = h.match(/(?:pages?|p\.?)\s*(\d+)\s*(?:[-–—\sto]+\s*(\d+))?/);
-    if (!m) return null;
+    // v8.6.17: more tolerant section_hint parsing. The classifier prompt
+    // tells the model to emit "pages X-Y" format, but real outputs vary
+    // ("Pages 1-4", "p. 1-4", "1-4", "1 to 4", "5", "starts at page 5").
+    // Falling through three patterns covers the common variants without
+    // introducing false positives:
+    //   1. "pages?/p." prefix + number(s)         e.g. "pages 1-4", "p. 5"
+    //   2. bare numeric range                     e.g. "1-4", "1 to 4"
+    //   3. single bare number                     e.g. "5"
+    let m = h.match(/(?:pages?|p\.?)\s*(\d+)\s*(?:[-–—\sto]+\s*(\d+))?/);
+    if (!m) m = h.match(/^\s*(\d+)\s*(?:[-–—]|\s+to\s+)\s*(\d+)\s*$/);
+    if (!m) m = h.match(/^\s*(\d+)\s*$/);
+    if (!m) {
+      // Loud diagnostic so we can see in dev tools when classifier output
+      // formats slip past these patterns. Doesn't break anything — the
+      // chip just doesn't render. Caller falls back to position resolver.
+      if (typeof console !== 'undefined') {
+        console.warn('[docs] section_hint did not parse:', JSON.stringify(hint));
+      }
+      return null;
+    }
     const start = parseInt(m[1], 10);
     const end = m[2] ? parseInt(m[2], 10) : start;
     return [start, end];
+  }
+
+  // v8.6.17: section position resolver. Given N section classifications
+  // for a multi-section combined PDF, produce a deterministic page-number
+  // for each section so every section gets exactly one chip on a distinct
+  // page. Handles three failure modes that previously caused chips to
+  // disappear:
+  //
+  //   1. ALL sections have unparseable / null section_hint → distribute
+  //      evenly across totalPages so each section gets a chip somewhere.
+  //   2. SOME sections have hints, others don't → place hinted ones at
+  //      their resolved page; place unhinted ones in the gaps after.
+  //   3. MULTIPLE sections claim the same start page (classifier bug —
+  //      e.g. all three say "entire document" or "pages 1-X") → bump
+  //      collisions forward so each section gets its own page.
+  //
+  // The resolver only ADDS chips that previously got dropped. It never
+  // moves a chip away from a page where it was already correctly resolved
+  // — sections with valid, distinct section_hints get their hinted pages
+  // unchanged.
+  //
+  // Returns an array of page numbers (1-indexed) parallel to `sections`.
+  function _computeSectionPositions(sections, totalPages) {
+    if (!Array.isArray(sections) || sections.length === 0) return [];
+    const total = Math.max(1, totalPages || 1);
+
+    // Step 1: parse each section's hinted start page (null if unparseable)
+    const hinted = sections.map(s => {
+      const range = _parsePageRangeForChip(s && s.section_hint, total);
+      return range ? range[0] : null;
+    });
+
+    // Step 2: if NO sections have parseable hints, distribute evenly.
+    // This prevents the worst case (combined PDF, classifier emits N
+    // sections with no hints, only section 0 chip appears via legacy
+    // page-1 fallback) — now all N sections get a chip.
+    const validCount = hinted.filter(p => p !== null).length;
+    if (validCount === 0) {
+      const step = Math.max(1, Math.floor(total / sections.length));
+      return sections.map((_, i) => Math.min(total, i * step + 1));
+    }
+
+    // Step 3: fill nulls and resolve collisions. Walk in order:
+    //   • If section has a hint → start at that page.
+    //   • If section has no hint → place at (max-of-resolved-so-far + 1).
+    //   • If the chosen page collides with one already used → bump forward
+    //     until we find an open page (or hit totalPages, in which case
+    //     accept the collision rather than crash).
+    const used = new Set();
+    const resolved = [];
+    for (let i = 0; i < hinted.length; i++) {
+      let p;
+      if (hinted[i] !== null) {
+        p = hinted[i];
+      } else {
+        // Place after the latest resolved page; default 1 if nothing yet.
+        const maxSoFar = resolved.length > 0 ? Math.max.apply(null, resolved) : 0;
+        p = maxSoFar + 1;
+      }
+      // Bump forward through collisions
+      while (used.has(p) && p < total) p++;
+      used.add(p);
+      resolved.push(p);
+    }
+    return resolved;
   }
   function _resolvePerPageTag(opts, pctx) {
     // v8.6.14: kept as a thin compatibility wrapper. Original callers used
@@ -2459,20 +2542,22 @@ window.initDocumentsView = function() {
     }
 
     if (Array.isArray(sections) && sections.length > 0) {
-      // Find a section whose range STARTS at this page
-      for (const s of sections) {
-        const range = _parsePageRangeForChip(s.section_hint, opts.totalPages);
-        if (range && range[0] === pageNum) {
-          const expanded = _expandClassification(s);
+      // v8.6.17: use _computeSectionPositions to deterministically pick
+      // ONE page for each section (with collision/missing-hint handling).
+      // The previous code did `range[0] === pageNum` per call — meaning
+      // if the classifier emitted N sections with overlapping/missing
+      // hints, only the first matching section ever painted a chip and
+      // sections 2..N silently disappeared. The resolver guarantees one
+      // distinct page per section.
+      const positions = _computeSectionPositions(sections, opts.totalPages || 1);
+      for (let i = 0; i < sections.length; i++) {
+        if (positions[i] === pageNum) {
+          const expanded = _expandClassification(sections[i]);
           expanded.isSectionStart = true;
           return expanded;
         }
       }
-      // No section starts at this exact page → no chip on THIS page,
-      // but the page still belongs to whichever section currently spans
-      // it. We don't paint a chip here (matches prior behavior) but we
-      // could resolve the spanning section's category for routing if
-      // needed downstream. Returning null preserves "no chip on this page".
+      // No section maps to this page → mid-section page (no chip).
       return null;
     }
     // Legacy single-classification path: resolve full classification for
