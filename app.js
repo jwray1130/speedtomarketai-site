@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-2026-05-01';
+window.STM_BUILD = 'v8.6.16-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -227,16 +227,16 @@ function extractRayId(headers, bodySnippet) {
 }
 
 async function llmProxyFetch(body, extraHeaders) {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error('Not signed in');
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ' + session.access_token
-  };
-  if (extraHeaders) {
-    for (const k in extraHeaders) headers[k] = extraHeaders[k];
-  }
+  // v8.6.14 (per GPT external audit): session and headers are now resolved
+  // INSIDE the retry loop, not once at the top. The previous code grabbed
+  // session.access_token once before the while loop and reused the same
+  // headers object on every retry. If the JWT expired during long retry
+  // backoff (Cloudflare 5xx + exponential delays can stretch a single
+  // pipeline call past JWT lifetime), every retry kept failing with the
+  // same stale token until maxAttempts hit. Now each attempt re-fetches
+  // the session — Supabase's auth client refreshes transparently if the
+  // token is near expiry, so attempt N+1 gets a valid token if attempt N
+  // expired.
 
   // Pre-compute payload size for telemetry. JSON.stringify is the same call
   // fetch will make internally, so this isn't extra work — we just capture
@@ -252,6 +252,21 @@ async function llmProxyFetch(body, extraHeaders) {
   let retryDelaysForLastError = [];
 
   while (attempt < maxAttempts) {
+    // v8.6.14: per-attempt session refresh. getSession() is essentially
+    // free when the cached session is still valid (sync read from memory)
+    // and triggers a refresh when it isn't. Either way the cost is
+    // negligible compared to the network fetch that follows.
+    const sessRes = await sb.auth.getSession();
+    const session = (sessRes && sessRes.data && sessRes.data.session) || null;
+    if (!session) throw new Error('Not signed in');
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
+    };
+    if (extraHeaders) {
+      for (const k in extraHeaders) headers[k] = extraHeaders[k];
+    }
+
     const startedAt = Date.now();
     let res = null;
     let bodyText = '';
@@ -746,6 +761,29 @@ const STATE = {
 // ============================================================================
 let SAVE_DEBOUNCE = null;
 let LAST_SAVE_TS = 0;
+// v8.6.14 (per GPT external audit): proper save serialization primitive.
+//
+// Why this exists: previously saveEditsNow() set LAST_SAVE_TS = Date.now()
+// at the START of the function, before the cloud write. If two saves
+// overlapped (debounced save in-flight while user clicks revert/clear),
+// the older save could land AFTER the newer revert and resurrect stale
+// edits. Also, on save failure the catch block set "Save failed" text,
+// but the next 10s updateSaveIndicator tick would read the LAST_SAVE_TS
+// (set before the await) and overwrite "Save failed" with "Saved Xs ago"
+// — visibly hiding the failure.
+//
+// SAVE_QUEUE is a promise chain. Every save appends; subsequent saves
+// wait for the previous one to resolve before starting their own cloud
+// write. Callers that need to reset state (revert/clear/restore) can
+// `await flushEditsNow()` which awaits the entire chain, guaranteeing
+// no in-flight save can land after the reset.
+//
+// LAST_SAVE_FAILED tracks whether the most recent save failed. The
+// indicator tick respects this — when set, the indicator shows
+// "Save failed" instead of "Saved Xs ago" until the next successful
+// save clears it.
+let SAVE_QUEUE = Promise.resolve();
+let LAST_SAVE_FAILED = false;
 
 // Load edits scoped to the most recent pipeline run.
 //
@@ -772,6 +810,23 @@ function applyPendingEditsIfMatch(pipelineRunId) {
 }
 
 async function saveEditsNow() {
+  // v8.6.14: every save now goes through SAVE_QUEUE so multiple saves
+  // serialize cleanly. Callers that need to wait for all pending writes
+  // to drain (revert/clear/restore/switch/new submission) can await
+  // flushEditsNow() which awaits the whole chain.
+  //
+  // Also fixes the "Saved" overwrites "Save failed" issue: LAST_SAVE_TS
+  // is now set ONLY on success, after the await resolves. LAST_SAVE_FAILED
+  // tracks failure so the indicator's 10s tick can't paint over it.
+  const myTurn = SAVE_QUEUE.then(() => _saveEditsImpl());
+  // Chain forward — next saveEditsNow() awaits this one's completion.
+  // Catch is intentional: a save failure shouldn't poison the chain
+  // (next caller still gets a clean Promise.resolve to chain off).
+  SAVE_QUEUE = myTurn.catch(() => {});
+  return myTurn;
+}
+
+async function _saveEditsImpl() {
   // In-memory edits are persisted two ways for resilience:
   //   1) Baked into the active submission's snapshot (see archiveCurrentSubmission
   //      / rehydrateSubmission) so a reload restores cleanly.
@@ -783,7 +838,6 @@ async function saveEditsNow() {
   // indicator flipped to "Saved" optimistically before the network round-trip
   // — misleading during testing and a real risk if the user refreshed in
   // the gap. The visible UI now reflects actual persistence state.
-  LAST_SAVE_TS = Date.now();
   const submissionId = STATE.activeSubmissionId;
   if (!submissionId) return;   // nothing to persist yet (no archived submission)
   try {
@@ -792,6 +846,11 @@ async function saveEditsNow() {
       STATE.pipelineRun || null,
       STATE.edits, STATE.customCards, STATE.hiddenCards
     );
+    // v8.6.14: LAST_SAVE_TS only updates AFTER successful cloud write.
+    // Was previously set at the top of the function (pre-await) which made
+    // the "Saved Xs ago" indicator misleading on failure.
+    LAST_SAVE_TS = Date.now();
+    LAST_SAVE_FAILED = false;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
@@ -802,6 +861,9 @@ async function saveEditsNow() {
     }
   } catch (e) {
     console.warn('Edit save failed', e);
+    // v8.6.14: set the failed flag so updateSaveIndicator's 10s tick
+    // can't paint "Saved Xs ago" over the failure message.
+    LAST_SAVE_FAILED = true;
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
@@ -811,6 +873,10 @@ async function saveEditsNow() {
       txt.textContent = 'Save failed';
     }
     toast('Save failed · ' + (e.message || 'network'), 'error');
+    // Re-throw so callers (revert/clear/restore via flushEditsNow) can see
+    // the failure and surface it. flushEditsNow swallows internally so this
+    // doesn't break the queue chain.
+    throw e;
   }
 }
 
@@ -890,10 +956,18 @@ async function resyncActiveSnapshot(reason) {
 // share the same correct behavior. Returns a promise that resolves
 // once the flush completes (or immediately if there's nothing pending).
 async function flushEditsNow() {
+  // v8.6.14: drains the entire SAVE_QUEUE chain, not just one save. This
+  // is what callers like revertCard/clearAllEdits/restoreAllCards await
+  // before issuing cloud-row deletes — guarantees no in-flight save can
+  // land after the delete and resurrect stale edits.
   if (typeof SAVE_DEBOUNCE !== 'undefined' && SAVE_DEBOUNCE) {
     clearTimeout(SAVE_DEBOUNCE);
     SAVE_DEBOUNCE = null;
   }
+  // First, queue one final save for any in-memory state that hasn't been
+  // persisted yet (the debounce path may have been pending). saveEditsNow
+  // chains into SAVE_QUEUE so awaiting the result waits for ALL pending
+  // saves, not just this one.
   if (typeof saveEditsNow === 'function') {
     try {
       await saveEditsNow();
@@ -903,6 +977,14 @@ async function flushEditsNow() {
       console.warn('flushEditsNow: saveEditsNow rejected', err);
       if (typeof logAudit === 'function') logAudit('Edits', 'Pre-transition flush FAILED · ' + (err && err.message ? err.message : String(err)) + ' · falling through to snapshot', 'warn');
     }
+  }
+  // Belt-and-suspenders: also await SAVE_QUEUE itself to catch any save
+  // that was already in-flight when we started. The catch is on the
+  // chain itself so a prior failure doesn't propagate here.
+  try {
+    await SAVE_QUEUE;
+  } catch (err) {
+    /* SAVE_QUEUE has its own .catch handler, this should never fire */
   }
 }
 
@@ -956,6 +1038,15 @@ function updateSaveIndicator() {
   const ind = document.getElementById('saveIndicator');
   const txt = document.getElementById('saveIndicatorText');
   if (!ind || !txt) return;
+  // v8.6.14: respect LAST_SAVE_FAILED. Without this, a save failure that
+  // sets text to "Save failed" gets overwritten by the next 10s tick
+  // (which reads LAST_SAVE_TS and renders "Saved Xs ago"), visibly
+  // hiding the failure from the user.
+  if (LAST_SAVE_FAILED) {
+    ind.classList.remove('saving', 'saved');
+    txt.textContent = 'Save failed';
+    return;
+  }
   if (LAST_SAVE_TS === 0) {
     txt.textContent = 'Ready';
     return;
@@ -980,6 +1071,11 @@ async function clearAllEdits() {
     return;
   }
   if (!confirm('Reset ALL edits, custom cards, and hidden cards back to original AI output? This cannot be undone.')) return;
+  // v8.6.14: drain the SAVE_QUEUE BEFORE clearing local state. Without this,
+  // a debounced save in flight could land after sbDeleteAllEditsForSubmission
+  // and resurrect the just-cleared edits. flushEditsNow waits for the entire
+  // chain, not just one save.
+  await flushEditsNow();
   STATE.edits = {};
   STATE.customCards = [];
   STATE.hiddenCards = {};
@@ -1281,6 +1377,497 @@ loadEdits();
 // ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
+
+// v8.6.14 (per GPT external audit + restore of v8.2 work): Vision/OCR
+// extraction for files that have no native text layer.
+//
+// Three-tier strategy:
+//   Tier 1 — native text layer (handled by extractText below)
+//   Tier 2 — Claude Vision (this function)
+//   Tier 3 — Tesseract.js OCR (fallback inside this function)
+//
+// The Vision path uses the same llmProxyFetch as the rest of the app, so
+// auth, retry, and audit logging all happen automatically. PDFs ≤ 22MB
+// and ≤ 80 pages go through as a document content block (Claude reads
+// the PDF natively). Larger PDFs render to JPEG chunks via pdfjs and
+// send as image blocks. Image files (.png/.jpg/etc.) go through as a
+// single image block.
+//
+// Each call stamps these meta fields for the audit trail:
+//   meta.extractedVia      → 'text-layer' | 'claude-vision' | 'tesseract'
+//   meta.visionConfidence  → 0..1 self-reported confidence (Claude only)
+//   meta.visionPagesSent   → count of pages actually sent for processing
+//   meta.visionTokensIn    → input tokens used by Vision call (cost tracking)
+
+// v8.6.15: parse Claude's === PAGE N === delimiter output into a per-page
+// text array. Returns an array indexed 0..N-1 where each entry is the
+// transcription of that page. Robust to:
+//   - Claude omitting the delimiter on some/all pages (single-block output)
+//   - Whitespace variations around the marker
+//   - Skipped page numbers (rare — Claude marks an empty page with the
+//     header but no content; we keep the empty string as a placeholder)
+//
+// Inputs:
+//   text          — the Vision output (confidence sentinel already stripped)
+//   pageCountHint — expected number of pages; used only for graceful
+//                   fallback when no delimiters found. Returned array
+//                   length is whatever the parser actually finds.
+//
+// If no delimiters are present at all, returns [text] (length 1) so
+// callers can still treat it as a single-page payload.
+function _splitVisionTextByPageDelimiter(text, pageCountHint) {
+  if (!text || typeof text !== 'string') return [];
+  // Match "=== PAGE 1 ===" anywhere on a line. Allow variations in whitespace
+  // and capitalization. The capture group grabs the page number for ordering.
+  const delim = /^[ \t]*=+\s*PAGE\s+(\d+)\s*=+[ \t]*$/im;
+  const globalDelim = /^[ \t]*=+\s*PAGE\s+(\d+)\s*=+[ \t]*$/gim;
+
+  // Quick check: if there are no delimiters at all, return as single page.
+  if (!delim.test(text)) {
+    return [text];
+  }
+
+  // Collect (pageNumber, startIndex, headerEndIndex) for each delimiter.
+  const markers = [];
+  let m;
+  while ((m = globalDelim.exec(text)) !== null) {
+    markers.push({
+      pageNum: parseInt(m[1], 10),
+      headerStart: m.index,
+      headerEnd: m.index + m[0].length
+    });
+  }
+  if (markers.length === 0) return [text];
+
+  // Slice text between consecutive markers; the segment AFTER marker i and
+  // BEFORE marker i+1 (or end of string for the last) is page i's content.
+  const pages = [];
+  for (let i = 0; i < markers.length; i++) {
+    const start = markers[i].headerEnd;
+    const end = (i + 1 < markers.length) ? markers[i + 1].headerStart : text.length;
+    pages.push(text.slice(start, end).trim());
+  }
+  // If we have a hint and the parser yielded fewer pages, pad with empty
+  // strings up to the hint count so downstream indexing by page number
+  // doesn't go out of bounds. (Don't truncate — extra pages are kept.)
+  if (typeof pageCountHint === 'number' && pageCountHint > pages.length) {
+    while (pages.length < pageCountHint) pages.push('');
+  }
+  return pages;
+}
+
+const VISION_PDF_MAX_BYTES = 22 * 1024 * 1024;   // 22 MB direct-PDF threshold
+const VISION_PDF_MAX_PAGES = 80;                  // pages above this → render path
+const VISION_RENDER_SCALE = 1.4;                  // pdfjs scale for OCR-quality JPEGs
+const VISION_RENDER_JPEG_QUALITY = 0.78;          // balance: legibility vs payload size
+const VISION_MAX_PAGES_PER_CHUNK = 10;            // pages per llmProxyFetch call
+// v8.6.15 (per GPT external audit): match the rest of the bundle's model
+// (claude-sonnet-4-6 — see STATE.api default, classifier, all 14 modules).
+// The previous v8.6.14 value 'claude-sonnet-4-5' was a typo that would
+// 404 at the proxy and silently cascade every Vision call to Tesseract,
+// defeating the Vision restoration. _runVisionCall now also reads
+// STATE.api.model when forceGlobal is set, so model selection follows
+// runtime configuration instead of a hardcoded constant.
+const VISION_MODEL = 'claude-sonnet-4-6';
+// v8.6.15: bumped from 8000 to 16000. ACORD 125/126/131 are dense forms
+// with many fields; 8K output tokens occasionally truncated mid-page on
+// chunked-render passes. 16K leaves headroom without changing chunk size.
+const VISION_MAX_TOKENS = 16000;
+
+// Convert an ArrayBuffer to base64 without blowing the call stack on large
+// inputs. The naive String.fromCharCode(...new Uint8Array(buf)) approach
+// stack-overflows on big PDFs (10MB+ produces ~13M chars in one spread).
+function _arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  const chunkSize = 32768;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+// Render a single PDF page to a base64 JPEG. Used for the chunked-render
+// path when a PDF is too big for direct upload.
+async function _renderPdfPageToJpegBase64(page, scale, quality) {
+  const viewport = page.getViewport({ scale: scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext('2d');
+  // White background so transparent areas in PDFs render readable, not black.
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+  return dataUrl.replace(/^data:image\/jpeg;base64,/, '');
+}
+
+// Read an image File as a base64 string + media type for the Vision API.
+async function _readImageFileAsBase64(file) {
+  const buf = await file.arrayBuffer();
+  const b64 = _arrayBufferToBase64(buf);
+  // Map the file extension → media type Anthropic's API accepts. webp/gif
+  // aren't accepted as image content blocks — convert through canvas.
+  const name = (file.name || '').toLowerCase();
+  let mediaType = file.type || '';
+  if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
+    if (name.endsWith('.png')) mediaType = 'image/png';
+    else if (name.endsWith('.jpg') || name.endsWith('.jpeg')) mediaType = 'image/jpeg';
+    else if (name.endsWith('.webp')) mediaType = 'image/webp';
+    else if (name.endsWith('.gif')) mediaType = 'image/gif';
+    else mediaType = 'image/jpeg';   // best-guess fallback
+  }
+  // The API only accepts jpeg/png/gif/webp. heic/heif/tiff/bmp need conversion.
+  if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
+    // Convert via canvas to JPEG. Only works for formats the browser can
+    // decode natively — heic on Chrome/Firefox can't be decoded so this
+    // will fall through to Tesseract or a final unreadable error.
+    try {
+      const blobUrl = URL.createObjectURL(file);
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = blobUrl;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      URL.revokeObjectURL(blobUrl);
+      const dataUrl = canvas.toDataURL('image/jpeg', VISION_RENDER_JPEG_QUALITY);
+      return {
+        base64: dataUrl.replace(/^data:image\/jpeg;base64,/, ''),
+        mediaType: 'image/jpeg'
+      };
+    } catch (e) {
+      throw new Error('Unsupported image format · ' + (file.type || name) + ' · cannot be sent to Claude Vision');
+    }
+  }
+  return { base64: b64, mediaType: mediaType };
+}
+
+// Lazy-load Tesseract.js from CDN. ~10MB worker bundle, only fetched
+// when actually needed (Vision failed). Returns the loaded library.
+let _tesseractPromise = null;
+function _loadTesseract() {
+  if (_tesseractPromise) return _tesseractPromise;
+  _tesseractPromise = new Promise((resolve, reject) => {
+    if (typeof window.Tesseract !== 'undefined') {
+      resolve(window.Tesseract);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      if (typeof window.Tesseract !== 'undefined') resolve(window.Tesseract);
+      else reject(new Error('Tesseract loaded but window.Tesseract undefined'));
+    };
+    script.onerror = () => reject(new Error('Failed to load Tesseract.js from CDN'));
+    document.head.appendChild(script);
+  });
+  return _tesseractPromise;
+}
+
+// Tesseract fallback — used only when Vision fails. Slower (10-30s for
+// a single page) and lower-quality on dense scans, but works offline-ish
+// and doesn't burn API tokens.
+async function _extractViaTesseract(file, meta) {
+  const Tesseract = await _loadTesseract();
+  const name = (file.name || '').toLowerCase();
+  let textOut = '';
+
+  if (name.endsWith('.pdf')) {
+    // Render each page to canvas, OCR each. Cap at 20 pages — Tesseract
+    // is slow enough that anything beyond that is impractical browser-side.
+    if (typeof pdfjsLib === 'undefined') throw new Error('pdfjsLib not loaded for Tesseract path');
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const pageLimit = Math.min(pdf.numPages, 20);
+    const pageTexts = [];
+    for (let i = 1; i <= pageLimit; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      const result = await Tesseract.recognize(canvas, 'eng');
+      pageTexts.push(result && result.data ? result.data.text : '');
+    }
+    if (pdf.numPages > pageLimit) {
+      pageTexts.push('\n\n[Tesseract: stopped after ' + pageLimit + ' of ' + pdf.numPages + ' pages — paste later pages manually if needed.]');
+    }
+    meta.kind = 'pdf';
+    meta.pageCount = pdf.numPages;
+    meta.pageTexts = pageTexts;
+    textOut = pageTexts.join('\n\n');
+  } else if (/\.(png|jpg|jpeg|webp|heic|heif|gif|bmp|tiff|tif)$/.test(name)) {
+    const result = await Tesseract.recognize(file, 'eng');
+    textOut = result && result.data ? result.data.text : '';
+    meta.kind = 'image';
+  } else {
+    throw new Error('Tesseract path only supports PDF + image files');
+  }
+  meta.extractedVia = 'tesseract';
+  return textOut;
+}
+
+// Vision path. Tries Claude Vision first; falls back to Tesseract if
+// Vision throws. If both fail, the caller's error handling kicks in
+// (currently: __SCANNED_PDF__ / __UNREADABLE__ sentinel propagates).
+async function extractTextViaClaudeVision(file, meta) {
+  if (typeof llmProxyFetch !== 'function') {
+    throw new Error('llmProxyFetch not available — cannot use Claude Vision');
+  }
+  const name = (file.name || '').toLowerCase();
+  meta = meta || {};
+
+  // Build the content blocks for Claude. Three shapes:
+  //   1) PDF ≤ 22MB ≤ 80 pages         → one document block (Claude reads PDF directly)
+  //   2) PDF too big                   → render to JPEG, chunked image blocks
+  //   3) image file                    → single image block
+  const visionPrompt = [
+    'Extract ALL text from the document/image(s) below.',
+    '',
+    'Output rules:',
+    '• Preserve the natural reading order. Top-to-bottom, left-to-right.',
+    '• Keep tables as tables (use | as column separator).',
+    '• Keep section headings on their own lines.',
+    '• Skip headers/footers/page numbers IF they repeat on every page.',
+    '• Do NOT summarize. Do NOT paraphrase. Transcribe exactly.',
+    '• If you cannot read a section reliably, mark it [UNREADABLE].',
+    '',
+    // v8.6.15 (per GPT external audit): require explicit page delimiters.
+    // Without them the code splits on \f / "--- PAGE BREAK ---" markers
+    // that Claude never emits, so meta.pageTexts ended up as one block.
+    // Section_hint logic downstream relies on knowing which page each
+    // chunk came from — without page boundaries, section detection on
+    // scanned combined PDFs collapses.
+    'PAGE STRUCTURE — MANDATORY:',
+    'Before each page\'s transcription, output a delimiter on its own line:',
+    '=== PAGE N ===',
+    'where N is the 1-indexed page number. For multi-image inputs, treat',
+    'each image as a separate page. Example for a 3-page input:',
+    '',
+    '=== PAGE 1 ===',
+    '<page 1 transcription>',
+    '',
+    '=== PAGE 2 ===',
+    '<page 2 transcription>',
+    '',
+    '=== PAGE 3 ===',
+    '<page 3 transcription>',
+    '',
+    'After the LAST page (after all === PAGE N === blocks), output:',
+    '___VISION_CONFIDENCE___:0.XX',
+    'where 0.XX is your self-rated confidence in the extraction (0.00 to 1.00).',
+    '0.95+ = clean type, easily read.',
+    '0.70-0.94 = mostly readable with some uncertain words.',
+    '0.50-0.69 = significant guesswork.',
+    'Below 0.50 = output [UNREADABLE] and a low confidence — do not invent.'
+  ].join('\n');
+
+  /**
+   * Send one API call with the given content blocks, returning the assembled
+   * text. The proxy handles auth + retry; this just unwraps the message.
+   */
+  async function _runVisionCall(contentBlocks, modelHint) {
+    // v8.6.15: model resolution priority: explicit modelHint → STATE.api.model
+    // (when forceGlobal) → VISION_MODEL constant. This way, if you set the
+    // global model to opus-4-7 in Settings, Vision follows along instead
+    // of always pinning to sonnet-4-6.
+    let model = modelHint || VISION_MODEL;
+    try {
+      if (typeof STATE !== 'undefined' && STATE && STATE.api && STATE.api.forceGlobal && STATE.api.model) {
+        model = STATE.api.model;
+      }
+    } catch (e) { /* STATE may not be reachable from here in some loads */ }
+    const reqBody = {
+      model: model,
+      max_tokens: VISION_MAX_TOKENS,
+      messages: [
+        { role: 'user', content: contentBlocks }
+      ]
+    };
+    const result = await llmProxyFetch(reqBody);
+    // The proxy returns the raw Anthropic response shape: { content: [{type:'text', text:'...'}], usage: {...} }
+    if (!result || !Array.isArray(result.content)) {
+      throw new Error('Vision response shape unexpected (no content array)');
+    }
+    const textBlock = result.content.find(b => b && b.type === 'text');
+    if (!textBlock || typeof textBlock.text !== 'string') {
+      throw new Error('Vision response had no text block');
+    }
+    if (result.usage && typeof result.usage === 'object') {
+      meta.visionTokensIn = (meta.visionTokensIn || 0) + (result.usage.input_tokens || 0);
+      meta.visionTokensOut = (meta.visionTokensOut || 0) + (result.usage.output_tokens || 0);
+    }
+    return textBlock.text;
+  }
+
+  // PDF — direct path or chunked render
+  if (name.endsWith('.pdf')) {
+    if (typeof pdfjsLib === 'undefined') {
+      throw new Error('pdfjsLib not loaded — Vision PDF path requires it for size/page check');
+    }
+    const buf = await file.arrayBuffer();
+    const sizeBytes = buf.byteLength;
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const pageCount = pdf.numPages;
+
+    // Path A — Direct PDF upload (small enough for one document block)
+    if (sizeBytes <= VISION_PDF_MAX_BYTES && pageCount <= VISION_PDF_MAX_PAGES) {
+      const b64 = _arrayBufferToBase64(buf);
+      const blocks = [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: b64 }
+        },
+        { type: 'text', text: visionPrompt }
+      ];
+      const text = await _runVisionCall(blocks);
+      meta.kind = 'pdf';
+      meta.pageCount = pageCount;
+      meta.extractedVia = 'claude-vision';
+      meta.visionPagesSent = pageCount;
+      // Strip the confidence sentinel and capture it
+      const m = text.match(/___VISION_CONFIDENCE___:(\d+(?:\.\d+)?)/);
+      if (m) {
+        meta.visionConfidence = Math.max(0, Math.min(1, parseFloat(m[1])));
+      }
+      const cleanText = text.replace(/___VISION_CONFIDENCE___:\d+(?:\.\d+)?/, '').trim();
+      // v8.6.15: split on the === PAGE N === delimiter the prompt now
+      // requires Claude to emit. Falls back gracefully if Claude ignored
+      // the delimiter (single-block output) — meta.pageTexts stays a
+      // single entry rather than empty/garbled.
+      meta.pageTexts = _splitVisionTextByPageDelimiter(cleanText, pageCount);
+      return cleanText;
+    }
+
+    // Path B — Render-and-chunk (large PDF). Render every page to a JPEG
+    // and send in chunks of VISION_MAX_PAGES_PER_CHUNK. Each chunk produces
+    // its own text segment; we concatenate at the end.
+    meta.kind = 'pdf';
+    meta.pageCount = pageCount;
+    meta.extractedVia = 'claude-vision';
+    meta.visionPagesSent = 0;
+    const allPageTexts = [];
+    let allText = '';
+    let confidenceBucket = [];
+
+    for (let chunkStart = 1; chunkStart <= pageCount; chunkStart += VISION_MAX_PAGES_PER_CHUNK) {
+      const chunkEnd = Math.min(chunkStart + VISION_MAX_PAGES_PER_CHUNK - 1, pageCount);
+      const blocks = [];
+      blocks.push({ type: 'text', text: 'Pages ' + chunkStart + '-' + chunkEnd + ' of ' + pageCount + '. ' + visionPrompt });
+      for (let p = chunkStart; p <= chunkEnd; p++) {
+        const page = await pdf.getPage(p);
+        const b64 = await _renderPdfPageToJpegBase64(page, VISION_RENDER_SCALE, VISION_RENDER_JPEG_QUALITY);
+        blocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: b64 }
+        });
+      }
+      const chunkText = await _runVisionCall(blocks);
+      meta.visionPagesSent += (chunkEnd - chunkStart + 1);
+      const m = chunkText.match(/___VISION_CONFIDENCE___:(\d+(?:\.\d+)?)/);
+      if (m) confidenceBucket.push(parseFloat(m[1]));
+      const cleaned = chunkText.replace(/___VISION_CONFIDENCE___:\d+(?:\.\d+)?/, '').trim();
+      // v8.6.15: split this chunk's output by the page delimiter so each
+      // page becomes its own entry in allPageTexts. Without this, a 60-page
+      // PDF rendered in 6 chunks of 10 produced an allPageTexts array of
+      // length 6 — useless for section_hint downstream which works in
+      // page numbers. Now allPageTexts grows by chunk_size entries per
+      // chunk, indexed 0..pageCount-1 (or close — Claude may merge or
+      // skip an empty page; the helper handles those gracefully).
+      const chunkPagesExpected = chunkEnd - chunkStart + 1;
+      const chunkPages = _splitVisionTextByPageDelimiter(cleaned, chunkPagesExpected);
+      // If splitting yielded the expected page count, append all entries.
+      // If Claude ignored the delimiter for this chunk (returned 1 block),
+      // append the single block — section logic downstream will degrade
+      // gracefully on that chunk only, not the whole document.
+      for (const p of chunkPages) allPageTexts.push(p);
+      allText += cleaned + '\n\n';
+    }
+    if (confidenceBucket.length > 0) {
+      // Average across chunks. Conservative: if any chunk reports very low
+      // confidence, the average drags down accordingly.
+      meta.visionConfidence = confidenceBucket.reduce((a, b) => a + b, 0) / confidenceBucket.length;
+    }
+    meta.pageTexts = allPageTexts;
+    return allText.trim();
+  }
+
+  // Image file — single image block
+  if (/\.(png|jpg|jpeg|webp|heic|heif|gif|bmp|tiff|tif)$/.test(name)) {
+    const { base64, mediaType } = await _readImageFileAsBase64(file);
+    const blocks = [
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: mediaType, data: base64 }
+      },
+      { type: 'text', text: visionPrompt }
+    ];
+    const text = await _runVisionCall(blocks);
+    meta.kind = 'image';
+    meta.extractedVia = 'claude-vision';
+    meta.visionPagesSent = 1;
+    const m = text.match(/___VISION_CONFIDENCE___:(\d+(?:\.\d+)?)/);
+    if (m) meta.visionConfidence = Math.max(0, Math.min(1, parseFloat(m[1])));
+    return text.replace(/___VISION_CONFIDENCE___:\d+(?:\.\d+)?/, '').trim();
+  }
+
+  throw new Error('Vision path called for unsupported file type: ' + name);
+}
+
+// Wrapper that runs Vision and falls back to Tesseract on failure. Used
+// by extractText below in place of the sentinel throws.
+async function _extractWithVisionThenTesseract(file, meta) {
+  try {
+    const text = await extractTextViaClaudeVision(file, meta);
+    if (text && text.trim().length > 30) {
+      if (typeof logAudit === 'function') {
+        const conf = meta.visionConfidence != null ? ' · conf=' + meta.visionConfidence.toFixed(2) : '';
+        logAudit('Extract', 'Vision OK · ' + file.name + ' · ' + text.length + ' chars · ' + (meta.visionPagesSent || '?') + ' pages' + conf, 'ok');
+      }
+      return text;
+    }
+    // Vision returned suspiciously little text — try Tesseract as a sanity check
+    if (typeof logAudit === 'function') {
+      logAudit('Extract', 'Vision returned ' + (text ? text.length : 0) + ' chars · falling back to Tesseract for ' + file.name, 'warn');
+    }
+  } catch (visionErr) {
+    console.warn('Claude Vision extraction failed, falling back to Tesseract:', visionErr);
+    if (typeof logAudit === 'function') {
+      logAudit('Extract', 'Vision FAILED · ' + file.name + ' · ' + (visionErr.message || visionErr) + ' · trying Tesseract', 'warn');
+    }
+  }
+  // Fallback — Tesseract OCR
+  try {
+    const text = await _extractViaTesseract(file, meta);
+    if (text && text.trim().length > 30) {
+      if (typeof logAudit === 'function') {
+        logAudit('Extract', 'Tesseract OK · ' + file.name + ' · ' + text.length + ' chars', 'ok');
+      }
+      return text;
+    }
+    throw new Error('Tesseract returned only ' + (text ? text.length : 0) + ' chars');
+  } catch (tessErr) {
+    console.warn('Tesseract extraction also failed:', tessErr);
+    if (typeof logAudit === 'function') {
+      logAudit('Extract', 'Tesseract FAILED · ' + file.name + ' · ' + (tessErr.message || tessErr), 'error');
+    }
+    // Re-throw with a sentinel so callers can show the manual-paste affordance
+    throw new Error('__UNREADABLE__::Both Claude Vision and Tesseract OCR failed to extract text from ' + file.name + '. Paste the content manually.');
+  }
+}
+
 async function extractText(file, metadata) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
@@ -1313,8 +1900,20 @@ async function extractText(file, metadata) {
     const cleanedLength = text.replace(/\s+/g, '').length;
     const avgCharsPerPage = cleanedLength / pdf.numPages;
     if (cleanedLength < 100 || avgCharsPerPage < 50) {
-      throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
+      // v8.6.14 (per GPT external audit): fall back to Claude Vision /
+      // Tesseract OCR instead of throwing __SCANNED_PDF__. Restores the
+      // v8.2 capability that was missing from this bundle.
+      // _extractWithVisionThenTesseract overwrites meta.kind / meta.pageTexts
+      // with its own values from the OCR pass (Claude transcription, not
+      // pdfjs text-layer scrape).
+      if (typeof logAudit === 'function') {
+        logAudit('Extract', 'Scanned PDF detected for ' + file.name + ' (' + cleanedLength + ' text chars / ' + pdf.numPages + ' pages) · routing to Vision OCR', 'warn');
+      }
+      // Reset meta.pageTexts so the OCR path can repopulate cleanly
+      meta.pageTexts = null;
+      return await _extractWithVisionThenTesseract(file, meta);
     }
+    meta.extractedVia = 'text-layer';
     return text;
   }
 
@@ -1358,10 +1957,14 @@ async function extractText(file, metadata) {
     throw new Error('__UNREADABLE__::PowerPoint content cannot be auto-extracted in-browser. Paste the relevant slide text manually, or export the deck to PDF first.');
   }
 
-  // Raster images — same story. OCR would need a heavy library (Tesseract.js ~10MB).
-  // For now, surface a clear manual-entry affordance.
+  // Raster images — v8.6.14: route to Claude Vision (with Tesseract fallback).
+  // The previous build threw __UNREADABLE__ here; the v8.2 Vision capability
+  // was missing from this bundle. Restored.
   if (/\.(png|jpg|jpeg|webp|heic|heif|gif|bmp|tiff|tif)$/.test(name)) {
-    throw new Error('__UNREADABLE__::Image files require OCR, which isn\'t enabled in this build. Paste the visible text manually.');
+    if (typeof logAudit === 'function') {
+      logAudit('Extract', 'Image file ' + file.name + ' · routing to Vision OCR', 'ok');
+    }
+    return await _extractWithVisionThenTesseract(file, meta);
   }
 
   if (name.endsWith('.csv') || name.endsWith('.tsv')) {
@@ -5109,6 +5712,10 @@ function deleteCard(mid) {
 
 async function revertCard(mid) {
   if (!confirm('Revert ' + (MODULES[mid] ? MODULES[mid].name : mid) + ' to original AI output? All your edits to this card will be lost.')) return;
+  // v8.6.14 (per GPT external audit): drain pending saves BEFORE deleting
+  // the cloud row. Without this, a debounced save in flight could land
+  // after sbDeleteEdit completes and resurrect the edit on next refresh.
+  await flushEditsNow();
   delete STATE.edits[mid];
   // Now awaited: the toast at the end reflects whether cloud cleanup AND
   // snapshot resync both succeeded. Previously fire-and-forget — the
@@ -5149,6 +5756,10 @@ async function restoreAllCards() {
   // would re-hide on next rehydrate (which overlays cloud hidden:<id>
   // rows on top of the snapshot).
   const hiddenIds = Object.keys(STATE.hiddenCards || {});
+  // v8.6.14: drain SAVE_QUEUE before mutating state. Without this, an
+  // in-flight save that snapshots STATE.hiddenCards could land after the
+  // cloud delete and re-hide the cards on next rehydrate.
+  await flushEditsNow();
   STATE.hiddenCards = {};
   // Now awaited end-to-end: each hidden:<id> row delete must complete, AND
   // the snapshot resync must complete, before the success toast fires.

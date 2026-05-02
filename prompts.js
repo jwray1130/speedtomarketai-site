@@ -222,35 +222,52 @@ dominant one. The pipeline routes each classification independently.
 CRITICAL — for COMBINED ACORD packets (a single PDF containing multiple
 ACORD forms — typically 125 + 126 + 127 + 129 + 131 + 139 + 140 etc.):
 
-  v8.6.11 (per Justin's review): we ONLY emit classifications for
-  ACORD 125, ACORD 126, and ACORD 131. The other ACORD forms in the
-  packet (127, 129, 137, 139, 140, 152, etc.) are processed as part of
-  the document but produce NO classification entries — they will not
-  appear in the chip layer.
+  v8.6.13: scan and recognize ALL ACORD forms in the packet (see ACORD
+  POLICY in APPLICATIONS bucket above). The model needs to see every
+  form to accurately distinguish them. But the OUTPUT only includes
+  classifications for ACORD 125, ACORD 126, and ACORD 131.
 
-  For each of ACORD 125, 126, 131 that you detect in the combined PDF,
-  emit ONE classification entry with:
+  For each of ACORD 125, 126, 131 you detect in the packet, emit ONE
+  classification entry with:
     • type = "APPLICATIONS"
     • tag = "ACORD 125" (or "ACORD 126" or "ACORD 131")
     • section_hint set to the page range that ACORD form occupies
       (e.g., "pages 1-4" for 125, "pages 5-8" for 126, "pages 9-12"
       for 131)
 
-  ACORD 131 IS HIGH-PRIORITY. It is the Umbrella/Excess Section and
-  feeds directly into the excess casualty workflow. If a combined
-  packet contains an ACORD 131, you MUST detect it and emit a
-  classification entry. Look for the form number "ACORD 131" printed
-  in the form's header/footer area (often "ACORD 131 (YYYY/MM)").
-  Common signatures of the ACORD 131 section:
-    • Header text: "Umbrella/Excess Section" or
-      "Commercial Umbrella/Excess Liability Section"
-    • Fields for "Underlying Limits", "Aggregate Limits",
-      "Self-Insured Retention", "Excess Limits Required"
-    • Schedule of underlying coverages
-  If you see any of those signatures, emit the ACORD 131 entry.
+  Detect each ACORD form by its number printed on every page (e.g.,
+  "ACORD 125 (2016/03)" appears on every page of the 125 section).
+  Pay particular attention to ACORD 131 — see "ACORD 131 IS HIGH-
+  PRIORITY" notes in the APPLICATIONS bucket above for detection
+  signatures. Missing the 131 is a core failure for excess casualty
+  underwriting.
 
-  Detect each ACORD form by its number printed on every page
-  (e.g., "ACORD 125 (2016/03)" appears on every page of the 125 section).
+  If the combined packet contains 127, 129, 137, 139, 140, 152 etc.,
+  the model must still IDENTIFY them internally (so it doesn't mistake
+  a 129 for a 126), but does NOT emit classification entries for them.
+
+  ⚠ IMPORTANT — combined packets often contain NON-ACORD content too.
+  A broker submission PDF labeled "Carroll Co Pkg App" may contain:
+  ACORD 125, ACORD 126, ACORD 131, AND ALSO a Sub Agreement, a Safety
+  Program, a Narrative, or a Description of Operations bound into the
+  same PDF.
+
+  When the packet contains non-ACORD content, you MUST emit separate
+  classification entries for each non-ACORD section, alongside the
+  ACORD entries. Examples:
+
+  Combined PDF contains: ACORD 125 (pages 1-4), ACORD 126 (pages 5-8),
+                         Sub Agreement (pages 9-15), ACORD 131 (pages 16-20)
+  → Emit FOUR classifications:
+       { type: 'APPLICATIONS', tag: 'ACORD 125',     section_hint: 'pages 1-4' }
+       { type: 'APPLICATIONS', tag: 'ACORD 126',     section_hint: 'pages 5-8' }
+       { type: 'APPLICATIONS', tag: 'Sub Agreement', section_hint: 'pages 9-15' }
+       { type: 'APPLICATIONS', tag: 'ACORD 131',     section_hint: 'pages 16-20' }
+
+  Each section gets its own routing — Sub Agreement → A3 subcontract
+  module, Safety Program → A5 safety module, etc. Without separate
+  classification entries, those modules never run on the relevant
+  pages and key data goes unextracted.
 
 ═══════════════════════════════════════════════════════════════════════════════
 TAGS YOU MUST NEVER EMIT — RULE 8
@@ -320,31 +337,70 @@ Use the most specific tag from the list below. If unsure, emit "???"
 with needs_review: true.
 
 APPLICATIONS bucket:
-  • "ACORD 125"               — Commercial Insurance App (general info,
-                                operations, locations). EMIT THIS TAG.
-  • "ACORD 126"               — Commercial GL Section. EMIT THIS TAG.
-  • "ACORD 131"               — Umbrella/Excess Section. EMIT THIS TAG.
-  • "Supp App"                — Generic carrier supplemental application
 
-  ⚠ ACORD POLICY (v8.6.11, per Justin's review):
-  ONLY ACORD 125, 126, and 131 are recognized as their own tags.
-  Other ACORD form numbers (127, 129, 137, 139, 140, 152, 829, etc.)
-  appear in submissions but are NOT used by the excess casualty workflow.
-  When you encounter them inside a combined ACORD packet:
-    • Do NOT emit a separate classification entry for them
-    • Do NOT include them in the classifications array as their own section
-    • Their pages are simply part of the broader APPLICATIONS bucket
-    • If the COMBINED PDF as a whole is APPLICATIONS, emit ONE entry
-      covering the whole document with type=APPLICATIONS and tag set
-      to whichever of {ACORD 125, ACORD 126, ACORD 131} appears first,
-      OR omit per-section entries entirely if none of those three are
-      present.
-  This means in a typical commercial submission with ACORD 125 + 126 +
-  127 + 129 + 131 + 140, you should emit exactly three section entries:
-  one for ACORD 125 (with section_hint of its page range), one for
-  ACORD 126, and one for ACORD 131. The 127, 129, and 140 sections
-  produce NO entries — they're invisible to the chip layer but the
-  pages still belong to the document and the APPLICATIONS bucket.
+  ⚠ ACORD POLICY (v8.6.13, per Justin's review):
+  The classifier MUST recognize and understand ALL ACORD forms below.
+  This is critical for accurate detection — without seeing the full
+  taxonomy, the model loses the ability to distinguish 126 from 127,
+  131 from 137, etc.
+
+  However, the OUTPUT classifications array only includes entries for
+  ACORD 125, ACORD 126, and ACORD 131. All other ACORDs are filtered
+  out at the output stage — see "OUTPUT FILTER" below.
+
+  ACORD form recognition (the model MUST be able to identify each):
+  • "ACORD 125"  — Commercial Insurance App (general info, operations,
+                   locations). Header: "Commercial Insurance Application".
+                   Form number "ACORD 125 (YYYY/MM)" in footer.
+  • "ACORD 126"  — Commercial GL Section. Header: "Commercial General
+                   Liability Section". Schedules of hazards, GL coverage
+                   limits, premises/operations/products. Form number
+                   "ACORD 126 (YYYY/MM)".
+  • "ACORD 127"  — Business Auto Section. Header: "Business Auto Section".
+                   Symbols, limits, vehicles, drivers. Form number
+                   "ACORD 127 (YYYY/MM)".
+  • "ACORD 129"  — Property Section. Header: "Property Section". Building/
+                   contents, COPE info. Form number "ACORD 129 (YYYY/MM)".
+  • "ACORD 131"  — Umbrella/Excess Section. Header: "Commercial Umbrella/
+                   Excess Liability Section" or "Umbrella/Excess Section".
+                   Schedule of underlying coverages, requested excess
+                   limits, retentions. Form number "ACORD 131 (YYYY/MM)".
+  • "ACORD 137"  — Garage and Dealers Section.
+  • "ACORD 139"  — Statement of Values.
+  • "ACORD 140"  — Property Section (alt format).
+  • "ACORD 152"  — Commercial Inland Marine.
+  • "ACORD 823"  — Other (varies).
+
+  ⚠ ACORD 131 IS HIGH-PRIORITY — DO NOT MISS IT.
+  ACORD 131 is the umbrella/excess section and feeds the core excess
+  casualty workflow. When scanning a combined ACORD packet, the model
+  MUST scan every page for the ACORD 131 form number. Strong signatures:
+    • "ACORD 131" form number printed in header or footer
+    • Section header "Commercial Umbrella/Excess Liability Section"
+    • Schedule of Underlying Coverages table (typically lists GL, AL,
+      EL with carrier names and limits)
+    • Fields for "Excess Limits Required", "Self-Insured Retention",
+      "Aggregate Limits"
+    • Mention of "umbrella" or "excess" in the form's introductory text
+  If ANY of these are present, the section is ACORD 131.
+
+  ──── OUTPUT FILTER ─────────────────────────────────────────────────
+  When emitting the final classifications array, ONLY include entries
+  whose tag is one of: "ACORD 125", "ACORD 126", "ACORD 131".
+
+  All other ACORD detections (127, 129, 137, 139, 140, 152, 823, etc.)
+  inform the model's understanding of the document — they help the
+  model accurately identify which sections are 125/126/131 — but they
+  produce NO classification entries in the output JSON. Their pages
+  are still part of the document and file under APPLICATIONS, but no
+  chip appears in the Tagged Pages layer.
+
+  Example: a combined packet containing ACORD 125 + 126 + 127 + 129 +
+  131 + 140 should produce classifications for 125, 126, and 131 only —
+  three entries with section_hint set to each form's page range.
+
+  ──── ALSO IN APPLICATIONS BUCKET ───────────────────────────────────
+  • "Supp App"                — Generic carrier supplemental application
   • "Contractors Supp"        — Contractor industry supplemental
   • "Manufacturing Supp"      — Manufacturing supplemental
   • "HNOA Supp"               — Hired/non-owned auto supplemental

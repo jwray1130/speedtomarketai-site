@@ -56,6 +56,31 @@ function setWebStatus(msg, kind) {
   el.style.display = 'block';
 }
 
+// v8.6.14 (per GPT external audit): escape user-typed strings before
+// interpolation into setWebStatus() HTML. Call sites build status strings
+// like "Searching for {name}..." where name/zip come from the input fields.
+// Escaping is defense-in-depth against self-XSS even though risk is low
+// (only the user typing it would see the result).
+function escWebStatus(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// v8.6.14: single source of truth for HTML CORS proxies. Previously two
+// separate lists (fetchTextViaProxy with 3 entries, fetchViaProxy with 4)
+// drifted, and a comment said "Three" while listing four names. Both
+// consumers now read from this constant.
+const HTML_PROXIES = [
+  { name: 'corsproxy.io', mk: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
+  { name: 'allorigins',   mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+  { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) },
+  { name: 'cors.sh',      mk: u => 'https://proxy.cors.sh/' + u }
+];
+
 // Normalize input — ensure it has a protocol, strip whitespace
 function normalizeUrl(raw) {
   let url = (raw || '').trim();
@@ -254,14 +279,9 @@ async function discoverSitemapUrls(startUrl) {
 // sitemap.xml / robots.txt — small text files that don't need the
 // SPA-detection logic in fetchViaProxy.
 async function fetchTextViaProxy(url) {
-  const proxies = [
-    u => 'https://corsproxy.io/?' + encodeURIComponent(u),
-    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u)
-  ];
-  for (const mk of proxies) {
+  for (const proxy of HTML_PROXIES) {
     try {
-      const res = await fetch(mk(url), { method: 'GET' });
+      const res = await fetch(proxy.mk(url), { method: 'GET' });
       if (!res.ok) continue;
       const text = await res.text();
       if (text && text.length > 20) return text;
@@ -273,7 +293,7 @@ async function fetchTextViaProxy(url) {
 // Fetch a URL via a chain of fallback services. Returns { html, source } or throws.
 //
 // Strategy (in order):
-//   1) Three HTML CORS proxies (corsproxy.io, allorigins, codetabs, cors.sh).
+//   1) HTML CORS proxies (see HTML_PROXIES constant near top of file).
 //      These return the raw HTML exactly as the server sent it — fast, cheap,
 //      works for server-rendered sites (WordPress, static, etc.).
 //   2) Jina Reader (r.jina.ai) — a free JS-rendering reader that executes
@@ -286,14 +306,9 @@ async function fetchTextViaProxy(url) {
 // normalize whitespace — safe to run either way.
 async function fetchViaProxy(url) {
   // Tier 1 — raw HTML proxies. Try each in order; any 2xx with non-tiny body wins.
-  const htmlProxies = [
-    { name: 'corsproxy.io', mk: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
-    { name: 'allorigins',   mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
-    { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) },
-    { name: 'cors.sh',      mk: u => 'https://proxy.cors.sh/' + u }
-  ];
+  // v8.6.14: uses shared HTML_PROXIES constant (was a duplicated local list).
   let lastErr = null;
-  for (const proxy of htmlProxies) {
+  for (const proxy of HTML_PROXIES) {
     try {
       const res = await fetch(proxy.mk(url), { method: 'GET' });
       if (!res.ok) { lastErr = new Error(proxy.name + ' HTTP ' + res.status); continue; }
@@ -629,7 +644,7 @@ async function scrapeWebsiteFromUrl() {
       elapsedMs: result.elapsedMs
     });
   } catch (err) {
-    setWebStatus('<strong>Scrape failed</strong> — ' + err.message, 'error');
+    setWebStatus('<strong>Scrape failed</strong> — ' + escWebStatus(err.message), 'error');
     logAudit('Classifier', 'Website scrape failed for ' + url + ': ' + err.message, 'error');
   } finally {
     btn.disabled = false;
@@ -655,7 +670,7 @@ async function findAndScrapeWebsite() {
   const btn = document.getElementById('btnFindAndScrape');
   btn.disabled = true;
   try {
-    setWebStatus('<strong>Searching</strong> for "' + name + (zip ? ' · ' + zip : '') + '"…', 'running');
+    setWebStatus('<strong>Searching</strong> for "' + escWebStatus(name) + (zip ? ' · ' + escWebStatus(zip) : '') + '"…', 'running');
     const url = await findWebsiteViaClaude(name, zip);
     if (!url) {
       // Claude ran but couldn't find an authoritative domain. Switch to Manual tab.
