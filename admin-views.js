@@ -29,97 +29,6 @@
 // No logic changed. Only thing that moved is where the bytes live on disk.
 // ============================================================================
 
-// v8.6.14: structured-meta summarization for the audit log column.
-// Several producers (LLM proxy, pipeline, classifier) emit JSON in the
-// audit `meta` field with rich diagnostic data. The previous render
-// truncated meta to 40 chars which produced useless slices like
-// `{"status":200,"request_bytes":3492,"resp`. This helper detects JSON
-// and renders a compact human-readable summary of the most diagnostic
-// fields, falling back to text truncation for non-JSON meta.
-//
-// Recognized JSON fields (any subset OK, all optional):
-//   status            HTTP status code
-//   model             Anthropic model name (claude-3-5-sonnet, etc.)
-//   latency_ms        Per-attempt latency in milliseconds
-//   ray_id            Cloudflare Ray ID for support escalation
-//   error_category    Categorized error (timeout, network, 5xx, etc.)
-//   request_bytes     Outbound payload size
-//   response_bytes    Inbound payload size
-//   attempt           Retry attempt number
-//   max_attempts      Configured retry ceiling
-//
-// Renders as e.g.:
-//   200 · sonnet · 1843ms · ray:8a3f9 · req:3492 res:18204
-//   ERR · timeout · 30000ms · attempt 3/4
-function summarizeMeta(metaText) {
-  if (metaText == null) return '—';
-  const s = String(metaText).trim();
-  if (!s || s === '—') return '—';
-
-  // Fast-path: only attempt JSON parse if the string looks like an object.
-  // Avoids try/catch overhead for the common case of non-JSON strings.
-  let j = null;
-  if (s.length > 1 && s.charAt(0) === '{') {
-    try { j = JSON.parse(s); } catch { j = null; }
-  }
-
-  if (!j || typeof j !== 'object') {
-    // Non-JSON meta — fall back to original 40-char truncation.
-    return s.length > 40 ? s.slice(0, 40) + '…' : s;
-  }
-
-  const parts = [];
-
-  // Status: highlight HTTP errors with ERR prefix
-  if (j.status != null) {
-    const st = Number(j.status);
-    if (st === 0)              parts.push('NET·ERR');           // network/abort
-    else if (st >= 200 && st < 300) parts.push(String(st));
-    else                       parts.push('ERR·' + st);
-  }
-
-  // Error category (timeout, network, 5xx_with_retry, etc.)
-  if (j.error_category) parts.push(String(j.error_category));
-
-  // Model — strip the redundant "claude-" prefix for compactness
-  if (j.model) {
-    const m = String(j.model).replace(/^claude-/, '');
-    parts.push(m);
-  }
-
-  // Latency
-  if (j.latency_ms != null) parts.push(j.latency_ms + 'ms');
-
-  // Cloudflare Ray ID — only the first 5 chars (enough to grep CF logs)
-  if (j.ray_id) parts.push('ray:' + String(j.ray_id).slice(0, 5));
-
-  // Byte sizes — combined into one segment for compactness
-  if (j.request_bytes != null || j.response_bytes != null) {
-    const reqK = j.request_bytes != null ? Math.round(j.request_bytes / 1024) : null;
-    const resK = j.response_bytes != null ? Math.round(j.response_bytes / 1024) : null;
-    const sizeBits = [];
-    if (reqK != null) sizeBits.push('req:' + reqK + 'k');
-    if (resK != null) sizeBits.push('res:' + resK + 'k');
-    if (sizeBits.length) parts.push(sizeBits.join(' '));
-  }
-
-  // Retry attempt context
-  if (j.attempt != null) {
-    const max = j.max_attempts != null ? '/' + j.max_attempts : '';
-    parts.push('try:' + j.attempt + max);
-  }
-
-  if (parts.length === 0) {
-    // JSON had no recognized fields — fall back to text truncation.
-    return s.length > 40 ? s.slice(0, 40) + '…' : s;
-  }
-
-  const summary = parts.join(' · ');
-  // Cap the summary too — if too many fields are populated we don't want
-  // the row growing unboundedly. The full meta is in the tooltip.
-  return summary.length > 80 ? summary.slice(0, 80) + '…' : summary;
-}
-
 // Render the real Users & roles admin card. Called when the Admin tab opens.
 // Silent no-op for non-admins — they keep the static placeholder visuals.
 // Errors are caught and surfaced in the card status; logAudit captures them
@@ -322,23 +231,12 @@ async function renderAdminAuditLog(opts) {
       const time = t ? t.toISOString().slice(11, 19) : '';
       const date = t ? t.toISOString().slice(0, 10) : '';
       const metaText = r.meta || '—';
-      // v8.6.14: structured-meta summarization. Several producers (LLM proxy,
-      // pipeline, classifier) emit JSON in `meta` with status/model/latency/
-      // ray_id/error_category/etc. The old code truncated to 40 chars which
-      // showed `{"status":200,"request_bytes":3492,"resp` — useless for
-      // forensic debugging. summarizeMeta() detects JSON, picks the most
-      // diagnostic fields, and renders a compact human-readable summary.
-      // Falls back to the same 40-char truncation for non-JSON meta.
-      const metaShort = summarizeMeta(metaText);
-      // Title tooltip reveals full timestamp, user_id prefix, submission_id
-      // AND the raw meta JSON for deep-dive — useful forensic detail without
-      // cluttering the row.
+      const metaShort = metaText.length > 40 ? metaText.slice(0, 40) + '…' : metaText;
+      // Title tooltip reveals full timestamp, user_id prefix, and submission_id
+      // on hover — useful forensic detail without cluttering the row.
       const tooltipBits = [date + ' ' + time];
       if (r.user_id) tooltipBits.push('user:' + r.user_id.slice(0, 8));
       if (r.submission_id) tooltipBits.push('sub:' + r.submission_id);
-      if (metaText && metaText !== '—' && metaText.length > 0) {
-        tooltipBits.push('meta:' + (metaText.length > 400 ? metaText.slice(0, 400) + '…' : metaText));
-      }
       return `
         <div class="audit-entry" title="${escapeHtml(tooltipBits.join(' · '))}">
           <span class="audit-time">${escapeHtml(time)}</span>
