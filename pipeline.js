@@ -1621,16 +1621,20 @@ function sanitizeClassifierForExcessCasualty(norm) {
     });
 
   if (cleaned.length === 0) {
+    // Mark pure non-excess-casualty files as an intentional file-and-forget
+    // item. Using '???' is important because the pre-flight guard already
+    // treats it as a valid non-routed tag; using ADMINISTRATION here would
+    // make the guard think routing broke and could abort the whole pipeline.
     cleaned.push({
-      type: 'ADMINISTRATION',
+      type: '???',
       confidence: Math.max(norm.primaryConfidence || 0, 0.70),
       subType: null,
       subTypeConfidence: null,
-      reasoning: 'Non-excess-casualty content only; filed without chip or extraction route.',
+      reasoning: 'Non-excess-casualty content only; intentionally skipped by excess-casualty sanitizer.',
       signaturePhrases: [],
       section_hint: 'entire document',
-      tag: null,
-      primary_bucket: 'ADMINISTRATION'
+      tag: '???',
+      primary_bucket: 'UNIDENTIFIED'
     });
   }
 
@@ -1727,8 +1731,25 @@ async function classifyFile(file) {
     logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
-    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
-    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
+    // v8.6.13 performance: verify only where it changes risk materially —
+    // long combined PDFs, low-confidence sections, missing tags, or missing
+    // section hints. Obvious high-confidence single-section files keep the
+    // same pass-1 classification and avoid a second LLM round trip.
+    const shouldVerifyClassification =
+      CLASSIFY_CONFIG.enableVerifyPass &&
+      window.currentUser &&
+      file.text.length > 6000 &&
+      (
+        normalized.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold ||
+        normalized.isCombined ||
+        (normalized.classifications || []).some(c =>
+          (c.confidence || 0) < 0.85 ||
+          !c.tag ||
+          c.tag === '???' ||
+          (normalized.isCombined && !c.section_hint)
+        )
+      );
+    if (shouldVerifyClassification) {
       try {
         // Sample from MIDDLE + END of the document for verification
         const midStart = Math.floor(file.text.length * 0.4);
@@ -1771,6 +1792,8 @@ async function classifyFile(file) {
       } catch (verifyErr) {
         logAudit('Classifier', 'Verify pass failed for ' + file.name + ' (using pass 1 result): ' + verifyErr.message, 'warn');
       }
+    } else if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
+      logAudit('Classifier', 'Pass 2 skipped: ' + file.name + ' · high-confidence single-section classification', STATE.api.model);
     }
 
   } catch (err) {
@@ -2036,6 +2059,11 @@ async function runPipeline() {
   // it even if the assignment itself threw.
   let timer = null;
   let archiveErr = null;
+  // v8.6.13 performance: docs-view ingestion is important, but it should
+  // not sit on the pipeline's critical path. We queue those thumbnail/
+  // storage/page-row jobs in the background so Wave 1 extraction can start
+  // as soon as classification is done.
+  const docsIngestPromises = [];
   try {
 
   // === SUBMISSION ID PRE-MINT ===
@@ -2233,16 +2261,44 @@ async function runPipeline() {
       // push if no File on hand or processFileFromPipeline isn't exposed.
       if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
         try {
-          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
-          if (newDocIds && newDocIds.length > 0) {
-            f._pushedToDocsView = newDocIds;
-            // Free the File reference once it's safely persisted in Supabase
-            // storage. Keeping it around forever would pin the binary in JS
-            // memory; the docs view re-fetches from storage when needed.
-            f._rawFile = null;
-          }
+          f._pushedToDocsView = 'syncing';
+          const ingestPromise = window.docsView.processFileFromPipeline(f._rawFile, ingestCtx)
+            .then(newDocIds => {
+              if (newDocIds && newDocIds.length > 0) {
+                f._pushedToDocsView = newDocIds;
+                // Free the File reference once it's safely persisted in Supabase
+                // storage. Keeping it around forever would pin the binary in JS
+                // memory; the docs view re-fetches from storage when needed.
+                f._rawFile = null;
+                if (typeof logAudit === 'function') {
+                  logAudit('Docs View', 'Background synced ' + f.name + ' · ' + newDocIds.length + ' page row' + (newDocIds.length === 1 ? '' : 's'), 'ok');
+                }
+              }
+              return { ok: true, ids: newDocIds || [] };
+            })
+            .catch(err => {
+              console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+              // Fall back to metadata-only push so the doc at least appears.
+              if (typeof window.docsView.addDocFromPipeline === 'function') {
+                try {
+                  const docId = window.docsView.addDocFromPipeline({
+                    name: f.name || 'Pipeline Doc',
+                    ...ingestCtx,
+                  });
+                  if (docId) f._pushedToDocsView = docId;
+                } catch (e2) {
+                  console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+                }
+              }
+              if (typeof logAudit === 'function') {
+                logAudit('Docs View', 'Background sync failed for ' + f.name + ': ' + (err.message || err), 'warn');
+              }
+              f._pushedToDocsView = 'sync_failed';
+              return { ok: false, error: err };
+            });
+          docsIngestPromises.push(ingestPromise);
         } catch (err) {
-          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+          console.warn('Pipeline → docs view queue failed for ' + f.name + ':', err);
           // Fall back to metadata-only push so the doc at least appears.
           if (typeof window.docsView.addDocFromPipeline === 'function') {
             try {
@@ -2274,6 +2330,20 @@ async function runPipeline() {
     }
   }));
   renderFileList();
+  if (docsIngestPromises.length > 0) {
+    logAudit('Docs View', 'Queued background document sync for ' + docsIngestPromises.length + ' file' + (docsIngestPromises.length === 1 ? '' : 's') + ' · pipeline continuing', 'ok');
+    Promise.allSettled(docsIngestPromises).then(results => {
+      const failed = results.filter(r =>
+        r.status === 'rejected' ||
+        (r.status === 'fulfilled' && r.value && r.value.ok === false)
+      ).length;
+      const ok = results.length - failed;
+      if (typeof logAudit === 'function') {
+        logAudit('Docs View', 'Background document sync finished · ' + ok + ' ok' + (failed ? ', ' + failed + ' failed' : ''), failed ? 'warn' : 'ok');
+      }
+      if (typeof renderFileList === 'function') renderFileList();
+    });
+  }
   setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');
 
   // === FLAG LOW-CONFIDENCE FILES FOR POST-HOC REVIEW ===

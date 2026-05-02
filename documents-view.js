@@ -1940,7 +1940,13 @@ window.initDocumentsView = function() {
       );
       const page = await pdf.getPage(n);
       const thumbData = await renderPdfPage(page, CONFIG.pdf.thumbnailScale);
-      const highResData = await renderPdfPage(page, CONFIG.pdf.highResScale);
+      // v8.6.13 performance: pipeline-driven ingestion can defer expensive
+      // high-res rendering because the preview/grid already lazy-upgrades
+      // from Supabase storage on demand. Manual uploads keep the old eager
+      // high-res behavior; pipeline uploads without storage also keep it so
+      // the active session still has a usable preview.
+      const deferHighRes = !!state._pipelineCtx && !!(state._uploadCtx && state._uploadCtx.storagePath);
+      const highResData = deferHighRes ? null : await renderPdfPage(page, CONFIG.pdf.highResScale);
       let pageText = '';
       try {
         const tc = await page.getTextContent();

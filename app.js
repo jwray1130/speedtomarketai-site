@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-2026-05-01';
+window.STM_BUILD = 'v8.6.13-2026-05-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1297,14 +1297,38 @@ async function extractText(file, metadata) {
     // v8.5 Rule 9: also build pageTexts[] indexed 0-based, so the
     // pipeline can slice text per-section for combined PDFs.
     const pageTexts = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      totalItems += content.items.length;
-      const pageText = content.items.map(it => it.str).join(' ');
-      pageTexts.push(pageText);
-      text += pageText + '\n\n';
+    // v8.6.13 performance: extract PDF text in small page batches instead
+    // of one page at a time. This keeps page order exactly the same but
+    // shortens the initial drop/parse step on long quote packets and loss
+    // runs. Limit stays conservative to avoid browser memory spikes.
+    const PDF_TEXT_CONCURRENCY = 4;
+    for (let start = 1; start <= pdf.numPages; start += PDF_TEXT_CONCURRENCY) {
+      const end = Math.min(pdf.numPages, start + PDF_TEXT_CONCURRENCY - 1);
+      const batch = [];
+      for (let i = start; i <= end; i++) {
+        batch.push((async (pageNo) => {
+          const page = await pdf.getPage(pageNo);
+          try {
+            const content = await page.getTextContent();
+            return {
+              pageNo,
+              itemCount: content.items.length,
+              pageText: content.items.map(it => it.str).join(' ')
+            };
+          } finally {
+            try { page.cleanup(); } catch(e) {}
+          }
+        })(i));
+      }
+      const results = await Promise.all(batch);
+      results.sort((a, b) => a.pageNo - b.pageNo).forEach(r => {
+        totalItems += r.itemCount;
+        pageTexts[r.pageNo - 1] = r.pageText;
+        text += r.pageText + '\n\n';
+      });
     }
+    try { await pdf.cleanup(); } catch(e) {}
+    try { await pdf.destroy(); } catch(e) {}
     meta.kind = 'pdf';
     meta.pageCount = pdf.numPages;
     meta.pageTexts = pageTexts;
