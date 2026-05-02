@@ -1132,29 +1132,32 @@ async function incrementalProcess(newFiles) {
     // initial-run path uses (see runPipeline). Skip if already pushed (from
     // a parent run, e.g. user adds the same file twice in one session).
     if (window.docsView && !f._pushedToDocsView) {
-      let alreadyPushed = false;
+      // v8.6.14: same UPDATE-IN-PLACE pattern as the main runPipeline block.
+      // See the long comment there. When a duplicate is detected, refresh
+      // the existing rows' classifier metadata via updateDocsForFile rather
+      // than skipping — so re-runs reflect the latest classifier output.
+      let existingDocIds = [];
       try {
         if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
           const existing = window.docsView.getDocs();
           const baseName = (f.name || '').replace(/\.[^.]+$/, '');
           const pageSplitPrefix = baseName + ' — Page ';
-          alreadyPushed = existing.some(d =>
-            d.submissionId === STATE.activeSubmissionId &&
-            d.name && (
-              d.name === f.name ||
-              d.name === baseName ||
-              d.name.indexOf(pageSplitPrefix) === 0
+          existingDocIds = existing
+            .filter(d =>
+              d.submissionId === STATE.activeSubmissionId &&
+              d.name && (
+                d.name === f.name ||
+                d.name === baseName ||
+                d.name.indexOf(pageSplitPrefix) === 0
+              )
             )
-          );
-          if (alreadyPushed) {
-            f._pushedToDocsView = 'cached';
-            logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
-          }
+            .map(d => d.id);
         }
       } catch (e) {
         console.warn('Docs view duplicate check failed in incremental, proceeding with push:', e);
       }
-      if (!alreadyPushed) {
+      const alreadyExists = existingDocIds.length > 0;
+      {
         // v8.6.4: single source of truth for docs-view mapping. Pass
         // primary_bucket if the classifier emitted it, else fall back to
         // legacy type. Tag is always passed so granular fallback works
@@ -1185,7 +1188,26 @@ async function incrementalProcess(newFiles) {
               }))
             : null,
         };
-        if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
+        if (alreadyExists) {
+          // v8.6.14: UPDATE PATH — refresh classifier metadata only.
+          try {
+            if (typeof window.docsView.updateDocsForFile === 'function') {
+              const updated = await window.docsView.updateDocsForFile(f.name, ingestCtx);
+              f._pushedToDocsView = existingDocIds;
+              if (typeof logAudit === 'function') {
+                logAudit('Docs View', 'Re-classified ' + f.name + ' · ' + (updated || existingDocIds.length) + ' page(s) updated · incremental', 'ok');
+              }
+            } else {
+              f._pushedToDocsView = 'cached';
+              if (typeof logAudit === 'function') {
+                logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · updateDocsForFile unavailable', 'warn');
+              }
+            }
+          } catch (e) {
+            console.warn('Incremental docs view re-classify failed for ' + f.name + ':', e);
+            f._pushedToDocsView = 'cached';
+          }
+        } else if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
           try {
             const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
             if (newDocIds && newDocIds.length > 0) {
@@ -2096,46 +2118,46 @@ async function runPipeline() {
     //     fall back to the metadata-only push so the doc still appears,
     //     just without a working preview.
     if (window.docsView && !f._pushedToDocsView) {
-      // Re-run double-push guard. If docsView.getDocs reports any existing
-      // doc rows for this submission belonging to the same source file,
-      // skip the push so re-runs don't double-add. The user can force
-      // re-classification by deleting the docs in the file manager first.
+      // v8.6.14 (per GPT external audit): re-runs now UPDATE existing docs
+      // in place rather than skipping them. The previous behavior skipped
+      // the push if any existing doc rows matched the source filename in
+      // this submission — which meant after a classifier improvement
+      // (better ACORD detection, hardened section_hint logic, etc.), the
+      // user would re-run the pipeline and see the SAME old chips/folders
+      // because the existing rows kept their stale tags. Now: detect
+      // duplicates, but instead of skipping, call docsView.updateDocsForFile
+      // to refresh pipeline_tag, primary_bucket, category, color, and
+      // sectionClassifications on the existing rows. Net result: re-runs
+      // reflect the new classifier output without requiring the user to
+      // first delete the docs.
       //
-      // Match precision matters here. The docs view's PDF processor splits
-      // multi-page PDFs into "BaseName — Page N" entries, so we can't
-      // exact-match the original filename. But arbitrary prefix matching
-      // is too loose (would falsely block "Safety Manual.pdf" if "Safety
-      // Manual Updated.pdf" was already there — its split docs all start
-      // with "Safety Manual"). The fix: match only the EXACT page-split
-      // format the processor produces ("BaseName — Page N"), or the
-      // original filename for non-split single-page docs. Em-dash is the
-      // separator the splitter uses (see processPDF in documents-view.js).
-      let alreadyPushed = false;
+      // Match precision (carried over): doc rows for combined PDFs are
+      // named "BaseName — Page N" with em-dash separator. We match on the
+      // exact processor format or the original filename — never arbitrary
+      // prefix matching.
+      let existingDocIds = [];
       try {
         if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
           const existing = window.docsView.getDocs();
           const baseName = (f.name || '').replace(/\.[^.]+$/, '');
           const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
-          alreadyPushed = existing.some(d =>
-            d.submissionId === STATE.activeSubmissionId &&
-            d.name && (
-              d.name === f.name ||                         // single-page or non-PDF
-              d.name === baseName ||                       // single-page PDF
-              d.name.indexOf(pageSplitPrefix) === 0        // multi-page PDF split entry
+          existingDocIds = existing
+            .filter(d =>
+              d.submissionId === STATE.activeSubmissionId &&
+              d.name && (
+                d.name === f.name ||                         // single-page or non-PDF
+                d.name === baseName ||                       // single-page PDF
+                d.name.indexOf(pageSplitPrefix) === 0        // multi-page PDF split entry
+              )
             )
-          );
-          if (alreadyPushed) {
-            f._pushedToDocsView = 'cached';
-            if (typeof logAudit === 'function') {
-              logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
-            }
-          }
+            .map(d => d.id);
         }
       } catch (e) {
-        // Cache check failed — proceed with push anyway. Worst case we
+        // Existence check failed — proceed with push anyway. Worst case we
         // push duplicates, which is the previous behavior.
         console.warn('Docs view duplicate check failed, proceeding with push:', e);
       }
+      const alreadyExists = existingDocIds.length > 0;
       // v8.6.4: single source of truth for docs-view mapping. Pass
       // primary_bucket if the classifier emitted it, else fall back to
       // legacy type. Tag is always passed so granular fallback works
@@ -2165,8 +2187,38 @@ async function runPipeline() {
             }))
           : null,
       };
-      // Skip both push paths if we already determined a duplicate exists.
-      if (!alreadyPushed) {
+      if (alreadyExists) {
+        // v8.6.14: UPDATE PATH — refresh classifier metadata on existing
+        // doc rows without re-uploading the binary. docsView exposes
+        // updateDocsForFile() which iterates the matched docs, applies
+        // the new ingestCtx fields (pipelineTag, primaryBucket, category,
+        // color, sectionClassifications), and persists each change via
+        // sbUpdateDocumentPage. The binary stays put in storage — this
+        // is a metadata refresh, not a re-ingestion.
+        try {
+          if (typeof window.docsView.updateDocsForFile === 'function') {
+            const updated = await window.docsView.updateDocsForFile(f.name, ingestCtx);
+            f._pushedToDocsView = existingDocIds;
+            if (typeof logAudit === 'function') {
+              logAudit('Docs View', 'Re-classified ' + f.name + ' · ' + (updated || existingDocIds.length) + ' page(s) updated in submission ' + STATE.activeSubmissionId, 'ok');
+            }
+          } else {
+            // updateDocsForFile not available on this docsView build —
+            // fall back to the prior skip behavior so we don't double-add.
+            f._pushedToDocsView = 'cached';
+            if (typeof logAudit === 'function') {
+              logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · updateDocsForFile unavailable', 'warn');
+            }
+          }
+        } catch (e) {
+          console.warn('Docs view re-classify failed for ' + f.name + ':', e);
+          if (typeof logAudit === 'function') {
+            logAudit('Docs View', 'Re-classify failed for ' + f.name + ' · ' + (e.message || e) + ' · existing rows kept', 'error');
+          }
+          f._pushedToDocsView = 'cached';
+        }
+      } else {
+      // INSERT PATH — new file, push the binary + thumbnails.
       // Prefer full ingestion (binary + thumbnails). Falls back to metadata
       // push if no File on hand or processFileFromPipeline isn't exposed.
       if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
@@ -2208,7 +2260,7 @@ async function runPipeline() {
           console.warn('Metadata-only push failed for ' + f.name + ':', err);
         }
       }
-      }  // end if (!alreadyPushed)
+      }  // end if (alreadyExists) else
     }
   }));
   renderFileList();
@@ -2591,3 +2643,9 @@ window.MODEL_PRICING = MODEL_PRICING;
 window.CLASSIFIER_TYPES = CLASSIFIER_TYPES;
 window.CLASSIFY_CONFIG = CLASSIFY_CONFIG;
 window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;
+// v8.6.14: documents-view.js's per-section classification logic uses this
+// to resolve primary_bucket → {category, color} consistently with the
+// pipeline's INSERT path. Without the window export, the documents-view
+// fallback path runs (no category/color) and per-section folder routing
+// silently degrades to parent's bucket.
+window.docsViewMappingFor = docsViewMappingFor;

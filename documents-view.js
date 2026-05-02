@@ -2398,27 +2398,107 @@ window.initDocumentsView = function() {
     return [start, end];
   }
   function _resolvePerPageTag(opts, pctx) {
+    // v8.6.14: kept as a thin compatibility wrapper. Original callers used
+    // this for the tag string only. New code should call
+    // _resolvePerPageClassification() instead, which returns tag plus
+    // category/color/primaryBucket/routedTo so combined PDFs with mixed
+    // buckets (Applications + Underlying + Loss History stitched) put each
+    // section into its correct folder, not the parent's bucket.
+    const pc = _resolvePerPageClassification(opts, pctx);
+    return pc ? pc.tag : null;
+  }
+
+  // v8.6.14 (per GPT external audit): resolve full per-page classification
+  // for combined PDFs. Returns one of:
+  //   - null                           → no section starts on this page
+  //   - { tag, category, color,        → this page is a section start;
+  //       primaryBucket, routedTo,       use these per-section values
+  //       isSectionStart: true }
+  //   - { tag, category, color,        → no section starts here, fall back
+  //       primaryBucket, routedTo,       to parent's classification (page 1
+  //       isSectionStart: false }        of single-classification docs)
+  //
+  // Why this exists: _resolvePerPageTag previously returned only the tag
+  // string. category/color came from pctx (parent), so a mixed combined
+  // PDF (Applications + Underlying + Loss History) put every section into
+  // the parent's bucket. Now category/color resolve per-section via the
+  // section's own primary_bucket → docsViewMappingFor() lookup.
+  function _resolvePerPageClassification(opts, pctx) {
     const pageNum = opts.pageNumber || 1;
-    // v8.6.7: prefer pctx.sectionClassifications (pipeline-driven path),
-    // fall back to opts.sectionClassifications (direct caller path).
-    // Either source yields the same shape: array of {tag, section_hint, ...}.
     const sections =
       (pctx && Array.isArray(pctx.sectionClassifications) && pctx.sectionClassifications) ||
       (opts && Array.isArray(opts.sectionClassifications) && opts.sectionClassifications) ||
       null;
+
+    // Helper: resolve a single section/classification block to the full
+    // {tag, category, color, primaryBucket, routedTo} shape via the same
+    // docsViewMappingFor logic the pipeline uses. Falls back gracefully if
+    // docsViewMappingFor isn't reachable (defensive against script-load
+    // ordering — documents-view.js doesn't strictly depend on pipeline.js).
+    function _expandClassification(s) {
+      const tag = s.tag || s.subType || s.type || null;
+      const primaryBucket = s.primary_bucket || s.primaryBucket || null;
+      let category = null;
+      let color = null;
+      try {
+        const mapper = (typeof window !== 'undefined' && typeof window.docsViewMappingFor === 'function')
+          ? window.docsViewMappingFor
+          : (typeof docsViewMappingFor === 'function' ? docsViewMappingFor : null);
+        if (mapper) {
+          const m = mapper(primaryBucket || s.type, tag);
+          if (m) { category = m.category || null; color = m.color || null; }
+        }
+      } catch (e) { /* mapping is best-effort */ }
+      return {
+        tag: tag,
+        category: category,
+        color: color,
+        primaryBucket: primaryBucket,
+        routedTo: s.routedTo || null
+      };
+    }
+
     if (Array.isArray(sections) && sections.length > 0) {
       // Find a section whose range STARTS at this page
       for (const s of sections) {
         const range = _parsePageRangeForChip(s.section_hint, opts.totalPages);
         if (range && range[0] === pageNum) {
-          return s.tag || null;
+          const expanded = _expandClassification(s);
+          expanded.isSectionStart = true;
+          return expanded;
         }
       }
-      // No section starts at this exact page → no chip
+      // No section starts at this exact page → no chip on THIS page,
+      // but the page still belongs to whichever section currently spans
+      // it. We don't paint a chip here (matches prior behavior) but we
+      // could resolve the spanning section's category for routing if
+      // needed downstream. Returning null preserves "no chip on this page".
       return null;
     }
-    // Legacy single-classification path: chip on page 1 only
-    if (pageNum === 1) return opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
+    // Legacy single-classification path: resolve full classification for
+    // page 1 only. Other pages get null (no chip, parent's bucket applies
+    // by default through the addDoc fallback chain).
+    if (pageNum === 1) {
+      const tag = opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
+      if (!tag) return null;
+      // Build a minimal classification block so _expandClassification
+      // can run the same mapping path. Pull primary_bucket from pctx.
+      const expanded = _expandClassification({
+        tag: tag,
+        primary_bucket: (pctx && pctx.primaryBucket) || null,
+        type: (pctx && pctx.pipelineClassification) || null,
+        routedTo: (pctx && pctx.pipelineRoutedTo) || null
+      });
+      // v8.6.15 (per GPT external audit): mark legacy single-doc page 1
+      // as a section start. Without this, addDoc's color/tagged logic
+      // (gated on isSectionStart) never fires for non-combined PDFs and
+      // single-page docs, so they keep pipelineTag but lose color/tagged
+      // status — they appear in folders but not in Tagged Pages. The
+      // multi-section path already does this on each section start; the
+      // legacy path now matches.
+      expanded.isSectionStart = true;
+      return expanded;
+    }
     return null;
   }
 
@@ -2434,25 +2514,43 @@ window.initDocumentsView = function() {
     // category/color/classification metadata. Explicit opts always win
     // (callers can override per-page if needed) — defaults flow from ctx.
     const pctx = state._pipelineCtx || {};
-    // v8.6.2: compute resolved per-page tag ONCE so we can use it for
-    // both pipelineTag AND tagged/color decisions. Without this, section
-    // starts beyond page 1 (e.g. ACORD 126 starting at page 5) get a chip
-    // visually but don't show up in Tagged Pages because tagged was still
-    // gated on pageNumber === 1.
-    const resolvedPipelineTag = _resolvePerPageTag(opts, pctx);
-    const isSectionStart = !!resolvedPipelineTag;
+    // v8.6.14: resolve full per-page classification (tag + category + color
+    // + primaryBucket + routedTo) so combined PDFs with mixed buckets put
+    // each section into its correct folder, not just stamp a chip with the
+    // right text. Falls back to pctx (parent's classification) for pages
+    // that aren't section starts — those inherit the parent's bucket.
+    const resolvedPerPage = _resolvePerPageClassification(opts, pctx);
+    const resolvedPipelineTag = resolvedPerPage ? resolvedPerPage.tag : null;
+    const isSectionStart = !!(resolvedPerPage && resolvedPerPage.isSectionStart);
     // Cap display_name at 250 chars. Most filenames are <50 chars; some
     // generated names like 'Long Doc — Page 47' grow but still fit. A
     // pathologically long name (10K chars from a renamed export) would
     // overflow the doc list rows and bloat the DB row size.
     const rawName = (typeof opts.name === 'string') ? opts.name : '';
     const safeName = rawName.length > 250 ? rawName.slice(0, 247) + '…' : rawName;
+    // Per-section category/color: prefer the per-section resolution when
+    // a section starts on this page; else fall back to opts → pctx → 'all'
+    // (parent's bucket). This is the v8.6.14 fix for the GPT audit finding
+    // that mixed combined PDFs put every section into the parent's folder.
+    const sectionCategory = (isSectionStart && resolvedPerPage && resolvedPerPage.category) ? resolvedPerPage.category : null;
+    const sectionColor    = (isSectionStart && resolvedPerPage && resolvedPerPage.color)    ? resolvedPerPage.color    : null;
+    const sectionBucket   = (isSectionStart && resolvedPerPage && resolvedPerPage.primaryBucket) ? resolvedPerPage.primaryBucket : null;
+    const sectionRoutedTo = (isSectionStart && resolvedPerPage && resolvedPerPage.routedTo) ? resolvedPerPage.routedTo : null;
     const doc = {
       id: 'doc-' + (state.nextId++) + '-' + now,
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
-      category: opts.category || pctx.category || 'all',
+      // v8.6.15 (per GPT external audit): per-section category MUST win over
+      // opts.category. processPDF passes the parent's `category` into every
+      // addDoc call (always populated), which means the previous order
+      // (opts.category || sectionCategory || ...) made sectionCategory
+      // unreachable. A page that's a section start with its own resolved
+      // category now folders correctly into that section's bucket instead
+      // of inheriting the parent's. Mid-section pages (sectionCategory=null)
+      // still fall through to opts.category, preserving "pages 2..N inherit
+      // parent's bucket" behavior.
+      category: sectionCategory || opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
       htmlContent: sanitizeHtml(opts.htmlContent) || null,
@@ -2486,7 +2584,13 @@ window.initDocumentsView = function() {
       // time; the doc may get classified later. Falls through to pctx if
       // processFileFromPipeline was the entry point.
       pipelineClassification: opts.pipelineClassification || pctx.pipelineClassification || null,
-      pipelineRoutedTo: opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
+      // v8.6.16: section precedence consistent with category (v8.6.15).
+      // sectionRoutedTo wins when this page is a section start with its
+      // own resolved route. Currently safe even without this swap because
+      // processPDF doesn't pass pipelineRoutedTo to addDoc, but this
+      // matches the v8.6.15 pattern so a future caller passing routedTo
+      // can't silently break per-section routing again.
+      pipelineRoutedTo: sectionRoutedTo || opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
       // v8.4 fields. pipelineTag is the chip label (e.g., "ACORD 125",
       // "Lead $5M"); primaryBucket is the docs-view category enum from
       // the classifier (CORRESPONDENCE, APPLICATIONS, etc.).
@@ -2502,7 +2606,12 @@ window.initDocumentsView = function() {
       // resolved tag is computed once at the top of addDoc as
       // resolvedPipelineTag and used here.
       pipelineTag: resolvedPipelineTag,
-      primaryBucket: opts.primaryBucket || pctx.primaryBucket || null,
+      // v8.6.16: section precedence consistent with category (v8.6.15).
+      // sectionBucket wins when this page is a section start. Without
+      // this swap, a future caller passing primaryBucket through opts
+      // (or someone adding it to processPDF) would silently override
+      // the per-section bucket — same regression class as v8.6.15 1A.
+      primaryBucket: sectionBucket || opts.primaryBucket || pctx.primaryBucket || null,
       relabeledByUser: !!(opts.relabeledByUser),
       // Color tag — usually null on user upload (user picks via tag menu),
       // but the pipeline-push path (addDocFromPipeline / processFileFromPipeline)
@@ -2517,14 +2626,19 @@ window.initDocumentsView = function() {
       // appears in Tagged Pages, gets exported, etc.) — but the old
       // logic only tagged literal page 1.
       //
-      // Now: any page with a resolvedPipelineTag is treated as a
-      // section start, gets the color/tagged stamp. Mid-section pages
-      // (resolvedPipelineTag === null) stay un-tagged so the count
-      // still reflects "number of distinct sections" not "total pages."
+      // v8.6.14: prefer the per-section color when section starts with
+      // a different bucket than the parent (mixed combined PDFs).
+      // Mid-section pages (resolvedPipelineTag === null) stay un-tagged
+      // so the count still reflects "number of distinct sections".
       // Manual uploads (no pctx) keep legacy behavior — opts.color
       // paints whatever page the caller specifies.
-      color: opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
-      tagged: !!(opts.color || (pctx.color && isSectionStart)),
+      // v8.6.16: section color precedence aligned with category/bucket/route.
+      // sectionColor wins when this page is a section start. Manual uploads
+      // (no pctx, no sectionColor) still honor opts.color so the tag-menu
+      // path keeps working — sectionColor is null off the multi-section
+      // path, so opts.color wins for those cases by short-circuit.
+      color: sectionColor || opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
+      tagged: !!(sectionColor || opts.color || (pctx.color && isSectionStart)),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
@@ -4542,6 +4656,155 @@ window.initDocumentsView = function() {
         count++;
       });
       // Re-render so chips and Tagged Pages reflect the change
+      renderDocsList();
+      renderTagsList();
+      renderCategoryGrid();
+      return count;
+    },
+    // v8.6.14 (per GPT external audit): pipeline re-run UPDATE path. When
+    // the user re-runs the pipeline on a submission whose docs are already
+    // pushed (e.g., after a classifier prompt fix), pipeline.js calls this
+    // to refresh classifier metadata in place — without re-uploading binaries
+    // or duplicating rows.
+    //
+    // Inputs:
+    //   filename — source file name as it was uploaded ("Carroll Co Pkg App.pdf")
+    //   ctx      — same shape as the ingestCtx the pipeline builds for INSERT:
+    //              { category, color, pipelineTag, primaryBucket,
+    //                pipelineClassification, pipelineRoutedTo,
+    //                sectionClassifications: [...] }
+    //
+    // Behavior:
+    //   1. Match doc rows by source filename (handles both single-page docs
+    //      and "BaseName — Page N" page splits — em-dash matters).
+    //   2. For each matching row, recompute the per-page classification
+    //      using the new ctx.sectionClassifications. This lets the same
+    //      logic that runs at INSERT time (per-section category/color)
+    //      apply on UPDATE — so a section that newly resolves to a
+    //      different bucket lands in its correct folder.
+    //   3. Persist via sbUpdateDocumentPage. Best-effort — local update
+    //      always succeeds, cloud failures log but don't block.
+    //   4. Caller gets back the count of rows updated.
+    //
+    // Does NOT touch: thumbnails, highRes preview data, textContent,
+    // storage_path. Only the classifier-derived fields move.
+    updateDocsForFile: async (filename, ctx) => {
+      if (!filename || typeof filename !== 'string') {
+        console.warn('updateDocsForFile: filename required');
+        return 0;
+      }
+      if (!ctx || typeof ctx !== 'object') {
+        console.warn('updateDocsForFile: ctx required');
+        return 0;
+      }
+      const baseName = filename.replace(/\.[^.]+$/, '');
+      const pageSplitPrefix = baseName + ' — Page ';   // em-dash separator
+      // v8.6.16 (per GPT external audit): submission scope is REQUIRED.
+      // Previously this only consulted state.activeSubmissionId and
+      // skipped the filter when it was null — meaning a re-classification
+      // flow that fired before setSubmissionContext() (or any code path
+      // that temporarily clears activeSubmissionId) could match files
+      // by name across EVERY submission. A common filename like
+      // "Loss Runs.pdf" or "Supp App.pdf" would have its tags rewritten
+      // in every submission that contained one, not just the current one.
+      //
+      // Fix: prefer ctx.submissionId (the pipeline always passes it),
+      // fall back to state.activeSubmissionId (manual paths), and BAIL
+      // with a warn if neither is set. No more silent global updates.
+      const activeSub = (ctx && ctx.submissionId) || state.activeSubmissionId || null;
+      if (!activeSub) {
+        console.warn('updateDocsForFile: submission scope required (ctx.submissionId and state.activeSubmissionId both null)');
+        return 0;
+      }
+      const matches = state.docs.filter(d => {
+        if (d.submissionId !== activeSub) return false;
+        if (!d.name) return false;
+        return (
+          d.name === filename ||
+          d.name === baseName ||
+          d.name.indexOf(pageSplitPrefix) === 0
+        );
+      });
+      if (matches.length === 0) return 0;
+
+      // Resolve classifier mapping helpers once. Falls back gracefully if
+      // docsViewMappingFor isn't reachable (script-load order edge case).
+      const mapper = (typeof window !== 'undefined' && typeof window.docsViewMappingFor === 'function')
+        ? window.docsViewMappingFor
+        : null;
+
+      // Helper: build the per-page resolution exactly the way addDoc does
+      // for INSERT. We synthesize a minimal opts object so we can reuse
+      // _resolvePerPageClassification — same code path, same behavior.
+      function _resolveForPage(d) {
+        const synthOpts = {
+          pageNumber: d.pageNumber || 1,
+          totalPages: d.totalPages || 1,
+          sectionClassifications: Array.isArray(ctx.sectionClassifications)
+            ? ctx.sectionClassifications
+            : null,
+          pipelineTag: ctx.pipelineTag || null
+        };
+        const synthPctx = {
+          category: ctx.category || null,
+          color: ctx.color || null,
+          primaryBucket: ctx.primaryBucket || null,
+          pipelineTag: ctx.pipelineTag || null,
+          pipelineClassification: ctx.pipelineClassification || null,
+          pipelineRoutedTo: ctx.pipelineRoutedTo || null,
+          sectionClassifications: Array.isArray(ctx.sectionClassifications)
+            ? ctx.sectionClassifications
+            : null
+        };
+        return _resolvePerPageClassification(synthOpts, synthPctx);
+      }
+
+      let count = 0;
+      for (const d of matches) {
+        const resolved = _resolveForPage(d);
+        const isSectionStart = !!(resolved && resolved.isSectionStart);
+        // Apply per-section values when this page IS a section start;
+        // otherwise inherit the parent ctx's bucket/category (mid-section
+        // pages still belong to the section that spans them, which lives
+        // under the parent's classification by construction).
+        const newCategory      = (isSectionStart && resolved && resolved.category)      ? resolved.category      : (ctx.category || d.category);
+        const newColor         = (isSectionStart && resolved && resolved.color)         ? resolved.color         : (isSectionStart ? (ctx.color || null) : null);
+        const newPrimaryBucket = (isSectionStart && resolved && resolved.primaryBucket) ? resolved.primaryBucket : (ctx.primaryBucket || d.primaryBucket);
+        const newPipelineTag   = resolved ? resolved.tag : null;
+        const newRoutedTo      = (isSectionStart && resolved && resolved.routedTo)      ? resolved.routedTo      : (ctx.pipelineRoutedTo || d.pipelineRoutedTo);
+
+        // Update local state (don't blow away user-relabeled docs — if the
+        // user manually corrected the chip, respect their override).
+        if (d.relabeledByUser) {
+          // Re-classification doesn't override user corrections. Skip this
+          // row so the manual label survives the pipeline re-run.
+          continue;
+        }
+
+        d.category       = newCategory;
+        d.color          = newColor;
+        d.tagged         = !!newColor;
+        d.primaryBucket  = newPrimaryBucket;
+        d.pipelineTag    = newPipelineTag;
+        d.pipelineRoutedTo = newRoutedTo;
+        d.pipelineClassification = ctx.pipelineClassification || d.pipelineClassification;
+
+        // Persist to cloud
+        if (typeof window.sbUpdateDocumentPage === 'function') {
+          const cloudPatch = {
+            category: newCategory,
+            color: newColor,
+            tagged: !!newColor,
+            primary_bucket: newPrimaryBucket,
+            pipeline_tag: newPipelineTag
+          };
+          window.sbUpdateDocumentPage(d.id, cloudPatch).catch(e =>
+            console.warn('updateDocsForFile cloud sync failed for', d.id, e && e.message));
+        }
+        count++;
+      }
+
+      // Re-render so chips, folders, and Tagged Pages reflect the new tags
       renderDocsList();
       renderTagsList();
       renderCategoryGrid();
