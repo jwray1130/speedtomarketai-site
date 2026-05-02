@@ -334,9 +334,11 @@ APPLICATIONS bucket:
     • Do NOT emit a separate classification entry for them
     • Do NOT include them in the classifications array as their own section
     • Their pages are simply part of the broader APPLICATIONS bucket
-    • DO still emit separate section entries for every one of ACORD 125,
-      ACORD 126, and ACORD 131 that is present. Do not collapse a packet
-      into only ACORD 125 when ACORD 126 or ACORD 131 pages are present.
+    • If the COMBINED PDF as a whole is APPLICATIONS, emit ONE entry
+      covering the whole document with type=APPLICATIONS and tag set
+      to whichever of {ACORD 125, ACORD 126, ACORD 131} appears first,
+      OR omit per-section entries entirely if none of those three are
+      present.
   This means in a typical commercial submission with ACORD 125 + 126 +
   127 + 129 + 131 + 140, you should emit exactly three section entries:
   one for ACORD 125 (with section_hint of its page range), one for
@@ -412,37 +414,6 @@ QUOTES_UNDERLYING bucket:
     • ONLY inside an AL Quote PDF → emit "AL Fleet" as a section
       classification with section_hint pointing to the fleet pages.
   • "EL Quote"                — Employers Liability quote
-  • "Premium Summary"         — Carrier package quote premium-summary page.
-                                EMIT THIS TAG when a page is primarily a
-                                multi-line premium schedule / quote summary
-                                showing liability coverage-line premiums
-                                across the package (common signatures:
-                                "Premium Summary", "Total Annual Premium",
-                                "Line of Business", "Coverage", "Annual
-                                Premium", "Deposit Premium", with GL / Auto /
-                                Umbrella / Excess rows).
-
-                                CRITICAL: The tag is ALWAYS exactly
-                                "Premium Summary". Do NOT append a limit,
-                                attachment, carrier name, account name, or
-                                page number. Never emit "Premium Summary ·
-                                Lead $XM" or "Package Quote".
-
-                                This tag identifies ONLY the summary page.
-                                If the same PDF also contains the actual
-                                umbrella / lead declarations or terms page,
-                                also emit the separate layer tag (e.g.,
-                                "Lead $2M", "Excess T&C", "$10M xs $5M")
-                                for that later section using its own
-                                section_hint. Do not collapse the lead /
-                                excess section into Premium Summary.
-
-                                Non-casualty rows shown on the same premium
-                                summary (Property, EPLI, Cyber, Crime, Inland
-                                Marine, WC) do NOT get their own tags. The
-                                single Premium Summary tag is enough for the
-                                page; liability rows are then interpreted by
-                                the downstream excess/tower module.
   • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
   • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
   • "$XM P/O $YM xs $ZM"      — Quota share layer
@@ -524,12 +495,8 @@ Lines of business that produce NO classification entries:
   • WORKERS' COMPENSATION quotes / proposals / payroll schedules.
   • PROFESSIONAL LIABILITY / E&O / D&O standalone (we write Excess
     Casualty over GL/AL, not over E&O towers).
-  • EMPLOYMENT PRACTICES LIABILITY / EPLI standalone or package
-    premium line. Do NOT confuse EPLI with Employers Liability;
-    Employers Liability can still be tagged as "EL Quote" when relevant.
-  • CYBER / TECH E&O standalone or package premium line.
-  • CRIME / FIDELITY standalone or package premium line.
-  • INLAND MARINE / Equipment Floater standalone or package premium line.
+  • CYBER / TECH E&O standalone.
+  • CRIME / FIDELITY standalone.
   • SURETY / BONDS.
 
 If a submission is ENTIRELY a non-excess-casualty line (e.g., a packet
@@ -561,7 +528,6 @@ Return the SAME JSON format as the first-pass classifier. Be especially alert fo
 - Subcontract agreements that look like applications because they have insurance requirement lists
 - Loss runs that look like quotes because they have dollar amounts
 - Excess policies that look like primary GL because they follow-form
-- Premium Summary pages listing package premiums; keep the exact tag "Premium Summary", do not add a lead-limit suffix, and do not create separate Property/EPLI/Cyber/Crime/Inland Marine/WC tags from non-casualty premium rows
 `,
 
   'summary-ops': `Persona: Expert excess casualty insurance underwriter.
