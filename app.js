@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.16-2026-05-01';
+window.STM_BUILD = 'v8.6.14-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1399,80 +1399,12 @@ loadEdits();
 //   meta.visionPagesSent   → count of pages actually sent for processing
 //   meta.visionTokensIn    → input tokens used by Vision call (cost tracking)
 
-// v8.6.15: parse Claude's === PAGE N === delimiter output into a per-page
-// text array. Returns an array indexed 0..N-1 where each entry is the
-// transcription of that page. Robust to:
-//   - Claude omitting the delimiter on some/all pages (single-block output)
-//   - Whitespace variations around the marker
-//   - Skipped page numbers (rare — Claude marks an empty page with the
-//     header but no content; we keep the empty string as a placeholder)
-//
-// Inputs:
-//   text          — the Vision output (confidence sentinel already stripped)
-//   pageCountHint — expected number of pages; used only for graceful
-//                   fallback when no delimiters found. Returned array
-//                   length is whatever the parser actually finds.
-//
-// If no delimiters are present at all, returns [text] (length 1) so
-// callers can still treat it as a single-page payload.
-function _splitVisionTextByPageDelimiter(text, pageCountHint) {
-  if (!text || typeof text !== 'string') return [];
-  // Match "=== PAGE 1 ===" anywhere on a line. Allow variations in whitespace
-  // and capitalization. The capture group grabs the page number for ordering.
-  const delim = /^[ \t]*=+\s*PAGE\s+(\d+)\s*=+[ \t]*$/im;
-  const globalDelim = /^[ \t]*=+\s*PAGE\s+(\d+)\s*=+[ \t]*$/gim;
-
-  // Quick check: if there are no delimiters at all, return as single page.
-  if (!delim.test(text)) {
-    return [text];
-  }
-
-  // Collect (pageNumber, startIndex, headerEndIndex) for each delimiter.
-  const markers = [];
-  let m;
-  while ((m = globalDelim.exec(text)) !== null) {
-    markers.push({
-      pageNum: parseInt(m[1], 10),
-      headerStart: m.index,
-      headerEnd: m.index + m[0].length
-    });
-  }
-  if (markers.length === 0) return [text];
-
-  // Slice text between consecutive markers; the segment AFTER marker i and
-  // BEFORE marker i+1 (or end of string for the last) is page i's content.
-  const pages = [];
-  for (let i = 0; i < markers.length; i++) {
-    const start = markers[i].headerEnd;
-    const end = (i + 1 < markers.length) ? markers[i + 1].headerStart : text.length;
-    pages.push(text.slice(start, end).trim());
-  }
-  // If we have a hint and the parser yielded fewer pages, pad with empty
-  // strings up to the hint count so downstream indexing by page number
-  // doesn't go out of bounds. (Don't truncate — extra pages are kept.)
-  if (typeof pageCountHint === 'number' && pageCountHint > pages.length) {
-    while (pages.length < pageCountHint) pages.push('');
-  }
-  return pages;
-}
-
 const VISION_PDF_MAX_BYTES = 22 * 1024 * 1024;   // 22 MB direct-PDF threshold
 const VISION_PDF_MAX_PAGES = 80;                  // pages above this → render path
 const VISION_RENDER_SCALE = 1.4;                  // pdfjs scale for OCR-quality JPEGs
 const VISION_RENDER_JPEG_QUALITY = 0.78;          // balance: legibility vs payload size
 const VISION_MAX_PAGES_PER_CHUNK = 10;            // pages per llmProxyFetch call
-// v8.6.15 (per GPT external audit): match the rest of the bundle's model
-// (claude-sonnet-4-6 — see STATE.api default, classifier, all 14 modules).
-// The previous v8.6.14 value 'claude-sonnet-4-5' was a typo that would
-// 404 at the proxy and silently cascade every Vision call to Tesseract,
-// defeating the Vision restoration. _runVisionCall now also reads
-// STATE.api.model when forceGlobal is set, so model selection follows
-// runtime configuration instead of a hardcoded constant.
-const VISION_MODEL = 'claude-sonnet-4-6';
-// v8.6.15: bumped from 8000 to 16000. ACORD 125/126/131 are dense forms
-// with many fields; 8K output tokens occasionally truncated mid-page on
-// chunked-render passes. 16K leaves headroom without changing chunk size.
-const VISION_MAX_TOKENS = 16000;
+const VISION_MODEL = 'claude-sonnet-4-5';         // good vision quality at reasonable cost
 
 // Convert an ArrayBuffer to base64 without blowing the call stack on large
 // inputs. The naive String.fromCharCode(...new Uint8Array(buf)) approach
@@ -1644,28 +1576,7 @@ async function extractTextViaClaudeVision(file, meta) {
     '• Do NOT summarize. Do NOT paraphrase. Transcribe exactly.',
     '• If you cannot read a section reliably, mark it [UNREADABLE].',
     '',
-    // v8.6.15 (per GPT external audit): require explicit page delimiters.
-    // Without them the code splits on \f / "--- PAGE BREAK ---" markers
-    // that Claude never emits, so meta.pageTexts ended up as one block.
-    // Section_hint logic downstream relies on knowing which page each
-    // chunk came from — without page boundaries, section detection on
-    // scanned combined PDFs collapses.
-    'PAGE STRUCTURE — MANDATORY:',
-    'Before each page\'s transcription, output a delimiter on its own line:',
-    '=== PAGE N ===',
-    'where N is the 1-indexed page number. For multi-image inputs, treat',
-    'each image as a separate page. Example for a 3-page input:',
-    '',
-    '=== PAGE 1 ===',
-    '<page 1 transcription>',
-    '',
-    '=== PAGE 2 ===',
-    '<page 2 transcription>',
-    '',
-    '=== PAGE 3 ===',
-    '<page 3 transcription>',
-    '',
-    'After the LAST page (after all === PAGE N === blocks), output:',
+    'After the transcription, on a new line, output exactly:',
     '___VISION_CONFIDENCE___:0.XX',
     'where 0.XX is your self-rated confidence in the extraction (0.00 to 1.00).',
     '0.95+ = clean type, easily read.',
@@ -1679,19 +1590,9 @@ async function extractTextViaClaudeVision(file, meta) {
    * text. The proxy handles auth + retry; this just unwraps the message.
    */
   async function _runVisionCall(contentBlocks, modelHint) {
-    // v8.6.15: model resolution priority: explicit modelHint → STATE.api.model
-    // (when forceGlobal) → VISION_MODEL constant. This way, if you set the
-    // global model to opus-4-7 in Settings, Vision follows along instead
-    // of always pinning to sonnet-4-6.
-    let model = modelHint || VISION_MODEL;
-    try {
-      if (typeof STATE !== 'undefined' && STATE && STATE.api && STATE.api.forceGlobal && STATE.api.model) {
-        model = STATE.api.model;
-      }
-    } catch (e) { /* STATE may not be reachable from here in some loads */ }
     const reqBody = {
-      model: model,
-      max_tokens: VISION_MAX_TOKENS,
+      model: modelHint || VISION_MODEL,
+      max_tokens: 8000,
       messages: [
         { role: 'user', content: contentBlocks }
       ]
@@ -1743,11 +1644,11 @@ async function extractTextViaClaudeVision(file, meta) {
         meta.visionConfidence = Math.max(0, Math.min(1, parseFloat(m[1])));
       }
       const cleanText = text.replace(/___VISION_CONFIDENCE___:\d+(?:\.\d+)?/, '').trim();
-      // v8.6.15: split on the === PAGE N === delimiter the prompt now
-      // requires Claude to emit. Falls back gracefully if Claude ignored
-      // the delimiter (single-block output) — meta.pageTexts stays a
-      // single entry rather than empty/garbled.
-      meta.pageTexts = _splitVisionTextByPageDelimiter(cleanText, pageCount);
+      // Build pageTexts for combined-PDF section slicing. Claude's Vision
+      // output doesn't reliably page-break, so we split on form-feed first,
+      // and if that doesn't work, fall back to a single page entry.
+      const pages = cleanText.split(/\f|---\s*PAGE\s*BREAK\s*---/i);
+      meta.pageTexts = pages.length > 1 ? pages : [cleanText];
       return cleanText;
     }
 
@@ -1779,20 +1680,7 @@ async function extractTextViaClaudeVision(file, meta) {
       const m = chunkText.match(/___VISION_CONFIDENCE___:(\d+(?:\.\d+)?)/);
       if (m) confidenceBucket.push(parseFloat(m[1]));
       const cleaned = chunkText.replace(/___VISION_CONFIDENCE___:\d+(?:\.\d+)?/, '').trim();
-      // v8.6.15: split this chunk's output by the page delimiter so each
-      // page becomes its own entry in allPageTexts. Without this, a 60-page
-      // PDF rendered in 6 chunks of 10 produced an allPageTexts array of
-      // length 6 — useless for section_hint downstream which works in
-      // page numbers. Now allPageTexts grows by chunk_size entries per
-      // chunk, indexed 0..pageCount-1 (or close — Claude may merge or
-      // skip an empty page; the helper handles those gracefully).
-      const chunkPagesExpected = chunkEnd - chunkStart + 1;
-      const chunkPages = _splitVisionTextByPageDelimiter(cleaned, chunkPagesExpected);
-      // If splitting yielded the expected page count, append all entries.
-      // If Claude ignored the delimiter for this chunk (returned 1 block),
-      // append the single block — section logic downstream will degrade
-      // gracefully on that chunk only, not the whole document.
-      for (const p of chunkPages) allPageTexts.push(p);
+      allPageTexts.push(cleaned);
       allText += cleaned + '\n\n';
     }
     if (confidenceBucket.length > 0) {

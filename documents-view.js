@@ -2483,21 +2483,12 @@ window.initDocumentsView = function() {
       if (!tag) return null;
       // Build a minimal classification block so _expandClassification
       // can run the same mapping path. Pull primary_bucket from pctx.
-      const expanded = _expandClassification({
+      return _expandClassification({
         tag: tag,
         primary_bucket: (pctx && pctx.primaryBucket) || null,
         type: (pctx && pctx.pipelineClassification) || null,
         routedTo: (pctx && pctx.pipelineRoutedTo) || null
       });
-      // v8.6.15 (per GPT external audit): mark legacy single-doc page 1
-      // as a section start. Without this, addDoc's color/tagged logic
-      // (gated on isSectionStart) never fires for non-combined PDFs and
-      // single-page docs, so they keep pipelineTag but lose color/tagged
-      // status — they appear in folders but not in Tagged Pages. The
-      // multi-section path already does this on each section start; the
-      // legacy path now matches.
-      expanded.isSectionStart = true;
-      return expanded;
     }
     return null;
   }
@@ -2541,16 +2532,9 @@ window.initDocumentsView = function() {
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
-      // v8.6.15 (per GPT external audit): per-section category MUST win over
-      // opts.category. processPDF passes the parent's `category` into every
-      // addDoc call (always populated), which means the previous order
-      // (opts.category || sectionCategory || ...) made sectionCategory
-      // unreachable. A page that's a section start with its own resolved
-      // category now folders correctly into that section's bucket instead
-      // of inheriting the parent's. Mid-section pages (sectionCategory=null)
-      // still fall through to opts.category, preserving "pages 2..N inherit
-      // parent's bucket" behavior.
-      category: sectionCategory || opts.category || pctx.category || 'all',
+      // v8.6.14: per-section category overrides parent when this page is
+      // a section start with its own resolved category.
+      category: opts.category || sectionCategory || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
       htmlContent: sanitizeHtml(opts.htmlContent) || null,
@@ -2584,13 +2568,7 @@ window.initDocumentsView = function() {
       // time; the doc may get classified later. Falls through to pctx if
       // processFileFromPipeline was the entry point.
       pipelineClassification: opts.pipelineClassification || pctx.pipelineClassification || null,
-      // v8.6.16: section precedence consistent with category (v8.6.15).
-      // sectionRoutedTo wins when this page is a section start with its
-      // own resolved route. Currently safe even without this swap because
-      // processPDF doesn't pass pipelineRoutedTo to addDoc, but this
-      // matches the v8.6.15 pattern so a future caller passing routedTo
-      // can't silently break per-section routing again.
-      pipelineRoutedTo: sectionRoutedTo || opts.pipelineRoutedTo || pctx.pipelineRoutedTo || null,
+      pipelineRoutedTo: opts.pipelineRoutedTo || sectionRoutedTo || pctx.pipelineRoutedTo || null,
       // v8.4 fields. pipelineTag is the chip label (e.g., "ACORD 125",
       // "Lead $5M"); primaryBucket is the docs-view category enum from
       // the classifier (CORRESPONDENCE, APPLICATIONS, etc.).
@@ -2606,12 +2584,11 @@ window.initDocumentsView = function() {
       // resolved tag is computed once at the top of addDoc as
       // resolvedPipelineTag and used here.
       pipelineTag: resolvedPipelineTag,
-      // v8.6.16: section precedence consistent with category (v8.6.15).
-      // sectionBucket wins when this page is a section start. Without
-      // this swap, a future caller passing primaryBucket through opts
-      // (or someone adding it to processPDF) would silently override
-      // the per-section bucket — same regression class as v8.6.15 1A.
-      primaryBucket: sectionBucket || opts.primaryBucket || pctx.primaryBucket || null,
+      // v8.6.14: per-section primaryBucket overrides parent's when this is a
+      // section start. Without this, a Loss History section inside an
+      // Applications-classified parent PDF would have primaryBucket=APPLICATIONS
+      // and route to the wrong module on re-classification.
+      primaryBucket: opts.primaryBucket || sectionBucket || pctx.primaryBucket || null,
       relabeledByUser: !!(opts.relabeledByUser),
       // Color tag — usually null on user upload (user picks via tag menu),
       // but the pipeline-push path (addDocFromPipeline / processFileFromPipeline)
@@ -2632,13 +2609,8 @@ window.initDocumentsView = function() {
       // so the count still reflects "number of distinct sections".
       // Manual uploads (no pctx) keep legacy behavior — opts.color
       // paints whatever page the caller specifies.
-      // v8.6.16: section color precedence aligned with category/bucket/route.
-      // sectionColor wins when this page is a section start. Manual uploads
-      // (no pctx, no sectionColor) still honor opts.color so the tag-menu
-      // path keeps working — sectionColor is null off the multi-section
-      // path, so opts.color wins for those cases by short-circuit.
-      color: sectionColor || opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
-      tagged: !!(sectionColor || opts.color || (pctx.color && isSectionStart)),
+      color: opts.color || (isSectionStart && sectionColor) || (pctx.color && isSectionStart ? pctx.color : null) || null,
+      tagged: !!(opts.color || (isSectionStart && sectionColor) || (pctx.color && isSectionStart)),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
@@ -4699,25 +4671,12 @@ window.initDocumentsView = function() {
       }
       const baseName = filename.replace(/\.[^.]+$/, '');
       const pageSplitPrefix = baseName + ' — Page ';   // em-dash separator
-      // v8.6.16 (per GPT external audit): submission scope is REQUIRED.
-      // Previously this only consulted state.activeSubmissionId and
-      // skipped the filter when it was null — meaning a re-classification
-      // flow that fired before setSubmissionContext() (or any code path
-      // that temporarily clears activeSubmissionId) could match files
-      // by name across EVERY submission. A common filename like
-      // "Loss Runs.pdf" or "Supp App.pdf" would have its tags rewritten
-      // in every submission that contained one, not just the current one.
-      //
-      // Fix: prefer ctx.submissionId (the pipeline always passes it),
-      // fall back to state.activeSubmissionId (manual paths), and BAIL
-      // with a warn if neither is set. No more silent global updates.
-      const activeSub = (ctx && ctx.submissionId) || state.activeSubmissionId || null;
-      if (!activeSub) {
-        console.warn('updateDocsForFile: submission scope required (ctx.submissionId and state.activeSubmissionId both null)');
-        return 0;
-      }
+      // Match against current submission scope only — re-runs target the
+      // active submission, not historical rows from earlier submissions
+      // that happened to share a filename.
+      const activeSub = state.activeSubmissionId || null;
       const matches = state.docs.filter(d => {
-        if (d.submissionId !== activeSub) return false;
+        if (activeSub && d.submissionId !== activeSub) return false;
         if (!d.name) return false;
         return (
           d.name === filename ||
