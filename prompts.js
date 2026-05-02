@@ -414,6 +414,57 @@ QUOTES_UNDERLYING bucket:
     • ONLY inside an AL Quote PDF → emit "AL Fleet" as a section
       classification with section_hint pointing to the fleet pages.
   • "EL Quote"                — Employers Liability quote
+  • "Package Quote"           — Multi-line carrier package quote summary /
+                                cover page. Use ONLY for the SUMMARY page that
+                                lists 3+ different coverage lines (e.g.,
+                                Property + GL + Auto + Umbrella) each with
+                                its own annual premium and an aggregate /
+                                "Total Annual Premium" line.
+
+                                Signatures: carrier-issued declarations cover
+                                page, multi-line premium table (3+ coverages
+                                each with own premium), "Total Annual Premium"
+                                / "Total Premium" / aggregate total line, NAIC
+                                code + quote number + named insured + broker
+                                visible together on the same summary page.
+
+                                Smart-limit suffix (REQUIRED when discoverable):
+                                If you can read an umbrella / lead-layer limit
+                                anywhere in the document — typically the
+                                umbrella's own dec page is deeper in the same
+                                PDF — append it to the tag so the chip carries
+                                the layer context for any account size:
+                                  • "Package Quote · Lead $2M"
+                                  • "Package Quote · Lead $5M"
+                                  • "Package Quote · Lead $10M"
+                                  • etc. — extract the actual limit from the
+                                    document, NEVER hardcode.
+                                If the umbrella limit cannot be inferred from
+                                the document (no umbrella section, or umbrella
+                                limit is genuinely absent), emit just
+                                "Package Quote" with no suffix.
+
+                                CRITICAL — this tag is for the COVER / SUMMARY
+                                page ONLY. The umbrella's own declarations
+                                page (with Each Occurrence, Aggregate, SIR,
+                                schedule of underlying, forms list) STILL
+                                gets "Lead $XM T&C" or "$XM xs $YM" as a
+                                separate classification entry. In a typical
+                                package-quote PDF that contains an umbrella
+                                section, you MUST emit BOTH:
+                                  • One "Package Quote" entry with section_hint
+                                    pointing to the cover page (e.g., "page 1")
+                                  • One "Lead $XM T&C" entry with section_hint
+                                    pointing to the umbrella declarations
+                                    pages (e.g., "pages 31-32")
+                                Do NOT collapse them. The cover page and the
+                                umbrella decs are distinct sections that get
+                                separate chips in the file manager.
+
+                                Do NOT emit "Package Quote" for a single-line
+                                umbrella-only quote, monoline GL, or monoline
+                                AL — those still use "Lead $XM", "GL Quote",
+                                "AL Quote" as before.
   • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
   • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
   • "$XM P/O $YM xs $ZM"      — Quota share layer
