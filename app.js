@@ -2700,10 +2700,11 @@ async function deleteSubmission(submissionId, confirmAlready) {
     try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
   }
   try {
-    if (typeof sbDeleteSubmission !== 'function') {
-      throw new Error('sbDeleteSubmission not defined');
+    const deleteFn = window.sbDeleteSubmission;
+    if (typeof deleteFn !== 'function') {
+      throw new Error('window.sbDeleteSubmission not defined');
     }
-    await sbDeleteSubmission(submissionId);
+    await deleteFn(submissionId);
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
   } catch (err) {
     console.error('Cloud delete failed', submissionId, err);
