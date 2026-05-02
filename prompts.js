@@ -414,12 +414,16 @@ QUOTES_UNDERLYING bucket:
     • ONLY inside an AL Quote PDF → emit "AL Fleet" as a section
       classification with section_hint pointing to the fleet pages.
   • "EL Quote"                — Employers Liability quote
-  • "Package Quote"           — Multi-line carrier package quote summary /
-                                cover page. Use ONLY for the SUMMARY page that
-                                lists 3+ different coverage lines (e.g.,
-                                Property + GL + Auto + Umbrella) each with
+  • "Premium Summary"         — The single SUMMARY / cover page of a multi-
+                                line carrier package quote. Use ONLY for the
+                                page that lists 3+ different coverage lines
+                                (e.g., GL + Auto + Umbrella + ...) each with
                                 its own annual premium and an aggregate /
-                                "Total Annual Premium" line.
+                                "Total Annual Premium" line. This tag refers
+                                to that summary page ONLY — never to the
+                                package quote PDF as a whole, never to any
+                                individual coverage's own dec page deeper in
+                                the same PDF.
 
                                 Signatures: carrier-issued declarations cover
                                 page, multi-line premium table (3+ coverages
@@ -434,17 +438,17 @@ QUOTES_UNDERLYING bucket:
                                 umbrella's own dec page is deeper in the same
                                 PDF — append it to the tag so the chip carries
                                 the layer context for any account size:
-                                  • "Package Quote · Lead $2M"
-                                  • "Package Quote · Lead $5M"
-                                  • "Package Quote · Lead $10M"
+                                  • "Premium Summary · Lead $2M"
+                                  • "Premium Summary · Lead $5M"
+                                  • "Premium Summary · Lead $10M"
                                   • etc. — extract the actual limit from the
                                     document, NEVER hardcode.
                                 If the umbrella limit cannot be inferred from
                                 the document (no umbrella section, or umbrella
                                 limit is genuinely absent), emit just
-                                "Package Quote" with no suffix.
+                                "Premium Summary" with no suffix.
 
-                                CRITICAL — this tag is for the COVER / SUMMARY
+                                CRITICAL — this tag is for the SUMMARY / COVER
                                 page ONLY. The umbrella's own declarations
                                 page (with Each Occurrence, Aggregate, SIR,
                                 schedule of underlying, forms list) STILL
@@ -452,16 +456,16 @@ QUOTES_UNDERLYING bucket:
                                 separate classification entry. In a typical
                                 package-quote PDF that contains an umbrella
                                 section, you MUST emit BOTH:
-                                  • One "Package Quote" entry with section_hint
-                                    pointing to the cover page (e.g., "page 1")
+                                  • One "Premium Summary" entry with section_hint
+                                    pointing to the summary page (e.g., "page 1")
                                   • One "Lead $XM T&C" entry with section_hint
                                     pointing to the umbrella declarations
                                     pages (e.g., "pages 31-32")
-                                Do NOT collapse them. The cover page and the
+                                Do NOT collapse them. The summary page and the
                                 umbrella decs are distinct sections that get
                                 separate chips in the file manager.
 
-                                Do NOT emit "Package Quote" for a single-line
+                                Do NOT emit "Premium Summary" for a single-line
                                 umbrella-only quote, monoline GL, or monoline
                                 AL — those still use "Lead $XM", "GL Quote",
                                 "AL Quote" as before.
@@ -549,6 +553,43 @@ Lines of business that produce NO classification entries:
   • CYBER / TECH E&O standalone.
   • CRIME / FIDELITY standalone.
   • SURETY / BONDS.
+  • EMPLOYMENT PRACTICES LIABILITY (EPLI) — separate liability tower,
+    not part of excess casualty. Do NOT emit a classification entry
+    even when it appears as a line item on a multi-line carrier package
+    quote.
+  • INLAND MARINE / IM / EQUIPMENT FLOATER — first-party property line,
+    not casualty. Do NOT emit a classification entry even when it
+    appears as a line item on a multi-line carrier package quote.
+
+WITHIN-PACKAGE RULE (v8.6.14, per Justin's screenshot review):
+This exclusion applies STRICTLY — even when these non-excess-casualty
+lines appear as SECTIONS within a multi-line carrier package quote PDF
+(e.g., a single combined declarations document that bundles Property +
+GL + EPLI + Cyber + IM + Auto + Crime + Umbrella).
+
+For such packages:
+
+  • Emit classification entries ONLY for the LIABILITY sections that
+    feed excess casualty: GL, AL, EL, Lead Umbrella, Excess Umbrella.
+    These get their normal tags ("GL Quote", "AL Quote", "EL Quote",
+    "Lead $XM T&C", "$XM xs $YM", "AL Fleet" if inside an AL Quote).
+  • Emit ONE "Premium Summary" entry for the cover/summary page (per
+    the QUOTES_UNDERLYING bucket rules above). The Premium Summary
+    page is itself a useful excess casualty reference because it
+    confirms the program structure and the umbrella line item.
+  • Do NOT emit a "Property Quote" entry, "Property" entry, "EPLI
+    Quote" entry, "Cyber Quote" entry, "Crime Quote" entry, "IM" /
+    "Inland Marine" entry, "WC Quote" entry, or any other
+    non-excess-casualty section tag — even though those sections share
+    the same PDF as the GL / AL / Umbrella sections. The pages of those
+    non-excess-casualty sections still file under the parent doc's
+    bucket (UNDERLYING for a package quote), but they produce NO chip
+    in the Tagged Pages layer and NO routing.
+  • Forbidden tag examples that you must NEVER emit, even if the
+    document section header says "Property Coverage" or "Cyber Policy"
+    or "EPLI Section": "Property Quote", "Property", "EPLI", "EPLI
+    Quote", "Cyber", "Cyber Quote", "Crime", "Crime Quote", "Inland
+    Marine", "IM", "WC", "WC Quote".
 
 If a submission is ENTIRELY a non-excess-casualty line (e.g., a packet
 that contains only a Property quote and SOV with no GL/AL/Excess

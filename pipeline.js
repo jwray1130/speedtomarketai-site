@@ -115,18 +115,20 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
-  // v8.6.13: Package Quote summary cover page — multi-line carrier quote
-  // declarations (Property + GL + Auto + Umbrella + ... on one summary page).
-  // Routes to the excess module so the cover page's umbrella line item lands
-  // in the same extraction as the umbrella's own dec page (which still emits
-  // a separate "Lead $XM T&C" classification). Together they feed A15 Excess
-  // Tower without losing the package context. The smart-tag form
-  // "Package Quote · Lead $XM" carries the limit, so .startsWith catches
-  // both bare and limit-suffixed versions. MUST come before any rule that
-  // could otherwise capture the suffix; .startsWith('lead $') below is
-  // already safe because a "package quote · ..." tag never starts with
-  // "lead $", but ordering this first keeps the recovery layer explicit.
-  if (tLower.startsWith('package quote')) return 'excess';
+  // v8.6.14: Premium Summary — the single SUMMARY / cover page of a
+  // multi-line carrier package quote (carrier-issued declarations page
+  // listing 3+ coverage lines each with its own premium plus a Total
+  // Annual Premium). Routes to the excess module so the summary page's
+  // umbrella line item lands in the same extraction as the umbrella's
+  // own dec page (which still emits a separate "Lead $XM T&C"
+  // classification). Together they feed A15 Excess Tower without losing
+  // the package context. The smart-tag form "Premium Summary · Lead $XM"
+  // carries the limit, so .startsWith catches both bare and limit-
+  // suffixed versions. MUST come before any rule that could otherwise
+  // capture the suffix; .startsWith('lead $') below is already safe
+  // because a "premium summary · ..." tag never starts with "lead $",
+  // but ordering this first keeps the recovery layer explicit.
+  if (tLower.startsWith('premium summary')) return 'excess';
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
   if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
