@@ -115,19 +115,16 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
-  // v8.6.14: Premium Summary — the single SUMMARY / cover page of a
-  // multi-line carrier package quote (carrier-issued declarations page
-  // listing 3+ coverage lines each with its own premium plus a Total
-  // Annual Premium). Routes to the excess module so the summary page's
-  // umbrella line item lands in the same extraction as the umbrella's
-  // own dec page (which still emits a separate "Lead $XM T&C"
+  // v8.6.14: Premium Summary — the cover/summary page of a multi-line
+  // carrier package quote. Routes to the excess module so the cover
+  // page's umbrella line item lands in the same extraction as the
+  // umbrella's own dec page (which still emits a separate "Lead $XM T&C"
   // classification). Together they feed A15 Excess Tower without losing
-  // the package context. The smart-tag form "Premium Summary · Lead $XM"
-  // carries the limit, so .startsWith catches both bare and limit-
-  // suffixed versions. MUST come before any rule that could otherwise
-  // capture the suffix; .startsWith('lead $') below is already safe
-  // because a "premium summary · ..." tag never starts with "lead $",
-  // but ordering this first keeps the recovery layer explicit.
+  // the package context. The tag is always exactly "Premium Summary"
+  // (no suffix), but using .startsWith keeps this rule resilient if a
+  // legacy "premium summary · ..." form ever slips through; it still
+  // routes correctly. Placed before the lead/excess rules so a tag
+  // beginning with "premium summary" is always matched here first.
   if (tLower.startsWith('premium summary')) return 'excess';
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
@@ -1712,6 +1709,86 @@ async function classifyFile(file) {
   }
 
   const final = normalizeClassifierResult(parsed);
+
+  // ════════════════════════════════════════════════════════════════════
+  // v8.6.14: POST-CLASSIFIER SANITIZER (deterministic backstop)
+  //
+  // Two operations applied in sequence to final.classifications:
+  //   1. Drop entries whose tag names a non-excess-casualty line —
+  //      Property, EPLI, Cyber, Crime, Inland Marine / IM / Equipment
+  //      Floater, WC. The classifier prompt already forbids these
+  //      (RULE 9), but Anthropic models are non-deterministic and the
+  //      rule occasionally gets ignored — especially on multi-line
+  //      package quote PDFs where every section header looks like a
+  //      tag candidate. Filtering at the code level guarantees these
+  //      tags never reach the docs view, regardless of model behavior.
+  //   2. Strip any limit suffix ("· Lead $XM", " Lead $XM", etc.)
+  //      from "Premium Summary" tags so the chip name is always exactly
+  //      "Premium Summary". The umbrella's own dec page emits its own
+  //      separate "Lead $XM T&C" classification, which already carries
+  //      the limit info.
+  //
+  // What this DOES NOT touch:
+  //   • GL Quote, AL Quote, AL Fleet, EL Quote, Lead $XM, Lead $XM T&C,
+  //     $XM xs $YM, Excess T&C, Stop Gap, Aircraft Quote — all preserved.
+  //   • Loss Runs, AL Loss Runs, GL Loss Runs, Excess Loss Runs, Large
+  //     Loss Detail, Loss Summary — all preserved.
+  //   • ACORD 125 / 126 / 131, Supp App variants, Sub Agreement,
+  //     Vendor Agreement, Safety Program, Narrative — all preserved.
+  //   • Cover Note, Broker Email, Carrier Email, Target Premiums — all
+  //     preserved.
+  //   • Project, Compliance, Administration, Subjectivity, Policy,
+  //     Cancellations, Underwriting — all preserved.
+  //   • The classifier prompt, the verifier prompt, primaryType,
+  //     primaryConfidence, signatures, reasoning, isCombined — all
+  //     untouched.
+  // ════════════════════════════════════════════════════════════════════
+  const _isForbiddenNonCasualtyTag = (tag) => {
+    const t = String(tag || '').toLowerCase().trim();
+    if (!t) return false;
+    if (t === 'property'         || t.startsWith('property quote')   || t.startsWith('property '))         return true;
+    if (t === 'epli'             || t.startsWith('epli quote')       || t.startsWith('epli '))             return true;
+    if (t === 'cyber'            || t.startsWith('cyber quote')      || t.startsWith('cyber '))            return true;
+    if (t === 'crime'            || t.startsWith('crime quote')      || t.startsWith('crime '))            return true;
+    if (t === 'im'               || t.startsWith('inland marine')    || t.startsWith('equipment floater')) return true;
+    if (t === 'wc'               || t.startsWith('wc quote')         || t.startsWith('workers comp'))      return true;
+    return false;
+  };
+  const _origClassCount = (final.classifications || []).length;
+  if (_origClassCount > 0) {
+    final.classifications = final.classifications.filter(c => !_isForbiddenNonCasualtyTag(c.tag));
+    // Strip any limit suffix from "Premium Summary" tags — always exactly "Premium Summary".
+    final.classifications.forEach(c => {
+      if (c && c.tag && /^premium summary\b/i.test(String(c.tag).trim())) {
+        c.tag = 'Premium Summary';
+      }
+    });
+    const _droppedCount = _origClassCount - final.classifications.length;
+    if (_droppedCount > 0) {
+      logAudit('Classifier', 'Sanitizer dropped ' + _droppedCount + ' non-excess-casualty classification entry/entries from ' + file.name + ' (Property/EPLI/Cyber/Crime/IM/WC are not relevant to the workflow)', STATE.api.model);
+    }
+    // Edge case: if every classification got filtered (the entire doc was
+    // non-casualty), keep one "unknown" entry so the file still has a
+    // routable record. The doc will file under "All Documents" with no
+    // chip and no extraction routing — same treatment as a low-confidence
+    // unidentified upload.
+    if (final.classifications.length === 0) {
+      final.classifications = [{ type: 'unknown', confidence: 0.5, reasoning: 'all classifications removed by non-casualty sanitizer (likely a Property-only or EPLI-only doc)', section_hint: 'entire document' }];
+      final.primaryType = 'unknown';
+      final.primaryConfidence = 0.5;
+    }
+    // If the original primary classification was filtered out, repick
+    // primary from a surviving entry so the rest of classifyFile sees a
+    // coherent state. Without this, the find() below could land on a
+    // stale primaryType that no longer exists in the surviving array.
+    const _primaryStillPresent = final.classifications.some(c => c.type === final.primaryType);
+    if (!_primaryStillPresent && final.classifications.length > 0) {
+      const _sorted = [...final.classifications].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+      final.primaryType = _sorted[0].type;
+      final.primaryConfidence = _sorted[0].confidence || 0;
+    }
+  }
+  // ════════════════════════════════════════════════════════════════════
 
   // v8.6.2: surface tag, subType, primary_bucket from the primary
   // classification at the top level so downstream code (routing,
