@@ -4078,10 +4078,11 @@ window.initDocumentsView = function() {
     const startedAt = Date.now();
     while (Date.now() - startedAt < maxMs) {
       try {
-        const { data: { user } } = await window.sb.auth.getUser();
-        if (user) return true;
+        if (window.currentUser && window.currentUser.id) return true;
+        const { data: { session } } = await window.sb.auth.getSession();
+        if (session && session.user) return true;
       } catch (e) { /* swallow — keep polling */ }
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 250));
     }
     return false;
   }
@@ -4186,16 +4187,21 @@ window.initDocumentsView = function() {
         const chunk = candidates.slice(i, i + CHUNK_SIZE);
         // Fetch each doc's heavy fields in parallel within the chunk.
         // Promise.allSettled so one failure doesn't kill the whole chunk.
-        const results = await Promise.allSettled(
-          chunk.map(d => window.sbFetchDocumentPageFull(d.id))
-        );
+        let rows = [];
+        if (typeof window.sbFetchDocumentPagesFull === 'function') {
+          rows = await window.sbFetchDocumentPagesFull(chunk.map(d => d.id));
+          if (rows.length < chunk.length) failed += (chunk.length - rows.length);
+        } else {
+          const results = await Promise.allSettled(
+            chunk.map(d => window.sbFetchDocumentPageFull(d.id))
+          );
+          rows = results
+            .map(r => (r.status === 'fulfilled' && r.value) ? r.value : null)
+            .filter(Boolean);
+          failed += (chunk.length - rows.length);
+        }
 
-        results.forEach((r, idx) => {
-          if (r.status !== 'fulfilled' || !r.value) {
-            failed++;
-            return;
-          }
-          const row = r.value;
+        rows.forEach((row) => {
           // Find the doc in state again (it might have moved or been
           // deleted while we were fetching). Mutate in place so the
           // existing references stay valid.

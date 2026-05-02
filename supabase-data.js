@@ -39,9 +39,70 @@
 // Supabase directly for data. Auth and LLM proxy paths are separate (above).
 // ============================================================================
 
+// v8.6.13: Auth user cache / single-flight.
+// sbUser() sits on hot paths (document hydrate, lazy enrichment, audit writes,
+// submission saves). Calling supabase.auth.getUser() here performs an auth
+// round-trip and can contend on the GoTrue auth-token lock when many page
+// fetches/audit writes run together. Use the already-hydrated top-bar profile
+// when available, otherwise read the local session once and cache briefly.
+const SB_USER_CACHE_MS = 60000;
+let __sbCachedUser = null;
+let __sbCachedUserAt = 0;
+let __sbUserInflight = null;
+
+function __sbSetCachedUser(user) {
+  __sbCachedUser = user || null;
+  __sbCachedUserAt = user ? Date.now() : 0;
+}
+
+function __sbUserFromCurrentProfile() {
+  if (typeof window === 'undefined' || !window.currentUser || !window.currentUser.id) return null;
+  return {
+    id: window.currentUser.id,
+    email: window.currentUser.email || null,
+    user_metadata: {
+      display_name: window.currentUser.display_name || null,
+      role: window.currentUser.role || null
+    }
+  };
+}
+
+if (typeof window !== 'undefined' && window.sb && window.sb.auth && !window.__stmSbUserCacheListenerAttached) {
+  window.__stmSbUserCacheListenerAttached = true;
+  try {
+    window.sb.auth.onAuthStateChange((_event, session) => {
+      __sbSetCachedUser(session && session.user ? session.user : null);
+    });
+  } catch (e) {
+    console.warn('[supabase-data] auth cache listener failed:', e && e.message ? e.message : e);
+  }
+}
+
 async function sbUser() {
-  const { data: { user } } = await window.sb.auth.getUser();
-  return user;   // null if signed out
+  const now = Date.now();
+
+  const profileUser = __sbUserFromCurrentProfile();
+  if (profileUser) {
+    __sbSetCachedUser(profileUser);
+    return profileUser;
+  }
+
+  if (__sbCachedUser && (now - __sbCachedUserAt) < SB_USER_CACHE_MS) {
+    return __sbCachedUser;
+  }
+
+  if (__sbUserInflight) return __sbUserInflight;
+
+  __sbUserInflight = (async () => {
+    const { data: { session } } = await window.sb.auth.getSession();
+    const user = session && session.user ? session.user : null;
+    __sbSetCachedUser(user);
+    return user;
+  })().finally(() => {
+    __sbUserInflight = null;
+  });
+
+  return __sbUserInflight;
 }
 
 // ---- Submissions ----------------------------------------------------------
@@ -419,7 +480,19 @@ async function sbLogFeedback(event) {
 //      before insert; otherwise Postgres throws a type error and the audit
 //      write fails silently — exactly the foundational silent-failure class
 //      of bug we're trying to prevent in this layer.
+// v8.6.13: Serialize audit cloud writes. logAudit() can fire dozens of
+// events during a pipeline run; without a tiny queue, those insert/check
+// calls can all compete for the same Supabase auth lock. Local audit remains
+// immediate; only the cloud mirror is single-filed.
+let __sbAuditEventQueue = Promise.resolve();
 async function sbLogAuditEvent(category, message, meta, submissionId) {
+  __sbAuditEventQueue = __sbAuditEventQueue
+    .catch(() => {})
+    .then(() => sbLogAuditEventQueued(category, message, meta, submissionId));
+  return __sbAuditEventQueue;
+}
+
+async function sbLogAuditEventQueued(category, message, meta, submissionId) {
   try {
     const u = await sbUser(); if (!u) return;   // rule 3
 
@@ -1525,6 +1598,33 @@ async function sbFetchDocumentPageFull(docId) {
   return data || null;
 }
 
+// v8.6.13: Bulk lazy-loader for document heavy fields. This replaces the
+// old enrichment pattern of N separate sbFetchDocumentPageFull() calls with
+// one IN (...) query per chunk. Same returned shape, far fewer auth checks,
+// locks, and Supabase round-trips.
+async function sbFetchDocumentPagesFull(docIds) {
+  const u = await sbUser(); if (!u) return [];
+  const ids = Array.from(new Set((docIds || []).filter(Boolean)));
+  if (ids.length === 0) return [];
+
+  const all = [];
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const { data, error } = await window.sb
+      .from(DOC_TABLE)
+      .select('id, extracted_text, html_content, annotations, thumbnail_data_url')
+      .eq('user_id', u.id)
+      .in('id', slice);
+    if (error) {
+      console.warn('sbFetchDocumentPagesFull failed for chunk starting ' + i + ':', error.message);
+      continue;
+    }
+    if (data && data.length) all.push(...data);
+  }
+  return all;
+}
+
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.
 //
 // FIX #5 — DELETE ORDER REVERSED. Previously this function deleted storage
@@ -1668,6 +1768,7 @@ window.sbUpdateDocumentAnnotations      = sbUpdateDocumentAnnotations;
 window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
 window.sbFetchDocumentPages             = sbFetchDocumentPages;
 window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
+window.sbFetchDocumentPagesFull         = sbFetchDocumentPagesFull;
 window.sbFetchDocumentPageThumbnail     = sbFetchDocumentPageThumbnail;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
