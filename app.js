@@ -1281,6 +1281,97 @@ loadEdits();
 // ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
+
+const SCANNED_PDF_ACORD_OCR_MAX_PAGES = 40;
+let __pipelineOcrPromise = null;
+
+async function ensurePipelineOcrLoaded() {
+  if (typeof Tesseract !== 'undefined') return;
+  if (__pipelineOcrPromise) return __pipelineOcrPromise;
+  __pipelineOcrPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load OCR engine'));
+    document.head.appendChild(s);
+  });
+  return __pipelineOcrPromise;
+}
+
+function normalizeAcordOcrText(raw) {
+  return String(raw || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/A\s*C\s*0\s*R\s*D/gi, 'ACORD')
+    .replace(/A\s*C\s*O\s*R\s*D/gi, 'ACORD')
+    .replace(/AC0RD/gi, 'ACORD')
+    .trim();
+}
+
+function scannedPdfNeedsAcordOcr(pageCount, cleanedLength, avgCharsPerPage) {
+  return pageCount > 0 && (cleanedLength < 100 || avgCharsPerPage < 50);
+}
+
+function scannedPdfLooksLikeAcord(text) {
+  const t = normalizeAcordOcrText(text).toUpperCase();
+  if (!t) return false;
+  return (
+    /ACORD/.test(t) ||
+    /COMMERCIAL\s+INSURANCE\s+APPLICATION/.test(t) ||
+    /COMMERCIAL\s+GENERAL\s+LIABILITY\s+SECTION/.test(t) ||
+    /GENERAL\s+LIABILITY\s+SECTION/.test(t) ||
+    /UMBRELLA\s*\/?\s*EXCESS\s+SECTION/.test(t) ||
+    /UNDERLYING\s+INSURANCE/.test(t)
+  );
+}
+
+async function tryExtractAcordHeadersWithOcr(pdfBuffer, pageCount) {
+  if (pageCount <= 0 || pageCount > SCANNED_PDF_ACORD_OCR_MAX_PAGES) return null;
+  await ensurePipelineOcrLoaded();
+  if (typeof Tesseract === 'undefined') return null;
+
+  const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+  const pageTexts = [];
+  try {
+    for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
+      const page = await pdf.getPage(pageNo);
+      try {
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+        const topH = Math.max(120, Math.floor(canvas.height * 0.18));
+        const bottomH = Math.max(110, Math.floor(canvas.height * 0.14));
+        const band = document.createElement('canvas');
+        band.width = canvas.width;
+        band.height = topH + bottomH + 24;
+        const bctx = band.getContext('2d', { alpha: false });
+        bctx.fillStyle = '#ffffff';
+        bctx.fillRect(0, 0, band.width, band.height);
+        bctx.drawImage(canvas, 0, 0, canvas.width, topH, 0, 0, band.width, topH);
+        bctx.drawImage(canvas, 0, canvas.height - bottomH, canvas.width, bottomH, 0, topH + 24, band.width, bottomH);
+
+        const result = await Tesseract.recognize(band.toDataURL('image/png'), 'eng');
+        pageTexts[pageNo - 1] = normalizeAcordOcrText(result && result.data && result.data.text || '');
+      } finally {
+        try { page.cleanup(); } catch (e) {}
+      }
+    }
+  } finally {
+    try { await pdf.cleanup(); } catch (e) {}
+    try { await pdf.destroy(); } catch (e) {}
+  }
+
+  const text = pageTexts.join('\n\n').trim();
+  if (!scannedPdfLooksLikeAcord(text)) return null;
+  return { pageTexts: pageTexts, text: text };
+}
+
 async function extractText(file, metadata) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
@@ -1336,7 +1427,17 @@ async function extractText(file, metadata) {
     // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
     const cleanedLength = text.replace(/\s+/g, '').length;
     const avgCharsPerPage = cleanedLength / pdf.numPages;
-    if (cleanedLength < 100 || avgCharsPerPage < 50) {
+    if (scannedPdfNeedsAcordOcr(pdf.numPages, cleanedLength, avgCharsPerPage)) {
+      try {
+        const acordOcr = await tryExtractAcordHeadersWithOcr(buf, pdf.numPages);
+        if (acordOcr && acordOcr.text) {
+          meta.pageTexts = acordOcr.pageTexts;
+          meta.ocrFallback = 'acord_header_footer';
+          return acordOcr.text + '\n\n[Scanned PDF note: header/footer OCR fallback used for ACORD 125 / 126 / 131 detection.]';
+        }
+      } catch (ocrErr) {
+        console.warn('[extractText] scanned PDF ACORD OCR fallback failed for', file.name, ocrErr);
+      }
       throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
     }
     return text;

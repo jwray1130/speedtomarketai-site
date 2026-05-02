@@ -743,7 +743,39 @@ window.initDocumentsView = function() {
       thumb.appendChild(badge);
     }
 
-    if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
+    if ((doc.type === 'pdf' || doc.type === 'image') && !(doc.highResData || doc.thumbnailData)) {
+      const loading = document.createElement('div');
+      loading.className = 'doc-thumb-content';
+      loading.style.display = 'flex';
+      loading.style.alignItems = 'center';
+      loading.style.justifyContent = 'center';
+      loading.style.height = '100%';
+      loading.style.minHeight = '160px';
+      loading.style.color = 'var(--text-secondary)';
+      loading.style.fontFamily = 'var(--font-mono)';
+      loading.style.fontSize = '11px';
+      loading.style.letterSpacing = '0.08em';
+      loading.textContent = 'LOADING PREVIEW…';
+      thumb.appendChild(loading);
+
+      const loadThumb = async () => {
+        const ok = await ensureDocVisual(doc, { highRes: false });
+        if (ok && item.isConnected) renderDocsList();
+      };
+      if (typeof IntersectionObserver !== 'undefined') {
+        const observer = new IntersectionObserver((entries, obs) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              obs.disconnect();
+              loadThumb();
+            }
+          });
+        }, { rootMargin: '400px' });
+        Promise.resolve().then(() => { if (item.isConnected) observer.observe(item); });
+      } else {
+        setTimeout(loadThumb, 0);
+      }
+    } else if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
       const img = document.createElement('img');
       // Prefer in-memory high-res if already cached (set during active session
       // by upload, or by an earlier lazy-fetch from a preview/grid open).
@@ -1339,6 +1371,71 @@ window.initDocumentsView = function() {
       }
     })();
     return doc._binaryFetchPromise;
+  }
+
+
+  // v8.6.14: make refreshed/reopened PDF/image pages recover their visuals on demand.
+  // Hydrate intentionally skips thumbnail_data_url for speed, so a page can briefly
+  // have only metadata + storagePath. This helper first tries the light DB full-row
+  // fetch for the persisted thumbnail, then falls back to the stored original binary
+  // and renders the page locally. It is single-flight per doc and safe to call from
+  // grid, preview, OCR, or background enrichment.
+  async function ensureDocVisual(doc, opts) {
+    opts = opts || {};
+    if (!doc || (doc.type !== 'pdf' && doc.type !== 'image')) return false;
+    if (opts.highRes && doc.highResData) return true;
+    if (!opts.highRes && (doc.thumbnailData || doc.highResData)) return true;
+    if (doc._visualFetchPromise) return doc._visualFetchPromise;
+
+    doc._visualFetchPromise = (async () => {
+      try {
+        if (!doc.thumbnailData && typeof window.sbFetchDocumentPageFull === 'function') {
+          const row = await window.sbFetchDocumentPageFull(doc.id);
+          if (row) {
+            if (row.extracted_text != null && (!doc.textContent || doc.textContent.length === 0)) doc.textContent = row.extracted_text;
+            if (row.html_content != null && !doc.htmlContent) doc.htmlContent = sanitizeHtml(row.html_content);
+            if (row.thumbnail_data_url != null && !doc.thumbnailData) doc.thumbnailData = row.thumbnail_data_url;
+            if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
+              state.annotations.store[doc.id] = {
+                layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
+                undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
+              };
+            }
+            if (!opts.highRes && doc.thumbnailData) return true;
+          }
+        }
+
+        if (!doc.storagePath) return !!(doc.thumbnailData || doc.highResData);
+        const ok = await ensureBinary(doc);
+        if (!ok) return !!(doc.thumbnailData || doc.highResData);
+
+        if (doc.type === 'image' && doc.nativeDataUrl) {
+          doc.thumbnailData = doc.thumbnailData || doc.nativeDataUrl;
+          doc.highResData = doc.highResData || doc.nativeDataUrl;
+          return true;
+        }
+
+        if (doc.type === 'pdf' && doc.pdfData && typeof pdfjsLib !== 'undefined') {
+          const data = (doc.pdfData && typeof doc.pdfData.slice === 'function') ? doc.pdfData.slice(0) : doc.pdfData;
+          const pdf = await pdfjsLib.getDocument({ data }).promise;
+          const page = await pdf.getPage(doc.pageNumber || 1);
+          const rendered = await renderPdfPage(page, opts.highRes ? CONFIG.pdf.highResScale : CONFIG.pdf.thumbnailScale);
+          try { page.cleanup(); } catch(e) {}
+          try { await pdf.cleanup(); } catch(e) {}
+          try { await pdf.destroy(); } catch(e) {}
+          if (opts.highRes) doc.highResData = rendered;
+          else doc.thumbnailData = rendered;
+          return true;
+        }
+      } catch (err) {
+        console.warn('ensureDocVisual failed for ' + (doc && doc.id ? doc.id : '(unknown)') + ':', err);
+      } finally {
+        delete doc._visualFetchPromise;
+      }
+      return !!(doc.thumbnailData || doc.highResData);
+    })();
+
+    return doc._visualFetchPromise;
   }
 
   async function processFile(file, category) {
@@ -3109,6 +3206,15 @@ window.initDocumentsView = function() {
     const canvas = document.createElement('div');
     canvas.id = 'previewCanvas';
 
+    if ((doc.type === 'pdf' || doc.type === 'image') && !(doc.highResData || doc.thumbnailData)) {
+      canvas.innerHTML = '<div style="color:white; text-align:center; font-family:var(--font-mono); letter-spacing:0.08em;">Loading preview…</div>';
+      body.appendChild(canvas);
+      ensureDocVisual(doc, { highRes: true }).then(ok => {
+        if (ok && currentPreviewDoc() === doc && state.preview.open) renderPreview();
+      });
+      return;
+    }
+
     if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
       const img = document.createElement('img');
       img.src = doc.highResData || doc.thumbnailData;
@@ -3122,6 +3228,10 @@ window.initDocumentsView = function() {
       // high-res), so no upgrade needed.
       if (doc.type === 'pdf' && !doc.highResData && doc.storagePath) {
         (async () => {
+          if (await ensureDocVisual(doc, { highRes: true })) {
+            if (currentPreviewDoc() === doc && doc.highResData) img.src = doc.highResData;
+            return;
+          }
           try {
             // Fetch binary if not already loaded.
             if (!doc.pdfData) {
@@ -4236,6 +4346,12 @@ window.initDocumentsView = function() {
           }
           enriched++;
         });
+
+        // Re-render after each successful chunk so thumbnails/text appear
+        // progressively instead of waiting for the entire enrichment pass.
+        if (rows.length > 0 && typeof renderDocsList === 'function') {
+          try { renderDocsList(); } catch(e) {}
+        }
 
         // Brief pause between chunks so we don't pin the network or
         // hammer Supabase. With 25 parallel fetches per chunk and a

@@ -796,6 +796,60 @@ window.sbLoadAuditCategories = sbLoadAuditCategories;
 // renderAdminAuditLog + onAuditCategoryChange + onAuditLoadOlder moved to
 // admin-views.js (Phase 8 step 4).
 
+// ---- Queue cache: instant first paint for the submissions table ----------
+// This is a UI cache only. Supabase remains the source of truth. On boot we
+// can paint the last known queue immediately, then sbHydrate overwrites it
+// with fresh cloud data a moment later. If localStorage is full/unavailable,
+// every helper silently no-ops.
+const SB_QUEUE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+function __sbQueueCacheKey(userId) {
+  return userId ? ('stm-submissions-cache-v1:' + userId) : null;
+}
+function __sbPruneSnapshotForQueueCache(snapshot) {
+  if (!snapshot) return null;
+  const out = { ...snapshot };
+  if (Array.isArray(out.files)) {
+    out.files = out.files.map(f => ({
+      ...f,
+      text: '',
+      textDropped: true,
+      pageTexts: undefined,
+      _rawFile: undefined,
+    }));
+  }
+  if (Array.isArray(out.audit) && out.audit.length > 50) {
+    out.audit = out.audit.slice(-50);
+  }
+  return out;
+}
+function __sbLoadQueueCache(userId) {
+  try {
+    const key = __sbQueueCacheKey(userId);
+    if (!key || typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.submissions)) return null;
+    if (Date.now() - (parsed.savedAt || 0) > SB_QUEUE_CACHE_TTL_MS) return null;
+    return parsed.submissions;
+  } catch (e) {
+    return null;
+  }
+}
+function __sbSaveQueueCache(userId, submissions) {
+  try {
+    const key = __sbQueueCacheKey(userId);
+    if (!key || typeof localStorage === 'undefined' || !Array.isArray(submissions)) return;
+    const slim = submissions.map(rec => ({
+      ...rec,
+      snapshot: __sbPruneSnapshotForQueueCache(rec.snapshot || null),
+    }));
+    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), submissions: slim }));
+  } catch (e) {
+    // Cache is best-effort only; never let quota/private-mode errors affect app logic.
+  }
+}
+
 // ---- Master hydration: pull everything for the signed-in user -----------
 // Called from checkAuth() once we have a session. Populates STATE.* from
 // Supabase, replacing whatever the legacy localStorage loaders would have
@@ -810,6 +864,18 @@ async function sbHydrate() {
       if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate skipped — no session yet', 'warn');
       return;
     }
+
+    // v8.6.14: instant queue paint. If we have a recent local UI cache,
+    // render it before the cloud round-trip. Cloud data below still wins.
+    const hydrateUserId = sess.data.session.user && sess.data.session.user.id;
+    const cachedQueue = __sbLoadQueueCache(hydrateUserId);
+    if (cachedQueue && (!STATE.submissions || STATE.submissions.length === 0)) {
+      STATE.submissions = cachedQueue;
+      if (typeof renderQueueTable === 'function') renderQueueTable();
+      if (typeof updateQueueKpi === 'function') updateQueueKpi();
+      if (typeof logAudit === 'function') logAudit('Supabase', 'Queue painted from local cache · refreshing cloud…', 'ok');
+    }
+
     // Submissions. Each DB row's `snapshot` holds the per-submission object;
     // we flatten it back into the shape the rest of the app expects so the
     // Queue / rehydrate paths keep working unchanged.
@@ -909,6 +975,7 @@ async function sbHydrate() {
                    : computedConfidence
       };
     });
+    __sbSaveQueueCache(hydrateUserId, STATE.submissions);
     if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrated ' + STATE.submissions.length + ' submissions', 'ok');
     // Rerender the Queue table. The function is `renderQueueTable` in this
     // codebase (not renderSubmissionsTable — an earlier version had the wrong

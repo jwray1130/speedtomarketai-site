@@ -334,11 +334,9 @@ APPLICATIONS bucket:
     • Do NOT emit a separate classification entry for them
     • Do NOT include them in the classifications array as their own section
     • Their pages are simply part of the broader APPLICATIONS bucket
-    • If the COMBINED PDF as a whole is APPLICATIONS, emit ONE entry
-      covering the whole document with type=APPLICATIONS and tag set
-      to whichever of {ACORD 125, ACORD 126, ACORD 131} appears first,
-      OR omit per-section entries entirely if none of those three are
-      present.
+    • DO still emit separate section entries for every one of ACORD 125,
+      ACORD 126, and ACORD 131 that is present. Do not collapse a packet
+      into only ACORD 125 when ACORD 126 or ACORD 131 pages are present.
   This means in a typical commercial submission with ACORD 125 + 126 +
   127 + 129 + 131 + 140, you should emit exactly three section entries:
   one for ACORD 125 (with section_hint of its page range), one for

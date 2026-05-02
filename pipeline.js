@@ -773,7 +773,10 @@ function renderClassifierReview() {
     // currentTag is the tag currently selected in the dropdown — either the
     // pending user choice or the classifier's original tag (or fall back
     // to legacy classification value if no tag was emitted).
-    const currentTag = (pending && pending.tag) || f.tag || f.classification || '';
+    const currentTag = (pending && pending.tag) || f.tag ||
+      ((f.classifications || []).find(c => c && c.tag) || {}).tag ||
+      f.classification || '';
+    const currentTagIsKnown = CLASSIFIER_TYPES.some(t => t.value === currentTag);
     // The user's typed limit for variable tags (e.g. "2" for Lead $2M).
     // Stored alongside the chosen tag in RECLASSIFY_PENDING.
     const currentLimit = (pending && pending.limit) || '';
@@ -795,6 +798,7 @@ function renderClassifierReview() {
       }).join('');
       return `<optgroup label="${escapeHtml(BUCKET_LABELS[b] || b)}">${opts}</optgroup>`;
     }).join('');
+    const selectPrefix = currentTagIsKnown ? '' : '<option value="" disabled selected>Choose destination…</option>';
 
     // Determine whether the currently-selected tag is a variable one.
     // When yes, render an input box next to the dropdown so the user
@@ -840,7 +844,7 @@ function renderClassifierReview() {
         <div class="cr-controls">
           <div class="cr-sendto-wrap">
             <label class="cr-sendto-label" for="cr-sendto-${escapeHtml(f.id)}">Send to…</label>
-            <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${options}</select>
+            <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${selectPrefix}${options}</select>
             ${variableInput}
           </div>
           <button class="ghost" onclick="acceptClassification('${f.id}')" title="Accept the AI's classification as-is">Confirm</button>
@@ -1116,6 +1120,9 @@ async function incrementalProcess(newFiles) {
     const c = await classifyFile(f);
     f.classification = c.type;
     f.confidence = c.confidence;
+    f.subType = c.subType || null;
+    f.tag = c.tag || null;
+    f.primary_bucket = c.primary_bucket || null;
     f.classifications = c.classifications || [];
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
@@ -1549,7 +1556,8 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
+  highConfidenceThreshold: 0.92,  // at or above this → skip verification unless combined/ambiguous
+  reviewThreshold: 0.80,          // at or above this → do NOT force Needs Classification if routed/tagged
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -1620,11 +1628,14 @@ function sanitizeClassifierForExcessCasualty(norm) {
       return true;
     });
 
+  let intentionallySkippedNonCasualty = false;
+
   if (cleaned.length === 0) {
     // Mark pure non-excess-casualty files as an intentional file-and-forget
     // item. Using '???' is important because the pre-flight guard already
     // treats it as a valid non-routed tag; using ADMINISTRATION here would
     // make the guard think routing broke and could abort the whole pipeline.
+    intentionallySkippedNonCasualty = true;
     cleaned.push({
       type: '???',
       confidence: Math.max(norm.primaryConfidence || 0, 0.70),
@@ -1648,8 +1659,195 @@ function sanitizeClassifierForExcessCasualty(norm) {
     primaryConfidence: primary.confidence || norm.primaryConfidence || 0,
     isCombined: !!(norm.isCombined || cleaned.length > 1),
     droppedNonCasualtyCount: dropped,
-    canonicalizedPremiumSummary: canonicalizedPremiumSummary
+    canonicalizedPremiumSummary: canonicalizedPremiumSummary,
+    intentionallySkippedNonCasualty: intentionallySkippedNonCasualty
   };
+}
+
+
+// v8.6.16 surgical ACORD detector.
+// Goal: identify ACORD 125 / 126 / 131 anywhere in any combined packet
+// without hardcoding page numbers. We score every page across the whole
+// document using the printed form number when present, then fall back to
+// form-specific phrases that survive OCR. This stays intentionally limited
+// to the only three ACORD forms Justin cares about.
+function augmentAcordSectionClassifications(norm, file) {
+  if (!norm || !file || !Array.isArray(file.pageTexts) || file.pageTexts.length === 0) return norm;
+
+  const detected = detectAcord125126131Sections(file.pageTexts);
+  if (!detected.length) return norm;
+
+  const existing = Array.isArray(norm.classifications) ? norm.classifications.slice() : [];
+  const wasOnlyUnknown = existing.length <= 1 && existing.every(c => {
+    const label = String((c && (c.tag || c.type)) || '').trim().toLowerCase();
+    return !label || label === 'unknown' || label === 'unidentified' || label === '???';
+  });
+  const nextClasses = wasOnlyUnknown ? [] : existing.map(c => ({ ...(c || {}) }));
+
+  let changed = 0;
+  detected.forEach(sec => {
+    const idx = nextClasses.findIndex(c => String(c.tag || '').trim().toUpperCase() == sec.tag.toUpperCase());
+    const hint = sec.start === sec.end ? ('page ' + sec.start) : ('pages ' + sec.start + '-' + sec.end);
+    const payload = {
+      type: 'APPLICATIONS',
+      confidence: 0.97,
+      subType: null,
+      subTypeConfidence: null,
+      reasoning: sec.tag + ' detected from document-wide page scan (printed form number / OCR-resilient form signatures).',
+      signaturePhrases: [sec.signature],
+      section_hint: hint,
+      tag: sec.tag,
+      primary_bucket: 'APPLICATIONS',
+      _acordStartPage: sec.start
+    };
+
+    if (idx >= 0) {
+      const prior = nextClasses[idx] || {};
+      const priorHint = String(prior.section_hint || '').toLowerCase().trim();
+      const priorWholeDoc = !priorHint || priorHint === 'entire document' || priorHint === 'all pages' || priorHint === 'all';
+      nextClasses[idx] = {
+        ...prior,
+        type: 'APPLICATIONS',
+        confidence: Math.max(prior.confidence || 0, payload.confidence),
+        tag: sec.tag,
+        primary_bucket: 'APPLICATIONS',
+        section_hint: priorWholeDoc ? hint : (prior.section_hint || hint),
+        signaturePhrases: Array.from(new Set([...(prior.signaturePhrases || []), sec.signature])),
+        reasoning: priorWholeDoc ? payload.reasoning : (prior.reasoning || payload.reasoning),
+        _acordStartPage: sec.start
+      };
+      if (priorWholeDoc || String(prior.tag || '').trim().toUpperCase() != sec.tag.toUpperCase()) changed++;
+    } else {
+      nextClasses.push(payload);
+      changed++;
+    }
+  });
+
+  if (!changed) return norm;
+
+  nextClasses.sort((a, b) => {
+    const ar = parseSectionHint(a && a.section_hint, file.pageTexts.length);
+    const br = parseSectionHint(b && b.section_hint, file.pageTexts.length);
+    const ap = (a && a._acordStartPage) || (ar && ar[0]) || 999999;
+    const bp = (b && b._acordStartPage) || (br && br[0]) || 999999;
+    return ap - bp;
+  });
+
+  const publicClasses = nextClasses.map(c => {
+    const out = { ...c };
+    delete out._acordStartPage;
+    return out;
+  });
+  const primary = publicClasses[0] || {};
+
+  return {
+    ...norm,
+    classifications: publicClasses,
+    primaryType: primary.type || norm.primaryType || 'APPLICATIONS',
+    primaryConfidence: Math.max(norm.primaryConfidence || 0, primary.confidence || 0, 0.97),
+    isCombined: !!(norm.isCombined || publicClasses.length > 1),
+    acordAugmentedCount: (norm.acordAugmentedCount || 0) + changed,
+    detectedAcordTags: detected.map(d => d.tag)
+  };
+}
+
+function normalizeAcordDetectorText(raw) {
+  return String(raw || '')
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/A\s*C\s*0\s*R\s*D/gi, 'ACORD')
+    .replace(/A\s*C\s*O\s*R\s*D/gi, 'ACORD')
+    .replace(/AC0RD/gi, 'ACORD')
+    .trim();
+}
+
+function scoreAcordPageForTag(pageText, tag) {
+  const t = normalizeAcordDetectorText(pageText).toUpperCase();
+  if (!t) return { score: 0, signature: '' };
+
+  const profiles = {
+    'ACORD 125': {
+      number: /ACORD\s*(?:125|I25|L25|12S|I2S|L2S)/,
+      signatures: [
+        { re: /COMMERCIAL\s+INSURANCE\s+APPLICATION/, label: 'Commercial Insurance Application' },
+        { re: /APPLICANT'?S?\s+BUSINESS/, label: 'Applicant business' },
+        { re: /CONTACT\s+INFORMATION/, label: 'Contact information' },
+        { re: /LOCATIONS\s+INFORMATION/, label: 'Locations information' }
+      ]
+    },
+    'ACORD 126': {
+      number: /ACORD\s*(?:126|I26|L26|12G|I2G|L2G)/,
+      signatures: [
+        { re: /COMMERCIAL\s+GENERAL\s+LIABILITY\s+SECTION/, label: 'Commercial General Liability Section' },
+        { re: /GENERAL\s+LIABILITY\s+SECTION/, label: 'General Liability Section' },
+        { re: /PREMISES\s+OPERATIONS/, label: 'Premises Operations' },
+        { re: /PRODUCTS\s*\/?\s*COMPLETED\s+OPERATIONS/, label: 'Products Completed Operations' },
+        { re: /DAMAGE\s+TO\s+RENTED\s+PREMISES/, label: 'Damage to rented premises' }
+      ]
+    },
+    'ACORD 131': {
+      number: /ACORD\s*(?:131|I31|L31|13I|I3I|L3I)/,
+      signatures: [
+        { re: /UMBRELLA\s*\/?\s*EXCESS\s+SECTION/, label: 'Umbrella/Excess Section' },
+        { re: /EXCESS\s+SECTION/, label: 'Excess Section' },
+        { re: /UMBRELLA\s+SECTION/, label: 'Umbrella Section' },
+        { re: /UNDERLYING\s+INSURANCE/, label: 'Underlying Insurance' },
+        { re: /RETAINED\s+LIMITS?/, label: 'Retained Limits' },
+        { re: /EACH\s+OCCURRENCE.*AGGREGATE/, label: 'Each Occurrence / Aggregate' }
+      ]
+    }
+  };
+
+  const profile = profiles[tag];
+  if (!profile) return { score: 0, signature: '' };
+
+  let score = 0;
+  const matched = [];
+  if (profile.number.test(t)) {
+    score += 10;
+    matched.push(tag + ' printed form number');
+  }
+  profile.signatures.forEach(s => {
+    if (s.re.test(t)) {
+      score += 2;
+      matched.push(s.label);
+    }
+  });
+  if (/ACORD/.test(t) && matched.length > 0) score += 1;
+  return { score, signature: matched[0] || '' };
+}
+
+function detectAcord125126131Sections(pageTexts) {
+  const foundByTag = new Map();
+  const tags = ['ACORD 125', 'ACORD 126', 'ACORD 131'];
+
+  pageTexts.forEach((raw, idx) => {
+    const pageNo = idx + 1;
+    const ranked = tags
+      .map(tag => {
+        const score = scoreAcordPageForTag(raw, tag);
+        return { tag, score: score.score, signature: score.signature };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const best = ranked[0];
+    if (!best || best.score < 4) return;
+    if (!foundByTag.has(best.tag)) foundByTag.set(best.tag, []);
+    foundByTag.get(best.tag).push({ pageNo, signature: best.signature || (best.tag + ' page signature') });
+  });
+
+  return Array.from(foundByTag.entries())
+    .map(([tag, rows]) => {
+      const sorted = rows.slice().sort((a, b) => a.pageNo - b.pageNo);
+      return {
+        tag,
+        start: sorted[0].pageNo,
+        end: sorted[sorted.length - 1].pageNo,
+        signature: sorted[0].signature || (tag + ' printed form number')
+      };
+    })
+    .sort((a, b) => a.start - b.start);
 }
 
 function isForbiddenNonCasualtyClassification(c) {
@@ -1801,7 +1999,11 @@ async function classifyFile(file) {
     parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
   }
 
-  const final = sanitizeClassifierForExcessCasualty(normalizeClassifierResult(parsed));
+  let final = sanitizeClassifierForExcessCasualty(normalizeClassifierResult(parsed));
+  final = augmentAcordSectionClassifications(final, file);
+  if ((final.acordAugmentedCount || 0) > 0 && typeof logAudit === 'function') {
+    logAudit('Classifier', 'ACORD document-wide detector added/updated ' + final.acordAugmentedCount + ' ACORD 125/126/131 section classification(s) for ' + file.name + ' (' + (final.detectedAcordTags || []).join(', ') + ')', 'ok');
+  }
   if ((final.droppedNonCasualtyCount || 0) > 0 && typeof logAudit === 'function') {
     logAudit('Classifier', 'Dropped ' + final.droppedNonCasualtyCount + ' non-excess-casualty classification(s) from ' + file.name + ' (Property/EPLI/Cyber/Crime/Inland Marine/WC are not routed)', 'warn');
   }
@@ -1816,18 +2018,42 @@ async function classifyFile(file) {
     (final.classifications || [])[0] ||
     {};
 
-  // v8.6.2: needsReview now considers more than just primary confidence.
-  // Per GPT external audit: ambiguity in subType / tag / section_hint
-  // matters as much as ambiguity in primary type — Lead vs Excess vs
-  // GL vs AL routes to different modules. needs_review from the model
-  // is also honored.
+  // v8.6.14: Needs Classification is now a true review gate, not a
+  // punishment for combined PDFs. High-confidence routed/tagged documents
+  // (80%+) should flow through without asking Justin to re-classify files
+  // the AI already identified clearly. We still flag true unknowns, no-route
+  // outputs, and low-confidence classifications. Missing section_hint is
+  // logged via classifier/audit but no longer forces manual review by itself.
   const needsReviewFlags = [];
-  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
-  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
-  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+  const reviewThreshold = CLASSIFY_CONFIG.reviewThreshold || 0.80;
+  const finalClasses = final.classifications || [];
+  const intentionallySkippedNonCasualty = !!final.intentionallySkippedNonCasualty;
+  const hasUsableTag = finalClasses.some(c => {
+    const tag = String(c.tag || c.subType || c.type || '').trim();
+    return tag && tag !== '???' && tag.toLowerCase() !== 'unknown';
+  });
+  const hasRoutedOrKnownFileForget = finalClasses.some(c => {
+    const tag = c.tag || c.type || '';
+    return !!classifierToRoute(c.type, c.subType, c.tag) || FILE_AND_FORGET_TAGS.has(tag);
+  });
+  const isUnknownPrimary = /^(unknown|unidentified|\?\?\?)$/i.test(String(final.primaryType || primaryClassification.type || ''));
+
+  if (!intentionallySkippedNonCasualty) {
+    if (isUnknownPrimary) needsReviewFlags.push('unknown_primary');
+    if (final.primaryConfidence < reviewThreshold) needsReviewFlags.push('low_primary_conf');
+    if (!hasUsableTag) needsReviewFlags.push('missing_tag');
+    if (!hasRoutedOrKnownFileForget && !hasUsableTag) needsReviewFlags.push('no_valid_route');
+
+    // Only use the model's own review flag and low section/subtype flags
+    // when the overall result is below the manual-review threshold. This
+    // prevents 95%-confidence combined docs from showing in Needs
+    // Classification solely because one page hint/subsection was imperfect.
+    if (final.primaryConfidence < reviewThreshold) {
+      if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+      if (finalClasses.some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+      if (finalClasses.some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+    }
+  }
 
   // Return the FULL classification record — caller decides how to use it
   return {
@@ -2155,6 +2381,9 @@ async function runPipeline() {
     const c = await classifyFile(f);
     f.classification = c.type;                    // primary type (backward compat)
     f.confidence = c.confidence;                  // primary confidence
+    f.subType = c.subType || null;                // v8.6.14: preserve for review/dropdown
+    f.tag = c.tag || null;                        // v8.6.14: preserve granular tag (prevents ACORD 125 default)
+    f.primary_bucket = c.primary_bucket || null;  // v8.6.14: preserve bucket for review/docs view
     f.classifications = c.classifications || [];  // multi-type list for combined docs
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
