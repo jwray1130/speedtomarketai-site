@@ -770,17 +770,7 @@ function renderClassifierReview() {
   const list = document.getElementById('crList');
   if (!folder || !list) return;
 
-  const flagged = STATE.files.filter(f => {
-    const conf = Number(f.confidence || 0);
-    const classification = String(f.classification || '').toLowerCase();
-    const hasUnknownTag = (Array.isArray(f.classifications) ? f.classifications : []).some(c => {
-      const tag = String((c && (c.tag || c.type)) || '').trim();
-      return !tag || tag === '???' || tag.toLowerCase() === 'unknown' || tag.toUpperCase() === 'UNIDENTIFIED';
-    });
-    const recognized = classification && classification !== 'unknown' && classification !== 'unidentified' && !hasUnknownTag;
-    if (recognized && conf >= CLASSIFY_CONFIG.highConfidenceThreshold) return false;
-    return f.needsReview || classification === 'unknown' || classification === 'unidentified' || hasUnknownTag;
-  });
+  const flagged = STATE.files.filter(f => f.needsReview || f.classification === 'unknown');
   if (flagged.length === 0 || !STATE.pipelineDone) {
     folder.style.display = 'none';
     return;
@@ -1574,7 +1564,7 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.80,  // v3 surgical: at/above 80% → no Needs Classification
+  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -1634,27 +1624,12 @@ function stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
 
 function stmDetectAcordForms(file) {
   const text = stmClassifierTextBlob(file);
-  const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const found = [];
-  ['152', '131', '126', '125'].forEach(num => {
-    if (compact.includes('ACORD' + num) || compact.includes('AC0RD' + num)) found.push(num);
+  ['125', '126', '131'].forEach(num => {
+    const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
+    if (re.test(text)) found.push(num);
   });
   return found;
-}
-
-function stmFindFirstPage(file, tester) {
-  if (!file || !Array.isArray(file.pageTexts)) return null;
-  for (let i = 0; i < file.pageTexts.length; i++) {
-    const pageText = String(file.pageTexts[i] || '');
-    try {
-      if (tester(pageText, i + 1)) return i + 1;
-    } catch (_) {}
-  }
-  return null;
-}
-
-function stmPageHint(pageNum, fallback) {
-  return pageNum ? ('page ' + pageNum) : (fallback || 'entire document');
 }
 
 function stmIsPropertyOnly(file) {
@@ -1670,7 +1645,7 @@ function stmIsPropertyOnly(file) {
     /\bbuilding\s+(limit|value|coverage|valuation)\b/i.test(text);
 
   const hasLiability =
-    /\bACORD\s*(125|126|131|152)\b/i.test(text) ||
+    /\bACORD\s*(125|126|131)\b/i.test(text) ||
     /\bgeneral\s+liability\b/i.test(text) ||
     /\bcommercial\s+general\s+liability\b/i.test(text) ||
     /\bCGL\b/i.test(text) ||
@@ -1702,33 +1677,23 @@ function stmDetectPremiumSummary(file) {
   const text = stmClassifierTextBlob(file);
   const name = String((file && file.name) || '');
 
+  // Justin-specific confirmed case: "Quote proposal.pdf" should be Premium Summary.
   const filenameHit = /\bquote\s+proposal\b/i.test(name);
 
   const textHit =
-    /\bquote\s+proposal\b/i.test(text) ||
     /\bpremium\s+summary\b/i.test(text) ||
     /\bpremium\s+recap\b/i.test(text) ||
     /\bpremium\s+schedule\b/i.test(text) ||
     /\bpricing\s+summary\b/i.test(text) ||
     /\brate\s+summary\b/i.test(text) ||
     /\bsummary\s+of\s+premiums\b/i.test(text) ||
-    /\bpremium\s+breakdown\b/i.test(text) ||
-    (/\bpremium\b/i.test(text) && /\b(summary|recap|pricing|proposal|breakdown)\b/i.test(text));
+    /\bpremium\s+breakdown\b/i.test(text);
 
   return filenameHit || textHit;
 }
 
-
-
 function stmDetectGlExposure(file) {
   const text = stmClassifierTextBlob(file);
-  const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  if (compact.includes('ACORD125') || compact.includes('ACORD126') || compact.includes('ACORD131') || compact.includes('ACORD152') ||
-      compact.includes('AC0RD125') || compact.includes('AC0RD126') || compact.includes('AC0RD131') || compact.includes('AC0RD152')) {
-    // Do not turn ACORD application forms into GL Exposure just because
-    // they contain GL class code / line of business boxes.
-    return false;
-  }
 
   const explicitHeader =
     /\bGL\s+Exposure\b/i.test(text) ||
@@ -1771,23 +1736,6 @@ function stmDetectAlFleet(file) {
   return fleetEvidence && autoContext;
 }
 
-function stmDetectLossRuns(file) {
-  const text = stmClassifierTextBlob(file);
-  const lossRunSignal =
-    /\bloss\s+runs?\b/i.test(text) ||
-    /\bloss\s+history\b/i.test(text) ||
-    /\bclaim\s+(number|no\.?|#)\b/i.test(text) ||
-    (/\b(date\s+of\s+loss|DOL|valuation\s+date)\b/i.test(text) &&
-     /\b(paid|reserved?|incurred|open|closed)\b/i.test(text));
-
-  if (!lossRunSignal) return null;
-
-  const autoSignal =
-    /\b(AL|auto|automobile|business\s+auto|commercial\s+auto|vehicle|fleet|hired\s+and\s+non[-\s]*owned|HNOA)\b/i.test(text);
-
-  return autoSignal ? 'AL Loss Runs' : 'Loss Runs';
-}
-
 function stmApplyClassifierGuards(parsed, file) {
   const out = parsed && typeof parsed === 'object' ? JSON.parse(JSON.stringify(parsed)) : {};
   let cls = Array.isArray(out.classifications) ? out.classifications : null;
@@ -1826,27 +1774,6 @@ function stmApplyClassifierGuards(parsed, file) {
 
   cls = cls.filter(c => !stmIsPropertyClassification(c));
 
-  // Loss run guard — preserves the previously-working Loss Runs / AL Loss Runs
-  // behavior if the model drifts on a rerun.
-  const lossRunTag = stmDetectLossRuns(file);
-  if (lossRunTag) {
-    if (!cls.some(c => stmNormTag(c && c.tag) === stmNormTag(lossRunTag) || stmNormTag(c && c.type) === stmNormTag(lossRunTag))) {
-      cls.unshift(stmClassEntry(
-        'LOSS_HISTORY',
-        lossRunTag,
-        0.97,
-        'Surgical guard: loss run / claim history signals detected.',
-        'loss run section',
-        lossRunTag.toLowerCase().includes('al') ? 'AL' : 'GL'
-      ));
-    }
-    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
-      out.primary_type = 'LOSS_HISTORY';
-      out.primary_confidence = 0.97;
-    }
-    out.needs_review = false;
-  }
-
   if (stmDetectPremiumSummary(file)) {
     cls = cls.filter(c => {
       const tag = stmNormTag((c && (c.tag || c.type)) || '');
@@ -1855,15 +1782,12 @@ function stmApplyClassifierGuards(parsed, file) {
                tag.includes('quote proposal'));
     });
     if (!cls.some(c => stmNormTag(c && c.tag) === 'premium summary' || stmNormTag(c && c.type) === 'premium summary')) {
-      const pageNum = stmFindFirstPage(file, (pageText, pageNo) =>
-        /\bpremium\s+summary\b|\bpremium\s+recap\b|\bpremium\s+schedule\b|\bpricing\s+summary\b|\brate\s+summary\b|\bsummary\s+of\s+premiums\b|\bpremium\s+breakdown\b/i.test(pageText) || pageNo === 1
-      );
       cls.unshift(stmClassEntry(
         'QUOTES_INDICATIONS',
         'Premium Summary',
         0.99,
         'Surgical guard: quote proposal / premium summary detected; do not classify as a lead/excess layer.',
-        stmPageHint(pageNum, 'premium summary section'),
+        'entire document',
         'premium_summary'
       ));
     }
@@ -1877,16 +1801,12 @@ function stmApplyClassifierGuards(parsed, file) {
     acordForms.forEach(num => {
       const tag = 'ACORD ' + num;
       if (!cls.some(c => stmNormTag(c && c.tag) === stmNormTag(tag) || stmNormTag(c && c.type) === stmNormTag(tag))) {
-        const pageNum = stmFindFirstPage(file, pageText => {
-          const compactPage = String(pageText || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-          return compactPage.includes('ACORD' + num) || compactPage.includes('AC0RD' + num);
-        });
         cls.push(stmClassEntry(
           'APPLICATIONS',
           tag,
           0.98,
           'Surgical guard: OCR/text contains exact ACORD form number ' + num + '.',
-          stmPageHint(pageNum, 'ACORD form section'),
+          'entire document',
           'ACORD'
         ));
       }
@@ -1901,16 +1821,12 @@ function stmApplyClassifierGuards(parsed, file) {
 
   if (stmDetectGlExposure(file)) {
     if (!cls.some(c => stmNormTag(c && c.tag) === 'gl exposure' || stmNormTag(c && c.type) === 'gl exposure')) {
-      const pageNum = stmFindFirstPage(file, pageText =>
-        /\bGL\s+Exposure\b|\bGeneral\s+Liability\s+Exposure\b|\bCGL\s+Exposure\b|\bclass\s*code\b|\bclassification\s*code\b|\bexposure\s+basis\b|\bpremium\s+basis\b/i.test(pageText) &&
-        !/ACORD\s*(125|126|131|152)/i.test(pageText)
-      );
       cls.push(stmClassEntry(
         'QUOTES_UNDERLYING',
         'GL Exposure',
         0.96,
         'Surgical guard: GL exposure schedule / class-code exposure basis detected.',
-        stmPageHint(pageNum, 'GL exposure schedule'),
+        'entire document',
         'gl'
       ));
     }
@@ -1923,15 +1839,12 @@ function stmApplyClassifierGuards(parsed, file) {
 
   if (stmDetectAlFleet(file)) {
     if (!cls.some(c => stmNormTag(c && c.tag) === 'al fleet' || stmNormTag(c && c.type) === 'al fleet')) {
-      const pageNum = stmFindFirstPage(file, pageText =>
-        /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule|covered\s+autos|covered\s+vehicles|VIN|vehicle\s+identification\s+number|year\s+make\s+model|make\s+model\s+year|garaging\s+location|power\s+units|unit\s*#)\b/i.test(pageText)
-      );
       cls.push(stmClassEntry(
         'QUOTES_UNDERLYING',
         'AL Fleet',
         0.96,
         'Surgical guard: AL fleet / vehicle schedule detected.',
-        stmPageHint(pageNum, 'AL fleet / vehicle schedule'),
+        'entire document',
         'al'
       ));
     }
@@ -2110,30 +2023,12 @@ async function classifyFile(file) {
   // GL vs AL routes to different modules. needs_review from the model
   // is also honored.
   const needsReviewFlags = [];
-  const finalPrimaryConfidence = Number(final.primaryConfidence || 0);
-  const finalHasUnknownTag = (final.classifications || []).some(c => {
-    const tag = String((c && (c.tag || c.type)) || '').trim();
-    return !tag || tag === '???' || tag.toLowerCase() === 'unknown' || tag.toUpperCase() === 'UNIDENTIFIED';
-  });
-  const finalRecognized =
-    String(final.primaryType || '').toLowerCase() !== 'unknown' &&
-    String(final.primaryType || '').toUpperCase() !== 'UNIDENTIFIED' &&
-    !finalHasUnknownTag;
-
-  // v3 surgical rule from Justin:
-  // If the classifier recognizes the document and primary confidence is 80%+,
-  // do NOT send it to Needs Classification. This overrides model needs_review
-  // flags and combined-doc section-hint nitpicks for high-confidence results.
-  if (!finalRecognized) {
-    needsReviewFlags.push('unrecognized_or_unknown');
-  } else if (finalPrimaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) {
-    if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-    needsReviewFlags.push('low_primary_conf');
-    if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-    if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-    if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
-    if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
-  }
+  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
+  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
   // Return the FULL classification record — caller decides how to use it
   return {
@@ -2983,3 +2878,632 @@ window.MODEL_PRICING = MODEL_PRICING;
 window.CLASSIFIER_TYPES = CLASSIFIER_TYPES;
 window.CLASSIFY_CONFIG = CLASSIFY_CONFIG;
 window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;
+
+// ============================================================================
+// CLASSIFIER TEST HARNESS — runs ONLY classifyFile() (or a deterministic
+// pre-filter) on a single user-picked file. No extraction modules fire. No
+// state mutation. Re-runnable for fast prompt iteration.
+//
+// Why this exists:
+//   The full pipeline (DAG of 14+ extraction modules) takes 60–180s and costs
+//   $0.50–$2.00 per submission. When the classifier is misrouting (e.g.,
+//   labeling a Lead $5M policy as a GL Quote), running the whole DAG to find
+//   that out is wasteful. This harness isolates the one decision that matters
+//   for routing — what the classifier returns — into a 0–6s, ~$0.00–$0.02
+//   round trip.
+//
+// Read-only contract:
+//   - Does NOT mutate file.state, file.classification, file.classifications,
+//     file.routedTo, or any other STATE.files[i] field
+//   - Snapshots STATE.runTotalCost before the LLM call and restores it after,
+//     so test runs don't pollute pipeline cost totals shown in the summary
+//   - DOES write audit log entries (those are useful for prompt-debug history)
+//
+// Two-stage detection:
+//   STAGE 1 — Deterministic detector library (free, instant). A registry
+//             of regex-based detectors, one per document type with a
+//             printed/standardized signature. Each detector defines 2-4
+//             independent signals (filename + form number + title block +
+//             column headers, etc.) and a min_signals threshold (usually 2)
+//             before it claims a match.
+//
+//             SCOPE (current test surface):  ACORD 125, 126, 131 only.
+//             Once each ACORD form locks in confidently, we add the next
+//             doc type and document the methodology that worked.
+//
+//   STAGE 2 — LLM classifier (existing classifyFile path). Falls back here
+//             when no detector claims a hit (everything that's not an
+//             ACORD 125/126/131 right now).
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// DETECTOR REGISTRY — one entry per document type with a deterministic
+// signature. Adding a new detector = pushing one object onto this array.
+//
+// Each detector defines:
+//   id            — internal identifier (used in audit logs)
+//   priority      — higher runs first; ties broken by array order
+//   tag           — emit as classification tag (must match a value in
+//                   CLASSIFIER_TYPES so routing works)
+//   type          — primary type (matches classifier prompt taxonomy)
+//   subType       — optional sub-type (e.g., 'ACORD' under APPLICATIONS)
+//   primary_bucket— SCREAMING_CASE bucket (drives docs-view category)
+//   description   — human-readable; included in reasoning + audit log
+//   min_signals   — how many of the `signals` patterns must match (default 2)
+//   signals       — array of { name, pattern, scope } objects
+//                     scope: 'filename' | 'text' (first 5K chars) | 'either'
+//
+// Why 2-of-N: a single signal can fire incidentally (a subcontract that
+// references "ACORD 25 certificate" doesn't make the subcontract a COI;
+// a website that mentions "loss runs" isn't a loss run). Two independent
+// signals dramatically reduces false positives at near-zero recall cost
+// because legitimate documents always carry multiple signature markers.
+// ----------------------------------------------------------------------------
+const DOC_SIGNATURE_DETECTORS = [
+  // ── ACORD application series (standardized form numbers + titles) ──────
+  {
+    id: 'acord_125',
+    priority: 100,
+    tag: 'ACORD 125',
+    type: 'APPLICATIONS',
+    subType: 'ACORD',
+    primary_bucket: 'APPLICATIONS',
+    description: 'Commercial Insurance Application (general info section)',
+    min_signals: 2,
+    signals: [
+      { name: 'filename_match',       scope: 'filename', pattern: /acord[\s_-]*125(?!\d)/i },
+      { name: 'form_number_stamp',    scope: 'text',     pattern: /\bACORD[\s_-]*125(?!\d)/i },
+      { name: 'title_section_header', scope: 'text',     pattern: /COMMERCIAL\s+INSURANCE\s+APPLICATION/i },
+    ],
+  },
+  {
+    id: 'acord_126',
+    priority: 100,
+    tag: 'ACORD 126',
+    type: 'APPLICATIONS',
+    subType: 'ACORD',
+    primary_bucket: 'APPLICATIONS',
+    description: 'Commercial General Liability Section',
+    min_signals: 2,
+    signals: [
+      { name: 'filename_match',       scope: 'filename', pattern: /acord[\s_-]*126(?!\d)/i },
+      { name: 'form_number_stamp',    scope: 'text',     pattern: /\bACORD[\s_-]*126(?!\d)/i },
+      // Title varies by revision year: SECTION (older) or EXPOSURE (newer)
+      { name: 'title_section_header', scope: 'text',     pattern: /COMMERCIAL\s+GENERAL\s+LIABILITY\s+(SECTION|EXPOSURE)/i },
+    ],
+  },
+  {
+    id: 'acord_131',
+    priority: 100,
+    tag: 'ACORD 131',
+    type: 'APPLICATIONS',
+    subType: 'ACORD',
+    primary_bucket: 'APPLICATIONS',
+    description: 'Umbrella/Excess Liability Section',
+    min_signals: 2,
+    signals: [
+      { name: 'filename_match',       scope: 'filename', pattern: /acord[\s_-]*131(?!\d)/i },
+      { name: 'form_number_stamp',    scope: 'text',     pattern: /\bACORD[\s_-]*131(?!\d)/i },
+      // Title revisions: "UMBRELLA LIABILITY SECTION" / "UMBRELLA SECTION" /
+      // "EXCESS LIABILITY SECTION"
+      { name: 'title_section_header', scope: 'text',     pattern: /(UMBRELLA(\s+LIABILITY)?|EXCESS\s+LIABILITY)\s+SECTION/i },
+    ],
+  },
+];
+
+// Sort once at registry build time so detection iteration is in priority
+// order without re-sorting on every call.
+DOC_SIGNATURE_DETECTORS.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+// ----------------------------------------------------------------------------
+// Generalized signature detector — runs the full registry against a file and
+// returns the first matching detector (or {match: false} if nothing fires).
+//
+// This is the single entry point the test harness uses. The previous
+// detectAcordForm() is kept as a thin alias for backward compatibility.
+// ----------------------------------------------------------------------------
+function detectDocumentSignature(file) {
+  const filename = (file.name || '').toLowerCase();
+  // First 5K chars covers form-number stamps, titles, and column headers
+  // for every detector in the registry. Loss runs occasionally need
+  // longer scans for valuation date, but the column headers are always
+  // on page 1 so 5K is sufficient.
+  const text = (file.text || '').slice(0, 5000);
+
+  for (const detector of DOC_SIGNATURE_DETECTORS) {
+    const matchedSignals = [];
+
+    for (const signal of detector.signals) {
+      const haystack =
+        signal.scope === 'filename' ? filename :
+        signal.scope === 'either'   ? (filename + '\n' + text) :
+                                       text;
+      if (signal.pattern.test(haystack)) {
+        matchedSignals.push(signal.name);
+      }
+    }
+
+    const minRequired = detector.min_signals || 2;
+    if (matchedSignals.length >= minRequired) {
+      // Confidence scales with signal count over minimum.
+      // - At minimum: 0.92
+      // - Each additional signal: +0.03 up to 0.99
+      const extra = matchedSignals.length - minRequired;
+      const confidence = Math.min(0.99, 0.92 + extra * 0.03);
+
+      return {
+        match: true,
+        method: 'regex_prefilter',
+        method_label: detector.description + ' (' + detector.id + ')',
+        detector_id: detector.id,
+        signals: matchedSignals,
+        signals_required: minRequired,
+        signals_total: detector.signals.length,
+        result: {
+          type: detector.type,
+          subType: detector.subType,
+          tag: detector.tag,
+          primary_bucket: detector.primary_bucket,
+          confidence: confidence,
+          reasoning: 'Deterministic ' + detector.id + ' detection. ' +
+                     'Matched ' + matchedSignals.length + '/' + detector.signals.length +
+                     ' signals (min ' + minRequired + '): ' + matchedSignals.join(', ') +
+                     '. ' + detector.description + '. ' +
+                     'No LLM call required.',
+          classifications: [{
+            type: detector.type,
+            subType: detector.subType,
+            tag: detector.tag,
+            primary_bucket: detector.primary_bucket,
+            confidence: confidence,
+            reasoning: 'Pre-filter (' + detector.id + '): ' + matchedSignals.join(' + '),
+          }],
+          isCombined: false,
+          signatures: matchedSignals,
+          needsReview: false,
+          needsReviewReasons: [],
+          suppressTag: false,
+        },
+      };
+    }
+  }
+
+  return { match: false };
+}
+
+// Backward-compat alias — earlier code paths and any tests still calling
+// detectAcordForm continue to work. The generalized detector handles
+// ACORD plus everything else.
+function detectAcordForm(file) {
+  return detectDocumentSignature(file);
+}
+
+// ----------------------------------------------------------------------------
+// Apply a classification result to the file in the manager — same field
+// layout the real pipeline writes in runPipeline()'s Stage 0. Updates the
+// file's state to 'classified', sets the chip, computes routing. Does NOT
+// push to the Documents tab / docs view (that's full ingestion territory
+// with thumbnails + Supabase storage; the user wanted the test harness to
+// stop short of that). Re-clicking Test Classify still re-runs detection
+// from scratch — runTestClassifyOnFile calls detectDocumentSignature /
+// classifyFile directly, neither of which use the runPipeline cache check.
+// ----------------------------------------------------------------------------
+function applyTestClassificationToFile(f, c) {
+  // Match the field layout from runPipeline's Stage 0 exactly so the file
+  // manager chip + needs-review badge + combined indicator all render the
+  // same way as a real pipeline run.
+  f.classification = c.type;                    // primary type (drives chip text)
+  f.confidence = c.confidence;                  // primary confidence (drives % badge)
+  f.classifications = c.classifications || [];  // multi-type list for combined docs
+  f.isCombined = !!c.isCombined;
+  f.needsReview = !!c.needsReview;
+  f.needsReviewReasons = c.needsReviewReasons || [];
+  f.signatures = c.signatures || [];
+  f.reasoning = c.reasoning || '';
+  // v8.6.2: surface tag / subType / primary_bucket so docs-view mapping
+  // works identically to a real run if the user later hits Run Pipeline.
+  f.subType = c.subType || null;
+  f.tag = c.tag || null;
+  f.primary_bucket = c.primary_bucket || null;
+  f.suppressTag = !!c.suppressTag;
+  // Route to ALL applicable modules (supports combined docs) — this is what
+  // Run Pipeline reads when deciding which extraction modules to fire. We
+  // compute it here so the wired routing is correct, but the test harness
+  // intentionally does NOT fire those modules.
+  f.routedToAll = (c.classifications || [])
+    .map(cl => (typeof classifierToRoute === 'function')
+      ? classifierToRoute(cl.type, cl.subType, cl.tag)
+      : null)
+    .filter(Boolean);
+  f.routedTo = (typeof classifierToRoute === 'function')
+    ? classifierToRoute(c.type, c.subType, c.tag)
+    : null;
+  f.state = 'classified';
+
+  // Refresh the file manager UI (left sidebar chip) and the run-button
+  // label ("Run Pipeline · 3 files" → reflects new classified count).
+  if (typeof renderFileList === 'function') renderFileList();
+  if (typeof updateRunButton === 'function') updateRunButton();
+}
+
+// ----------------------------------------------------------------------------
+// Picker entry point — fired by the "Test Classify" button below "Run Pipeline".
+// If exactly one parsed file is in the queue, skip the picker and go straight
+// to running the test on that file. Otherwise show a list of ready files.
+// ----------------------------------------------------------------------------
+function openTestClassifyPicker() {
+  if (!window.currentUser) {
+    if (typeof toast === 'function') toast('Sign in required to test the classifier.', 'warn');
+    const overlay = document.getElementById('authOverlay');
+    if (overlay) overlay.style.display = 'flex';
+    return;
+  }
+
+  const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified');
+  if (ready.length === 0) {
+    if (typeof toast === 'function') toast('Upload a file first to test the classifier.', 'warn');
+    return;
+  }
+
+  // Surface scanned/needs_manual files in the picker so the user understands
+  // why they're not classifiable yet.
+  const needsManual = STATE.files.filter(f => f.state === 'needs_manual');
+
+  // Single file → skip picker, go straight to classification
+  if (ready.length === 1 && needsManual.length === 0) {
+    showTestClassifyModal();
+    runTestClassifyOnFile(ready[0].id);
+    return;
+  }
+
+  // Multiple files → render picker
+  const body = document.getElementById('testClassifyBody');
+  if (!body) return;
+
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
+
+  const readyRows = ready.map(f => {
+    const sizeLabel = f.text ? Math.round(f.text.length / 1024) + 'K chars' : '—';
+    const stateLabel = f.state === 'classified' ? 'previously classified' : 'parsed · ready';
+    return '<div class="tc-file-row" onclick="runTestClassifyOnFile(\'' + f.id + '\')">' +
+      '<div>' +
+      '<div class="tc-file-name">' + esc(f.name) + '</div>' +
+      '<div class="tc-file-meta">' + sizeLabel + ' · ' + stateLabel + '</div>' +
+      '</div>' +
+      '<div class="tc-file-go">TEST →</div>' +
+      '</div>';
+  }).join('');
+
+  // Show needs_manual files as disabled rows so the user sees them but
+  // can't click them. Vision/OCR not yet wired into the test harness.
+  const manualRows = needsManual.map(f => {
+    return '<div class="tc-file-row" style="opacity: 0.45; cursor: not-allowed;" title="Scanned PDF — text extraction failed. Click the file in the queue to paste text manually, then re-test.">' +
+      '<div>' +
+      '<div class="tc-file-name">' + esc(f.name) + '</div>' +
+      '<div class="tc-file-meta">scanned / unreadable · needs manual paste</div>' +
+      '</div>' +
+      '<div class="tc-file-go" style="color: var(--warning, #ffb400);">NEEDS TEXT</div>' +
+      '</div>';
+  }).join('');
+
+  body.innerHTML =
+    '<p style="margin: 0 0 14px; color: var(--text-2); font-size: 12.5px; line-height: 1.5;">' +
+    'Pick one file. The harness scans page 1 for ACORD 125, 126, or 131 form signatures ' +
+    '(filename + form number stamp + title block — free, instant). ' +
+    'If no ACORD match, falls back to the LLM classifier (Pass 1 + Pass 2). ' +
+    '<strong style="color: var(--signal);">The file manager chip will update with the result.</strong> ' +
+    'No extraction modules fire. Re-click freely to iterate.' +
+    '</p>' +
+    '<div>' + readyRows + manualRows + '</div>';
+
+  showTestClassifyModal();
+}
+
+function showTestClassifyModal() {
+  const modal = document.getElementById('testClassifyModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeTestClassifyModal() {
+  const modal = document.getElementById('testClassifyModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ----------------------------------------------------------------------------
+// Core test runner — pre-filter first, LLM fallback. Renders into the modal.
+// ----------------------------------------------------------------------------
+async function runTestClassifyOnFile(fileId) {
+  const f = STATE.files.find(ff => ff.id === fileId);
+  if (!f) {
+    if (typeof toast === 'function') toast('File not found in queue.', 'error');
+    return;
+  }
+  if (f.state !== 'parsed' && f.state !== 'classified') {
+    if (typeof toast === 'function') toast('File must be parsed first. Current state: ' + f.state, 'warn');
+    return;
+  }
+
+  const body = document.getElementById('testClassifyBody');
+  if (!body) return;
+
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
+
+  // STAGE 1 — Try the deterministic pre-filter first. It's free and instant.
+  // If it claims a hit, we never call the LLM at all. The detector library
+  // (DOC_SIGNATURE_DETECTORS) covers ACORD 125/126/131, ACORD 25 COIs, loss
+  // runs, primary GL/AL policies (CG 00 01 / CA 00 01), excess T&C with
+  // follow-form language, BOR/AOR letters, SAFER snapshots, and AIA contracts.
+  const preFilter = detectDocumentSignature(f);
+  if (preFilter.match) {
+    if (typeof logAudit === 'function') {
+      logAudit('TestHarness',
+        'Pre-filter HIT (' + preFilter.detector_id + ') for ' + f.name + ' → ' + preFilter.result.tag +
+        ' (' + preFilter.signals.join(' + ') + ')', 'ok');
+    }
+    // Apply the classification to the file manager — same chip, same color,
+    // same routing as a real pipeline run. The file row in the left sidebar
+    // updates immediately. Extraction modules do NOT fire.
+    applyTestClassificationToFile(f, preFilter.result);
+    renderTestClassifyResult(f, preFilter.result, {
+      method: 'regex_prefilter',
+      method_label: preFilter.method_label,
+      detector_id: preFilter.detector_id,
+      signals: preFilter.signals,
+      signals_required: preFilter.signals_required,
+      signals_total: preFilter.signals_total,
+      elapsedMs: 0,
+      costDelta: 0,
+    });
+    return;
+  }
+
+  // STAGE 2 — LLM classifier fallback. Show loading state.
+  body.innerHTML =
+    '<div class="tc-loading">' +
+    '<div class="tc-loading-spinner"></div>' +
+    '<div class="tc-loading-text">No deterministic detector matched · running LLM classifier on ' + esc(f.name) + '…</div>' +
+    '<div style="font-size: 10px; color: var(--text-3); letter-spacing: 0.05em; text-transform: uppercase;">Pass 1 (Opus) · ' +
+    (f.text.length > 6000 ? 'Pass 2 (Sonnet) verify pending' : 'No verify (text < 6K chars)') +
+    '</div>' +
+    '</div>';
+
+  // Cost isolation — snapshot BEFORE so we can restore after AND compute delta
+  const costBefore = STATE.runTotalCost || 0;
+  const startMs = Date.now();
+
+  let result = null;
+  let err = null;
+  try {
+    if (typeof logAudit === 'function') {
+      logAudit('TestHarness', 'No deterministic detector matched · running LLM classifier on ' + f.name, 'ok');
+    }
+    // classifyFile() is the same function the real pipeline uses. It does not
+    // mutate the file argument. It returns the structured classification.
+    result = await classifyFile(f);
+  } catch (e) {
+    err = e;
+  }
+
+  const elapsedMs = Date.now() - startMs;
+  const costDelta = (STATE.runTotalCost || 0) - costBefore;
+
+  // Restore cost so test runs don't bloat the next pipeline run's total
+  STATE.runTotalCost = costBefore;
+
+  if (err) {
+    body.innerHTML =
+      '<div class="tc-result">' +
+      '<div class="tc-result-header">' +
+      '<div>' +
+      '<div class="tc-result-filename">' + esc(f.name) + '</div>' +
+      '<div class="tc-result-subtitle">Classification failed · ' + elapsedMs + 'ms</div>' +
+      '</div>' +
+      '<div class="tc-method-badge method-error">ERROR</div>' +
+      '</div>' +
+      '<div class="tc-verdict" style="border-left-color: #ff5555;">' +
+      '<div class="tc-verdict-label">Error</div>' +
+      '<div class="tc-verdict-type" style="color: #ff5555; font-size: 14px;">' + esc(err.message) + '</div>' +
+      '</div>' +
+      '<div class="tc-actions">' +
+      '<button class="tc-btn" onclick="openTestClassifyPicker()">← Back to picker</button>' +
+      '<button class="tc-btn tc-btn-primary" onclick="runTestClassifyOnFile(\'' + f.id + '\')">↻ Retry</button>' +
+      '</div>' +
+      '</div>';
+    return;
+  }
+
+  // Apply the LLM classification to the file manager — same chip, same color,
+  // same routing as a real pipeline run. Extraction modules do NOT fire.
+  applyTestClassificationToFile(f, result);
+
+  renderTestClassifyResult(f, result, {
+    method: 'llm_classifier',
+    method_label: 'LLM classifier (Opus + Sonnet verify)',
+    signals: null,
+    elapsedMs: elapsedMs,
+    costDelta: costDelta,
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Result rendering — shared between pre-filter and LLM paths. The 'meta'
+// argument carries detection-method info so we can show the user HOW the
+// classification was made (regex vs LLM).
+// ----------------------------------------------------------------------------
+function renderTestClassifyResult(f, result, meta) {
+  const body = document.getElementById('testClassifyBody');
+  if (!body) return;
+
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
+  const confPct = Math.round((result.confidence || 0) * 100);
+
+  // What route would this take? This is the actual answer to "did the AI
+  // identify the doc correctly" — type → route is what determines which
+  // extraction module fires.
+  const route = (typeof classifierToRoute === 'function')
+    ? classifierToRoute(result.type, result.subType, result.tag)
+    : null;
+  const routeName = route && typeof MODULES === 'object' && MODULES[route]
+    ? MODULES[route].code + ' — ' + MODULES[route].name
+    : null;
+
+  // Method badge — REGEX (green) vs LLM (signal yellow)
+  const methodBadgeClass = meta.method === 'regex_prefilter' ? 'method-regex' : 'method-llm';
+  const methodBadgeText = meta.method === 'regex_prefilter' ? 'REGEX · INSTANT' : 'LLM · ' + meta.elapsedMs + 'MS';
+
+  // Pre-filter banner — explains how the pre-filter decided
+  let prefilterBannerHtml = '';
+  if (meta.method === 'regex_prefilter' && meta.signals) {
+    const signalChips = meta.signals.map(s => '<span class="tc-signal">' + esc(s.replace(/_/g, ' ')) + '</span>').join('');
+    const detectorLabel = meta.detector_id ? esc(meta.detector_id.toUpperCase()) : 'PRE-FILTER';
+    const thresholdNote = (meta.signals_required && meta.signals_total)
+      ? meta.signals.length + ' of ' + meta.signals_total + ' signals matched (min ' + meta.signals_required + ' required)'
+      : meta.signals.length + ' signals matched';
+    prefilterBannerHtml =
+      '<div class="tc-prefilter-banner">' +
+      '<strong>' + detectorLabel + ' detector HIT.</strong> ' +
+      thresholdNote + ' — no LLM call needed. ' +
+      esc(meta.method_label) + '.' +
+      '<div class="tc-signals" style="margin-top: 8px;">' + signalChips + '</div>' +
+      '</div>';
+  }
+
+  // Combined sections (only LLM path can produce these)
+  let combinedHtml = '';
+  if (result.isCombined && Array.isArray(result.classifications) && result.classifications.length > 1) {
+    const sectionRows = result.classifications.map(c => {
+      const cConf = Math.round((c.confidence || 0) * 100);
+      const sec = c.section_hint ? ' · ' + esc(c.section_hint) : '';
+      const tag = c.tag ? ' · tag: ' + esc(c.tag) : '';
+      return '<div class="tc-section-row">' +
+        '<span class="tc-section-type">' + esc(c.type) + esc(c.subType ? ' / ' + c.subType : '') + tag + sec + '</span>' +
+        '<span class="tc-section-conf">' + cConf + '%</span>' +
+        '</div>';
+    }).join('');
+    combinedHtml =
+      '<div>' +
+      '<div class="tc-field-label" style="margin-bottom: 8px;">Sections (' + result.classifications.length + ')</div>' +
+      '<div class="tc-sections">' + sectionRows + '</div>' +
+      '</div>';
+  }
+
+  // Needs-review flags
+  let flagsHtml = '';
+  if (result.needsReview && Array.isArray(result.needsReviewReasons) && result.needsReviewReasons.length > 0) {
+    const flagPills = result.needsReviewReasons.map(r => '<span class="tc-flag">' + esc(r) + '</span>').join('');
+    flagsHtml =
+      '<div>' +
+      '<div class="tc-field-label" style="margin-bottom: 6px;">Needs review</div>' +
+      '<div class="tc-flags">' + flagPills + '</div>' +
+      '</div>';
+  } else {
+    flagsHtml =
+      '<div class="tc-flags">' +
+      '<span class="tc-flag ok">CONFIDENT · NO REVIEW NEEDED</span>' +
+      '</div>';
+  }
+
+  // Cost label
+  const costLabel = meta.costDelta > 0 ? '$' + meta.costDelta.toFixed(4) : (meta.method === 'regex_prefilter' ? 'FREE' : '—');
+
+  // First 240 chars of doc text — what the classifier actually saw
+  const textPreview = (f.text || '').slice(0, 240).replace(/\s+/g, ' ').trim();
+  const textTotal = (f.text || '').length;
+
+  // Subtitle — different for pre-filter vs LLM
+  const subtitle = meta.method === 'regex_prefilter'
+    ? textTotal.toLocaleString() + ' chars · pre-filter · 0ms · FREE'
+    : textTotal.toLocaleString() + ' chars · ' + meta.elapsedMs + 'ms · ' + costLabel;
+
+  body.innerHTML =
+    '<div class="tc-result">' +
+    '<div class="tc-result-header">' +
+    '<div style="flex: 1; min-width: 0; padding-right: 10px;">' +
+    '<div class="tc-result-filename">' + esc(f.name) + '</div>' +
+    '<div class="tc-result-subtitle">' + subtitle + '</div>' +
+    '</div>' +
+    '<div class="tc-method-badge ' + methodBadgeClass + '">' + methodBadgeText + '</div>' +
+    '</div>' +
+
+    prefilterBannerHtml +
+
+    // Headline verdict
+    '<div class="tc-verdict">' +
+    '<div class="tc-verdict-label">Primary classification</div>' +
+    '<div class="tc-verdict-type">' + esc(result.type || 'unknown') + '</div>' +
+    '<div class="tc-verdict-conf">Confidence: ' + confPct + '%' +
+    (result.isCombined ? ' · COMBINED DOC' : '') +
+    (result.suppressTag ? ' · TAG SUPPRESSED' : '') +
+    '</div>' +
+    '</div>' +
+
+    // What it would route to
+    '<div class="tc-routes-to ' + (route ? '' : 'no-route') + '">' +
+    '<div class="tc-routes-to-label">→ Routes to extraction module</div>' +
+    '<div class="tc-routes-to-value">' +
+    (route ? esc(routeName) : 'NO ROUTE · file-and-forget or unknown') +
+    '</div>' +
+    '</div>' +
+
+    // Taxonomy field grid
+    '<div class="tc-grid">' +
+    '<div class="tc-field">' +
+    '<div class="tc-field-label">Type</div>' +
+    '<div class="tc-field-value ' + (result.type ? '' : 'muted') + '">' + esc(result.type || '(none)') + '</div>' +
+    '</div>' +
+    '<div class="tc-field">' +
+    '<div class="tc-field-label">Sub-type</div>' +
+    '<div class="tc-field-value ' + (result.subType ? '' : 'muted') + '">' + esc(result.subType || '(none)') + '</div>' +
+    '</div>' +
+    '<div class="tc-field">' +
+    '<div class="tc-field-label">Tag</div>' +
+    '<div class="tc-field-value ' + (result.tag ? '' : 'muted') + '">' + esc(result.tag || '(none)') + '</div>' +
+    '</div>' +
+    '<div class="tc-field">' +
+    '<div class="tc-field-label">Primary bucket</div>' +
+    '<div class="tc-field-value ' + (result.primary_bucket ? '' : 'muted') + '">' + esc(result.primary_bucket || '(none)') + '</div>' +
+    '</div>' +
+    '</div>' +
+
+    flagsHtml +
+    combinedHtml +
+
+    // Reasoning
+    (result.reasoning ?
+      '<div class="tc-reasoning">' +
+      '<div class="tc-reasoning-label">Detection reasoning</div>' +
+      esc(result.reasoning) +
+      '</div>'
+      : '') +
+
+    // Doc text preview
+    '<details class="tc-details">' +
+    '<summary>▸ Document text (first 240 chars · what the classifier actually read)</summary>' +
+    '<div class="tc-reasoning" style="margin-top: 4px;">' + esc(textPreview) + (textTotal > 240 ? '…' : '') + '</div>' +
+    '</details>' +
+
+    // Raw JSON
+    '<details class="tc-details">' +
+    '<summary>▸ Raw classifier output (JSON)</summary>' +
+    '<div class="tc-raw-json">' + esc(JSON.stringify(result, null, 2)) + '</div>' +
+    '</details>' +
+
+    // Actions
+    '<div class="tc-actions">' +
+    '<button class="tc-btn" onclick="openTestClassifyPicker()">← Test another file</button>' +
+    '<button class="tc-btn" onclick="closeTestClassifyModal()">Close</button>' +
+    '<button class="tc-btn tc-btn-primary" onclick="runTestClassifyOnFile(\'' + f.id + '\')">↻ Re-run on this file</button>' +
+    '</div>' +
+    '</div>';
+}
+
+// Expose to inline onclick handlers and to the broader app
+window.openTestClassifyPicker = openTestClassifyPicker;
+window.runTestClassifyOnFile = runTestClassifyOnFile;
+window.closeTestClassifyModal = closeTestClassifyModal;
+window.showTestClassifyModal = showTestClassifyModal;
+window.renderTestClassifyResult = renderTestClassifyResult;
+window.applyTestClassificationToFile = applyTestClassificationToFile;
+window.detectAcordForm = detectAcordForm;
+window.detectDocumentSignature = detectDocumentSignature;
+window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;

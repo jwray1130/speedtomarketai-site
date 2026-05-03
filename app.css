@@ -960,7 +960,6 @@ table.queue {
 
 /* ============ FILES PANE (LEFT) ============ */
 .dropzone {
-  position: relative;
   border: 2px dashed var(--line-warm);
   border-radius: var(--radius);
   padding: 24px 14px;
@@ -969,21 +968,6 @@ table.queue {
   transition: all 0.18s ease;
   background: var(--surface-2);
   margin-bottom: 12px;
-  overflow: hidden;
-}
-.dropzone-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  z-index: 3;
-}
-.dropzone-icon,
-.dropzone-text,
-.dropzone-hint {
-  pointer-events: none;
 }
 .dropzone:hover, .dropzone.dragover {
   border-color: var(--signal);
@@ -3604,3 +3588,396 @@ table.loss {
 .toast-msg     { font-size: 12px; opacity: 0.9; }
 @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 
+
+/* ============================================================================
+   TEST CLASSIFY BUTTON + MODAL
+   Outlined teal/signal variant of btn-run so it reads as "diagnostic, not
+   commit". Modal styles inherit from .modal-backdrop / .modal but add
+   internals specific to the classifier-test result layout.
+============================================================================ */
+.btn-run-test {
+  background: transparent;
+  color: var(--signal);
+  border: 1px solid var(--signal);
+  box-shadow: none;
+  margin-top: 8px;
+}
+.btn-run-test:hover:not(:disabled) {
+  background: rgba(198, 244, 50, 0.08);
+  color: var(--signal-hover);
+  border-color: var(--signal-hover);
+  transform: translateY(-1px);
+}
+.btn-run-test:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--text-3);
+  border-color: var(--line);
+}
+.btn-run-test svg { color: currentColor; }
+
+/* File picker rows inside the test modal */
+.tc-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--surface-2);
+}
+.tc-file-row:hover {
+  border-color: var(--signal);
+  background: rgba(198, 244, 50, 0.04);
+  transform: translateX(2px);
+}
+.tc-file-row .tc-file-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+}
+.tc-file-row .tc-file-meta {
+  font-size: 10.5px;
+  color: var(--text-2);
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tc-file-row .tc-file-go {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--signal);
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-left: 14px;
+}
+
+/* Result panel */
+.tc-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tc-result-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.tc-result-filename {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+}
+.tc-result-subtitle {
+  font-size: 10.5px;
+  color: var(--text-2);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Detection method badge — REGEX / LLM / HYBRID */
+.tc-method-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.tc-method-badge.method-regex {
+  background: rgba(95, 191, 110, 0.12);
+  color: #5fbf6e;
+  border: 1px solid rgba(95, 191, 110, 0.3);
+}
+.tc-method-badge.method-llm {
+  background: rgba(198, 244, 50, 0.1);
+  color: var(--signal);
+  border: 1px solid rgba(198, 244, 50, 0.3);
+}
+.tc-method-badge.method-error {
+  background: rgba(255, 85, 85, 0.1);
+  color: #ff5555;
+  border: 1px solid rgba(255, 85, 85, 0.3);
+}
+
+/* Verdict block — the headline answer */
+.tc-verdict {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.tc-verdict-label {
+  font-size: 9.5px;
+  color: var(--text-3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.tc-verdict-type {
+  font-family: var(--font-mono, monospace);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--signal);
+  letter-spacing: 0.02em;
+}
+.tc-verdict-conf {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+
+/* Field grid — taxonomy details */
+.tc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.tc-field {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+.tc-field-label {
+  font-size: 9.5px;
+  color: var(--text-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.tc-field-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
+}
+.tc-field-value.muted { color: var(--text-3); font-style: italic; font-weight: 400; }
+
+/* Routes-to callout — the answer to "what would the pipeline have done" */
+.tc-routes-to {
+  background: rgba(198, 244, 50, 0.06);
+  border: 1px solid rgba(198, 244, 50, 0.25);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.tc-routes-to.no-route {
+  background: rgba(255, 180, 0, 0.06);
+  border-color: rgba(255, 180, 0, 0.25);
+}
+.tc-routes-to-label {
+  font-size: 9.5px;
+  color: var(--text-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.tc-routes-to-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 14px;
+  color: var(--signal);
+  font-weight: 700;
+}
+.tc-routes-to.no-route .tc-routes-to-value { color: var(--warning, #ffb400); }
+
+/* Signals strip — what the pre-filter detected */
+.tc-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tc-signal {
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(95, 191, 110, 0.1);
+  color: #5fbf6e;
+  text-transform: uppercase;
+  border: 1px solid rgba(95, 191, 110, 0.25);
+}
+
+/* Reasoning block */
+.tc-reasoning {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+  font-family: var(--font-body, inherit);
+}
+.tc-reasoning .tc-reasoning-label {
+  font-size: 9.5px;
+  color: var(--text-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 6px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* Needs-review pill row */
+.tc-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tc-flag {
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(255, 180, 0, 0.12);
+  color: var(--warning, #ffb400);
+  text-transform: uppercase;
+}
+.tc-flag.ok {
+  background: rgba(198, 244, 50, 0.1);
+  color: var(--signal);
+}
+
+/* Combined sections list */
+.tc-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+}
+.tc-section-row .tc-section-type { color: var(--text); font-weight: 600; }
+.tc-section-row .tc-section-conf { color: var(--text-3); font-size: 10.5px; }
+
+/* Raw JSON details */
+.tc-raw-json {
+  background: #0a0e1a;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 12px 14px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.55;
+  color: #c6f432;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+details.tc-details summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+details.tc-details summary:hover { color: var(--signal); }
+details.tc-details[open] summary { color: var(--signal); margin-bottom: 6px; }
+
+/* Footer action row */
+.tc-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+.tc-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-family: var(--font-body, inherit);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.tc-btn:hover { border-color: var(--signal); color: var(--signal); }
+.tc-btn.tc-btn-primary {
+  background: var(--signal);
+  color: #0A0E1A;
+  border-color: var(--signal);
+}
+.tc-btn.tc-btn-primary:hover { background: var(--signal-hover); }
+.tc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Loading state */
+.tc-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 14px;
+}
+.tc-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--line);
+  border-top-color: var(--signal);
+  border-radius: 50%;
+  animation: tcSpin 0.7s linear infinite;
+}
+@keyframes tcSpin { to { transform: rotate(360deg); } }
+.tc-loading-text {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Pre-flight info banner — shown when pre-filter fires before LLM */
+.tc-prefilter-banner {
+  background: rgba(95, 191, 110, 0.06);
+  border: 1px solid rgba(95, 191, 110, 0.25);
+  border-radius: 5px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.tc-prefilter-banner strong { color: #5fbf6e; }

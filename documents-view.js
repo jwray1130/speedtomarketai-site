@@ -2422,255 +2422,6 @@ window.initDocumentsView = function() {
     return null;
   }
 
-
-  // v8.6.12-surgical-v2: last-mile page-tag override for Documents View.
-  // This only affects rendered Tagged Pages chips. It does NOT change
-  // extraction modules, document parsing, storage, thumbnails, or queue logic.
-  function _stmCompactText(s) {
-    return String(s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  }
-
-  function _stmPageBlob(opts, pctx, ctx) {
-    // IMPORTANT: this blob is actual page/source text only. Do NOT include
-    // inherited pctx.pipelineTag or resolvedPipelineTag here. Including the
-    // parent tag (for example ACORD 125) contaminated page-level detection
-    // and caused later ACORD pages such as 131/152 to render as ACORD 125.
-    return String(
-      (opts && opts.name ? opts.name : '') + '\n' +
-      (opts && opts.textContent ? opts.textContent : '') + '\n' +
-      (opts && opts.htmlContent ? String(opts.htmlContent).replace(/<[^>]+>/g, ' ') : '') + '\n' +
-      (ctx && ctx.fileName ? ctx.fileName : '') + '\n' +
-      (opts && opts.workbookFileName ? opts.workbookFileName : '') + '\n' +
-      (opts && opts.nativeFileName ? opts.nativeFileName : '')
-    );
-  }
-
-  function _stmSourceKeyForPage(opts, ctx, pctx) {
-    const raw = String(
-      (ctx && (ctx.storagePath || ctx.fileName)) ||
-      (opts && (opts.storagePath || opts.workbookFileName || opts.nativeFileName)) ||
-      (opts && opts.name) ||
-      (pctx && pctx.submissionId) ||
-      'unknown'
-    );
-    // Normalize page-sliced display names back to the source file so "Page 1"
-    // and "Page 2" share the same once-per-form chip key.
-    return raw
-      .replace(/\s+[—–-]\s+Page\s+\d+.*$/i, '')
-      .replace(/\s+Page\s+\d+\s*(of\s+\d+)?\s*$/i, '')
-      .replace(/\s*\(page\s+\d+\s*(of\s+\d+)?\)\s*$/i, '')
-      .toLowerCase();
-  }
-
-  function _stmHasAcordNum(text, num) {
-    const compact = _stmCompactText(text);
-    return compact.includes('ACORD' + num) || compact.includes('AC0RD' + num);
-  }
-
-  function _stmDetectedAcordNums(text) {
-    const nums = [];
-    // v4: ACORD 152 is now intentionally recognized in this workflow.
-    // Higher-specificity forms are checked before 125 so page-level tags
-    // override any parent/default ACORD 125 packet tag.
-    ['152', '131', '126', '125'].forEach(num => {
-      if (_stmHasAcordNum(text, num)) nums.push(num);
-    });
-    return nums;
-  }
-
-  function _stmIsPropertyOnlyPage(text) {
-    const hasProperty =
-      /\bproperty\s+(quote|proposal|schedule|coverage|policy)\b/i.test(text) ||
-      /\bcommercial\s+property\b/i.test(text) ||
-      /\bACORD\s*140\b/i.test(text) ||
-      /\b(statement|schedule)\s+of\s+values\b/i.test(text) ||
-      /\bSOV\b/i.test(text) ||
-      /\bbusiness\s+personal\s+property\b/i.test(text) ||
-      /\bbuilding\s+(limit|value|coverage|valuation)\b/i.test(text);
-
-    const hasLiability =
-      /\bACORD\s*(125|126|131)\b/i.test(text) ||
-      /\bgeneral\s+liability\b/i.test(text) ||
-      /\bcommercial\s+general\s+liability\b/i.test(text) ||
-      /\bCGL\b/i.test(text) ||
-      /\bGL\s+(quote|exposure|class|rate|premium)\b/i.test(text) ||
-      /\bauto\s+liability\b/i.test(text) ||
-      /\bautomobile\s+liability\b/i.test(text) ||
-      /\bAL\s+(quote|fleet)\b/i.test(text) ||
-      /\bumbrella\b/i.test(text) ||
-      /\bexcess\s+liability\b/i.test(text) ||
-      /\blead\s*\$?\s*\d/i.test(text) ||
-      /\b\d+\s*M\s*(xs|excess of)\s*\d+\s*M\b/i.test(text);
-
-    return hasProperty && !hasLiability;
-  }
-
-  function _stmIsPropertyTag(tag) {
-    const t = String(tag || '').toLowerCase().trim();
-    return t === 'sov' ||
-      t.includes('property quote') ||
-      t.includes('property proposal') ||
-      t.includes('commercial property') ||
-      t.includes('schedule of values') ||
-      t.includes('statement of values') ||
-      t.includes('acord 140');
-  }
-
-  function _stmIsPremiumSummaryPage(text, opts) {
-    const name = String((opts && opts.name) || '');
-    const pageNum = Number((opts && opts.pageNumber) || 1);
-
-    const textHit =
-      /\bquote\s+proposal\b/i.test(text) ||
-      /\bpremium\s+summary\b/i.test(text) ||
-      /\bpremium\s+recap\b/i.test(text) ||
-      /\bpremium\s+schedule\b/i.test(text) ||
-      /\bpricing\s+summary\b/i.test(text) ||
-      /\brate\s+summary\b/i.test(text) ||
-      /\bsummary\s+of\s+premiums\b/i.test(text) ||
-      /\bpremium\s+breakdown\b/i.test(text);
-
-    // Confirmed user case: a source/page named "Quote Proposal" should tag
-    // once as Premium Summary. Limit filename-only detection to page 1 so a
-    // multi-page quote packet does not label every page Premium Summary.
-    const filenameHit = /\bquote\s+proposal\b/i.test(name) && pageNum === 1;
-
-    return textHit || filenameHit;
-  }
-
-  function _stmLooksLikePremiumRecap(text, resolvedPipelineTag) {
-    const tag = String(resolvedPipelineTag || '').toLowerCase();
-    const isLeadOrLayer = tag.startsWith('lead $') || tag.includes(' xs $') || tag.includes('p/o $');
-    if (!isLeadOrLayer) return false;
-
-    // Do not steal real lead/excess quote docs with obvious policy/layer language.
-    if (/\b(follow\s*form|umbrella\s+liability|excess\s+liability|underlying\s+schedule|attachment\s+point|self[-\s]*insured\s+retention|SIR)\b/i.test(text)) {
-      return false;
-    }
-
-    return /\bpremium\b/i.test(text) &&
-      /\b(summary|recap|pricing|rate|quote\s+proposal|proposal|breakdown)\b/i.test(text);
-  }
-
-  function _stmAcordPageNumber(text) {
-    const patterns = [
-      /\bpage\s*(\d+)\s*of\s*\d+\b/i,
-      /\bpg\.?\s*(\d+)\s*of\s*\d+\b/i,
-      /\bpage\s*(\d+)\b/i
-    ];
-    for (const rx of patterns) {
-      const m = String(text || '').match(rx);
-      if (m && m[1]) {
-        const n = parseInt(m[1], 10);
-        if (!isNaN(n)) return n;
-      }
-    }
-    return null;
-  }
-
-  function _stmDetectLossRunTag(text) {
-    if (_stmDetectedAcordNums(text).length || _stmIsPropertyOnlyPage(text)) return null;
-
-    const lossRunSignal =
-      /\bloss\s+runs?\b/i.test(text) ||
-      /\bloss\s+history\b/i.test(text) ||
-      /\bclaim\s+(number|no\.?|#)\b/i.test(text) ||
-      (/\b(date\s+of\s+loss|DOL|valuation\s+date)\b/i.test(text) &&
-       /\b(paid|reserved?|incurred|open|closed)\b/i.test(text));
-
-    if (!lossRunSignal) return null;
-
-    const autoSignal =
-      /\b(AL|auto|automobile|business\s+auto|commercial\s+auto|vehicle|fleet|hired\s+and\s+non[-\s]*owned|HNOA)\b/i.test(text);
-
-    return autoSignal ? 'AL Loss Runs' : 'Loss Runs';
-  }
-
-  function _stmDetectAlPageTag(text, resolvedPipelineTag) {
-    const tag = String(resolvedPipelineTag || '').toLowerCase();
-
-    const fleetSignal =
-      /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule|covered\s+autos|covered\s+vehicles)\b/i.test(text) ||
-      /\b(VIN|vehicle\s+identification\s+number)\b/i.test(text) ||
-      /\b(year\s+make\s+model|make\s+model\s+year|garaging\s+location|power\s+units|unit\s*#)\b/i.test(text);
-
-    const alQuoteSignal =
-      /\b(AL\s+Quote|Auto\s+Quote|Automobile\s+Liability|Auto\s+Liability|Commercial\s+Auto|Business\s+Auto|CA\s*00\s*01|Combined\s+Single\s+Limit)\b/i.test(text);
-
-    if (fleetSignal) return 'AL Fleet';
-    if (tag.includes('al quote') && (tag.includes('fleet') || alQuoteSignal)) return 'AL Quote';
-    return null;
-  }
-
-  function _stmClaimOnce(stateObj, key) {
-    if (!stateObj._stmSurgicalChipSeen) stateObj._stmSurgicalChipSeen = new Set();
-    if (stateObj._stmSurgicalChipSeen.has(key)) return false;
-    stateObj._stmSurgicalChipSeen.add(key);
-    return true;
-  }
-
-  function _stmResolveSurgicalPageTag(opts, pctx, ctx, stateObj, resolvedPipelineTag) {
-    const text = _stmPageBlob(opts, pctx, ctx);
-    const sourceKey = _stmSourceKeyForPage(opts, ctx, pctx);
-    const submissionKey = String((pctx && pctx.submissionId) || (opts && opts.submissionId) || 'no-sub');
-    const baseKey = submissionKey + '|' + sourceKey + '|';
-
-    // Property-only pages should not create liability workflow tags.
-    if (_stmIsPropertyOnlyPage(text) || _stmIsPropertyTag(resolvedPipelineTag)) {
-      return { suppress: true };
-    }
-
-    // 1) ACORD exact form numbers. ACORD wins over inherited/default tags.
-    // Continuation pages are suppressed so page 2/3 do not fall back to
-    // ACORD 125, GL Exposure, or Lead.
-    const acordNums = _stmDetectedAcordNums(text);
-    if (acordNums.length) {
-      const acordPageNo = _stmAcordPageNumber(text);
-      if (acordPageNo && acordPageNo > 1) return { suppress: true };
-
-      for (const num of acordNums) {
-        const key = baseKey + 'ACORD ' + num;
-        if (_stmClaimOnce(stateObj, key)) {
-          return { tag: 'ACORD ' + num, category: 'applications', color: 'green' };
-        }
-      }
-      return { suppress: true };
-    }
-
-    // 2) Restore previously-working Loss Runs / AL Loss Runs chips when the
-    // page text has loss-run signals.
-    const lossTag = _stmDetectLossRunTag(text);
-    if (lossTag) {
-      const key = baseKey + lossTag;
-      if (_stmClaimOnce(stateObj, key)) {
-        return { tag: lossTag, category: 'loss-history', color: 'red' };
-      }
-    }
-
-    // 3) Premium Summary beats Lead $XM for quote proposal / premium recap.
-    if (_stmIsPremiumSummaryPage(text, opts) || _stmLooksLikePremiumRecap(text, resolvedPipelineTag)) {
-      const key = baseKey + 'Premium Summary';
-      if (_stmClaimOnce(stateObj, key)) {
-        return { tag: 'Premium Summary', category: 'quotes-indications', color: 'teal' };
-      }
-      return { suppress: true };
-    }
-
-    // 4) Split combined AL Quote + Fleet into separate page chips.
-    const alTag = _stmDetectAlPageTag(text, resolvedPipelineTag);
-    if (alTag) {
-      const key = baseKey + alTag;
-      if (_stmClaimOnce(stateObj, key)) {
-        return { tag: alTag, category: 'underlying', color: 'yellow' };
-      }
-    }
-
-    return null;
-  }
-
-
-
-
   function addDoc(opts) {
     const now = Date.now();
     // Pull upload context (storage_path, file_size, etc.) set by processFile
@@ -2689,14 +2440,7 @@ window.initDocumentsView = function() {
     // visually but don't show up in Tagged Pages because tagged was still
     // gated on pageNumber === 1.
     const resolvedPipelineTag = _resolvePerPageTag(opts, pctx);
-    const surgicalPageTag = _stmResolveSurgicalPageTag(opts, pctx, ctx, state, resolvedPipelineTag);
-    const finalPipelineTag = surgicalPageTag && surgicalPageTag.suppress ? null :
-      ((surgicalPageTag && surgicalPageTag.tag) || resolvedPipelineTag);
-    const finalCategory = (surgicalPageTag && surgicalPageTag.category) || opts.category || pctx.category || 'all';
-    const finalColor = surgicalPageTag && surgicalPageTag.suppress ? null :
-      ((surgicalPageTag && surgicalPageTag.color) || opts.color || (pctx.color && finalPipelineTag ? pctx.color : null) || null);
-    const finalTagged = !!(opts.color || (finalColor && finalPipelineTag));
-    const isSectionStart = !!finalPipelineTag;
+    const isSectionStart = !!resolvedPipelineTag;
     // Cap display_name at 250 chars. Most filenames are <50 chars; some
     // generated names like 'Long Doc — Page 47' grow but still fit. A
     // pathologically long name (10K chars from a renamed export) would
@@ -2708,7 +2452,7 @@ window.initDocumentsView = function() {
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
-      category: finalCategory,
+      category: opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
       htmlContent: sanitizeHtml(opts.htmlContent) || null,
@@ -2757,7 +2501,7 @@ window.initDocumentsView = function() {
       // PDFs. See _resolvePerPageTag() above the doc construction. The
       // resolved tag is computed once at the top of addDoc as
       // resolvedPipelineTag and used here.
-      pipelineTag: finalPipelineTag,
+      pipelineTag: resolvedPipelineTag,
       primaryBucket: opts.primaryBucket || pctx.primaryBucket || null,
       relabeledByUser: !!(opts.relabeledByUser),
       // Color tag — usually null on user upload (user picks via tag menu),
@@ -2779,8 +2523,8 @@ window.initDocumentsView = function() {
       // still reflects "number of distinct sections" not "total pages."
       // Manual uploads (no pctx) keep legacy behavior — opts.color
       // paints whatever page the caller specifies.
-      color: finalColor,
-      tagged: finalTagged,
+      color: opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
+      tagged: !!(opts.color || (pctx.color && isSectionStart)),
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,

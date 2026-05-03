@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-surgical-classifier-v7-converged-2026-05-03';
+window.STM_BUILD = 'v8.6.12-surgical-classifier-2026-05-03';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1559,118 +1559,25 @@ function setupDropzone() {
   const dz = document.getElementById('dropzone');
   const input = document.getElementById('fileInput');
   if (!dz || !input) return;
-  if (dz.dataset.stmDropzoneReady === '1') return;
-  dz.dataset.stmDropzoneReady = '1';
-
-  // v6: native invisible input overlay. This makes the browser itself
-  // recognize the zone as a valid file target, which is more reliable than
-  // JS-only dragover handling.
-  dz.style.position = dz.style.position || 'relative';
-  input.classList.add('dropzone-input');
-  input.style.display = 'block';
-  input.style.position = 'absolute';
-  input.style.inset = '0';
-  input.style.width = '100%';
-  input.style.height = '100%';
-  input.style.opacity = '0';
-  input.style.cursor = 'pointer';
-  input.style.zIndex = '3';
-
-  const hasFileDrag = (e) => {
-    const dt = e && e.dataTransfer;
-    if (!dt) return false;
-    if (dt.items && Array.from(dt.items).some(item => item.kind === 'file')) return true;
-    const types = Array.from(dt.types || []);
-    // Normal browser file drags expose "Files". Some desktop mail/file
-    // sources expose file-like payload types instead; accept those too so
-    // the browser shows a copy cursor instead of the red no-drop cursor.
-    return types.includes('Files') ||
-      types.some(t => /file|FileGroupDescriptor|FileContents|DownloadURL/i.test(String(t)));
-  };
-
-  const inSubmissionDropScope = (target) => {
-    const view = document.getElementById('view-submission');
-    return !!(view && view.classList.contains('active') && dz.offsetParent !== null);
-  };
-
-  const acceptDrag = (e) => {
-    if (!hasFileDrag(e) || !inSubmissionDropScope(e.target)) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-    return true;
-  };
-
-  const clearDrag = () => dz.classList.remove('dragover');
 
   dz.addEventListener('click', (e) => {
     if (e.target === input) return;
     input.click();
   });
-
   input.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleFiles(Array.from(e.target.files));
     input.value = '';
   });
-
-  // Exact-zone handlers.
   ['dragenter', 'dragover'].forEach(ev => {
-    dz.addEventListener(ev, e => {
-      if (!acceptDrag(e)) return;
-      dz.classList.add('dragover');
-    });
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); });
   });
-
   ['dragleave', 'drop'].forEach(ev => {
-    dz.addEventListener(ev, e => {
-      if (!hasFileDrag(e)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      clearDrag();
-    });
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); });
   });
-
   dz.addEventListener('drop', e => {
-    if (!acceptDrag(e)) return;
-    clearDrag();
-    const files = Array.from(e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : []);
+    const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) handleFiles(files);
   });
-
-  // v5 surgical drop-zone fix:
-  // Some browsers show the red "not allowed" cursor unless the page-level
-  // dragover default is cancelled continuously while files are being dragged.
-  // The original code only cancelled dragover on #dropzone itself, so child
-  // gaps/overlays inside the intake card could briefly reject the drop. These
-  // capture-phase listeners accept file drags only while the Submission view
-  // dropzone is visible, then route the drop back through the existing
-  // handleFiles() path. They do not affect the Documents workspace, which has
-  // its own gated drag/drop handlers.
-  document.addEventListener('dragenter', e => {
-    if (!acceptDrag(e)) return;
-    dz.classList.add('dragover');
-  }, true);
-
-  document.addEventListener('dragover', e => {
-    if (!acceptDrag(e)) return;
-    dz.classList.add('dragover');
-  }, true);
-
-  document.addEventListener('dragleave', e => {
-    if (!hasFileDrag(e)) return;
-    if (e.target === document || e.target === document.body || !dz.contains(e.relatedTarget)) {
-      clearDrag();
-    }
-  }, true);
-
-  document.addEventListener('drop', e => {
-    if (!acceptDrag(e)) return;
-    clearDrag();
-    const files = Array.from(e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : []);
-    if (files.length > 0) handleFiles(files);
-  }, true);
-
-  window.addEventListener('blur', clearDrag);
 }
 
 async function handleFiles(fileList) {
@@ -1987,6 +1894,26 @@ function updateRunButton() {
     btn.disabled = true;
     label.textContent = 'Drop files to begin';
   }
+
+  // Test Classify button — same gating logic (needs >= 1 parsed file), but its
+  // own label so the user knows whether they'll get a picker or go straight
+  // to the result modal. Read-only diagnostic: doesn't fire extraction modules
+  // and doesn't mutate file state, so it can be re-clicked freely while
+  // iterating on the classifier prompt.
+  const testBtn = document.getElementById('btnTestClassify');
+  const testLabel = document.getElementById('btnTestClassifyLabel');
+  if (testBtn && testLabel) {
+    if (ready > 0) {
+      testBtn.disabled = false;
+      testLabel.textContent = ready === 1
+        ? 'Test Classify (single doc)'
+        : 'Test Classify · pick from ' + ready + ' files';
+    } else {
+      testBtn.disabled = true;
+      testLabel.textContent = 'Test Classify (single doc)';
+    }
+  }
+
   updateQueueKpi();
 }
 
