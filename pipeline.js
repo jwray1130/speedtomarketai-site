@@ -3267,6 +3267,167 @@ function detectSuppApp(file) {
 }
 
 // ----------------------------------------------------------------------------
+// LOSS RUN detector — for tagging/labeling loss-related documents at the
+// file manager level. Carrier loss runs, broker loss summaries, claim
+// reports, claim histories, large loss detail letters, loss triangulations.
+//
+// Loss runs are notoriously format-variant — Travelers vs Liberty vs AmTrust
+// vs claim system exports vs broker spreadsheets all look different. So this
+// detector uses a multi-signal scoring approach rather than a single
+// stamp+title pattern.
+//
+// SIGNALS:
+//
+//   1. Explicit title keyword on page 1 or 2 (Loss Run, Claims History,
+//      Loss Summary, etc.)
+//
+//   2. Column header sequence — the most reliable structural signal.
+//      Standard loss runs have (Date of Loss + Paid + Reserved) or
+//      (Paid + Reserved + Incurred) appearing as adjacent column headers.
+//      Detected via proximity regex.
+//
+//   3. Currency density — loss runs are dollar-heavy (paid amounts,
+//      reserves, incurred totals, deductibles).
+//
+//   4. Date density — loss runs are date-heavy (date of loss, date of
+//      report, valuation date, claim status dates).
+//
+// FALSE-POSITIVE GUARDS:
+//
+//   - No ACORD form-number stamp on page 1. The ACORD 125 loss history
+//     section has "DATE OF OCCURRENCE / AMOUNT PAID / AMOUNT RESERVED"
+//     column labels and would otherwise false-trigger. ACORD detector
+//     runs first and catches those at the parent doc level.
+//
+//   - No QUESTIONNAIRE keyword on page 1. Some supp apps ask about
+//     prior losses with similar column labels.
+//
+// DECISION RULES (most → least confident):
+//
+//   Title + column headers       → 97% (definite loss run)
+//   Title + density (cur/date)   → 92% (loss-related, less structured)
+//   Column headers + density     → 88% (system export, no title page)
+//   Anything else                → no detection
+//
+// SUB-TYPING from title text (maps to CLASSIFIER_TYPES taxonomy):
+//
+//   "Loss Summary" → Loss Summary
+//   "Large Loss" / "Loss Detail" → Large Loss Detail
+//   "Triangulation" / "Development" → Loss Triangulation
+//   Default → Loss Runs
+//
+// Returns single classification (whole-doc, not multi-section).
+// ----------------------------------------------------------------------------
+function detectLossRun(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const page1 = pageTexts[0] || '';
+  const earlyText = (page1 + ' ' + (pageTexts[1] || '')).slice(0, 8000);
+
+  // GUARD 1 — must NOT be an ACORD form. ACORD 125's loss history section
+  // would otherwise false-trigger because its column labels match standard
+  // loss run patterns. ACORD detector handles those at the parent level.
+  const hasAcordStamp = /\bACORD\s*\d{2,4}\s*\(\d{4}\/\d{2}\)/i.test(page1);
+  if (hasAcordStamp) return null;
+
+  // GUARD 2 — must NOT be a supplemental application. Supp apps sometimes
+  // ask about prior loss history with similar column labels.
+  const hasQuestionnaire = /\bQUESTIONNAIRE\b/i.test(earlyText);
+  if (hasQuestionnaire) return null;
+
+  // SIGNAL 1 — explicit loss-related title keyword.
+  // Captures every common naming convention: Loss Run, Loss Runs, Loss
+  // History, Loss Summary, Loss Detail, Loss Report, Loss Experience,
+  // Loss Triangulation, Loss Development, Loss Register, Loss Listing,
+  // Loss Recap, Claims History, Claims Listing, Claims Detail, Claims
+  // Register, Claims Activity, Claims Status, Claim Run, Claim Report.
+  const titleMatch = earlyText.match(
+    /\b(LOSS\s+(RUNS?|HISTORY|SUMMARY|DETAIL|REPORT|EXPERIENCE|TRIANGULATION|DEVELOPMENT|REGISTER|LISTING|RECAP)|CLAIMS?\s+(LISTING|HISTORY|DETAIL|REGISTER|ACTIVITY|STATUS|RUN|RECAP|EXPERIENCE)|CLAIM\s+(REGISTER|RUN|REPORT))\b/i
+  );
+  const hasTitle = !!titleMatch;
+
+  // SIGNAL 2 — column header sequence. The structural fingerprint of a
+  // loss run is the sequence (Date of Loss → Paid → Reserved) or
+  // (Paid → Reserved → Incurred) appearing as adjacent column headers
+  // within close proximity. Multi-pattern check covers the three most
+  // common header arrangements across carriers.
+  const hasColumnHeaders =
+    /\b(DATE\s+OF\s+LOSS|DATE\s+OF\s+OCCURRENCE|LOSS\s+DATE)\b[\s\S]{0,400}\b(PAID|AMOUNT\s+PAID|TOTAL\s+PAID)\b[\s\S]{0,400}\b(RESERVED?|RESERVES?|OUTSTANDING)\b/i.test(earlyText) ||
+    /\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,300}\b(RESERVED?|RESERVES?|OUTSTANDING)\b[\s\S]{0,300}\b(INCURRED|TOTAL\s+INCURRED|TOTAL\s+INC)\b/i.test(earlyText) ||
+    /\b(CLAIM\s*(?:NUMBER|#|ID|NO\.?)|CLAIMANT)\b[\s\S]{0,500}\b(DATE\s+OF\s+LOSS|LOSS\s+DATE)\b[\s\S]{0,500}\b(PAID|RESERVED?|INCURRED)\b/i.test(earlyText);
+
+  // SIGNAL 3 — currency density. Loss runs have many $ amounts (paid,
+  // reserved, incurred, deductibles). Threshold of 5 catches anything
+  // beyond an incidental cover-letter mention.
+  const currencyMatches = (earlyText.match(/\$\s?[\d,]+(?:\.\d{2})?/g) || []).length;
+  const hasCurrencyDensity = currencyMatches >= 5;
+
+  // SIGNAL 4 — date density. Loss runs have many dates (date of loss,
+  // date of report, valuation date, status dates).
+  const dateMatches = (earlyText.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g) || []).length;
+  const hasDateDensity = dateMatches >= 5;
+
+  // DECISION RULES
+  let detected = false;
+  let confidence = 0;
+  let reason = '';
+
+  if (hasTitle && hasColumnHeaders) {
+    detected = true;
+    confidence = 0.97;
+    reason = 'Title "' + titleMatch[0] + '" + standard column header sequence';
+  } else if (hasTitle && (hasCurrencyDensity || hasDateDensity)) {
+    detected = true;
+    confidence = 0.92;
+    reason = 'Title "' + titleMatch[0] + '" + ' + currencyMatches + ' currency values / ' + dateMatches + ' dates';
+  } else if (hasColumnHeaders && hasCurrencyDensity && hasDateDensity) {
+    detected = true;
+    confidence = 0.88;
+    reason = 'Column header sequence + ' + currencyMatches + ' currency values / ' + dateMatches + ' dates (no explicit title — likely claim system export)';
+  }
+
+  if (!detected) return null;
+
+  // SUB-TYPE detection from title text — maps to existing CLASSIFIER_TYPES
+  // tags in the LOSS_HISTORY bucket. Default to "Loss Runs" (most common
+  // case) when title is ambiguous or absent.
+  let tag = 'Loss Runs';
+  let subType = 'LOSS_RUNS';
+
+  if (hasTitle) {
+    const t = titleMatch[0].toUpperCase();
+    if (/LOSS\s+SUMMARY/i.test(t)) {
+      tag = 'Loss Summary';
+      subType = 'LOSS_SUMMARY';
+    } else if (/(LARGE\s+LOSS|LOSS\s+DETAIL)/i.test(t)) {
+      tag = 'Large Loss Detail';
+      subType = 'LARGE_LOSS_DETAIL';
+    } else if (/(TRIANGULATION|DEVELOPMENT)/i.test(t)) {
+      tag = 'Loss Triangulation';
+      subType = 'LOSS_TRIANGULATION';
+    }
+  }
+
+  return {
+    type: 'LOSS_HISTORY',
+    subType: subType,
+    tag: tag,
+    primary_bucket: 'LOSS_HISTORY',
+    confidence: confidence,
+    reasoning: 'Per-doc scan: ' + reason + '. No ACORD stamp, no Questionnaire keyword. Detected as ' + tag + '.',
+    section_hint: pageTexts.length === 1 ? 'page 1' : 'pages 1-' + pageTexts.length,
+    _signals: {
+      hasTitle: hasTitle,
+      titleText: titleMatch ? titleMatch[0] : null,
+      hasColumnHeaders: hasColumnHeaders,
+      currencyMatches: currencyMatches,
+      dateMatches: dateMatches,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -3375,6 +3536,52 @@ function detectDocumentSignature(file) {
         }],
         isCombined: false,
         signatures: suppApp._signals.titleSignals,
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1.6 — Loss Run detector. Runs AFTER ACORD and Supp App scans
+  // so docs that already matched those (which contain loss-history
+  // sections) don't get re-classified as loss runs. Tags loss-related
+  // documents at the file manager level: carrier loss runs, broker loss
+  // summaries, claim system exports, large loss detail letters,
+  // triangulation/development reports.
+  const lossRun = detectLossRun(file);
+  if (lossRun) {
+    return {
+      match: true,
+      method: 'regex_prefilter_loss_run',
+      method_label: 'Loss run scan: ' + lossRun.tag,
+      detector_id: 'loss_run_' + (lossRun.subType || 'generic').toLowerCase(),
+      signals: [
+        lossRun._signals.hasTitle ? ('title:' + lossRun._signals.titleText) : 'no_title',
+        lossRun._signals.hasColumnHeaders ? 'column_header_sequence' : 'no_column_headers',
+        lossRun._signals.currencyMatches + '_currency_values',
+        lossRun._signals.dateMatches + '_date_values',
+      ],
+      signals_required: 2,
+      signals_total: 4,
+      result: {
+        type: 'LOSS_HISTORY',
+        subType: lossRun.subType,
+        tag: lossRun.tag,
+        primary_bucket: 'LOSS_HISTORY',
+        confidence: lossRun.confidence,
+        reasoning: lossRun.reasoning,
+        classifications: [{
+          type: 'LOSS_HISTORY',
+          subType: lossRun.subType,
+          tag: lossRun.tag,
+          primary_bucket: 'LOSS_HISTORY',
+          section_hint: lossRun.section_hint,
+          confidence: lossRun.confidence,
+          reasoning: lossRun.reasoning,
+        }],
+        isCombined: false,
+        signatures: [lossRun._signals.titleText, 'column_headers', 'currency', 'dates'].filter(Boolean),
         needsReview: false,
         needsReviewReasons: [],
         suppressTag: false,
@@ -4051,4 +4258,5 @@ window.detectAcordForm = detectAcordForm;
 window.detectDocumentSignature = detectDocumentSignature;
 window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
 window.detectSuppApp = detectSuppApp;
+window.detectLossRun = detectLossRun;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
