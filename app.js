@@ -1290,27 +1290,54 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.pdf')) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF parser not loaded');
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
-    // PARALLEL PAGE EXTRACTION (was sequential, ~30-60s on 50-page PDFs).
-    // pdf.js can pump multiple pages through its worker concurrently. For
-    // typical multi-page packages (combined ACORD apps, loss runs, policy
-    // booklets) this lands a 3-5x speedup vs the old per-page await loop.
+    // PHASE 1 — READING. Load the binary into memory. Fires immediately
+    // so the user sees something happening from second 1, not a 30-60s
+    // silent gap. The phase callback updates the file-list row with a
+    // descriptive status. Yield to the browser between phases so paint
+    // can flush.
+    if (typeof meta.onProgress === 'function') meta.onProgress(0, 1, 'reading');
+    await new Promise(r => setTimeout(r, 0));  // yield to paint
+
+    const buf = await file.arrayBuffer();
+
+    // PHASE 2 — ANALYZING. pdfjs.getDocument analyzes the entire PDF
+    // structure (page tree, fonts, encryption, embedded resources) before
+    // any page can be extracted. For 50+ page packages this can take
+    // 20-40 seconds on its own. We fire onProgress with the analyze phase
+    // here AND wire pdfjs's loadingTask.onProgress (it fires 'loaded/total'
+    // events as the parser walks the structure) so the user sees movement
+    // during this phase too.
+    if (typeof meta.onProgress === 'function') meta.onProgress(0, 1, 'analyzing');
+    await new Promise(r => setTimeout(r, 0));  // yield to paint
+
+    const loadingTask = pdfjsLib.getDocument({ data: buf });
+    if (typeof loadingTask === 'object' && loadingTask !== null) {
+      loadingTask.onProgress = function (progress) {
+        // pdf.js fires { loaded, total } during structure parse. total may
+        // be null on first event before it knows the size — guard for that.
+        if (typeof meta.onProgress === 'function' && progress && progress.total) {
+          try { meta.onProgress(progress.loaded || 0, progress.total, 'analyzing'); } catch (e) { /* never let UI break extraction */ }
+        }
+      };
+    }
+    const pdf = await loadingTask.promise;
+
+    // PHASE 3 — EXTRACTING. Parallel page extraction. Was sequential
+    // (~30-60s on 50-page PDFs), now runs 8 pages in parallel through
+    // pdf.js's worker. Typical 3-5x speedup. Each page completion fires
+    // onProgress so the user sees "page 12/40 · 30%" tick up in real time.
     //
     // Concurrency cap: 8 simultaneous pages. Going higher doesn't help —
     // pdf.js bottlenecks on its single worker thread — and risks main-thread
-    // contention on weaker hardware (e.g. older Surface devices).
-    //
-    // Progress callback: caller passes meta.onProgress(done, total) and we
-    // fire it as each page completes so the file-list row can show "12/40
-    // pages parsed" in real time instead of a 60-second silent wait.
+    // contention on weaker hardware.
+    if (typeof meta.onProgress === 'function') meta.onProgress(0, pdf.numPages, 'extracting');
+
     const PARALLEL_PAGES = 8;
     const totalPages = pdf.numPages;
-    const pageTexts = new Array(totalPages);  // index 0..n-1
+    const pageTexts = new Array(totalPages);
     let pagesDone = 0;
 
-    // Build an iterator of page-extract tasks
     const pageNums = Array.from({ length: totalPages }, (_, i) => i + 1);
     let cursor = 0;
 
@@ -1327,28 +1354,22 @@ async function extractText(file, metadata) {
         }
         pagesDone++;
         if (typeof meta.onProgress === 'function') {
-          try { meta.onProgress(pagesDone, totalPages); } catch (e) { /* never let UI break extraction */ }
+          try { meta.onProgress(pagesDone, totalPages, 'extracting'); } catch (e) { /* never let UI break extraction */ }
         }
       }
     }
 
-    // Spin up N workers and wait for all of them to drain the queue.
     await Promise.all(Array.from({ length: Math.min(PARALLEL_PAGES, totalPages) }, () => worker()));
 
     let text = '';
-    let totalItems = 0;
     for (let i = 0; i < totalPages; i++) {
       const pt = pageTexts[i] || '';
-      // Approximate item count for downstream stats — splitting on whitespace
-      // is good enough since this is just for the audit log "X items extracted".
-      totalItems += pt.split(/\s+/).filter(Boolean).length;
       text += pt + '\n\n';
     }
     meta.kind = 'pdf';
     meta.pageCount = totalPages;
     meta.pageTexts = pageTexts;
     // Scanned-PDF detection: empty or tiny text layer relative to page count.
-    // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
     const cleanedLength = text.replace(/\s+/g, '').length;
     const avgCharsPerPage = cleanedLength / totalPages;
     if (cleanedLength < 100 || avgCharsPerPage < 50) {
@@ -1653,26 +1674,36 @@ async function handleFiles(fileList) {
     STATE.files.push(entry);
     newFiles.push(entry);
     renderFileList();
+
+    // YIELD TO PAINT before we start the heavy extraction work. Without
+    // this, the renderFileList scheduling gets queued behind the upcoming
+    // pdf.js work and the user sees a blank/stale list for the first ~30s
+    // of parsing on large PDFs (the "1 minute dead zone"). A 0ms timeout
+    // is enough for the browser to flush a paint cycle.
+    await new Promise(r => setTimeout(r, 0));
+
     try {
       const meta = {};
-      // Progress hook — fires each time a PDF page finishes extracting. Keeps
-      // the file-list row updated so the user sees "parsing… 12/40 pages"
-      // instead of a 60-second silent wait. Throttled via animation frame
-      // so we don't slam renderFileList() on every page (which would be
-      // expensive on large queues).
+      // Progress hook — fires during all 3 phases (reading binary, analyzing
+      // PDF structure, extracting pages). Phase is included so the file-list
+      // row can show a phase-aware status string. Throttled via timestamp
+      // so we don't slam renderFileList() on every event.
       let lastProgressFrame = 0;
-      meta.onProgress = (done, total) => {
-        entry._parseProgress = { done, total };
-        // Throttle to one render per ~50ms (roughly 20fps) — enough to feel
-        // responsive without blocking parse work on DOM updates.
-        const now = performance.now();
-        if (now - lastProgressFrame > 50) {
+      meta.onProgress = (done, total, phase) => {
+        entry._parseProgress = { done: done, total: total, phase: phase || 'extracting' };
+        // Throttle DOM updates to ~20fps. Always render on phase transitions
+        // (so the user sees state change immediately, not after 50ms delay).
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const phaseChanged = entry._lastRenderedPhase !== phase;
+        if (phaseChanged || now - lastProgressFrame > 50) {
           lastProgressFrame = now;
+          entry._lastRenderedPhase = phase;
           renderFileList();
         }
       };
       entry.text = await extractText(file, meta);
       entry._parseProgress = null;
+      entry._lastRenderedPhase = null;
       // v8.5 Rule 9: persist pageTexts on the file entry for the pipeline's
       // per-section slicer. Only set when meta returned the array (PDFs).
       if (meta.pageTexts && Array.isArray(meta.pageTexts)) {
@@ -1871,13 +1902,27 @@ function renderFileList() {
 
     if (f.state === 'parsing') {
       stateClass = 'parsing';
-      // Show live page progress for PDFs being parsed — extractText fires
-      // a progress callback after each page completes, which writes into
-      // f._parseProgress. Throttled to ~20fps in handleFiles so this re-render
-      // doesn't block the main thread parse work.
-      if (f._parseProgress && f._parseProgress.total > 1) {
-        const pct = Math.round((f._parseProgress.done / f._parseProgress.total) * 100);
-        stateText = 'parsing… ' + f._parseProgress.done + '/' + f._parseProgress.total + ' pages · ' + pct + '%';
+      // Phase-aware progress display. extractText fires onProgress for each
+      // of 3 phases (reading binary, analyzing PDF structure, extracting
+      // pages). Showing a phase string + progress gives the user constant
+      // feedback from second 1 instead of a long silent gap.
+      const prog = f._parseProgress;
+      if (prog && prog.phase === 'reading') {
+        stateText = 'reading file…';
+      } else if (prog && prog.phase === 'analyzing') {
+        if (prog.total > 1) {
+          const pct = Math.round((prog.done / prog.total) * 100);
+          stateText = 'analyzing PDF… ' + pct + '%';
+        } else {
+          stateText = 'analyzing PDF structure…';
+        }
+      } else if (prog && prog.phase === 'extracting' && prog.total > 1) {
+        const pct = Math.round((prog.done / prog.total) * 100);
+        stateText = 'extracting… ' + prog.done + '/' + prog.total + ' pages · ' + pct + '%';
+      } else if (prog && prog.total > 1) {
+        // Fallback for non-PDF parsers that report progress without phase
+        const pct = Math.round((prog.done / prog.total) * 100);
+        stateText = 'parsing… ' + prog.done + '/' + prog.total + ' · ' + pct + '%';
       } else {
         stateText = 'parsing…';
       }
@@ -1905,9 +1950,13 @@ function renderFileList() {
         if (t === 'supplemental') return 'SUPP · GENERIC';
         return t.toUpperCase();
       };
-      // Show combined-doc info
+      // Show combined-doc info. For combined docs where multiple sections
+      // share the same primary type (e.g., a single PDF with ACORD 125 +
+      // 126 + 131 — all type=APPLICATIONS), use the per-section tag instead
+      // of the type so the chip reads "ACORD 125 + ACORD 126 + ACORD 131"
+      // instead of "APPLICATIONS + APPLICATIONS + APPLICATIONS".
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
+        stateText = f.classifications.map(c => c.tag || prettyType(c.type)).join(' + ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
         stateText = prettyType(f.classification);

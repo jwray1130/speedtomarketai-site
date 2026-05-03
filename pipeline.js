@@ -2996,6 +2996,127 @@ const DOC_SIGNATURE_DETECTORS = [
 DOC_SIGNATURE_DETECTORS.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
 // ----------------------------------------------------------------------------
+// PER-PAGE ACORD scanner — designed for combined PDF packages where multiple
+// ACORD forms are concatenated into a single file. The whole-doc scanner
+// only sees the first 5K chars, which covers page 1 of a 50-page combined
+// package — meaning ACORDs 126 and 131 (typically pages 5+ and 9+) are
+// completely invisible to it.
+//
+// Strategy: walk each page's header zone (first ~2000 chars) looking for
+// ACORD form-number stamps and title section headers. The form-number
+// stamp ("ACORD 125 (2014/01)") is the strongest signal because it's
+// literally printed on the form by the carrier — false positives are
+// near zero in a page header zone.
+//
+// For each detected ACORD form, record the page where it starts. End
+// pages are derived from the next section's start (so ACORD 125 on page 1,
+// ACORD 126 on page 5, ACORD 131 on page 9 → ranges 1-4, 5-8, 9-end).
+//
+// Returns an array of section objects {tag, section_hint, ...} or null
+// if no ACORD form was detected. Requires file.pageTexts (extracted by
+// the parallel PDF parser in extractText).
+// ----------------------------------------------------------------------------
+function detectAcordSectionsPerPage(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const acordForms = [
+    {
+      tag: 'ACORD 125',
+      stamp: /\bACORD[\s_-]*125(?!\d)/i,
+      title: /COMMERCIAL\s+INSURANCE\s+APPLICATION/i,
+      description: 'Commercial Insurance Application (general info section)',
+    },
+    {
+      tag: 'ACORD 126',
+      stamp: /\bACORD[\s_-]*126(?!\d)/i,
+      title: /COMMERCIAL\s+GENERAL\s+LIABILITY\s+(SECTION|EXPOSURE)/i,
+      description: 'Commercial General Liability Section',
+    },
+    {
+      tag: 'ACORD 131',
+      stamp: /\bACORD[\s_-]*131(?!\d)/i,
+      title: /(UMBRELLA(\s+LIABILITY)?|EXCESS\s+LIABILITY)\s+SECTION/i,
+      description: 'Umbrella/Excess Liability Section',
+    },
+  ];
+
+  const detected = []; // [{tag, startPage, signals, description}, ...]
+
+  for (let i = 0; i < pageTexts.length; i++) {
+    const pageText = pageTexts[i];
+    if (!pageText) continue;
+    const pageNum = i + 1;
+    // Header zone: first 2000 chars of the page. ACORD form-number stamps
+    // and section titles always live in the top ~1/3 of page 1 of each
+    // section. Limiting to 2000 chars also avoids picking up later content
+    // that mentions "ACORD 125 certificate" in passing prose.
+    const headerZone = pageText.slice(0, 2000);
+
+    for (const form of acordForms) {
+      // Each ACORD form starts ONCE in a doc — don't re-detect on later pages
+      if (detected.some(d => d.tag === form.tag)) continue;
+
+      const stampMatch = form.stamp.test(headerZone);
+      const titleMatch = form.title.test(headerZone);
+
+      const signals = [];
+      if (stampMatch) signals.push('form_number_stamp');
+      if (titleMatch) signals.push('title_section_header');
+
+      // Detection rule: REQUIRE BOTH stamp AND title on the same page.
+      //
+      // Why both: the form-number stamp alone is too risky as a sole signal.
+      // A subcontract clause that says "shall procure ACORD 25 certificates
+      // and provide ACORD 125 upon request" puts "ACORD 125" in prose with
+      // no surrounding form structure — and we'd false-positive that as a
+      // form start. Real ACORD form pages ALWAYS have both the form-number
+      // stamp ("ACORD 125 (2014/01)") AND the official section title
+      // ("COMMERCIAL INSURANCE APPLICATION") within the first 2K chars of
+      // the same page. Requiring both eliminates prose mentions while
+      // catching every legitimate ACORD form start.
+      const accept = stampMatch && titleMatch;
+      if (!accept) continue;
+
+      detected.push({
+        tag: form.tag,
+        startPage: pageNum,
+        signals: signals,
+        description: form.description,
+      });
+    }
+  }
+
+  if (detected.length === 0) return null;
+
+  // Sort by start page (typically already in order, but safe)
+  detected.sort((a, b) => a.startPage - b.startPage);
+
+  // Derive end pages from each next section's start
+  const totalPages = pageTexts.length;
+  return detected.map((s, i) => {
+    const nextStart = i < detected.length - 1 ? detected[i + 1].startPage : totalPages + 1;
+    const endPage = nextStart - 1;
+    const sectionHint = s.startPage === endPage
+      ? 'page ' + s.startPage
+      : 'pages ' + s.startPage + '-' + endPage;
+    return {
+      tag: s.tag,
+      type: 'APPLICATIONS',
+      subType: 'ACORD',
+      primary_bucket: 'APPLICATIONS',
+      section_hint: sectionHint,
+      confidence: s.signals.length >= 2 ? 0.99 : 0.92,
+      reasoning: 'Per-page scan: ' + s.tag + ' starts at page ' + s.startPage +
+                 ' (' + s.signals.join(' + ') + '). ' + s.description + '.',
+      _detectedSignals: s.signals,
+      _startPage: s.startPage,
+      _endPage: endPage,
+    };
+  });
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -3003,6 +3124,68 @@ DOC_SIGNATURE_DETECTORS.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 // detectAcordForm() is kept as a thin alias for backward compatibility.
 // ----------------------------------------------------------------------------
 function detectDocumentSignature(file) {
+  // STAGE 1A — Per-page ACORD scanner. Handles the combined-package case
+  // where 125 + 126 + 131 are concatenated in one PDF. Whole-doc scanner
+  // misses 126 and 131 because they're past the 5K-char window.
+  const acordSections = detectAcordSectionsPerPage(file);
+  if (acordSections && acordSections.length > 0) {
+    const isCombined = acordSections.length > 1;
+    // Primary classification = first section (typically ACORD 125, the
+    // applicant info cover. Even if a doc starts with 126 or 131, the
+    // first encountered ACORD is the natural primary.)
+    const primary = acordSections[0];
+    const allSignals = acordSections.flatMap(s =>
+      s._detectedSignals.map(sig => s.tag + '@p' + s._startPage + ':' + sig)
+    );
+    const summary = acordSections
+      .map(s => s.tag + ' (p.' + s._startPage + (s._startPage !== s._endPage ? '-' + s._endPage : '') + ')')
+      .join(', ');
+
+    return {
+      match: true,
+      method: 'regex_prefilter_per_page',
+      method_label: isCombined
+        ? 'Per-page ACORD scan: ' + acordSections.length + ' forms — ' + summary
+        : 'Per-page ACORD scan: ' + primary.tag,
+      detector_id: isCombined ? 'acord_combined' : ('acord_' + primary.tag.replace(/\s+/g, '_').toLowerCase()),
+      signals: allSignals,
+      signals_required: 1,
+      signals_total: allSignals.length,
+      result: {
+        type: 'APPLICATIONS',
+        subType: 'ACORD',
+        // For combined: tag string lists all detected ACORDs so the file
+        // manager chip text is informative ("ACORD 125 + ACORD 126 + ACORD 131").
+        // For single: just the one tag.
+        tag: isCombined ? acordSections.map(s => s.tag).join(' + ') : primary.tag,
+        primary_bucket: 'APPLICATIONS',
+        confidence: primary.confidence,
+        reasoning: 'Per-page scan found ' + acordSections.length + ' ACORD section(s): ' +
+                   summary + '. No LLM call required.',
+        // CRITICAL: this is a true multi-section combined-doc array WITH
+        // section_hint values. pushTestFileToDocsView's isMultiSectionWithHints
+        // check will see length>1 + section_hint strings and pass it through
+        // to docsView, which will chip each section's start page independently.
+        classifications: acordSections.map(s => ({
+          type: s.type,
+          subType: s.subType,
+          tag: s.tag,
+          primary_bucket: s.primary_bucket,
+          section_hint: s.section_hint,
+          confidence: s.confidence,
+          reasoning: s.reasoning,
+        })),
+        isCombined: isCombined,
+        signatures: allSignals,
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1B — Whole-doc detector library (fallback for non-PDF files,
+  // single-section docs, or files without page-level extracted text).
   const filename = (file.name || '').toLowerCase();
   // First 5K chars covers form-number stamps, titles, and column headers
   // for every detector in the registry. Loss runs occasionally need
@@ -3668,4 +3851,5 @@ window.preMintSubmissionForTest = preMintSubmissionForTest;
 window.pushTestFileToDocsView = pushTestFileToDocsView;
 window.detectAcordForm = detectAcordForm;
 window.detectDocumentSignature = detectDocumentSignature;
+window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
