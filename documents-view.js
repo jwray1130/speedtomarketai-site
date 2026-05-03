@@ -1940,7 +1940,13 @@ window.initDocumentsView = function() {
       );
       const page = await pdf.getPage(n);
       const thumbData = await renderPdfPage(page, CONFIG.pdf.thumbnailScale);
-      const highResData = await renderPdfPage(page, CONFIG.pdf.highResScale);
+      // v8.6.13 performance: pipeline-driven ingestion can defer expensive
+      // high-res rendering because the preview/grid already lazy-upgrades
+      // from Supabase storage on demand. Manual uploads keep the old eager
+      // high-res behavior; pipeline uploads without storage also keep it so
+      // the active session still has a usable preview.
+      const deferHighRes = !!state._pipelineCtx && !!(state._uploadCtx && state._uploadCtx.storagePath);
+      const highResData = deferHighRes ? null : await renderPdfPage(page, CONFIG.pdf.highResScale);
       let pageText = '';
       try {
         const tc = await page.getTextContent();
@@ -4072,10 +4078,11 @@ window.initDocumentsView = function() {
     const startedAt = Date.now();
     while (Date.now() - startedAt < maxMs) {
       try {
-        const { data: { user } } = await window.sb.auth.getUser();
-        if (user) return true;
+        if (window.currentUser && window.currentUser.id) return true;
+        const { data: { session } } = await window.sb.auth.getSession();
+        if (session && session.user) return true;
       } catch (e) { /* swallow — keep polling */ }
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 250));
     }
     return false;
   }
@@ -4106,92 +4113,171 @@ window.initDocumentsView = function() {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // v8.6.12 — SAFE THUMBNAIL-ONLY ENRICHMENT
+  // v8.5.1 — DEFERRED LAZY ENRICHMENT
   //
-  // Previous versions tried to "enrich" hydrated rows in the background by
-  // fetching extracted_text, html_content, annotations, and thumbnail_data_url
-  // for many document_pages rows after every hydrate. On real accounts, that
-  // can pull tens/hundreds of MB from PostgREST and cause statement_timeout.
+  // The slim hydrate (sbFetchDocumentPages) doesn't include the heavy
+  // columns extracted_text, html_content, or annotations — those are
+  // too expensive to ship with every row at boot (449 rows × 500KB
+  // extracted_text = 225MB, which is what causes Postgres statement
+  // timeout in the first place).
   //
-  // Important rule:
-  //   • background hydrate/enrichment may fetch lightweight metadata and, at
-  //     most, thumbnail_data_url one page at a time;
-  //   • heavy fields (extracted_text, html_content, annotations) are fetched
-  //     only by an explicit single-page action such as preview/OCR/search.
+  // Without those fields, content-search returns no matches and HTML
+  // preview falls back to the thumbnail. To keep search and preview
+  // working, this function back-fills extracted_text and html_content
+  // for every doc in the background, in chunks of 25, with a small
+  // delay between batches so we don't saturate the network.
   //
-  // This preserves post-refresh thumbnails without the bulk heavy SELECT that
-  // was being triggered by queue row clicks/deletes.
+  // Concurrency-guarded: only one enrichment can run at a time. If the
+  // user navigates to a different submission mid-enrichment, the new
+  // hydrate will trigger a new enrichment, but only one is active.
+  //
+  // Failure mode: if any chunk fails (network blip, RLS blip, anything),
+  // log + abort gracefully. The UI keeps working with what it has.
   // ══════════════════════════════════════════════════════════════════
   let _enrichmentInFlight = null;
 
   function scheduleLazyEnrichment(submissionId) {
+    // Guard: don't start another if one's already running. The active
+    // enrichment will pick up newly-hydrated docs on its next chunk.
     if (_enrichmentInFlight) {
-      dlog('[docs] thumbnail enrichment skipped — already running');
+      dlog('[docs] enrichment skipped — already running');
       return;
     }
-    if (typeof window.sbFetchDocumentPageThumbnail !== 'function') {
-      dlog('[docs] thumbnail enrichment skipped — sbFetchDocumentPageThumbnail unavailable');
+    if (typeof window.sbFetchDocumentPageFull !== 'function') {
+      dlog('[docs] enrichment skipped — sbFetchDocumentPageFull unavailable');
       return;
     }
 
     _enrichmentInFlight = (async () => {
-      await new Promise(r => setTimeout(r, 1200));
+      // Wait 1500ms so the UI is interactive first. The user gets a
+      // working file manager immediately; enrichment happens behind
+      // their back without blocking interactions.
+      await new Promise(r => setTimeout(r, 1500));
 
+      // Pick docs that are missing textContent OR thumbnailData (the
+      // triggers for enrichment). v8.5.2: thumbnailData is also lazy-
+      // loaded now since the slim hydrate dropped thumbnail_data_url
+      // to keep the query under the Postgres timeout threshold. If
+      // submissionId is provided, restrict to that submission.
       const candidates = state.docs.filter(d => {
         if (submissionId && d.submissionId !== submissionId) return false;
-        if (d.thumbnailData) return false;
-        return d.type === 'pdf' || d.type === 'image' || d.type === 'word' ||
-               d.type === 'email' || d.type === 'powerpoint' || d.type === 'text';
+        // Enrich docs that are missing the heavy fields. Fresh-uploaded
+        // docs already have these populated and skip enrichment.
+        const missingText = !d.textContent || d.textContent.length === 0;
+        const missingThumb = !d.thumbnailData;
+        return missingText || missingThumb;
       });
 
       if (candidates.length === 0) {
-        dlog('[docs] thumbnail enrichment: nothing to enrich', { submissionId });
+        dlog('[docs] enrichment: nothing to enrich', { submissionId });
         return;
       }
 
-      dlog('[docs] thumbnail enrichment start', {
+      dlog('[docs] enrichment start', {
         candidateCount: candidates.length,
         submissionId: submissionId || 'all',
       });
 
-      const MAX_TO_FETCH = 60;
-      const DELAY_MS = 75;
+      const CHUNK_SIZE = 25;
+      const CHUNK_DELAY_MS = 250;
       let enriched = 0;
       let failed = 0;
 
-      for (const d of candidates.slice(0, MAX_TO_FETCH)) {
-        const doc = state.docs.find(x => x.id === d.id);
-        if (!doc || doc.thumbnailData) continue;
-        try {
-          const row = await window.sbFetchDocumentPageThumbnail(doc.id);
-          if (row && row.thumbnail_data_url && !doc.thumbnailData) {
-            doc.thumbnailData = row.thumbnail_data_url;
-            enriched++;
-          }
-        } catch (err) {
-          failed++;
-          console.warn('[docs] thumbnail enrichment failed for ' + d.id + ':', err);
+      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+        const chunk = candidates.slice(i, i + CHUNK_SIZE);
+        // Fetch each doc's heavy fields in parallel within the chunk.
+        // Promise.allSettled so one failure doesn't kill the whole chunk.
+        let rows = [];
+        if (typeof window.sbFetchDocumentPagesFull === 'function') {
+          rows = await window.sbFetchDocumentPagesFull(chunk.map(d => d.id));
+          if (rows.length < chunk.length) failed += (chunk.length - rows.length);
+        } else {
+          const results = await Promise.allSettled(
+            chunk.map(d => window.sbFetchDocumentPageFull(d.id))
+          );
+          rows = results
+            .map(r => (r.status === 'fulfilled' && r.value) ? r.value : null)
+            .filter(Boolean);
+          failed += (chunk.length - rows.length);
         }
-        await new Promise(r => setTimeout(r, DELAY_MS));
+
+        rows.forEach((row) => {
+          // Find the doc in state again (it might have moved or been
+          // deleted while we were fetching). Mutate in place so the
+          // existing references stay valid.
+          const doc = state.docs.find(d => d.id === row.id);
+          if (!doc) return;
+          if (row.extracted_text != null) {
+            // v8.5.3 Issue #1: only overwrite if local copy is missing.
+            // Without this guard, if the user uploads new content during
+            // the 1.5s enrichment delay, the stale cloud row (which was
+            // queued for fetch BEFORE the upload) will overwrite the
+            // freshly-populated textContent.
+            if (!doc.textContent || doc.textContent.length === 0) {
+              doc.textContent = row.extracted_text;
+            }
+          }
+          if (row.html_content != null) {
+            // Same guard for html_content.
+            if (!doc.htmlContent) {
+              doc.htmlContent = sanitizeHtml(row.html_content);
+            }
+          }
+          // v8.5.2: thumbnailData is lazy too. Populate from the full
+          // fetch so the thumbnail-grid catches up after initial render.
+          if (row.thumbnail_data_url != null && !doc.thumbnailData) {
+            doc.thumbnailData = row.thumbnail_data_url;
+          }
+          if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
+            state.annotations.store[doc.id] = {
+              layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
+              undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
+            };
+          }
+          enriched++;
+        });
+
+        // Brief pause between chunks so we don't pin the network or
+        // hammer Supabase. With 25 parallel fetches per chunk and a
+        // 250ms gap, 449 docs = ~18 chunks × ~500ms = 9 seconds total
+        // background work, fully invisible to the user.
+        if (i + CHUNK_SIZE < candidates.length) {
+          await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+        }
+
+        // If too many failures, abort gracefully. UI still works with
+        // partial enrichment.
+        if (failed >= 10 && enriched < failed) {
+          console.warn('[docs] enrichment aborted — too many failures', {
+            enriched,
+            failed,
+            remaining: candidates.length - i - CHUNK_SIZE,
+          });
+          break;
+        }
       }
 
-      dlog('[docs] thumbnail enrichment complete', {
+      dlog('[docs] enrichment complete', {
         enriched,
         failed,
         candidateCount: candidates.length,
-        cappedAt: MAX_TO_FETCH,
       });
 
-      if (enriched && typeof renderDocsList === 'function') {
+      // Re-render so search results pick up the new textContent for
+      // docs that the user has already searched. Cheap operation —
+      // just rebuilds the visible list, no fetch.
+      if (typeof renderDocsList === 'function') {
         try { renderDocsList(); } catch(e) {}
       }
     })().catch(err => {
-      console.warn('[docs] thumbnail enrichment error:', err);
+      console.warn('[docs] enrichment error:', err);
     }).finally(() => {
       _enrichmentInFlight = null;
     });
   }
 
+  // Detect doc type from the persisted row. We don't store type explicitly
+  // because it can be derived from extension + content presence.
   function detectTypeFromRow(row) {
     const ext = (row.file_name || '').split('.').pop()?.toLowerCase() || '';
     if (ext === 'pdf') return 'pdf';

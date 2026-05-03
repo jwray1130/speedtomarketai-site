@@ -39,12 +39,12 @@
 // Supabase directly for data. Auth and LLM proxy paths are separate (above).
 // ============================================================================
 
-// v8.6.18: Auth user cache / single-flight.
-// sbUser() is on hot paths (delete, hydrate, document thumbnails, audit writes).
-// Calling auth.getUser() every time performs a network request and can block
-// behind GoTrue auth-lock contention. Prefer the already-hydrated app profile,
-// then a cached local session via getSession(). This also prevents queue delete
-// from stopping at /auth/v1/user before it ever sends DELETE /submissions.
+// v8.6.13: Auth user cache / single-flight.
+// sbUser() sits on hot paths (document hydrate, lazy enrichment, audit writes,
+// submission saves). Calling supabase.auth.getUser() here performs an auth
+// round-trip and can contend on the GoTrue auth-token lock when many page
+// fetches/audit writes run together. Use the already-hydrated top-bar profile
+// when available, otherwise read the local session once and cache briefly.
 const SB_USER_CACHE_MS = 60000;
 let __sbCachedUser = null;
 let __sbCachedUserAt = 0;
@@ -209,21 +209,86 @@ function buildSubmissionPayload(rec, liteSnapshot) {
 window.buildSubmissionPayload = buildSubmissionPayload;
 
 async function sbDeleteSubmission(id) {
-  // v8.6.17: direct parent delete only. Do not pre-delete child tables from
-  // the browser and do not perform document_pages reads here. The queue delete
-  // must produce a fast DELETE /rest/v1/submissions request; child cleanup is
-  // handled by FK cascade / SET NULL rules in Supabase.
+  // Pre-delete child tables BEFORE deleting the parent submission, where the
+  // FK behavior calls for it. Verified FK behavior across child tables:
+  //
+  //   table             FK on_delete   action here
+  //   ────────────────  ─────────────  ─────────────────────────────────────
+  //   submission_edits  CASCADE        no pre-delete (kept for legacy reasons,
+  //                                    redundant-but-harmless under cascade)
+  //   document_pages    CASCADE        handled separately by
+  //                                    sbDeleteDocumentPagesForSubmission for
+  //                                    storage-binary cleanup ordering
+  //   feedback_events   SET NULL       pre-deleted here — UW review feedback
+  //                                    is tied to a specific submission and
+  //                                    is not separately useful when orphaned
+  //   audit_events      SET NULL       NOT pre-deleted — see explanation below
+  //
+  // ─── audit_events policy decision ───
+  // audit_events.submission_id is intentionally SET NULL (not CASCADE). The
+  // schema designer made this choice so the audit trail SURVIVES submission
+  // deletion: when a submission is deleted, audit rows remain with
+  // submission_id NULL'd, which is the right compliance posture for proving
+  // "who deleted submission X and when" after the fact. Each audit row is
+  // self-contained:
+  //   • user_id  — who performed the action
+  //   • category — what kind of event
+  //   • message  — human-readable description (typically includes the
+  //                submission ID denormalized, e.g. "Deleted SUB-XYZ123…")
+  //   • created_at — timestamp
+  // So a row with submission_id=NULL is still fully useful for audit/forensics.
+  //
+  // Pre-deleting audit_events here would defeat that intent — it would nuke
+  // the audit history at exactly the moment audit history matters most. So
+  // we explicitly do NOT pre-delete audit_events. The SET NULL FK does its
+  // job and the trail is preserved.
+  //
+  // (Additional note: the audit_events RLS policies grant authenticated
+  // users INSERT and SELECT on their own rows but NOT DELETE. Only the
+  // postgres / service_role can delete audit rows. So even if we tried to
+  // pre-delete from the client, RLS would silently no-op the operation.
+  // That alone makes a client-side audit_events delete the wrong primitive.)
   if (!id) return;
+  try {
+    await window.sb.from('submission_edits').delete().eq('submission_id', id);
+  } catch (e) { console.warn('Pre-delete of submission_edits failed (continuing)', id, e); }
+  try {
+    await window.sb.from('feedback_events').delete().eq('submission_id', id);
+  } catch (e) { console.warn('Pre-delete of feedback_events failed (continuing)', id, e); }
+  // audit_events: deliberately NOT pre-deleted. SET NULL preserves the trail.
+
+  // v8.5.6: explicit user_id scoping + return-row verification.
+  //
+  // Justin reported that deleted submissions reappear after refresh. Two
+  // failure modes were possible with the old code (`.delete().eq('id', id)`):
+  //
+  //   A) RLS allows DELETE but only on rows where user_id = auth.uid().
+  //      Without `.eq('user_id', u.id)` in the query, PostgREST sends a
+  //      DELETE matching only on id — and RLS silently filters to zero
+  //      rows affected. PostgREST returns 200/204 with empty data, no
+  //      error. The UI thinks success; the row is still in the database.
+  //
+  //   B) The id matches but a save-after-delete race recreates the row
+  //      via upsert in another code path before the next reload.
+  //
+  // Adding .eq('user_id', u.id) AND .select() catches case A by:
+  //   - Making the WHERE clause explicit (RLS becomes a redundant safety
+  //     net, not the only filter)
+  //   - Forcing PostgREST to return the deleted rows. Zero returned rows
+  //     means delete didn't match, and we throw — bubbling to the UI's
+  //     error toast at the call site.
+  //
+  // Case B (save-after-delete) is addressed separately in deleteSubmission
+  // (app.js) which now sets a tombstone in STATE._deletedSubmissionIds so
+  // any in-flight saves that fire AFTER delete will skip the upsert.
   const u = await sbUser();
   if (!u) throw new Error('not signed in');
-
   const { data, error } = await window.sb
     .from('submissions')
     .delete()
     .eq('id', id)
     .eq('user_id', u.id)
     .select();
-
   if (error) throw error;
   if (!data || data.length === 0) {
     throw new Error(
@@ -415,7 +480,19 @@ async function sbLogFeedback(event) {
 //      before insert; otherwise Postgres throws a type error and the audit
 //      write fails silently — exactly the foundational silent-failure class
 //      of bug we're trying to prevent in this layer.
+// v8.6.13: Serialize audit cloud writes. logAudit() can fire dozens of
+// events during a pipeline run; without a tiny queue, those insert/check
+// calls can all compete for the same Supabase auth lock. Local audit remains
+// immediate; only the cloud mirror is single-filed.
+let __sbAuditEventQueue = Promise.resolve();
 async function sbLogAuditEvent(category, message, meta, submissionId) {
+  __sbAuditEventQueue = __sbAuditEventQueue
+    .catch(() => {})
+    .then(() => sbLogAuditEventQueued(category, message, meta, submissionId));
+  return __sbAuditEventQueue;
+}
+
+async function sbLogAuditEventQueued(category, message, meta, submissionId) {
   try {
     const u = await sbUser(); if (!u) return;   // rule 3
 
@@ -1521,6 +1598,33 @@ async function sbFetchDocumentPageFull(docId) {
   return data || null;
 }
 
+// v8.6.13: Bulk lazy-loader for document heavy fields. This replaces the
+// old enrichment pattern of N separate sbFetchDocumentPageFull() calls with
+// one IN (...) query per chunk. Same returned shape, far fewer auth checks,
+// locks, and Supabase round-trips.
+async function sbFetchDocumentPagesFull(docIds) {
+  const u = await sbUser(); if (!u) return [];
+  const ids = Array.from(new Set((docIds || []).filter(Boolean)));
+  if (ids.length === 0) return [];
+
+  const all = [];
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const { data, error } = await window.sb
+      .from(DOC_TABLE)
+      .select('id, extracted_text, html_content, annotations, thumbnail_data_url')
+      .eq('user_id', u.id)
+      .in('id', slice);
+    if (error) {
+      console.warn('sbFetchDocumentPagesFull failed for chunk starting ' + i + ':', error.message);
+      continue;
+    }
+    if (data && data.length) all.push(...data);
+  }
+  return all;
+}
+
 // Bulk delete (used by clearAllDocs). One round-trip + one storage call.
 //
 // FIX #5 — DELETE ORDER REVERSED. Previously this function deleted storage
@@ -1664,6 +1768,7 @@ window.sbUpdateDocumentAnnotations      = sbUpdateDocumentAnnotations;
 window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
 window.sbFetchDocumentPages             = sbFetchDocumentPages;
 window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
+window.sbFetchDocumentPagesFull         = sbFetchDocumentPagesFull;
 window.sbFetchDocumentPageThumbnail     = sbFetchDocumentPageThumbnail;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;

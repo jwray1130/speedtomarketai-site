@@ -115,6 +115,7 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
+  if (tLower.startsWith('premium summary')) return 'excess';
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
   if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
@@ -202,6 +203,7 @@ function classifierToRoute(classifierType, subType, tag) {
         const tagLower = String(arguments[2]).toLowerCase();
         if (tagLower.startsWith('gl ') || tagLower.includes('gl quote') || tagLower.includes('gl t&c') || tagLower.includes('gl exposure')) return 'gl_quote';
         if (tagLower.startsWith('al ') || tagLower.includes('al quote') || tagLower.includes('al t&c') || tagLower.includes('al fleet')) return 'al_quote';
+        if (tagLower.startsWith('premium summary')) return 'excess';
         if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $')) return 'excess';
         if (tagLower.includes('excess t&c') || tagLower.includes('el quote') || tagLower.includes('aircraft') ||
             tagLower.includes('stop gap') || tagLower.includes('foreign')) return 'excess';
@@ -465,7 +467,8 @@ function docsViewMappingFor(classifierType, tag) {
         tagLower.includes('large loss')) {
       return { category: 'loss-history', color: 'red' };
     }
-    if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
+    if (tagLower.startsWith('premium summary') ||
+        tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
         tagLower.startsWith('gl ') || tagLower.startsWith('al ') ||
         tagLower.includes('quote') || tagLower.includes('t&c') ||
         tagLower.includes('excess') || tagLower.includes('aircraft') ||
@@ -636,6 +639,7 @@ const CLASSIFIER_TYPES = [
   { value: 'AL T&C',            label: 'AL T&C',                      bucket: 'QUOTES_UNDERLYING' },
   { value: 'AL Fleet',          label: 'AL Fleet',                    bucket: 'QUOTES_UNDERLYING' },
   { value: 'EL Quote',          label: 'EL Quote',                    bucket: 'QUOTES_UNDERLYING' },
+  { value: 'Premium Summary',   label: 'Premium Summary',             bucket: 'QUOTES_UNDERLYING' },
   { value: 'Lead $XM',          label: 'Lead $___M',                  bucket: 'QUOTES_UNDERLYING', variable: true, format: 'lead', placeholder: 'e.g. 2' },
   { value: '$XM xs $YM',        label: '$___M xs $___M (Excess Layer)',bucket: 'QUOTES_UNDERLYING', variable: true, format: 'xs',   placeholder: 'limit, attachment' },
   { value: '$XM P/O $YM xs $ZM',label: '$___M P/O $___M xs $___M (Quota Share)', bucket: 'QUOTES_UNDERLYING', variable: true, format: 'po', placeholder: 'share, total, attach' },
@@ -1588,6 +1592,87 @@ function normalizeClassifierResult(parsed, fallbackType) {
   return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning };
 }
 
+// v8.6.13 surgical classifier guard for excess-casualty workflow.
+// Purpose: prevent non-casualty premium rows inside package quotes from
+// becoming their own chips/routes while preserving existing casualty tags
+// like AL Fleet, GL Quote, AL Quote, Lead/Excess T&C, and all Loss Runs.
+function sanitizeClassifierForExcessCasualty(norm) {
+  if (!norm || !Array.isArray(norm.classifications)) return norm;
+
+  let dropped = 0;
+  let canonicalizedPremiumSummary = false;
+
+  const cleaned = norm.classifications
+    .map(c => {
+      const next = { ...(c || {}) };
+      const tagText = String(next.tag || next.type || '').trim().toLowerCase();
+      if (tagText.startsWith('premium summary')) {
+        next.type = 'UNDERLYING';
+        next.subType = null;
+        next.tag = 'Premium Summary';
+        next.primary_bucket = 'QUOTES_UNDERLYING';
+        canonicalizedPremiumSummary = true;
+      }
+      return next;
+    })
+    .filter(c => {
+      if (isForbiddenNonCasualtyClassification(c)) { dropped++; return false; }
+      return true;
+    });
+
+  if (cleaned.length === 0) {
+    // Mark pure non-excess-casualty files as an intentional file-and-forget
+    // item. Using '???' is important because the pre-flight guard already
+    // treats it as a valid non-routed tag; using ADMINISTRATION here would
+    // make the guard think routing broke and could abort the whole pipeline.
+    cleaned.push({
+      type: '???',
+      confidence: Math.max(norm.primaryConfidence || 0, 0.70),
+      subType: null,
+      subTypeConfidence: null,
+      reasoning: 'Non-excess-casualty content only; intentionally skipped by excess-casualty sanitizer.',
+      signaturePhrases: [],
+      section_hint: 'entire document',
+      tag: '???',
+      primary_bucket: 'UNIDENTIFIED'
+    });
+  }
+
+  const sorted = [...cleaned].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+  const primary = sorted[0] || {};
+
+  return {
+    ...norm,
+    classifications: cleaned,
+    primaryType: primary.type || norm.primaryType,
+    primaryConfidence: primary.confidence || norm.primaryConfidence || 0,
+    isCombined: !!(norm.isCombined || cleaned.length > 1),
+    droppedNonCasualtyCount: dropped,
+    canonicalizedPremiumSummary: canonicalizedPremiumSummary
+  };
+}
+
+function isForbiddenNonCasualtyClassification(c) {
+  const label = String([c && c.tag, c && c.subType, c && c.type].filter(Boolean).join(' ')).toLowerCase();
+  if (!label) return false;
+
+  // Keep existing workflow/reference tags that contain overlapping words.
+  if (/\bcrime score\b/.test(label)) return false;
+  if (/\bemployers liability\b|\bemployer's liability\b|\bel quote\b/.test(label)) return false;
+
+  return (
+    /^property(\s|$)/.test(label) ||
+    /commercial property|property quote|property proposal|property policy|property coverage|building and personal property/.test(label) ||
+    /\bepli\b|employment practices liability|employee practices liability/.test(label) ||
+    /\bcyber\b|tech e&o|technology e&o|data breach|privacy liability/.test(label) ||
+    (/\bcrime\b|\bfidelity\b/.test(label) && !/\bcrime score\b/.test(label)) ||
+    /inland marine|equipment floater|\bim quote\b/.test(label) ||
+    (/workers'? compensation|workers comp|\bwc quote\b|\bwc policy\b|\bwc\b/.test(label) &&
+      !/\bemployers liability\b|\bemployer's liability\b|\bel quote\b/.test(label)) ||
+    /professional liability|\be&o\b|\bd&o\b|surety|\bbond\b/.test(label)
+  );
+}
+
 async function classifyFile(file) {
   let parsed;
   try {
@@ -1646,8 +1731,25 @@ async function classifyFile(file) {
     logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
-    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
-    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
+    // v8.6.13 performance: verify only where it changes risk materially —
+    // long combined PDFs, low-confidence sections, missing tags, or missing
+    // section hints. Obvious high-confidence single-section files keep the
+    // same pass-1 classification and avoid a second LLM round trip.
+    const shouldVerifyClassification =
+      CLASSIFY_CONFIG.enableVerifyPass &&
+      window.currentUser &&
+      file.text.length > 6000 &&
+      (
+        normalized.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold ||
+        normalized.isCombined ||
+        (normalized.classifications || []).some(c =>
+          (c.confidence || 0) < 0.85 ||
+          !c.tag ||
+          c.tag === '???' ||
+          (normalized.isCombined && !c.section_hint)
+        )
+      );
+    if (shouldVerifyClassification) {
       try {
         // Sample from MIDDLE + END of the document for verification
         const midStart = Math.floor(file.text.length * 0.4);
@@ -1690,6 +1792,8 @@ async function classifyFile(file) {
       } catch (verifyErr) {
         logAudit('Classifier', 'Verify pass failed for ' + file.name + ' (using pass 1 result): ' + verifyErr.message, 'warn');
       }
+    } else if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
+      logAudit('Classifier', 'Pass 2 skipped: ' + file.name + ' · high-confidence single-section classification', STATE.api.model);
     }
 
   } catch (err) {
@@ -1697,7 +1801,10 @@ async function classifyFile(file) {
     parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
   }
 
-  const final = normalizeClassifierResult(parsed);
+  const final = sanitizeClassifierForExcessCasualty(normalizeClassifierResult(parsed));
+  if ((final.droppedNonCasualtyCount || 0) > 0 && typeof logAudit === 'function') {
+    logAudit('Classifier', 'Dropped ' + final.droppedNonCasualtyCount + ' non-excess-casualty classification(s) from ' + file.name + ' (Property/EPLI/Cyber/Crime/Inland Marine/WC are not routed)', 'warn');
+  }
 
   // v8.6.2: surface tag, subType, primary_bucket from the primary
   // classification at the top level so downstream code (routing,
@@ -1952,6 +2059,11 @@ async function runPipeline() {
   // it even if the assignment itself threw.
   let timer = null;
   let archiveErr = null;
+  // v8.6.13 performance: docs-view ingestion is important, but it should
+  // not sit on the pipeline's critical path. We queue those thumbnail/
+  // storage/page-row jobs in the background so Wave 1 extraction can start
+  // as soon as classification is done.
+  const docsIngestPromises = [];
   try {
 
   // === SUBMISSION ID PRE-MINT ===
@@ -2149,16 +2261,44 @@ async function runPipeline() {
       // push if no File on hand or processFileFromPipeline isn't exposed.
       if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
         try {
-          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
-          if (newDocIds && newDocIds.length > 0) {
-            f._pushedToDocsView = newDocIds;
-            // Free the File reference once it's safely persisted in Supabase
-            // storage. Keeping it around forever would pin the binary in JS
-            // memory; the docs view re-fetches from storage when needed.
-            f._rawFile = null;
-          }
+          f._pushedToDocsView = 'syncing';
+          const ingestPromise = window.docsView.processFileFromPipeline(f._rawFile, ingestCtx)
+            .then(newDocIds => {
+              if (newDocIds && newDocIds.length > 0) {
+                f._pushedToDocsView = newDocIds;
+                // Free the File reference once it's safely persisted in Supabase
+                // storage. Keeping it around forever would pin the binary in JS
+                // memory; the docs view re-fetches from storage when needed.
+                f._rawFile = null;
+                if (typeof logAudit === 'function') {
+                  logAudit('Docs View', 'Background synced ' + f.name + ' · ' + newDocIds.length + ' page row' + (newDocIds.length === 1 ? '' : 's'), 'ok');
+                }
+              }
+              return { ok: true, ids: newDocIds || [] };
+            })
+            .catch(err => {
+              console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+              // Fall back to metadata-only push so the doc at least appears.
+              if (typeof window.docsView.addDocFromPipeline === 'function') {
+                try {
+                  const docId = window.docsView.addDocFromPipeline({
+                    name: f.name || 'Pipeline Doc',
+                    ...ingestCtx,
+                  });
+                  if (docId) f._pushedToDocsView = docId;
+                } catch (e2) {
+                  console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+                }
+              }
+              if (typeof logAudit === 'function') {
+                logAudit('Docs View', 'Background sync failed for ' + f.name + ': ' + (err.message || err), 'warn');
+              }
+              f._pushedToDocsView = 'sync_failed';
+              return { ok: false, error: err };
+            });
+          docsIngestPromises.push(ingestPromise);
         } catch (err) {
-          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+          console.warn('Pipeline → docs view queue failed for ' + f.name + ':', err);
           // Fall back to metadata-only push so the doc at least appears.
           if (typeof window.docsView.addDocFromPipeline === 'function') {
             try {
@@ -2190,6 +2330,20 @@ async function runPipeline() {
     }
   }));
   renderFileList();
+  if (docsIngestPromises.length > 0) {
+    logAudit('Docs View', 'Queued background document sync for ' + docsIngestPromises.length + ' file' + (docsIngestPromises.length === 1 ? '' : 's') + ' · pipeline continuing', 'ok');
+    Promise.allSettled(docsIngestPromises).then(results => {
+      const failed = results.filter(r =>
+        r.status === 'rejected' ||
+        (r.status === 'fulfilled' && r.value && r.value.ok === false)
+      ).length;
+      const ok = results.length - failed;
+      if (typeof logAudit === 'function') {
+        logAudit('Docs View', 'Background document sync finished · ' + ok + ' ok' + (failed ? ', ' + failed + ' failed' : ''), failed ? 'warn' : 'ok');
+      }
+      if (typeof renderFileList === 'function') renderFileList();
+    });
+  }
   setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');
 
   // === FLAG LOW-CONFIDENCE FILES FOR POST-HOC REVIEW ===
