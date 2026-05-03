@@ -3140,6 +3140,133 @@ function detectAcordSectionsPerPage(file) {
 }
 
 // ----------------------------------------------------------------------------
+// SUPPLEMENTAL APPLICATION detector — for carrier-branded questionnaires
+// like Vela Contractors Questionnaire, AmTrust Hospitality Questionnaire,
+// Travelers Manufacturing Supplement, etc. These are NOT ACORD forms —
+// no copyright stamp, no standardized title — so the methodology is
+// different from the ACORD 125/126/131 detector.
+//
+// SIGNALS we key on (universal across carriers):
+//
+//   1. The word "QUESTIONNAIRE" on page 1.
+//      ACORD forms never use this word — they use "Section", "Schedule",
+//      or "Supplement". This is the cleanest discriminator.
+//
+//   2. The phrase "SUPPLEMENTAL APPLICATION" on page 1.
+//      Direct title for non-questionnaire-styled supp apps.
+//
+//   3. Class-specific supplement title (e.g. "CONTRACTORS SUPPLEMENT",
+//      "MANUFACTURING APPLICATION") — but ONLY when accompanied by Q&A
+//      density. This prevents the ACORD 125 false-positive: page 1 of
+//      every ACORD 125 has "CONTRACTORS SUPPLEMENT" as a checkbox in
+//      its supplement-checklist, but it has no Q&A structure.
+//
+// FALSE-POSITIVE GUARDS:
+//
+//   - Hard exclude: page 1 contains an ACORD form-number stamp
+//     (ACORD 125 listing "Contractors Supplement" as a checkbox would
+//     otherwise trigger). The ACORD detector handles those.
+//
+//   - Q&A density: must have multiple numbered questions OR multiple
+//     Yes/No checkbox pairs in the early text. A subcontract that
+//     mentions "questionnaire" in prose has neither.
+//
+// SUB-TYPING (maps to existing CLASSIFIER_TYPES taxonomy):
+//
+//   Class keyword in title → specific tag:
+//     "CONTRACTORS" → Contractors Supp
+//     "MANUFACTURING/MANUFACTURER" → Manufacturing Supp
+//     "HNOA" / "HIRED NON-OWNED" → HNOA Supp
+//     "CAPTIVE" → Captive Supp
+//   No class keyword → generic "Supp App"
+//
+// Returns a single classification (whole doc), or null if not detected.
+// Unlike ACORDs, supp apps are typically standalone whole-document files
+// rather than multi-section packages.
+// ----------------------------------------------------------------------------
+function detectSuppApp(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const page1 = pageTexts[0] || '';
+  // Scan first 2 pages worth of text — title + early questions live here
+  const earlyText = (page1 + ' ' + (pageTexts[1] || '')).slice(0, 5000);
+
+  // GUARD 1 — must NOT be an ACORD form. Page 1 of an ACORD form always
+  // has a form-number stamp like "ACORD 125 (2016/03)". If present, this
+  // is an ACORD form and the ACORD detector handles it.
+  const hasAcordStamp = /\bACORD\s*\d{2,4}\s*\(\d{4}\/\d{2}\)/i.test(page1);
+  if (hasAcordStamp) return null;
+
+  // SIGNAL 1 — the word QUESTIONNAIRE. ACORD never uses this term.
+  // Strongest single discriminator we have for carrier-branded supp apps.
+  const hasQuestionnaire = /\bQUESTIONNAIRE\b/i.test(earlyText);
+
+  // SIGNAL 2 — "SUPPLEMENTAL APPLICATION" / "SUPPLEMENTAL QUESTIONNAIRE"
+  // phrase. Direct title for non-questionnaire-styled supp apps.
+  const hasSuppPhrase = /SUPPLEMENTAL\s+(APPLICATION|QUESTIONNAIRE)/i.test(earlyText);
+
+  // SIGNAL 3 — class-specific supplement title. Permissive on what comes
+  // after the class noun (Questionnaire / Supplement / Application /
+  // Supplemental Application / etc).
+  const hasClassSupp = /(CONTRACTORS?|MANUFACTUR(?:ER|ING|ERS?)|HOSPITALITY|RESTAURANT|HOTEL|HABITATIONAL|APARTMENT|GARAGE|TRUCKING|TRANSPORTATION|HNOA|HIRED\s+(?:AND\s+)?NON.OWNED)\s+(QUESTIONNAIRE|SUPPLEMENT(?:AL)?(?:\s+APPLICATION)?|APPLICATION)/i.test(earlyText);
+
+  // Q&A DENSITY — confirms this is actually a form, not just prose
+  // mentioning "questionnaire". Real carrier supp apps universally have
+  // Yes/No checkbox pairs throughout the body. Contract articles can be
+  // numbered (1., 2., ARTICLE 1, ARTICLE 2) but contracts don't have
+  // Yes/No checkboxes. So we require Yes/No pair density specifically —
+  // numbered questions alone aren't enough.
+  const yesNoPairs = (earlyText.match(/\bYes\s+No\b|\bY\s*\/\s*N\b/gi) || []).length;
+  const numberedQuestions = (earlyText.match(/(?:^|\s)\d{1,2}\.\s+[A-Z]/g) || []).length;
+  const hasQaDensity = yesNoPairs >= 3;
+
+  // DECISION — title signal AND Q&A density both required. The Q&A
+  // requirement filters out prose mentions ("complete the contractor
+  // questionnaire and submit") and ACORD checkbox false-positives.
+  const titleSignals = [];
+  if (hasQuestionnaire)  titleSignals.push('QUESTIONNAIRE_keyword');
+  if (hasSuppPhrase)     titleSignals.push('SUPPLEMENTAL_APPLICATION_phrase');
+  if (hasClassSupp)      titleSignals.push('class_specific_supplement_title');
+
+  if (titleSignals.length === 0 || !hasQaDensity) return null;
+
+  // SUB-TYPE detection — map class keyword in title to existing tags
+  // from CLASSIFIER_TYPES taxonomy. Default to generic "Supp App" if
+  // no class keyword matched.
+  let tag = 'Supp App';
+  let subType = 'GENERIC';
+
+  if (/CONTRACTORS?\s+(QUESTIONNAIRE|SUPPLEMENT|APPLICATION)/i.test(earlyText)) {
+    tag = 'Contractors Supp';
+    subType = 'CONTRACTORS';
+  } else if (/MANUFACTUR(?:ER|ING|ERS?)\s+(QUESTIONNAIRE|SUPPLEMENT|APPLICATION)/i.test(earlyText)) {
+    tag = 'Manufacturing Supp';
+    subType = 'MANUFACTURING';
+  } else if (/(HNOA|HIRED\s+(?:AND\s+)?NON.OWNED)\s+(?:AUTO\s+)?(QUESTIONNAIRE|SUPPLEMENT|APPLICATION)/i.test(earlyText)) {
+    tag = 'HNOA Supp';
+    subType = 'HNOA';
+  }
+
+  return {
+    type: 'APPLICATIONS',
+    subType: subType,
+    tag: tag,
+    primary_bucket: 'APPLICATIONS',
+    confidence: titleSignals.length >= 2 ? 0.97 : 0.93,
+    reasoning: 'Per-doc scan: ' + titleSignals.join(' + ') + ' + Q&A density (' +
+               yesNoPairs + ' Yes/No pairs, ' + numberedQuestions + ' numbered questions). ' +
+               'No ACORD stamp on page 1. Detected as ' + tag + '.',
+    section_hint: pageTexts.length === 1 ? 'page 1' : 'pages 1-' + pageTexts.length,
+    _signals: {
+      titleSignals: titleSignals,
+      yesNoPairs: yesNoPairs,
+      numberedQuestions: numberedQuestions,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -3200,6 +3327,54 @@ function detectDocumentSignature(file) {
         })),
         isCombined: isCombined,
         signatures: allSignals,
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1.5 — Supplemental Application detector. Runs AFTER the ACORD
+  // scan (so ACORD forms with "Contractors Supplement" in their checkbox
+  // list don't get misclassified as supp apps) and BEFORE the whole-doc
+  // detector library. Catches carrier-branded questionnaires like the
+  // Vela Contractors Questionnaire, AmTrust Hospitality Questionnaire,
+  // Travelers Manufacturing Supplement, etc. — none of which have an
+  // ACORD copyright stamp.
+  const suppApp = detectSuppApp(file);
+  if (suppApp) {
+    return {
+      match: true,
+      method: 'regex_prefilter_supp_app',
+      method_label: 'Supp app scan: ' + suppApp.tag,
+      detector_id: 'supp_app_' + (suppApp.subType || 'generic').toLowerCase(),
+      signals: suppApp._signals.titleSignals.concat([
+        suppApp._signals.yesNoPairs + '_yes_no_pairs',
+        suppApp._signals.numberedQuestions + '_numbered_questions',
+      ]),
+      signals_required: 2,
+      signals_total: 2 + suppApp._signals.titleSignals.length,
+      result: {
+        type: 'APPLICATIONS',
+        subType: suppApp.subType,
+        tag: suppApp.tag,
+        primary_bucket: 'APPLICATIONS',
+        confidence: suppApp.confidence,
+        reasoning: suppApp.reasoning,
+        // Supp apps are typically standalone whole-document files. Single
+        // classification entry covers the whole doc, mirrors how the ACORD
+        // detector would emit a single-section doc result.
+        classifications: [{
+          type: 'APPLICATIONS',
+          subType: suppApp.subType,
+          tag: suppApp.tag,
+          primary_bucket: 'APPLICATIONS',
+          section_hint: suppApp.section_hint,
+          confidence: suppApp.confidence,
+          reasoning: suppApp.reasoning,
+        }],
+        isCombined: false,
+        signatures: suppApp._signals.titleSignals,
         needsReview: false,
         needsReviewReasons: [],
         suppressTag: false,
@@ -3875,4 +4050,5 @@ window.pushTestFileToDocsView = pushTestFileToDocsView;
 window.detectAcordForm = detectAcordForm;
 window.detectDocumentSignature = detectDocumentSignature;
 window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
+window.detectSuppApp = detectSuppApp;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
