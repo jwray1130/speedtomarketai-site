@@ -81,6 +81,7 @@ const FILE_AND_FORGET_TAGS = new Set([
   'Photos of Operations', 'Wrap-Up Forms',
   'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
   'SOV', 'Schedule of Values', 'Work on Hand',
+  'Premium Summary', 'Premium Recap', 'Pricing Summary', 'Rate Summary', 'Quote Proposal',
   'PCAR Report', 'CAB Report', 'Crime Score Report', 'Crime Score',
   'SAFER Snapshot', 'SAFER', 'Site Inspection',
   '???',
@@ -115,6 +116,9 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
+  if (tLower.includes('premium summary') || tLower.includes('premium recap') ||
+      tLower.includes('pricing summary') || tLower.includes('rate summary') ||
+      tLower.includes('quote proposal')) return null;
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
   if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
@@ -200,6 +204,9 @@ function classifierToRoute(classifierType, subType, tag) {
       // v8.6.2: tag-based fallback for UNDERLYING when subType is missing
       if (arguments.length >= 3 && arguments[2]) {
         const tagLower = String(arguments[2]).toLowerCase();
+        if (tagLower.includes('premium summary') || tagLower.includes('premium recap') ||
+            tagLower.includes('pricing summary') || tagLower.includes('rate summary') ||
+            tagLower.includes('quote proposal')) return null;
         if (tagLower.startsWith('gl ') || tagLower.includes('gl quote') || tagLower.includes('gl t&c') || tagLower.includes('gl exposure')) return 'gl_quote';
         if (tagLower.startsWith('al ') || tagLower.includes('al quote') || tagLower.includes('al t&c') || tagLower.includes('al fleet')) return 'al_quote';
         if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $')) return 'excess';
@@ -455,6 +462,16 @@ function docsViewMappingFor(classifierType, tag) {
   // Layer 3: tag-based granular fallback (e.g., "Sub Agreement" → applications/green)
   if (tag) {
     const tagLower = String(tag).toLowerCase();
+    if (tagLower.includes('property quote') || tagLower.includes('property proposal') ||
+        tagLower.includes('acord 140') || tagLower.includes('schedule of values') ||
+        tagLower.includes('statement of values') || tagLower === 'sov') {
+      return { category: 'administration', color: null };
+    }
+    if (tagLower.includes('premium summary') || tagLower.includes('premium recap') ||
+        tagLower.includes('pricing summary') || tagLower.includes('rate summary') ||
+        tagLower.includes('quote proposal')) {
+      return { category: 'quotes-indications', color: 'teal' };
+    }
     if (tagLower.includes('acord') || tagLower.includes('supp') ||
         tagLower.includes('narrative') || tagLower.includes('description of operations') ||
         tagLower.includes('sub agreement') || tagLower.includes('subcontract') ||
@@ -1117,6 +1134,7 @@ async function incrementalProcess(newFiles) {
     f.needsReview = !!c.needsReview;
     f.signatures = c.signatures || [];
     f.reasoning = c.reasoning || '';
+    f.suppressTag = !!c.suppressTag;
     f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
     f.routedTo = classifierToRoute(c.type, c.subType, c.tag);
     f.state = 'classified';
@@ -1159,9 +1177,10 @@ async function incrementalProcess(newFiles) {
         // primary_bucket if the classifier emitted it, else fall back to
         // legacy type. Tag is always passed so granular fallback works
         // when neither bucket nor type maps cleanly.
-        const pipelineTag = c.tag || c.subType || c.type;
+        const suppressTag = !!(c.suppressTag || f.suppressTag);
+        const pipelineTag = suppressTag ? null : (c.tag || c.subType || c.type);
         const primaryBucket = c.primary_bucket || null;
-        const mapping = docsViewMappingFor(primaryBucket || c.type, c.tag);
+        const mapping = suppressTag ? { category: 'administration', color: null } : docsViewMappingFor(primaryBucket || c.type, c.tag);
         const ingestCtx = {
           category: mapping.category,
           color: mapping.color,
@@ -1175,7 +1194,7 @@ async function incrementalProcess(newFiles) {
           // combined PDF. Without this, only page 1 of the whole PDF gets
           // a chip — pages 5, 9, etc. (where ACORD 126, ACORD 131 start)
           // show no chip even though the classifier knows they're there.
-          sectionClassifications: Array.isArray(f.classifications)
+          sectionClassifications: suppressTag ? [] : (Array.isArray(f.classifications)
             ? f.classifications.map(cl => ({
                 tag: cl.tag || cl.subType || cl.type,
                 type: cl.type,
@@ -1183,7 +1202,7 @@ async function incrementalProcess(newFiles) {
                 section_hint: cl.section_hint || null,
                 primary_bucket: cl.primary_bucket || null,
               }))
-            : null,
+            : null),
         };
         if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
           try {
@@ -1566,6 +1585,290 @@ function truncateForLLM(text, maxChars) {
   );
 }
 
+
+// ============================================================================
+// v8.6.12-surgical-classifier-guards
+// Surgical deterministic cleanup applied AFTER the model classifier.
+//
+// Targets only the user-confirmed misses from the otherwise good v12 build:
+//   • Quote Proposal / Premium Recap => Premium Summary
+//   • Property Quote / SOV / ACORD 140 => no liability chip/tag
+//   • GL Quote plus GL exposure schedule => add GL Exposure
+//   • AL Quote plus fleet/vehicle schedule => add AL Fleet
+//   • ACORD 125 / 126 / 131 exact form hits => add those ACORD tags
+// ============================================================================
+function stmClassifierTextBlob(file) {
+  return String(
+    (file && file.name ? file.name : '') + '\n' +
+    (file && file.text ? file.text : '') + '\n' +
+    (file && file.emailSubject ? file.emailSubject : '') + '\n' +
+    (file && file.emailContext ? file.emailContext : '')
+  );
+}
+
+function stmNormTag(tag) {
+  return String(tag || '').trim().toLowerCase();
+}
+
+function stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
+  return {
+    type: type,
+    subType: subType || null,
+    tag: tag || null,
+    primary_bucket: type,
+    confidence: confidence,
+    section_hint: sectionHint || 'entire document',
+    reasoning: reasoning
+  };
+}
+
+function stmDetectAcordForms(file) {
+  const text = stmClassifierTextBlob(file);
+  const found = [];
+  ['125', '126', '131'].forEach(num => {
+    const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
+    if (re.test(text)) found.push(num);
+  });
+  return found;
+}
+
+function stmIsPropertyOnly(file) {
+  const text = stmClassifierTextBlob(file);
+
+  const hasProperty =
+    /\bproperty\s+(quote|proposal|schedule|coverage|policy)\b/i.test(text) ||
+    /\bcommercial\s+property\b/i.test(text) ||
+    /\bACORD\s*140\b/i.test(text) ||
+    /\b(statement|schedule)\s+of\s+values\b/i.test(text) ||
+    /\bSOV\b/i.test(text) ||
+    /\bbusiness\s+personal\s+property\b/i.test(text) ||
+    /\bbuilding\s+(limit|value|coverage|valuation)\b/i.test(text);
+
+  const hasLiability =
+    /\bACORD\s*(125|126|131)\b/i.test(text) ||
+    /\bgeneral\s+liability\b/i.test(text) ||
+    /\bcommercial\s+general\s+liability\b/i.test(text) ||
+    /\bCGL\b/i.test(text) ||
+    /\bGL\s+(quote|exposure|class|rate|premium)\b/i.test(text) ||
+    /\bauto\s+liability\b/i.test(text) ||
+    /\bautomobile\s+liability\b/i.test(text) ||
+    /\bAL\s+(quote|fleet)\b/i.test(text) ||
+    /\bumbrella\b/i.test(text) ||
+    /\bexcess\s+liability\b/i.test(text) ||
+    /\blead\s*\$?\s*\d/i.test(text) ||
+    /\b\d+\s*M\s*(xs|excess of)\s*\d+\s*M\b/i.test(text);
+
+  return hasProperty && !hasLiability;
+}
+
+function stmIsPropertyClassification(c) {
+  const v = stmNormTag((c && (c.tag || c.subType || c.type)) || '');
+  return v === 'sov' ||
+    v.includes('property quote') ||
+    v.includes('property proposal') ||
+    v.includes('property coverage') ||
+    v.includes('commercial property') ||
+    v.includes('schedule of values') ||
+    v.includes('statement of values') ||
+    v.includes('acord 140');
+}
+
+function stmDetectPremiumSummary(file) {
+  const text = stmClassifierTextBlob(file);
+  const name = String((file && file.name) || '');
+
+  // Justin-specific confirmed case: "Quote proposal.pdf" should be Premium Summary.
+  const filenameHit = /\bquote\s+proposal\b/i.test(name);
+
+  const textHit =
+    /\bpremium\s+summary\b/i.test(text) ||
+    /\bpremium\s+recap\b/i.test(text) ||
+    /\bpremium\s+schedule\b/i.test(text) ||
+    /\bpricing\s+summary\b/i.test(text) ||
+    /\brate\s+summary\b/i.test(text) ||
+    /\bsummary\s+of\s+premiums\b/i.test(text) ||
+    /\bpremium\s+breakdown\b/i.test(text);
+
+  return filenameHit || textHit;
+}
+
+function stmDetectGlExposure(file) {
+  const text = stmClassifierTextBlob(file);
+
+  const explicitHeader =
+    /\bGL\s+Exposure\b/i.test(text) ||
+    /\bGeneral\s+Liability\s+Exposure\b/i.test(text) ||
+    /\bCGL\s+Exposure\b/i.test(text) ||
+    /\bGeneral\s+Liability\s+Rating\s+Basis\b/i.test(text) ||
+    /\bSchedule\s+of\s+Operations\s+(&|and)\s+Exposures\b/i.test(text) ||
+    /\bClass\s+Codes?\s*\/\s*Exposure\s+Bases?\b/i.test(text);
+
+  const classCodeEvidence =
+    /\b(class\s*code|classification\s*code|ISO\s*code|CGL\s*class)\b/i.test(text) &&
+    /\b(payroll|sales|gross\s+sales|receipts|area|square\s+feet|units|cost|total\s+cost|exposure\s+basis|premium\s+basis|exposure\s+amount|rate)\b/i.test(text);
+
+  const glRatingTableEvidence =
+    /\b(general\s+liability|commercial\s+general\s+liability|CGL|GL)\b/i.test(text) &&
+    /\b(exposure\s+basis|premium\s+basis|classification|class\s*code|rate|premiums?)\b/i.test(text) &&
+    /\b(payroll|sales|receipts|area|square\s+feet|units|subcontracted\s+cost|total\s+cost)\b/i.test(text);
+
+  const fiveDigitClassCodes = (String(text).match(/\b[0-9]{5}\b/g) || []).length >= 2;
+  const classCodeWithAmounts =
+    fiveDigitClassCodes &&
+    /\b(payroll|sales|receipts|area|square\s+feet|units|exposure|rate|premium)\b/i.test(text) &&
+    /\$?\d{2,3}(?:,\d{3})+(?:\.\d+)?/.test(text);
+
+  return !stmIsPropertyOnly(file) && (explicitHeader || classCodeEvidence || glRatingTableEvidence || classCodeWithAmounts);
+}
+
+function stmDetectAlFleet(file) {
+  const text = stmClassifierTextBlob(file);
+
+  const fleetEvidence =
+    /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule|covered\s+autos|covered\s+vehicles)\b/i.test(text) ||
+    /\b(VIN|vehicle\s+identification\s+number)\b/i.test(text) ||
+    /\b(year\s+make\s+model|make\s+model\s+year|garaging\s+location|power\s+units|unit\s*#)\b/i.test(text);
+
+  const autoContext =
+    /\b(auto\s+liability|automobile\s+liability|commercial\s+auto|business\s+auto|AL\s+quote|auto\s+quote|CA\s*00\s*01|combined\s+single\s+limit|covered\s+auto\s+symbol|symbol\s*(1|7|8|9))\b/i.test(text) ||
+    /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule)\b/i.test(text);
+
+  return fleetEvidence && autoContext;
+}
+
+function stmApplyClassifierGuards(parsed, file) {
+  const out = parsed && typeof parsed === 'object' ? JSON.parse(JSON.stringify(parsed)) : {};
+  let cls = Array.isArray(out.classifications) ? out.classifications : null;
+
+  if (!cls) {
+    const ptype = out.primary_type || out.type || 'unknown';
+    cls = [{
+      type: ptype,
+      subType: out.subType || null,
+      tag: out.tag || null,
+      confidence: out.primary_confidence || out.confidence || 0,
+      reasoning: out.reasoning || '',
+      section_hint: 'entire document',
+      primary_bucket: out.primary_bucket || null
+    }];
+  }
+
+  if (stmIsPropertyOnly(file)) {
+    return {
+      classifications: [{
+        type: 'ADMINISTRATION',
+        tag: null,
+        primary_bucket: 'ADMINISTRATION',
+        confidence: 0.99,
+        section_hint: 'entire document',
+        reasoning: 'Surgical guard: property-only document filed with no liability tag.'
+      }],
+      primary_type: 'ADMINISTRATION',
+      primary_confidence: 0.99,
+      is_combined: false,
+      needs_review: false,
+      suppress_tag: true,
+      reasoning: 'Property/SOV/ACORD 140-only material is not tagged for excess casualty workflow.'
+    };
+  }
+
+  cls = cls.filter(c => !stmIsPropertyClassification(c));
+
+  if (stmDetectPremiumSummary(file)) {
+    cls = cls.filter(c => {
+      const tag = stmNormTag((c && (c.tag || c.type)) || '');
+      return !(tag.startsWith('lead $') || tag.includes(' xs $') ||
+               tag.includes('p/o $') || tag.includes('excess layer') ||
+               tag.includes('quote proposal'));
+    });
+    if (!cls.some(c => stmNormTag(c && c.tag) === 'premium summary' || stmNormTag(c && c.type) === 'premium summary')) {
+      cls.unshift(stmClassEntry(
+        'QUOTES_INDICATIONS',
+        'Premium Summary',
+        0.99,
+        'Surgical guard: quote proposal / premium summary detected; do not classify as a lead/excess layer.',
+        'entire document',
+        'premium_summary'
+      ));
+    }
+    out.primary_type = 'QUOTES_INDICATIONS';
+    out.primary_confidence = Math.max(Number(out.primary_confidence || out.confidence || 0), 0.99);
+    out.needs_review = false;
+  }
+
+  const acordForms = stmDetectAcordForms(file);
+  if (acordForms.length) {
+    acordForms.forEach(num => {
+      const tag = 'ACORD ' + num;
+      if (!cls.some(c => stmNormTag(c && c.tag) === stmNormTag(tag) || stmNormTag(c && c.type) === stmNormTag(tag))) {
+        cls.push(stmClassEntry(
+          'APPLICATIONS',
+          tag,
+          0.98,
+          'Surgical guard: OCR/text contains exact ACORD form number ' + num + '.',
+          'entire document',
+          'ACORD'
+        ));
+      }
+    });
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'APPLICATIONS';
+      out.primary_confidence = 0.98;
+    }
+    out.is_combined = out.is_combined || acordForms.length > 1 || cls.length > 1;
+    out.needs_review = false;
+  }
+
+  if (stmDetectGlExposure(file)) {
+    if (!cls.some(c => stmNormTag(c && c.tag) === 'gl exposure' || stmNormTag(c && c.type) === 'gl exposure')) {
+      cls.push(stmClassEntry(
+        'QUOTES_UNDERLYING',
+        'GL Exposure',
+        0.96,
+        'Surgical guard: GL exposure schedule / class-code exposure basis detected.',
+        'entire document',
+        'gl'
+      ));
+    }
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'QUOTES_UNDERLYING';
+      out.primary_confidence = 0.96;
+    }
+    out.is_combined = out.is_combined || cls.length > 1;
+  }
+
+  if (stmDetectAlFleet(file)) {
+    if (!cls.some(c => stmNormTag(c && c.tag) === 'al fleet' || stmNormTag(c && c.type) === 'al fleet')) {
+      cls.push(stmClassEntry(
+        'QUOTES_UNDERLYING',
+        'AL Fleet',
+        0.96,
+        'Surgical guard: AL fleet / vehicle schedule detected.',
+        'entire document',
+        'al'
+      ));
+    }
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'QUOTES_UNDERLYING';
+      out.primary_confidence = 0.96;
+    }
+    out.is_combined = out.is_combined || cls.length > 1;
+  }
+
+  const seen = new Set();
+  cls = cls.filter(c => {
+    const key = stmNormTag((c && (c.tag || c.type)) || '');
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  out.classifications = cls;
+  return out;
+}
+
+
 function normalizeClassifierResult(parsed, fallbackType) {
   // Accept both old-format ({type, confidence}) and new-format ({classifications, primary_type, ...})
   let classifications = parsed.classifications;
@@ -1574,6 +1877,7 @@ function normalizeClassifierResult(parsed, fallbackType) {
   let isCombined = !!parsed.is_combined;
   let signatures = parsed.detected_signatures || [];
   let reasoning = parsed.reasoning || '';
+  let suppressTag = !!(parsed.suppress_tag || parsed.suppressTag);
 
   if (!classifications) {
     // Normalize old-format to new
@@ -1585,7 +1889,7 @@ function normalizeClassifierResult(parsed, fallbackType) {
     primaryType = sorted[0].type;
     primaryConfidence = sorted[0].confidence || 0;
   }
-  return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning };
+  return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning, suppressTag };
 }
 
 async function classifyFile(file) {
@@ -1639,6 +1943,8 @@ async function classifyFile(file) {
       if (!jm) throw new Error('classifier did not return JSON');
       parsed = JSON.parse(jm[0]);
     }
+
+    parsed = stmApplyClassifierGuards(parsed, file);
 
     const normalized = normalizeClassifierResult(parsed);
     const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
@@ -1697,6 +2003,8 @@ async function classifyFile(file) {
     parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
   }
 
+  parsed = stmApplyClassifierGuards(parsed, file);
+
   const final = normalizeClassifierResult(parsed);
 
   // v8.6.2: surface tag, subType, primary_bucket from the primary
@@ -1733,8 +2041,9 @@ async function classifyFile(file) {
     classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
     isCombined: final.isCombined,
     signatures: final.signatures,
-    needsReview: needsReviewFlags.length > 0,
-    needsReviewReasons: needsReviewFlags,         // v8.6.2: why review was flagged
+    needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
+    needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,         // v8.6.2: why review was flagged
+    suppressTag: !!final.suppressTag,
   };
 }
 
