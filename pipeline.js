@@ -770,7 +770,17 @@ function renderClassifierReview() {
   const list = document.getElementById('crList');
   if (!folder || !list) return;
 
-  const flagged = STATE.files.filter(f => f.needsReview || f.classification === 'unknown');
+  const flagged = STATE.files.filter(f => {
+    const conf = Number(f.confidence || 0);
+    const classification = String(f.classification || '').toLowerCase();
+    const hasUnknownTag = (Array.isArray(f.classifications) ? f.classifications : []).some(c => {
+      const tag = String((c && (c.tag || c.type)) || '').trim();
+      return !tag || tag === '???' || tag.toLowerCase() === 'unknown' || tag.toUpperCase() === 'UNIDENTIFIED';
+    });
+    const recognized = classification && classification !== 'unknown' && classification !== 'unidentified' && !hasUnknownTag;
+    if (recognized && conf >= CLASSIFY_CONFIG.highConfidenceThreshold) return false;
+    return f.needsReview || classification === 'unknown' || classification === 'unidentified' || hasUnknownTag;
+  });
   if (flagged.length === 0 || !STATE.pipelineDone) {
     folder.style.display = 'none';
     return;
@@ -1564,7 +1574,7 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
+  highConfidenceThreshold: 0.80,  // v3 surgical: at/above 80% → no Needs Classification
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -1624,12 +1634,27 @@ function stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
 
 function stmDetectAcordForms(file) {
   const text = stmClassifierTextBlob(file);
+  const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const found = [];
   ['125', '126', '131'].forEach(num => {
-    const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
-    if (re.test(text)) found.push(num);
+    if (compact.includes('ACORD' + num) || compact.includes('AC0RD' + num)) found.push(num);
   });
   return found;
+}
+
+function stmFindFirstPage(file, tester) {
+  if (!file || !Array.isArray(file.pageTexts)) return null;
+  for (let i = 0; i < file.pageTexts.length; i++) {
+    const pageText = String(file.pageTexts[i] || '');
+    try {
+      if (tester(pageText, i + 1)) return i + 1;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function stmPageHint(pageNum, fallback) {
+  return pageNum ? ('page ' + pageNum) : (fallback || 'entire document');
 }
 
 function stmIsPropertyOnly(file) {
@@ -1694,6 +1719,13 @@ function stmDetectPremiumSummary(file) {
 
 function stmDetectGlExposure(file) {
   const text = stmClassifierTextBlob(file);
+  const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (compact.includes('ACORD125') || compact.includes('ACORD126') || compact.includes('ACORD131') ||
+      compact.includes('AC0RD125') || compact.includes('AC0RD126') || compact.includes('AC0RD131')) {
+    // Do not turn ACORD application forms into GL Exposure just because
+    // they contain GL class code / line of business boxes.
+    return false;
+  }
 
   const explicitHeader =
     /\bGL\s+Exposure\b/i.test(text) ||
@@ -1782,12 +1814,15 @@ function stmApplyClassifierGuards(parsed, file) {
                tag.includes('quote proposal'));
     });
     if (!cls.some(c => stmNormTag(c && c.tag) === 'premium summary' || stmNormTag(c && c.type) === 'premium summary')) {
+      const pageNum = stmFindFirstPage(file, (pageText, pageNo) =>
+        /\bpremium\s+summary\b|\bpremium\s+recap\b|\bpremium\s+schedule\b|\bpricing\s+summary\b|\brate\s+summary\b|\bsummary\s+of\s+premiums\b|\bpremium\s+breakdown\b/i.test(pageText) || pageNo === 1
+      );
       cls.unshift(stmClassEntry(
         'QUOTES_INDICATIONS',
         'Premium Summary',
         0.99,
         'Surgical guard: quote proposal / premium summary detected; do not classify as a lead/excess layer.',
-        'entire document',
+        stmPageHint(pageNum, 'premium summary section'),
         'premium_summary'
       ));
     }
@@ -1801,12 +1836,16 @@ function stmApplyClassifierGuards(parsed, file) {
     acordForms.forEach(num => {
       const tag = 'ACORD ' + num;
       if (!cls.some(c => stmNormTag(c && c.tag) === stmNormTag(tag) || stmNormTag(c && c.type) === stmNormTag(tag))) {
+        const pageNum = stmFindFirstPage(file, pageText => {
+          const compactPage = String(pageText || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          return compactPage.includes('ACORD' + num) || compactPage.includes('AC0RD' + num);
+        });
         cls.push(stmClassEntry(
           'APPLICATIONS',
           tag,
           0.98,
           'Surgical guard: OCR/text contains exact ACORD form number ' + num + '.',
-          'entire document',
+          stmPageHint(pageNum, 'ACORD form section'),
           'ACORD'
         ));
       }
@@ -1821,12 +1860,16 @@ function stmApplyClassifierGuards(parsed, file) {
 
   if (stmDetectGlExposure(file)) {
     if (!cls.some(c => stmNormTag(c && c.tag) === 'gl exposure' || stmNormTag(c && c.type) === 'gl exposure')) {
+      const pageNum = stmFindFirstPage(file, pageText =>
+        /\bGL\s+Exposure\b|\bGeneral\s+Liability\s+Exposure\b|\bCGL\s+Exposure\b|\bclass\s*code\b|\bclassification\s*code\b|\bexposure\s+basis\b|\bpremium\s+basis\b/i.test(pageText) &&
+        !/ACORD\s*(125|126|131)/i.test(pageText)
+      );
       cls.push(stmClassEntry(
         'QUOTES_UNDERLYING',
         'GL Exposure',
         0.96,
         'Surgical guard: GL exposure schedule / class-code exposure basis detected.',
-        'entire document',
+        stmPageHint(pageNum, 'GL exposure schedule'),
         'gl'
       ));
     }
@@ -1839,12 +1882,15 @@ function stmApplyClassifierGuards(parsed, file) {
 
   if (stmDetectAlFleet(file)) {
     if (!cls.some(c => stmNormTag(c && c.tag) === 'al fleet' || stmNormTag(c && c.type) === 'al fleet')) {
+      const pageNum = stmFindFirstPage(file, pageText =>
+        /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule|covered\s+autos|covered\s+vehicles|VIN|vehicle\s+identification\s+number|year\s+make\s+model|make\s+model\s+year|garaging\s+location|power\s+units|unit\s*#)\b/i.test(pageText)
+      );
       cls.push(stmClassEntry(
         'QUOTES_UNDERLYING',
         'AL Fleet',
         0.96,
         'Surgical guard: AL fleet / vehicle schedule detected.',
-        'entire document',
+        stmPageHint(pageNum, 'AL fleet / vehicle schedule'),
         'al'
       ));
     }
@@ -2023,12 +2069,30 @@ async function classifyFile(file) {
   // GL vs AL routes to different modules. needs_review from the model
   // is also honored.
   const needsReviewFlags = [];
-  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
-  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
-  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+  const finalPrimaryConfidence = Number(final.primaryConfidence || 0);
+  const finalHasUnknownTag = (final.classifications || []).some(c => {
+    const tag = String((c && (c.tag || c.type)) || '').trim();
+    return !tag || tag === '???' || tag.toLowerCase() === 'unknown' || tag.toUpperCase() === 'UNIDENTIFIED';
+  });
+  const finalRecognized =
+    String(final.primaryType || '').toLowerCase() !== 'unknown' &&
+    String(final.primaryType || '').toUpperCase() !== 'UNIDENTIFIED' &&
+    !finalHasUnknownTag;
+
+  // v3 surgical rule from Justin:
+  // If the classifier recognizes the document and primary confidence is 80%+,
+  // do NOT send it to Needs Classification. This overrides model needs_review
+  // flags and combined-doc section-hint nitpicks for high-confidence results.
+  if (!finalRecognized) {
+    needsReviewFlags.push('unrecognized_or_unknown');
+  } else if (finalPrimaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) {
+    if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+    needsReviewFlags.push('low_primary_conf');
+    if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+    if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+    if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+    if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+  }
 
   // Return the FULL classification record — caller decides how to use it
   return {
