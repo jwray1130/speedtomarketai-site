@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-surgical-classifier-v5-dropzone-2026-05-03';
+window.STM_BUILD = 'v8.6.12-surgical-classifier-v6-native-dropzone-2026-05-03';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1562,11 +1562,30 @@ function setupDropzone() {
   if (dz.dataset.stmDropzoneReady === '1') return;
   dz.dataset.stmDropzoneReady = '1';
 
+  // v6: native invisible input overlay. This makes the browser itself
+  // recognize the zone as a valid file target, which is more reliable than
+  // JS-only dragover handling.
+  dz.style.position = dz.style.position || 'relative';
+  input.classList.add('dropzone-input');
+  input.style.display = 'block';
+  input.style.position = 'absolute';
+  input.style.inset = '0';
+  input.style.width = '100%';
+  input.style.height = '100%';
+  input.style.opacity = '0';
+  input.style.cursor = 'pointer';
+  input.style.zIndex = '3';
+
   const hasFileDrag = (e) => {
     const dt = e && e.dataTransfer;
     if (!dt) return false;
     if (dt.items && Array.from(dt.items).some(item => item.kind === 'file')) return true;
-    return Array.from(dt.types || []).includes('Files');
+    const types = Array.from(dt.types || []);
+    // Normal browser file drags expose "Files". Some desktop mail/file
+    // sources expose file-like payload types instead; accept those too so
+    // the browser shows a copy cursor instead of the red no-drop cursor.
+    return types.includes('Files') ||
+      types.some(t => /file|FileGroupDescriptor|FileContents|DownloadURL/i.test(String(t)));
   };
 
   const inSubmissionDropScope = (target) => {
