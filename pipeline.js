@@ -80,8 +80,7 @@ const FILE_AND_FORGET_TAGS = new Set([
   'Geotech Report', 'Site Plan', 'Project Budget',
   'Photos of Operations', 'Wrap-Up Forms',
   'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
-  'Work on Hand',
-  'Premium Summary', 'Premium Recap', 'Pricing Summary',
+  'SOV', 'Schedule of Values', 'Work on Hand',
   'PCAR Report', 'CAB Report', 'Crime Score Report', 'Crime Score',
   'SAFER Snapshot', 'SAFER', 'Site Inspection',
   '???',
@@ -116,7 +115,6 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
-  if (tLower.includes('premium summary') || tLower.includes('premium recap') || tLower.includes('pricing summary')) return null;
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
   if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
@@ -204,7 +202,6 @@ function classifierToRoute(classifierType, subType, tag) {
         const tagLower = String(arguments[2]).toLowerCase();
         if (tagLower.startsWith('gl ') || tagLower.includes('gl quote') || tagLower.includes('gl t&c') || tagLower.includes('gl exposure')) return 'gl_quote';
         if (tagLower.startsWith('al ') || tagLower.includes('al quote') || tagLower.includes('al t&c') || tagLower.includes('al fleet')) return 'al_quote';
-        if (tagLower.includes('premium summary') || tagLower.includes('premium recap') || tagLower.includes('pricing summary')) return null;
         if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $')) return 'excess';
         if (tagLower.includes('excess t&c') || tagLower.includes('el quote') || tagLower.includes('aircraft') ||
             tagLower.includes('stop gap') || tagLower.includes('foreign')) return 'excess';
@@ -468,9 +465,6 @@ function docsViewMappingFor(classifierType, tag) {
         tagLower.includes('large loss')) {
       return { category: 'loss-history', color: 'red' };
     }
-    if (tagLower.includes('premium summary') || tagLower.includes('premium recap') || tagLower.includes('pricing summary')) {
-      return { category: 'quotes-indications', color: 'teal' };
-    }
     if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
         tagLower.startsWith('gl ') || tagLower.startsWith('al ') ||
         tagLower.includes('quote') || tagLower.includes('t&c') ||
@@ -652,7 +646,6 @@ const CLASSIFIER_TYPES = [
 
   // ── QUOTES / INDICATIONS ─────────────────────────────────────────────
   { value: 'Target Premium',    label: 'Target Premium',              bucket: 'QUOTES_INDICATIONS' },
-  { value: 'Premium Summary',   label: 'Premium Summary',             bucket: 'QUOTES_INDICATIONS' },
   { value: 'Carrier Indication',label: 'Carrier Indication',          bucket: 'QUOTES_INDICATIONS' },
   { value: 'Peer Quote',        label: 'Peer Quote',                  bucket: 'QUOTES_INDICATIONS' },
 
@@ -680,6 +673,7 @@ const CLASSIFIER_TYPES = [
   { value: 'SAFER Report',      label: 'SAFER Report',                bucket: 'ADMINISTRATION' },
   { value: 'PCAR',              label: 'PCAR',                        bucket: 'ADMINISTRATION' },
   { value: 'Crime Score',       label: 'Crime Score',                 bucket: 'ADMINISTRATION' },
+  { value: 'SOV',               label: 'SOV',                         bucket: 'ADMINISTRATION' },
   { value: 'Work on Hand',      label: 'Work on Hand',                bucket: 'ADMINISTRATION' },
   { value: 'Site Inspection',   label: 'Site Inspection',             bucket: 'ADMINISTRATION' },
 
@@ -1551,7 +1545,7 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.80,  // v13: at or above 80% → auto-proceed; below → review gate
+  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -1571,283 +1565,6 @@ function truncateForLLM(text, maxChars) {
     + text.slice(-tailChars)
   );
 }
-
-
-// ============================================================================
-// v13 deterministic classifier guards — Justin critical workflow guarantees
-//
-// These guards run after the LLM classifier but before review/routing.
-// Purpose:
-//   1) ACORD 125/126/131 must always be tagged when the OCR/text contains
-//      the form number, including combined ACORD packets.
-//   2) Property/SOV/ACORD 140-only material must not create chips/tags.
-//   3) Premium summaries must be tagged "Premium Summary", never converted
-//      into a lead/excess layer just because dollar limits appear.
-//   4) Auto fleet / vehicle schedules must be identified as "AL Fleet".
-//   5) 80%+ recognized classifications should not be forced into the
-//      Needs Classification queue.
-// ============================================================================
-function _stmTextBlob(file) {
-  return String(
-    (file && file.name ? file.name : '') + '\n' +
-    (file && file.text ? file.text : '') + '\n' +
-    (file && file.emailSubject ? file.emailSubject : '') + '\n' +
-    (file && file.emailContext ? file.emailContext : '')
-  );
-}
-
-function _stmHas(re, text) {
-  try { return re.test(text || ''); } catch (_) { return false; }
-}
-
-function _stmNormTag(tag) {
-  return String(tag || '').trim().toLowerCase();
-}
-
-function _stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
-  return {
-    type: type,
-    subType: subType || null,
-    tag: tag || null,
-    primary_bucket: type,
-    confidence: confidence,
-    section_hint: sectionHint || 'detected section',
-    reasoning: reasoning
-  };
-}
-
-function detectAcordFormsFromText(file) {
-  const text = _stmTextBlob(file);
-  const found = [];
-  ['125', '126', '131'].forEach(num => {
-    const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
-    if (re.test(text)) found.push(num);
-  });
-  return found;
-}
-
-function isPropertyOnlySubmissionText(file) {
-  const text = _stmTextBlob(file);
-  const hasProperty =
-    /\bACORD\s*140\b/i.test(text) ||
-    /\bcommercial property\b/i.test(text) ||
-    /\bproperty\s+(quote|proposal|policy|application|coverage)\b/i.test(text) ||
-    /\bstatement of values\b/i.test(text) ||
-    /\bschedule of values\b/i.test(text) ||
-    /\bSOV\b/i.test(text) ||
-    /\bbuilding\s*(limit|value|coverage)\b/i.test(text) ||
-    /\bbusiness personal property\b/i.test(text);
-
-  const hasExcessCasualty =
-    /\bACORD\s*(125|126|131)\b/i.test(text) ||
-    /\bgeneral liability\b/i.test(text) ||
-    /\bcommercial general liability\b/i.test(text) ||
-    /\bauto liability\b/i.test(text) ||
-    /\bautomobile liability\b/i.test(text) ||
-    /\bumbrella\b/i.test(text) ||
-    /\bexcess liability\b/i.test(text) ||
-    /\blead\s*\$?\s*\d/i.test(text) ||
-    /\b\d+\s*M\s*(xs|excess of)\s*\d+\s*M\b/i.test(text);
-
-  return hasProperty && !hasExcessCasualty;
-}
-
-function isPropertyTag(tag) {
-  const t = _stmNormTag(tag);
-  return t === 'sov' ||
-    t === 'schedule of values' ||
-    t === 'statement of values' ||
-    t === 'property' ||
-    t === 'property quote' ||
-    t === 'property proposal' ||
-    t === 'acord 140' ||
-    t.includes('property quote') ||
-    t.includes('property proposal') ||
-    t.includes('schedule of values') ||
-    t.includes('statement of values') ||
-    t.includes('acord 140');
-}
-
-function detectPremiumSummaryText(file) {
-  const text = _stmTextBlob(file);
-  return /\b(premium summary|premium recap|premium schedule|pricing summary|rate summary|summary of premiums|premium allocation|premium breakdown)\b/i.test(text);
-}
-
-function detectAutoFleetText(file) {
-  const text = _stmTextBlob(file);
-  const hasFleet =
-    /\b(schedule of autos|schedule of automobiles|schedule of vehicles|vehicle schedule|fleet schedule|auto schedule|covered autos|covered vehicles)\b/i.test(text) ||
-    /\b(VIN|vehicle identification number)\b/i.test(text) ||
-    /\b(year\s+make\s+model|make\s+model\s+year|garaging location|power units|unit\s*#)\b/i.test(text);
-
-  const hasAutoContext =
-    /\b(auto liability|automobile liability|commercial auto|business auto|AL quote|auto quote|CA\s*00\s*01|combined single limit|covered auto symbol|symbol\s*(1|7|8|9))\b/i.test(text) ||
-    /\b(schedule of autos|schedule of automobiles|schedule of vehicles|vehicle schedule|fleet schedule|auto schedule)\b/i.test(text);
-
-  const inAcordOnly = /\bACORD\s*(127|129)\b/i.test(text) && !/\b(auto quote|commercial auto quote|business auto|CA\s*00\s*01)\b/i.test(text);
-
-  // Latest Justin requirement: identify Auto Fleet. If it is a real vehicle/
-  // fleet schedule, tag it AL Fleet unless the only evidence is an ACORD auto
-  // application form with no quote context.
-  return hasFleet && hasAutoContext && !inAcordOnly;
-}
-
-function detectGlExposureText(file) {
-  const text = _stmTextBlob(file);
-
-  const explicitHeader =
-    /\bGL\s+Exposure\b/i.test(text) ||
-    /\bGeneral\s+Liability\s+Exposure\b/i.test(text) ||
-    /\bCGL\s+Exposure\b/i.test(text) ||
-    /\bGeneral\s+Liability\s+Rating\s+Basis\b/i.test(text) ||
-    /\bSchedule\s+of\s+Operations\s+(&|and)\s+Exposures\b/i.test(text) ||
-    /\bClass\s+Codes?\s*\/\s*Exposure\s+Bases?\b/i.test(text);
-
-  const classCodeEvidence =
-    /\b(class\s*code|classification\s*code|ISO\s*code|CGL\s*class)\b/i.test(text) &&
-    /\b(payroll|sales|gross\s+sales|receipts|area|square\s+feet|units|cost|total\s+cost|exposure\s+basis|premium\s+basis|exposure\s+amount|rate)\b/i.test(text);
-
-  const glRatingTableEvidence =
-    /\b(general\s+liability|commercial\s+general\s+liability|CGL|GL)\b/i.test(text) &&
-    /\b(exposure\s+basis|premium\s+basis|classification|class\s*code|rate|premiums?)\b/i.test(text) &&
-    /\b(payroll|sales|receipts|area|square\s+feet|units|subcontracted\s+cost|total\s+cost)\b/i.test(text);
-
-  const fiveDigitClassCodes = (String(text).match(/\b[0-9]{5}\b/g) || []).length >= 2;
-  const classCodeWithAmounts =
-    fiveDigitClassCodes &&
-    /\b(payroll|sales|receipts|area|square\s+feet|units|exposure|rate|premium)\b/i.test(text) &&
-    /\$?\d{2,3}(?:,\d{3})+(?:\.\d+)?/.test(text);
-
-  // Avoid grabbing property SOVs as GL exposure.
-  const propertyOnly = isPropertyOnlySubmissionText(file);
-
-  return !propertyOnly && (explicitHeader || classCodeEvidence || glRatingTableEvidence || classCodeWithAmounts);
-}
-
-function applyDeterministicClassifierGuards(parsed, file) {
-  const out = parsed && typeof parsed === 'object' ? JSON.parse(JSON.stringify(parsed)) : {};
-  let cls = Array.isArray(out.classifications) ? out.classifications : [];
-
-  // Property/SOV/ACORD 140-only material is file-only and should not create
-  // a tag/chip or go to Needs Classification.
-  if (isPropertyOnlySubmissionText(file)) {
-    return {
-      classifications: [{
-        type: 'ADMINISTRATION',
-        confidence: 0.99,
-        tag: null,
-        primary_bucket: 'ADMINISTRATION',
-        section_hint: 'property-only material; no excess casualty tag',
-        reasoning: 'Deterministic guard: property/SOV/ACORD 140-only material is not tagged or routed.'
-      }],
-      primary_type: 'ADMINISTRATION',
-      primary_confidence: 0.99,
-      is_combined: false,
-      needs_review: false,
-      reasoning: 'Property-only document filed without chip/tag per excess casualty workflow.'
-    };
-  }
-
-  // Drop property tags if the model emitted them inside a broader document.
-  cls = cls.filter(c => !isPropertyTag(c && (c.tag || c.type)));
-
-  // Premium Summary override: never infer Lead $XM / $XM xs $YM from a premium
-  // summary/recap sheet. The file manager chip must read Premium Summary.
-  if (detectPremiumSummaryText(file)) {
-    cls = cls.filter(c => {
-      const tag = _stmNormTag(c && (c.tag || c.type));
-      return !(tag.startsWith('lead $') || tag.includes(' xs $') || tag.includes('p/o $') || tag.includes('excess layer'));
-    });
-    cls.unshift(_stmClassEntry(
-      'QUOTES_INDICATIONS',
-      'Premium Summary',
-      0.98,
-      'Deterministic guard: premium summary/recap detected; do not classify as a lead or excess layer.',
-      'premium summary / pricing recap',
-      'premium_summary'
-    ));
-    out.primary_type = 'QUOTES_INDICATIONS';
-    out.primary_confidence = Math.max(Number(out.primary_confidence || out.confidence || 0), 0.98);
-    out.needs_review = false;
-  }
-
-  // ACORD 125/126/131 exact form-number guard. This catches forms wherever
-  // they land inside combined packets.
-  const acordForms = detectAcordFormsFromText(file);
-  if (acordForms.length) {
-    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'APPLICATIONS' && !c.tag));
-    acordForms.forEach(num => {
-      const tag = 'ACORD ' + num;
-      if (!cls.some(c => _stmNormTag(c && c.tag) === _stmNormTag(tag) || _stmNormTag(c && c.type) === _stmNormTag(tag))) {
-        cls.push(_stmClassEntry(
-          'APPLICATIONS',
-          tag,
-          0.98,
-          'Deterministic guard: OCR/text contains exact ACORD form number ' + num + '.',
-          tag + ' section',
-          'ACORD'
-        ));
-      }
-    });
-    out.primary_type = 'APPLICATIONS';
-    out.primary_confidence = Math.max(Number(out.primary_confidence || out.confidence || 0), 0.98);
-    out.is_combined = out.is_combined || acordForms.length > 1 || cls.length > 1;
-    out.needs_review = false;
-  }
-
-  // GL Exposure guard.
-  if (detectGlExposureText(file)) {
-    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'QUOTES_UNDERLYING' && !c.tag));
-    if (!cls.some(c => _stmNormTag(c && c.tag) === 'gl exposure' || _stmNormTag(c && c.type) === 'gl exposure')) {
-      cls.push(_stmClassEntry(
-        'QUOTES_UNDERLYING',
-        'GL Exposure',
-        0.94,
-        'Deterministic guard: GL exposure schedule / class-code exposure basis detected.',
-        'general liability exposure schedule',
-        'gl'
-      ));
-    }
-    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
-      out.primary_type = 'QUOTES_UNDERLYING';
-      out.primary_confidence = 0.94;
-    }
-  }
-
-  // Auto fleet guard.
-  if (detectAutoFleetText(file)) {
-    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'QUOTES_UNDERLYING' && !c.tag));
-    if (!cls.some(c => _stmNormTag(c && c.tag) === 'al fleet' || _stmNormTag(c && c.type) === 'al fleet')) {
-      cls.push(_stmClassEntry(
-        'QUOTES_UNDERLYING',
-        'AL Fleet',
-        0.94,
-        'Deterministic guard: vehicle/fleet schedule detected.',
-        'auto fleet / vehicle schedule',
-        'al'
-      ));
-    }
-    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
-      out.primary_type = 'QUOTES_UNDERLYING';
-      out.primary_confidence = 0.94;
-    }
-  }
-
-  // De-dupe by displayed tag/type while preserving order.
-  const seen = new Set();
-  cls = cls.filter(c => {
-    const key = _stmNormTag((c && c.tag) || (c && c.type) || '');
-    if (!key) return true;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  if (cls.length) out.classifications = cls;
-
-  return out;
-}
-
 
 function normalizeClassifierResult(parsed, fallbackType) {
   // Accept both old-format ({type, confidence}) and new-format ({classifications, primary_type, ...})
@@ -1923,8 +1640,6 @@ async function classifyFile(file) {
       parsed = JSON.parse(jm[0]);
     }
 
-    parsed = applyDeterministicClassifierGuards(parsed, file);
-
     const normalized = normalizeClassifierResult(parsed);
     const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
     const types = normalized.classifications.map(c => c.type).join(' + ');
@@ -1982,8 +1697,6 @@ async function classifyFile(file) {
     parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
   }
 
-  parsed = applyDeterministicClassifierGuards(parsed, file);
-
   const final = normalizeClassifierResult(parsed);
 
   // v8.6.2: surface tag, subType, primary_bucket from the primary
@@ -2002,24 +1715,12 @@ async function classifyFile(file) {
   // GL vs AL routes to different modules. needs_review from the model
   // is also honored.
   const needsReviewFlags = [];
-  const finalPrimaryConfidence = Number(final.primaryConfidence || 0);
-  const finalRecognized = String(final.primaryType || '').toLowerCase() !== 'unknown' &&
-    String(final.primaryType || '').toUpperCase() !== 'UNIDENTIFIED' &&
-    !(final.classifications || []).some(c => String((c && (c.tag || c.type)) || '').trim() === '???');
-
-  // v13 Justin rule: recognized classifications at 80% or above do NOT go
-  // to Needs Classification, even if the model set needs_review=true or an
-  // internal section confidence is lower. Unknown/??? still require review.
-  if (!finalRecognized) {
-    needsReviewFlags.push('unrecognized_or_unknown');
-  } else if (finalPrimaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) {
-    needsReviewFlags.push('low_primary_conf');
-    if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-    if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-    if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-    if ((final.classifications || []).some(c => !c.tag && String(c.type || '').toUpperCase() !== 'ADMINISTRATION')) needsReviewFlags.push('missing_tag');
-    if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
-  }
+  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
+  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
   // Return the FULL classification record — caller decides how to use it
   return {

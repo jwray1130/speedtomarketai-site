@@ -2673,61 +2673,45 @@ async function deleteSubmission(submissionId, confirmAlready) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
+
   const label = displayAccount(rec);
-  // v8.5.6: tombstone. Any in-flight save (resyncActiveSnapshot,
-  // backfillMissingAccountNames, status change handler, pipeline
-  // completion handler, etc.) checks this set BEFORE upserting. Without
-  // this, a save firing AFTER delete recreates the row via upsert and
-  // the user sees the deleted submission reappear on next refresh.
-  if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
-  STATE._deletedSubmissionIds.add(submissionId);
-  STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
-  if (STATE.activeSubmissionId === submissionId) {
-    STATE.activeSubmissionId = null;
+  const deleteFn = window.sbDeleteSubmission;
+  if (typeof deleteFn !== 'function') {
+    const msg = 'window.sbDeleteSubmission not defined';
+    console.error('Cloud delete failed', submissionId, msg);
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg, 'error');
+    return;
   }
-  renderQueueTable();
-  updateQueueKpi();
-  logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
-  toast('Deleted · ' + label);
-  // v8.6.17: parent delete must be the first cloud operation.
-  // The prior path collected document_pages storage paths before deleting the
-  // parent row. In the live app, the queue × click was getting stuck on a heavy
-  // document_pages read and never reached DELETE /submissions, so the row came
-  // back after refresh. For queue correctness, the parent submission DELETE is
-  // the only required operation. document_pages are handled by FK cascade;
-  // storage cleanup is best-effort and must never block the parent delete.
-  if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
-    try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
-  }
+
+  // v8.6.19: cloud-confirmed delete. Do NOT optimistically remove from the
+  // queue before the parent DELETE is confirmed. The previous flow removed the
+  // row locally first, which made failed/no-op deletes look successful until the
+  // next hydrate put the row back. Now a row only disappears after Supabase
+  // confirms that DELETE /rest/v1/submissions affected at least one row.
+  if (typeof toast === 'function') toast('Deleting · ' + label);
+  if (typeof logAudit === 'function') logAudit('Submissions', 'Delete requested · ' + submissionId + ' · ' + label, '—');
+
   try {
-    const deleteFn = window.sbDeleteSubmission;
-    if (typeof deleteFn !== 'function') {
-      throw new Error('window.sbDeleteSubmission not defined');
-    }
     await deleteFn(submissionId);
+
+    if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
+    STATE._deletedSubmissionIds.add(submissionId);
+    STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
+    if (STATE.activeSubmissionId === submissionId) STATE.activeSubmissionId = null;
+    if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
+      try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
+    }
+
+    renderQueueTable();
+    updateQueueKpi();
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
+    if (typeof toast === 'function') toast('Deleted · ' + label, 'success');
   } catch (err) {
     console.error('Cloud delete failed', submissionId, err);
     const msg = (err && err.message) ? err.message : String(err);
-    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
-    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh', 'error');
-    // v8.5.7: clear the tombstone so future legitimate saves can persist
-    // this submission. If we leave the tombstone in place, the row remains
-    // in the cloud database (delete failed) but the client refuses to save
-    // updates to it — confusing state.
+    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg, 'error');
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 120), 'error');
     if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
-    // Re-hydrate from cloud so the queue UI matches the actual database
-    // state. Without this, the user sees an empty row in the queue and
-    // thinks the delete worked when it didn't.
-    if (typeof sbHydrate === 'function') {
-      try {
-        await sbHydrate();
-        if (typeof renderQueueTable === 'function') renderQueueTable();
-        if (typeof updateQueueKpi === 'function') updateQueueKpi();
-      } catch (hydrateErr) {
-        console.warn('Re-hydrate after failed delete also failed:', hydrateErr);
-      }
-    }
   }
 }
 

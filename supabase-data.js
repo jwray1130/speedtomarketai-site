@@ -208,30 +208,92 @@ function buildSubmissionPayload(rec, liteSnapshot) {
 }
 window.buildSubmissionPayload = buildSubmissionPayload;
 
+const STM_SUPABASE_REST_URL = 'https://hscjnbolpxmiyujaxjyd.supabase.co';
+const STM_SUPABASE_REST_ANON_KEY = 'sb_publishable_V0Vdf2RcNqR-UgZD3U_6CQ_Rmj-u4p5';
+
+function sbRecordDeleteDebug(stage, detail) {
+  try {
+    const row = {
+      t: new Date().toISOString(),
+      stage: stage,
+      detail: detail || null
+    };
+    if (!window.__stmDeleteDebug) window.__stmDeleteDebug = [];
+    window.__stmDeleteDebug.push(row);
+    window.__stmDeleteDebug = window.__stmDeleteDebug.slice(-50);
+    try { localStorage.setItem('__stmDeleteDebug', JSON.stringify(window.__stmDeleteDebug)); } catch (e) {}
+    try { console.log('[STM DELETE]', stage, detail || ''); } catch (e) {}
+  } catch (e) {}
+}
+window.sbRecordDeleteDebug = sbRecordDeleteDebug;
+
 async function sbDeleteSubmission(id) {
-  // v8.6.17: direct parent delete only. Do not pre-delete child tables from
-  // the browser and do not perform document_pages reads here. The queue delete
-  // must produce a fast DELETE /rest/v1/submissions request; child cleanup is
-  // handled by FK cascade / SET NULL rules in Supabase.
-  if (!id) return;
+  // v8.6.19: visible, deterministic parent delete.
+  // Use a direct PostgREST DELETE so the browser Network panel must show
+  // DELETE /rest/v1/submissions. This bypasses any supabase-js ambiguity and
+  // keeps the delete path free of document_pages reads, storage cleanup, and
+  // child-table pre-deletes. FK cascade remains the server-side cleanup path.
+  if (!id) throw new Error('missing submission id');
+  sbRecordDeleteDebug('start', { id: id });
+
   const u = await sbUser();
-  if (!u) throw new Error('not signed in');
+  if (!u || !u.id) {
+    sbRecordDeleteDebug('no-user', { id: id });
+    throw new Error('not signed in');
+  }
 
-  const { data, error } = await window.sb
-    .from('submissions')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', u.id)
-    .select();
+  const { data: { session } } = await window.sb.auth.getSession();
+  const token = session && session.access_token;
+  if (!token) {
+    sbRecordDeleteDebug('no-access-token', { id: id, user_id: u.id });
+    throw new Error('not signed in: missing access token');
+  }
 
-  if (error) throw error;
-  if (!data || data.length === 0) {
+  const url = STM_SUPABASE_REST_URL +
+    '/rest/v1/submissions?id=eq.' + encodeURIComponent(id) +
+    '&user_id=eq.' + encodeURIComponent(u.id) +
+    '&select=id';
+
+  sbRecordDeleteDebug('fetch-delete', { id: id, user_id: u.id, url: url.replace(token, '[token]') });
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      apikey: STM_SUPABASE_REST_ANON_KEY,
+      Authorization: 'Bearer ' + token,
+      Prefer: 'return=representation',
+      Accept: 'application/json'
+    }
+  });
+
+  const bodyText = await resp.text();
+  sbRecordDeleteDebug('fetch-result', {
+    id: id,
+    status: resp.status,
+    ok: resp.ok,
+    body: bodyText ? bodyText.slice(0, 500) : ''
+  });
+
+  if (!resp.ok) {
+    throw new Error('DELETE /submissions failed ' + resp.status + ': ' + (bodyText || resp.statusText || 'unknown error'));
+  }
+
+  let rows = [];
+  if (bodyText) {
+    try { rows = JSON.parse(bodyText); }
+    catch (e) { throw new Error('DELETE /submissions returned non-JSON body: ' + bodyText.slice(0, 200)); }
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
     throw new Error(
       'Delete affected 0 rows for ' + id + '. Either RLS blocked the delete, ' +
       'the row belongs to a different user, or the row was already gone. ' +
       'Check Supabase RLS policy on public.submissions and verify ownership.'
     );
   }
+
+  sbRecordDeleteDebug('confirmed', { id: id, rows: rows.length });
+  return rows;
 }
 
 // ---- Edits / Custom cards / Hidden cards ---------------------------------
