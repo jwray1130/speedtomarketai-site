@@ -2538,6 +2538,70 @@ window.initDocumentsView = function() {
     return textHit || filenameHit;
   }
 
+  function _stmLooksLikePremiumRecap(text, resolvedPipelineTag) {
+    const tag = String(resolvedPipelineTag || '').toLowerCase();
+    const isLeadOrLayer = tag.startsWith('lead $') || tag.includes(' xs $') || tag.includes('p/o $');
+    if (!isLeadOrLayer) return false;
+
+    // Do not steal real lead/excess quote docs with obvious policy/layer language.
+    if (/\b(follow\s*form|umbrella\s+liability|excess\s+liability|underlying\s+schedule|attachment\s+point|self[-\s]*insured\s+retention|SIR)\b/i.test(text)) {
+      return false;
+    }
+
+    return /\bpremium\b/i.test(text) &&
+      /\b(summary|recap|pricing|rate|quote\s+proposal|proposal|breakdown)\b/i.test(text);
+  }
+
+  function _stmAcordPageNumber(text) {
+    const patterns = [
+      /\bpage\s*(\d+)\s*of\s*\d+\b/i,
+      /\bpg\.?\s*(\d+)\s*of\s*\d+\b/i,
+      /\bpage\s*(\d+)\b/i
+    ];
+    for (const rx of patterns) {
+      const m = String(text || '').match(rx);
+      if (m && m[1]) {
+        const n = parseInt(m[1], 10);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  function _stmDetectLossRunTag(text) {
+    if (_stmDetectedAcordNums(text).length || _stmIsPropertyOnlyPage(text)) return null;
+
+    const lossRunSignal =
+      /\bloss\s+runs?\b/i.test(text) ||
+      /\bloss\s+history\b/i.test(text) ||
+      /\bclaim\s+(number|no\.?|#)\b/i.test(text) ||
+      (/\b(date\s+of\s+loss|DOL|valuation\s+date)\b/i.test(text) &&
+       /\b(paid|reserved?|incurred|open|closed)\b/i.test(text));
+
+    if (!lossRunSignal) return null;
+
+    const autoSignal =
+      /\b(AL|auto|automobile|business\s+auto|commercial\s+auto|vehicle|fleet|hired\s+and\s+non[-\s]*owned|HNOA)\b/i.test(text);
+
+    return autoSignal ? 'AL Loss Runs' : 'Loss Runs';
+  }
+
+  function _stmDetectAlPageTag(text, resolvedPipelineTag) {
+    const tag = String(resolvedPipelineTag || '').toLowerCase();
+
+    const fleetSignal =
+      /\b(schedule\s+of\s+autos|schedule\s+of\s+automobiles|schedule\s+of\s+vehicles|vehicle\s+schedule|fleet\s+schedule|auto\s+schedule|covered\s+autos|covered\s+vehicles)\b/i.test(text) ||
+      /\b(VIN|vehicle\s+identification\s+number)\b/i.test(text) ||
+      /\b(year\s+make\s+model|make\s+model\s+year|garaging\s+location|power\s+units|unit\s*#)\b/i.test(text);
+
+    const alQuoteSignal =
+      /\b(AL\s+Quote|Auto\s+Quote|Automobile\s+Liability|Auto\s+Liability|Commercial\s+Auto|Business\s+Auto|CA\s*00\s*01|Combined\s+Single\s+Limit)\b/i.test(text);
+
+    if (fleetSignal) return 'AL Fleet';
+    if (tag.includes('al quote') && (tag.includes('fleet') || alQuoteSignal)) return 'AL Quote';
+    return null;
+  }
+
   function _stmClaimOnce(stateObj, key) {
     if (!stateObj._stmSurgicalChipSeen) stateObj._stmSurgicalChipSeen = new Set();
     if (stateObj._stmSurgicalChipSeen.has(key)) return false;
@@ -2556,12 +2620,14 @@ window.initDocumentsView = function() {
       return { suppress: true };
     }
 
-    // ACORD exact form numbers win over inherited/default section tags.
-    // Tag only the FIRST page where each ACORD form number is seen for this
-    // source file. Continuation pages are explicitly suppressed so they do
-    // not fall back to a parent ACORD 125 / GL Exposure / Lead tag.
+    // 1) ACORD exact form numbers. ACORD wins over inherited/default tags.
+    // Continuation pages are suppressed so page 2/3 do not fall back to
+    // ACORD 125, GL Exposure, or Lead.
     const acordNums = _stmDetectedAcordNums(text);
     if (acordNums.length) {
+      const acordPageNo = _stmAcordPageNumber(text);
+      if (acordPageNo && acordPageNo > 1) return { suppress: true };
+
       for (const num of acordNums) {
         const key = baseKey + 'ACORD ' + num;
         if (_stmClaimOnce(stateObj, key)) {
@@ -2571,10 +2637,18 @@ window.initDocumentsView = function() {
       return { suppress: true };
     }
 
-    // Quote Proposal / Premium Recap should create one Premium Summary chip.
-    // After the chip is claimed, suppress fallback Lead $XM tags for the same
-    // premium-summary source so a premium recap does not appear as Lead $2M.
-    if (_stmIsPremiumSummaryPage(text, opts)) {
+    // 2) Restore previously-working Loss Runs / AL Loss Runs chips when the
+    // page text has loss-run signals.
+    const lossTag = _stmDetectLossRunTag(text);
+    if (lossTag) {
+      const key = baseKey + lossTag;
+      if (_stmClaimOnce(stateObj, key)) {
+        return { tag: lossTag, category: 'loss-history', color: 'red' };
+      }
+    }
+
+    // 3) Premium Summary beats Lead $XM for quote proposal / premium recap.
+    if (_stmIsPremiumSummaryPage(text, opts) || _stmLooksLikePremiumRecap(text, resolvedPipelineTag)) {
       const key = baseKey + 'Premium Summary';
       if (_stmClaimOnce(stateObj, key)) {
         return { tag: 'Premium Summary', category: 'quotes-indications', color: 'teal' };
@@ -2582,8 +2656,19 @@ window.initDocumentsView = function() {
       return { suppress: true };
     }
 
+    // 4) Split combined AL Quote + Fleet into separate page chips.
+    const alTag = _stmDetectAlPageTag(text, resolvedPipelineTag);
+    if (alTag) {
+      const key = baseKey + alTag;
+      if (_stmClaimOnce(stateObj, key)) {
+        return { tag: alTag, category: 'underlying', color: 'yellow' };
+      }
+    }
+
     return null;
   }
+
+
 
 
   function addDoc(opts) {

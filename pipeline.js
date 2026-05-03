@@ -1702,7 +1702,6 @@ function stmDetectPremiumSummary(file) {
   const text = stmClassifierTextBlob(file);
   const name = String((file && file.name) || '');
 
-  // Justin-specific confirmed case: "Quote proposal.pdf" should be Premium Summary.
   const filenameHit = /\bquote\s+proposal\b/i.test(name);
 
   const textHit =
@@ -1713,10 +1712,13 @@ function stmDetectPremiumSummary(file) {
     /\bpricing\s+summary\b/i.test(text) ||
     /\brate\s+summary\b/i.test(text) ||
     /\bsummary\s+of\s+premiums\b/i.test(text) ||
-    /\bpremium\s+breakdown\b/i.test(text);
+    /\bpremium\s+breakdown\b/i.test(text) ||
+    (/\bpremium\b/i.test(text) && /\b(summary|recap|pricing|proposal|breakdown)\b/i.test(text));
 
   return filenameHit || textHit;
 }
+
+
 
 function stmDetectGlExposure(file) {
   const text = stmClassifierTextBlob(file);
@@ -1769,6 +1771,23 @@ function stmDetectAlFleet(file) {
   return fleetEvidence && autoContext;
 }
 
+function stmDetectLossRuns(file) {
+  const text = stmClassifierTextBlob(file);
+  const lossRunSignal =
+    /\bloss\s+runs?\b/i.test(text) ||
+    /\bloss\s+history\b/i.test(text) ||
+    /\bclaim\s+(number|no\.?|#)\b/i.test(text) ||
+    (/\b(date\s+of\s+loss|DOL|valuation\s+date)\b/i.test(text) &&
+     /\b(paid|reserved?|incurred|open|closed)\b/i.test(text));
+
+  if (!lossRunSignal) return null;
+
+  const autoSignal =
+    /\b(AL|auto|automobile|business\s+auto|commercial\s+auto|vehicle|fleet|hired\s+and\s+non[-\s]*owned|HNOA)\b/i.test(text);
+
+  return autoSignal ? 'AL Loss Runs' : 'Loss Runs';
+}
+
 function stmApplyClassifierGuards(parsed, file) {
   const out = parsed && typeof parsed === 'object' ? JSON.parse(JSON.stringify(parsed)) : {};
   let cls = Array.isArray(out.classifications) ? out.classifications : null;
@@ -1806,6 +1825,27 @@ function stmApplyClassifierGuards(parsed, file) {
   }
 
   cls = cls.filter(c => !stmIsPropertyClassification(c));
+
+  // Loss run guard — preserves the previously-working Loss Runs / AL Loss Runs
+  // behavior if the model drifts on a rerun.
+  const lossRunTag = stmDetectLossRuns(file);
+  if (lossRunTag) {
+    if (!cls.some(c => stmNormTag(c && c.tag) === stmNormTag(lossRunTag) || stmNormTag(c && c.type) === stmNormTag(lossRunTag))) {
+      cls.unshift(stmClassEntry(
+        'LOSS_HISTORY',
+        lossRunTag,
+        0.97,
+        'Surgical guard: loss run / claim history signals detected.',
+        'loss run section',
+        lossRunTag.toLowerCase().includes('al') ? 'AL' : 'GL'
+      ));
+    }
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'LOSS_HISTORY';
+      out.primary_confidence = 0.97;
+    }
+    out.needs_review = false;
+  }
 
   if (stmDetectPremiumSummary(file)) {
     cls = cls.filter(c => {

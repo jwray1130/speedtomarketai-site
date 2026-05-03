@@ -65,6 +65,8 @@ PRIMARY CATEGORIES (13)
 LOSS_HISTORY — Carrier loss runs, claim reports, claim summaries
   Signatures: "Loss Run", DOL/Date of Loss columns, Paid/Reserved/Incurred columns,
               policy year breakdowns, claim numbers, "Valuation Date", "Open/Closed"
+  PRESERVE LOSS RUN TAGS: if auto/AL/vehicle/fleet language is present, use
+              tag "AL Loss Runs"; otherwise use tag "Loss Runs".
   → Sub-type required (see SUB-TYPES below)
 
 APPLICATIONS — Supp Apps, ACORD forms (125/126/131 only), narratives, descriptions of
