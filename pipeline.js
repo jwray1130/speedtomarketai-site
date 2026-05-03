@@ -3149,9 +3149,9 @@ function openTestClassifyPicker() {
   // why they're not classifiable yet.
   const needsManual = STATE.files.filter(f => f.state === 'needs_manual');
 
-  // Single file → skip picker, go straight to classification
+  // Single file → skip picker entirely, run directly. The runner closes any
+  // open modal at the top, so this never shows a popup.
   if (ready.length === 1 && needsManual.length === 0) {
-    showTestClassifyModal();
     runTestClassifyOnFile(ready[0].id);
     return;
   }
@@ -3190,9 +3190,10 @@ function openTestClassifyPicker() {
     '<p style="margin: 0 0 14px; color: var(--text-2); font-size: 12.5px; line-height: 1.5;">' +
     'Pick one file. The harness scans page 1 for ACORD 125, 126, or 131 form signatures ' +
     '(filename + form number stamp + title block — free, instant). ' +
-    'If no ACORD match, falls back to the LLM classifier (Pass 1 + Pass 2). ' +
-    '<strong style="color: var(--signal);">The file manager chip will update with the result.</strong> ' +
-    'No extraction modules fire. Re-click freely to iterate.' +
+    'If no ACORD match, falls back to the LLM classifier. ' +
+    '<strong style="color: var(--signal);">No popup — the file goes straight to the file manager and Documents tab</strong> ' +
+    'with the right color, tag, and thumbnail, exactly like the real pipeline classify step. ' +
+    'Extraction modules do NOT fire.' +
     '</p>' +
     '<div>' + readyRows + manualRows + '</div>';
 
@@ -3210,7 +3211,161 @@ function closeTestClassifyModal() {
 }
 
 // ----------------------------------------------------------------------------
-// Core test runner — pre-filter first, LLM fallback. Renders into the modal.
+// Pre-mint a submission ID for the test harness if one doesn't exist yet.
+// Mirrors the same logic runPipeline() uses at the top of its run. Without
+// a parent submission row in Supabase, document_pages inserts fail with
+// FK 23503 because the docs view's per-page rows reference submission_id.
+// Idempotent: returns immediately if a submission is already active.
+// ----------------------------------------------------------------------------
+async function preMintSubmissionForTest() {
+  if (STATE.activeSubmissionId) return STATE.activeSubmissionId;
+
+  const preMintId = 'SUB-' + Date.now().toString(36).toUpperCase();
+  STATE.activeSubmissionId = preMintId;
+
+  if (typeof logAudit === 'function') {
+    logAudit('TestHarness', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
+  }
+
+  // Persist the stub row synchronously (await) so it lands BEFORE the
+  // docs view's per-page inserts fire. Without await, the stub save races
+  // the document_pages inserts and they arrive at Postgres before the
+  // parent row exists → FK 23503.
+  if (typeof window.sbSaveSubmission === 'function') {
+    try {
+      await window.sbSaveSubmission({
+        id: preMintId,
+        status: 'AWAITING UW REVIEW',
+        statusHistory: [{
+          from: null,
+          to: 'AWAITING UW REVIEW',
+          at: Date.now(),
+          actor: typeof currentActor === 'function' ? currentActor() : 'system'
+        }],
+        snapshot: { files: [], extractions: {}, _stub: true, _testHarness: true },
+      });
+      if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
+        window.sbInvalidateSubmissionExistsCache(preMintId);
+      }
+    } catch (err) {
+      console.warn('TestHarness: stub submission save failed:', err);
+    }
+  }
+  return preMintId;
+}
+
+// ----------------------------------------------------------------------------
+// Push a classified test file into the docs view — full ingestion path with
+// thumbnails + Supabase storage + per-page rows. Mirrors the exact code
+// path runPipeline uses at lines 2385-2499 (Stage 0 docs-view push) so the
+// resulting Documents tab entry is visually identical to what a real
+// pipeline run would produce. Includes the same duplicate guard so re-clicks
+// don't double-add.
+// ----------------------------------------------------------------------------
+async function pushTestFileToDocsView(f, c) {
+  if (!window.docsView || f._pushedToDocsView) return;
+
+  // Duplicate guard — if the docs view already has rows for this file in
+  // the current submission, skip the push so re-clicks don't double-add.
+  let alreadyPushed = false;
+  try {
+    if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
+      const existing = window.docsView.getDocs();
+      const baseName = (f.name || '').replace(/\.[^.]+$/, '');
+      const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
+      alreadyPushed = existing.some(d =>
+        d.submissionId === STATE.activeSubmissionId &&
+        d.name && (
+          d.name === f.name ||
+          d.name === baseName ||
+          d.name.indexOf(pageSplitPrefix) === 0
+        )
+      );
+      if (alreadyPushed) {
+        f._pushedToDocsView = 'cached';
+        if (typeof logAudit === 'function') {
+          logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Docs view duplicate check failed, proceeding with push:', e);
+  }
+
+  // Build the same ingest context runPipeline builds — category, color,
+  // bucket, per-section classifications. This is what colors the chip
+  // and routes the doc to the correct Documents tab category.
+  const pipelineTag = c.tag || c.subType || c.type;
+  const primaryBucket = c.primary_bucket || null;
+  const mapping = (typeof docsViewMappingFor === 'function')
+    ? docsViewMappingFor(primaryBucket || c.type, c.tag)
+    : { category: 'unknown', color: null };
+  const ingestCtx = {
+    category: mapping.category,
+    color: mapping.color,
+    submissionId: STATE.activeSubmissionId || null,
+    pipelineClassification: c.type,
+    pipelineRoutedTo: f.routedTo || null,
+    pipelineTag: pipelineTag,
+    primaryBucket: primaryBucket,
+    sectionClassifications: Array.isArray(f.classifications)
+      ? f.classifications.map(cl => ({
+          tag: cl.tag || cl.subType || cl.type,
+          type: cl.type,
+          subType: cl.subType || null,
+          section_hint: cl.section_hint || null,
+          primary_bucket: cl.primary_bucket || null,
+        }))
+      : null,
+  };
+
+  // Prefer full ingestion (binary + thumbnails). Falls back to metadata-only
+  // push if no File on hand or processFileFromPipeline isn't exposed.
+  if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
+    try {
+      const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
+      if (newDocIds && newDocIds.length > 0) {
+        f._pushedToDocsView = newDocIds;
+        // Free the File reference once persisted in Supabase storage —
+        // docs view re-fetches from storage when needed.
+        f._rawFile = null;
+      }
+    } catch (err) {
+      console.warn('TestHarness → docs view full ingestion failed for ' + f.name + ':', err);
+      // Fall back to metadata-only push so the doc at least appears.
+      if (typeof window.docsView.addDocFromPipeline === 'function') {
+        try {
+          const docId = window.docsView.addDocFromPipeline({
+            name: f.name || 'Test Doc',
+            ...ingestCtx,
+          });
+          if (docId) f._pushedToDocsView = docId;
+        } catch (e2) {
+          console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+        }
+      }
+    }
+  } else if (typeof window.docsView.addDocFromPipeline === 'function') {
+    // No File on hand — push metadata only. Doc lands in the right bucket
+    // but has no thumbnail until re-uploaded.
+    try {
+      const docId = window.docsView.addDocFromPipeline({
+        name: f.name || 'Test Doc',
+        ...ingestCtx,
+      });
+      if (docId) f._pushedToDocsView = docId;
+    } catch (err) {
+      console.warn('Metadata-only push failed for ' + f.name + ':', err);
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Core test runner — pre-filter first, LLM fallback. NO MODAL POPUP.
+// Acts exactly like the real pipeline's classify-stage: file manager chip
+// updates with the right color/tag, file lands in the Documents tab with
+// thumbnail and category — except no extraction modules fire.
 // ----------------------------------------------------------------------------
 async function runTestClassifyOnFile(fileId) {
   const f = STATE.files.find(ff => ff.id === fileId);
@@ -3223,106 +3378,94 @@ async function runTestClassifyOnFile(fileId) {
     return;
   }
 
-  const body = document.getElementById('testClassifyBody');
-  if (!body) return;
+  // Close any open picker modal IMMEDIATELY — no UI interruption from here on.
+  closeTestClassifyModal();
 
-  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
+  // Pre-mint submission ID if needed — required for docs view FK constraint
+  await preMintSubmissionForTest();
 
-  // STAGE 1 — Try the deterministic pre-filter first. It's free and instant.
-  // If it claims a hit, we never call the LLM at all. The detector library
-  // (DOC_SIGNATURE_DETECTORS) covers ACORD 125/126/131, ACORD 25 COIs, loss
-  // runs, primary GL/AL policies (CG 00 01 / CA 00 01), excess T&C with
-  // follow-form language, BOR/AOR letters, SAFER snapshots, and AIA contracts.
+  // STAGE 1: Try the deterministic detector library first (free, instant).
+  // Currently scoped to ACORD 125/126/131. If a detector hits, we never
+  // call the LLM at all.
   const preFilter = detectDocumentSignature(f);
+  let result = null;
+  let detectionMethod = null;
+  let detectorId = null;
+  let signalsLabel = '';
+
   if (preFilter.match) {
+    result = preFilter.result;
+    detectionMethod = 'regex';
+    detectorId = preFilter.detector_id;
+    signalsLabel = preFilter.signals.join(' + ');
     if (typeof logAudit === 'function') {
       logAudit('TestHarness',
-        'Pre-filter HIT (' + preFilter.detector_id + ') for ' + f.name + ' → ' + preFilter.result.tag +
-        ' (' + preFilter.signals.join(' + ') + ')', 'ok');
+        'Pre-filter HIT (' + detectorId + ') for ' + f.name + ' → ' + result.tag +
+        ' (' + signalsLabel + ')', 'ok');
     }
-    // Apply the classification to the file manager — same chip, same color,
-    // same routing as a real pipeline run. The file row in the left sidebar
-    // updates immediately. Extraction modules do NOT fire.
-    applyTestClassificationToFile(f, preFilter.result);
-    renderTestClassifyResult(f, preFilter.result, {
-      method: 'regex_prefilter',
-      method_label: preFilter.method_label,
-      detector_id: preFilter.detector_id,
-      signals: preFilter.signals,
-      signals_required: preFilter.signals_required,
-      signals_total: preFilter.signals_total,
-      elapsedMs: 0,
-      costDelta: 0,
-    });
-    return;
-  }
-
-  // STAGE 2 — LLM classifier fallback. Show loading state.
-  body.innerHTML =
-    '<div class="tc-loading">' +
-    '<div class="tc-loading-spinner"></div>' +
-    '<div class="tc-loading-text">No deterministic detector matched · running LLM classifier on ' + esc(f.name) + '…</div>' +
-    '<div style="font-size: 10px; color: var(--text-3); letter-spacing: 0.05em; text-transform: uppercase;">Pass 1 (Opus) · ' +
-    (f.text.length > 6000 ? 'Pass 2 (Sonnet) verify pending' : 'No verify (text < 6K chars)') +
-    '</div>' +
-    '</div>';
-
-  // Cost isolation — snapshot BEFORE so we can restore after AND compute delta
-  const costBefore = STATE.runTotalCost || 0;
-  const startMs = Date.now();
-
-  let result = null;
-  let err = null;
-  try {
-    if (typeof logAudit === 'function') {
-      logAudit('TestHarness', 'No deterministic detector matched · running LLM classifier on ' + f.name, 'ok');
+  } else {
+    // STAGE 2: LLM classifier fallback.
+    if (!window.currentUser) {
+      if (typeof toast === 'function') toast('Sign in required to run the LLM classifier.', 'warn');
+      const overlay = document.getElementById('authOverlay');
+      if (overlay) overlay.style.display = 'flex';
+      return;
     }
-    // classifyFile() is the same function the real pipeline uses. It does not
-    // mutate the file argument. It returns the structured classification.
-    result = await classifyFile(f);
-  } catch (e) {
-    err = e;
+    try {
+      if (typeof logAudit === 'function') {
+        logAudit('TestHarness', 'No deterministic detector matched · running LLM classifier on ' + f.name, 'ok');
+      }
+      const startMs = Date.now();
+      result = await classifyFile(f);
+      detectionMethod = 'llm';
+      const elapsedMs = Date.now() - startMs;
+      if (typeof logAudit === 'function') {
+        logAudit('TestHarness',
+          'LLM classified ' + f.name + ' → ' + (result.tag || result.type) +
+          ' (' + Math.round((result.confidence || 0) * 100) + '%) · ' + elapsedMs + 'ms', 'ok');
+      }
+    } catch (err) {
+      if (typeof logAudit === 'function') {
+        logAudit('TestHarness', 'FAILED classify ' + f.name + ': ' + err.message, 'error');
+      }
+      if (typeof toast === 'function') toast('Classification failed: ' + err.message, 'error');
+      return;
+    }
   }
 
-  const elapsedMs = Date.now() - startMs;
-  const costDelta = (STATE.runTotalCost || 0) - costBefore;
-
-  // Restore cost so test runs don't bloat the next pipeline run's total
-  STATE.runTotalCost = costBefore;
-
-  if (err) {
-    body.innerHTML =
-      '<div class="tc-result">' +
-      '<div class="tc-result-header">' +
-      '<div>' +
-      '<div class="tc-result-filename">' + esc(f.name) + '</div>' +
-      '<div class="tc-result-subtitle">Classification failed · ' + elapsedMs + 'ms</div>' +
-      '</div>' +
-      '<div class="tc-method-badge method-error">ERROR</div>' +
-      '</div>' +
-      '<div class="tc-verdict" style="border-left-color: #ff5555;">' +
-      '<div class="tc-verdict-label">Error</div>' +
-      '<div class="tc-verdict-type" style="color: #ff5555; font-size: 14px;">' + esc(err.message) + '</div>' +
-      '</div>' +
-      '<div class="tc-actions">' +
-      '<button class="tc-btn" onclick="openTestClassifyPicker()">← Back to picker</button>' +
-      '<button class="tc-btn tc-btn-primary" onclick="runTestClassifyOnFile(\'' + f.id + '\')">↻ Retry</button>' +
-      '</div>' +
-      '</div>';
-    return;
-  }
-
-  // Apply the LLM classification to the file manager — same chip, same color,
-  // same routing as a real pipeline run. Extraction modules do NOT fire.
+  // 1. Apply to file manager — chip updates with right color/tag/confidence
   applyTestClassificationToFile(f, result);
 
-  renderTestClassifyResult(f, result, {
-    method: 'llm_classifier',
-    method_label: 'LLM classifier (Opus + Sonnet verify)',
-    signals: null,
-    elapsedMs: elapsedMs,
-    costDelta: costDelta,
-  });
+  // 2. Push to docs view — thumbnail + category + Documents tab entry
+  await pushTestFileToDocsView(f, result);
+
+  // 3. Refresh docs count + render the Documents tab if it's open so the
+  //    user sees the new doc immediately without having to switch tabs.
+  if (typeof renderFileList === 'function') renderFileList();
+  if (typeof updateRunButton === 'function') updateRunButton();
+  // Refresh the workbench's Documents tab counter
+  const docsCountEl = document.getElementById('docsCount');
+  if (docsCountEl && window.docsView && typeof window.docsView.getDocs === 'function') {
+    try {
+      const allDocs = window.docsView.getDocs();
+      const subDocs = STATE.activeSubmissionId
+        ? allDocs.filter(d => d.submissionId === STATE.activeSubmissionId)
+        : allDocs;
+      docsCountEl.textContent = subDocs.length;
+    } catch (e) { /* ignore */ }
+  }
+
+  // 4. Toast confirmation — concise, tells user what happened and where
+  //    to look. Includes the detection method so they can spot at a glance
+  //    whether regex or LLM made the call.
+  if (typeof toast === 'function') {
+    const tagLabel = result.tag || result.type || 'unknown';
+    const methodLabel = detectionMethod === 'regex'
+      ? 'detected (' + (detectorId || 'pre-filter') + ', no LLM)'
+      : 'classified by LLM';
+    const confPct = Math.round((result.confidence || 0) * 100);
+    toast('✓ ' + f.name + ' → ' + tagLabel + ' · ' + confPct + '% · ' + methodLabel, 'ok');
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -3504,6 +3647,8 @@ window.closeTestClassifyModal = closeTestClassifyModal;
 window.showTestClassifyModal = showTestClassifyModal;
 window.renderTestClassifyResult = renderTestClassifyResult;
 window.applyTestClassificationToFile = applyTestClassificationToFile;
+window.preMintSubmissionForTest = preMintSubmissionForTest;
+window.pushTestFileToDocsView = pushTestFileToDocsView;
 window.detectAcordForm = detectAcordForm;
 window.detectDocumentSignature = detectDocumentSignature;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
