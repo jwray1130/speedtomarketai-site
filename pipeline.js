@@ -1636,7 +1636,7 @@ function stmDetectAcordForms(file) {
   const text = stmClassifierTextBlob(file);
   const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const found = [];
-  ['125', '126', '131'].forEach(num => {
+  ['152', '131', '126', '125'].forEach(num => {
     if (compact.includes('ACORD' + num) || compact.includes('AC0RD' + num)) found.push(num);
   });
   return found;
@@ -1670,7 +1670,7 @@ function stmIsPropertyOnly(file) {
     /\bbuilding\s+(limit|value|coverage|valuation)\b/i.test(text);
 
   const hasLiability =
-    /\bACORD\s*(125|126|131)\b/i.test(text) ||
+    /\bACORD\s*(125|126|131|152)\b/i.test(text) ||
     /\bgeneral\s+liability\b/i.test(text) ||
     /\bcommercial\s+general\s+liability\b/i.test(text) ||
     /\bCGL\b/i.test(text) ||
@@ -1706,6 +1706,7 @@ function stmDetectPremiumSummary(file) {
   const filenameHit = /\bquote\s+proposal\b/i.test(name);
 
   const textHit =
+    /\bquote\s+proposal\b/i.test(text) ||
     /\bpremium\s+summary\b/i.test(text) ||
     /\bpremium\s+recap\b/i.test(text) ||
     /\bpremium\s+schedule\b/i.test(text) ||
@@ -1720,8 +1721,8 @@ function stmDetectPremiumSummary(file) {
 function stmDetectGlExposure(file) {
   const text = stmClassifierTextBlob(file);
   const compact = String(text || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  if (compact.includes('ACORD125') || compact.includes('ACORD126') || compact.includes('ACORD131') ||
-      compact.includes('AC0RD125') || compact.includes('AC0RD126') || compact.includes('AC0RD131')) {
+  if (compact.includes('ACORD125') || compact.includes('ACORD126') || compact.includes('ACORD131') || compact.includes('ACORD152') ||
+      compact.includes('AC0RD125') || compact.includes('AC0RD126') || compact.includes('AC0RD131') || compact.includes('AC0RD152')) {
     // Do not turn ACORD application forms into GL Exposure just because
     // they contain GL class code / line of business boxes.
     return false;
@@ -1862,7 +1863,7 @@ function stmApplyClassifierGuards(parsed, file) {
     if (!cls.some(c => stmNormTag(c && c.tag) === 'gl exposure' || stmNormTag(c && c.type) === 'gl exposure')) {
       const pageNum = stmFindFirstPage(file, pageText =>
         /\bGL\s+Exposure\b|\bGeneral\s+Liability\s+Exposure\b|\bCGL\s+Exposure\b|\bclass\s*code\b|\bclassification\s*code\b|\bexposure\s+basis\b|\bpremium\s+basis\b/i.test(pageText) &&
-        !/ACORD\s*(125|126|131)/i.test(pageText)
+        !/ACORD\s*(125|126|131|152)/i.test(pageText)
       );
       cls.push(stmClassEntry(
         'QUOTES_UNDERLYING',

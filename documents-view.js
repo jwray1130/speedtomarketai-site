@@ -2431,25 +2431,35 @@ window.initDocumentsView = function() {
   }
 
   function _stmPageBlob(opts, pctx, ctx) {
+    // IMPORTANT: this blob is actual page/source text only. Do NOT include
+    // inherited pctx.pipelineTag or resolvedPipelineTag here. Including the
+    // parent tag (for example ACORD 125) contaminated page-level detection
+    // and caused later ACORD pages such as 131/152 to render as ACORD 125.
     return String(
       (opts && opts.name ? opts.name : '') + '\n' +
       (opts && opts.textContent ? opts.textContent : '') + '\n' +
       (opts && opts.htmlContent ? String(opts.htmlContent).replace(/<[^>]+>/g, ' ') : '') + '\n' +
-      (pctx && pctx.pipelineTag ? pctx.pipelineTag : '') + '\n' +
-      (ctx && ctx.fileName ? ctx.fileName : '')
+      (ctx && ctx.fileName ? ctx.fileName : '') + '\n' +
+      (opts && opts.workbookFileName ? opts.workbookFileName : '') + '\n' +
+      (opts && opts.nativeFileName ? opts.nativeFileName : '')
     );
   }
 
   function _stmSourceKeyForPage(opts, ctx, pctx) {
     const raw = String(
-      (ctx && ctx.fileName) ||
-      (opts && opts.workbookFileName) ||
-      (opts && opts.nativeFileName) ||
+      (ctx && (ctx.storagePath || ctx.fileName)) ||
+      (opts && (opts.storagePath || opts.workbookFileName || opts.nativeFileName)) ||
       (opts && opts.name) ||
       (pctx && pctx.submissionId) ||
       'unknown'
     );
-    return raw.replace(/\s+[—–-]\s+Page\s+\d+.*$/i, '').toLowerCase();
+    // Normalize page-sliced display names back to the source file so "Page 1"
+    // and "Page 2" share the same once-per-form chip key.
+    return raw
+      .replace(/\s+[—–-]\s+Page\s+\d+.*$/i, '')
+      .replace(/\s+Page\s+\d+\s*(of\s+\d+)?\s*$/i, '')
+      .replace(/\s*\(page\s+\d+\s*(of\s+\d+)?\)\s*$/i, '')
+      .toLowerCase();
   }
 
   function _stmHasAcordNum(text, num) {
@@ -2459,7 +2469,10 @@ window.initDocumentsView = function() {
 
   function _stmDetectedAcordNums(text) {
     const nums = [];
-    ['125', '126', '131'].forEach(num => {
+    // v4: ACORD 152 is now intentionally recognized in this workflow.
+    // Higher-specificity forms are checked before 125 so page-level tags
+    // override any parent/default ACORD 125 packet tag.
+    ['152', '131', '126', '125'].forEach(num => {
       if (_stmHasAcordNum(text, num)) nums.push(num);
     });
     return nums;
@@ -2508,6 +2521,7 @@ window.initDocumentsView = function() {
     const pageNum = Number((opts && opts.pageNumber) || 1);
 
     const textHit =
+      /\bquote\s+proposal\b/i.test(text) ||
       /\bpremium\s+summary\b/i.test(text) ||
       /\bpremium\s+recap\b/i.test(text) ||
       /\bpremium\s+schedule\b/i.test(text) ||
@@ -2542,23 +2556,30 @@ window.initDocumentsView = function() {
       return { suppress: true };
     }
 
-    // ACORD exact form numbers win over false positives like GL Exposure.
-    // Tag only the first seen page for each ACORD form within a source file.
+    // ACORD exact form numbers win over inherited/default section tags.
+    // Tag only the FIRST page where each ACORD form number is seen for this
+    // source file. Continuation pages are explicitly suppressed so they do
+    // not fall back to a parent ACORD 125 / GL Exposure / Lead tag.
     const acordNums = _stmDetectedAcordNums(text);
-    for (const num of acordNums) {
-      const key = baseKey + 'ACORD ' + num;
-      const pageOneSignal = /\bpage\s*1\s*of\b/i.test(text) || /\bpg\.?\s*1\s*of\b/i.test(text);
-      if (pageOneSignal || _stmClaimOnce(stateObj, key)) {
-        return { tag: 'ACORD ' + num, category: 'applications', color: 'green' };
+    if (acordNums.length) {
+      for (const num of acordNums) {
+        const key = baseKey + 'ACORD ' + num;
+        if (_stmClaimOnce(stateObj, key)) {
+          return { tag: 'ACORD ' + num, category: 'applications', color: 'green' };
+        }
       }
+      return { suppress: true };
     }
 
     // Quote Proposal / Premium Recap should create one Premium Summary chip.
+    // After the chip is claimed, suppress fallback Lead $XM tags for the same
+    // premium-summary source so a premium recap does not appear as Lead $2M.
     if (_stmIsPremiumSummaryPage(text, opts)) {
       const key = baseKey + 'Premium Summary';
       if (_stmClaimOnce(stateObj, key)) {
         return { tag: 'Premium Summary', category: 'quotes-indications', color: 'teal' };
       }
+      return { suppress: true };
     }
 
     return null;

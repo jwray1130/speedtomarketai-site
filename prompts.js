@@ -223,15 +223,15 @@ CRITICAL — for COMBINED ACORD packets (a single PDF containing multiple
 ACORD forms — typically 125 + 126 + 127 + 129 + 131 + 139 + 140 etc.):
 
   v8.6.11 (per Justin's review): we ONLY emit classifications for
-  ACORD 125, ACORD 126, and ACORD 131. The other ACORD forms in the
+  ACORD 125, ACORD 126, ACORD 131, and ACORD 152. The other ACORD forms in the
   packet (127, 129, 137, 139, 140, 152, etc.) are processed as part of
   the document but produce NO classification entries — they will not
   appear in the chip layer.
 
-  For each of ACORD 125, 126, 131 that you detect in the combined PDF,
+  For each of ACORD 125, 126, 131, and 152 that you detect in the combined PDF,
   emit ONE classification entry with:
     • type = "APPLICATIONS"
-    • tag = "ACORD 125" (or "ACORD 126" or "ACORD 131")
+    • tag = "ACORD 125" (or "ACORD 126", "ACORD 131", or "ACORD 152")
     • section_hint set to the page range that ACORD form occupies
       (e.g., "pages 1-4" for 125, "pages 5-8" for 126, "pages 9-12"
       for 131)
@@ -324,11 +324,15 @@ APPLICATIONS bucket:
                                 operations, locations). EMIT THIS TAG.
   • "ACORD 126"               — Commercial GL Section. EMIT THIS TAG.
   • "ACORD 131"               — Umbrella/Excess Section. EMIT THIS TAG.
+  • "ACORD 152"               — Commercial Inland Marine / equipment floater
+                                or other ACORD 152 section. EMIT THIS TAG
+                                when the form number printed on the page is
+                                ACORD 152.
   • "Supp App"                — Generic carrier supplemental application
 
   ⚠ ACORD POLICY (v8.6.11, per Justin's review):
-  ONLY ACORD 125, 126, and 131 are recognized as their own tags.
-  Other ACORD form numbers (127, 129, 137, 139, 140, 152, 829, etc.)
+  ONLY ACORD 125, 126, 131, and 152 are recognized as their own tags.
+  Other ACORD form numbers (127, 129, 137, 139, 140, 829, etc.)
   appear in submissions but are NOT used by the excess casualty workflow.
   When you encounter them inside a combined ACORD packet:
     • Do NOT emit a separate classification entry for them
@@ -336,13 +340,13 @@ APPLICATIONS bucket:
     • Their pages are simply part of the broader APPLICATIONS bucket
     • If the COMBINED PDF as a whole is APPLICATIONS, emit ONE entry
       covering the whole document with type=APPLICATIONS and tag set
-      to whichever of {ACORD 125, ACORD 126, ACORD 131} appears first,
+      to whichever of {ACORD 125, ACORD 126, ACORD 131, ACORD 152} appears first,
       OR omit per-section entries entirely if none of those three are
       present.
   This means in a typical commercial submission with ACORD 125 + 126 +
-  127 + 129 + 131 + 140, you should emit exactly three section entries:
+  127 + 129 + 131 + 140 + 152, you should emit section entries only for the cared-about forms:
   one for ACORD 125 (with section_hint of its page range), one for
-  ACORD 126, and one for ACORD 131. The 127, 129, and 140 sections
+  ACORD 126, one for ACORD 131, and one for ACORD 152 when present. The 127, 129, and 140 sections
   produce NO entries — they're invisible to the chip layer but the
   pages still belong to the document and the APPLICATIONS bucket.
   • "Contractors Supp"        — Contractor industry supplemental
