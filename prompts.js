@@ -67,7 +67,7 @@ LOSS_HISTORY — Carrier loss runs, claim reports, claim summaries
               policy year breakdowns, claim numbers, "Valuation Date", "Open/Closed"
   → Sub-type required (see SUB-TYPES below)
 
-APPLICATIONS — Supp Apps, ACORD forms (125/126/127), narratives, descriptions of
+APPLICATIONS — Supp Apps, ACORD forms (125/126/131 only), narratives, descriptions of
               ops, sub agreements, safety manuals/programs, vendor agreements
   Signatures: ACORD form numbers, "Subcontractor shall procure", "Written Safety
               Program", "Master Subcontract Agreement", trade-specific question
@@ -319,6 +319,11 @@ from "type" which is the routing-level category. The pipeline routes by
 Use the most specific tag from the list below. If unsure, emit "???"
 with needs_review: true.
 
+JUSTIN WORKFLOW CONFIDENCE RULE:
+If the classification is recognized and confidence is 0.80 or higher,
+set needs_review=false. Do not send 80%+ recognized documents to Needs
+Classification. Only unknown/??? or sub-0.80 documents need review.
+
 APPLICATIONS bucket:
   • "ACORD 125"               — Commercial Insurance App (general info,
                                 operations, locations). EMIT THIS TAG.
@@ -392,27 +397,21 @@ QUOTES_UNDERLYING bucket:
                                 Schedule", "Fleet Schedule", "Covered
                                 Autos"). That section is the Fleet.
   • "AL T&C"                  — Auto terms and conditions
-  • "AL Fleet"                — Fleet/vehicle schedule that is PART OF
-                                the AL Quote document. EMIT THIS TAG
-                                ONLY when the fleet schedule is INSIDE
-                                an AL Quote PDF — never when it appears
-                                in an ACORD form, broker email, or
-                                standalone vehicle list.
+  • "AL Fleet"                — Fleet/vehicle schedule / schedule of
+                                autos / vehicle list / covered-auto
+                                schedule. EMIT THIS TAG whenever the
+                                document or section contains true fleet
+                                data, including standalone fleet schedules
+                                and fleet pages inside an AL Quote.
 
-  ⚠ AL FLEET SOURCE-OF-TRUTH RULE (v8.6.11, per Justin's review):
-  The fleet's source of truth for excess casualty underwriting is
-  exclusively the AL Quote document. When detecting fleet data anywhere
-  else:
-    • In an ACORD 127 or ACORD 129 → DO NOT emit "AL Fleet". The pages
-      are part of the APPLICATIONS bucket (and per the ACORD policy
-      above, those forms produce no classification entries at all).
-    • In a broker email or cover note → DO NOT emit "AL Fleet". The
-      email goes to CORRESPONDENCE.
-    • In a standalone vehicle list PDF → DO NOT emit "AL Fleet".
-      Classify that doc as ADMINISTRATION with tag "Vehicle Schedule"
-      or leave un-tagged. It is reference only, not the source of truth.
-    • ONLY inside an AL Quote PDF → emit "AL Fleet" as a section
-      classification with section_hint pointing to the fleet pages.
+  ⚠ AL FLEET RULE (v13, per Justin's latest review):
+  The system must identify Auto Fleet material. If a document contains
+  a real fleet/vehicle schedule with VINs, units, year/make/model,
+  garaging, power units, covered autos, or a schedule of autos/vehicles,
+  emit "AL Fleet" with section_hint pointing to the fleet pages/section.
+  Do not hide standalone fleet schedules as generic administration.
+  The only exception is a pure ACORD 127/129 application section with no
+  quote or schedule context; those remain governed by the ACORD policy.
   • "EL Quote"                — Employers Liability quote
   • "Lead $XM"                — Lead umbrella with $XM limit (e.g., "Lead $5M")
   • "$XM xs $YM"              — Excess layer (e.g., "$10M xs $5M")
@@ -435,6 +434,12 @@ CORRESPONDENCE bucket:
   • "Cover Note"              — Broker cover letter / submission email body
   • "Broker Email"            — Email correspondence from broker
   • "Target Premiums"         — Target/desired premium signals
+  • "Premium Summary"         — Premium summary / premium recap /
+                                pricing summary / rate summary. EMIT
+                                EXACTLY "Premium Summary". Never label
+                                a premium summary as "Lead $XM", "$XM xs
+                                $YM", or any excess-layer tag merely
+                                because it displays limits or premiums.
   • "Carrier Email"            — Email from a carrier
 
 PROJECT bucket:
@@ -452,7 +457,7 @@ ADMINISTRATION bucket:
   • "SAFER Snapshot" or "SAFER" — DOT SAFER report
   • "PCAR Report" or "CAB Report" — Carrier safety reports
   • "Crime Score"             — Crime score / risk score report
-  • "SOV" or "Schedule of Values" — Property SOV
+  • Property SOV / Schedule of Values / Statement of Values — DO NOT EMIT A TAG.
   • "Work on Hand"            — WOH / backlog statement
   • "Site Inspection"         — Site/loss control inspection
   • "Vehicle Schedule"        — Standalone vehicle list, file-and-forget.
@@ -489,9 +494,10 @@ Lines of business that produce NO classification entries:
 
   • PROPERTY (Commercial Property Quote, Property Proposal, SOV, Property
     Statement of Values, ACORD 140 alone, building/contents schedules
-    when standalone). Do NOT emit a tag. Do NOT include as a section
-    classification. The pages just file under whatever bucket the parent
-    document belongs to.
+    when standalone). Do NOT emit a tag. Do NOT label it SOV. Do NOT
+    include as a section classification. Do NOT create a Tagged Pages
+    chip for Property. The pages just file under whatever bucket the
+    parent document belongs to.
   • WORKERS' COMPENSATION quotes / proposals / payroll schedules.
   • PROFESSIONAL LIABILITY / E&O / D&O standalone (we write Excess
     Casualty over GL/AL, not over E&O towers).
