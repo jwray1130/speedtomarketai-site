@@ -743,39 +743,7 @@ window.initDocumentsView = function() {
       thumb.appendChild(badge);
     }
 
-    if ((doc.type === 'pdf' || doc.type === 'image') && !(doc.highResData || doc.thumbnailData)) {
-      const loading = document.createElement('div');
-      loading.className = 'doc-thumb-content';
-      loading.style.display = 'flex';
-      loading.style.alignItems = 'center';
-      loading.style.justifyContent = 'center';
-      loading.style.height = '100%';
-      loading.style.minHeight = '160px';
-      loading.style.color = 'var(--text-secondary)';
-      loading.style.fontFamily = 'var(--font-mono)';
-      loading.style.fontSize = '11px';
-      loading.style.letterSpacing = '0.08em';
-      loading.textContent = 'LOADING PREVIEW…';
-      thumb.appendChild(loading);
-
-      const loadThumb = async () => {
-        const ok = await ensureDocVisual(doc, { highRes: false });
-        if (ok && item.isConnected) renderDocsList();
-      };
-      if (typeof IntersectionObserver !== 'undefined') {
-        const observer = new IntersectionObserver((entries, obs) => {
-          entries.forEach(entry => {
-            if (entry.isIntersecting) {
-              obs.disconnect();
-              loadThumb();
-            }
-          });
-        }, { rootMargin: '400px' });
-        Promise.resolve().then(() => { if (item.isConnected) observer.observe(item); });
-      } else {
-        setTimeout(loadThumb, 0);
-      }
-    } else if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
+    if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
       const img = document.createElement('img');
       // Prefer in-memory high-res if already cached (set during active session
       // by upload, or by an earlier lazy-fetch from a preview/grid open).
@@ -1371,71 +1339,6 @@ window.initDocumentsView = function() {
       }
     })();
     return doc._binaryFetchPromise;
-  }
-
-
-  // v8.6.14: make refreshed/reopened PDF/image pages recover their visuals on demand.
-  // Hydrate intentionally skips thumbnail_data_url for speed, so a page can briefly
-  // have only metadata + storagePath. This helper first tries the light DB full-row
-  // fetch for the persisted thumbnail, then falls back to the stored original binary
-  // and renders the page locally. It is single-flight per doc and safe to call from
-  // grid, preview, OCR, or background enrichment.
-  async function ensureDocVisual(doc, opts) {
-    opts = opts || {};
-    if (!doc || (doc.type !== 'pdf' && doc.type !== 'image')) return false;
-    if (opts.highRes && doc.highResData) return true;
-    if (!opts.highRes && (doc.thumbnailData || doc.highResData)) return true;
-    if (doc._visualFetchPromise) return doc._visualFetchPromise;
-
-    doc._visualFetchPromise = (async () => {
-      try {
-        if (!doc.thumbnailData && typeof window.sbFetchDocumentPageFull === 'function') {
-          const row = await window.sbFetchDocumentPageFull(doc.id);
-          if (row) {
-            if (row.extracted_text != null && (!doc.textContent || doc.textContent.length === 0)) doc.textContent = row.extracted_text;
-            if (row.html_content != null && !doc.htmlContent) doc.htmlContent = sanitizeHtml(row.html_content);
-            if (row.thumbnail_data_url != null && !doc.thumbnailData) doc.thumbnailData = row.thumbnail_data_url;
-            if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
-              state.annotations.store[doc.id] = {
-                layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
-                undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
-              };
-            }
-            if (!opts.highRes && doc.thumbnailData) return true;
-          }
-        }
-
-        if (!doc.storagePath) return !!(doc.thumbnailData || doc.highResData);
-        const ok = await ensureBinary(doc);
-        if (!ok) return !!(doc.thumbnailData || doc.highResData);
-
-        if (doc.type === 'image' && doc.nativeDataUrl) {
-          doc.thumbnailData = doc.thumbnailData || doc.nativeDataUrl;
-          doc.highResData = doc.highResData || doc.nativeDataUrl;
-          return true;
-        }
-
-        if (doc.type === 'pdf' && doc.pdfData && typeof pdfjsLib !== 'undefined') {
-          const data = (doc.pdfData && typeof doc.pdfData.slice === 'function') ? doc.pdfData.slice(0) : doc.pdfData;
-          const pdf = await pdfjsLib.getDocument({ data }).promise;
-          const page = await pdf.getPage(doc.pageNumber || 1);
-          const rendered = await renderPdfPage(page, opts.highRes ? CONFIG.pdf.highResScale : CONFIG.pdf.thumbnailScale);
-          try { page.cleanup(); } catch(e) {}
-          try { await pdf.cleanup(); } catch(e) {}
-          try { await pdf.destroy(); } catch(e) {}
-          if (opts.highRes) doc.highResData = rendered;
-          else doc.thumbnailData = rendered;
-          return true;
-        }
-      } catch (err) {
-        console.warn('ensureDocVisual failed for ' + (doc && doc.id ? doc.id : '(unknown)') + ':', err);
-      } finally {
-        delete doc._visualFetchPromise;
-      }
-      return !!(doc.thumbnailData || doc.highResData);
-    })();
-
-    return doc._visualFetchPromise;
   }
 
   async function processFile(file, category) {
@@ -2037,13 +1940,7 @@ window.initDocumentsView = function() {
       );
       const page = await pdf.getPage(n);
       const thumbData = await renderPdfPage(page, CONFIG.pdf.thumbnailScale);
-      // v8.6.13 performance: pipeline-driven ingestion can defer expensive
-      // high-res rendering because the preview/grid already lazy-upgrades
-      // from Supabase storage on demand. Manual uploads keep the old eager
-      // high-res behavior; pipeline uploads without storage also keep it so
-      // the active session still has a usable preview.
-      const deferHighRes = !!state._pipelineCtx && !!(state._uploadCtx && state._uploadCtx.storagePath);
-      const highResData = deferHighRes ? null : await renderPdfPage(page, CONFIG.pdf.highResScale);
+      const highResData = await renderPdfPage(page, CONFIG.pdf.highResScale);
       let pageText = '';
       try {
         const tc = await page.getTextContent();
@@ -3206,15 +3103,6 @@ window.initDocumentsView = function() {
     const canvas = document.createElement('div');
     canvas.id = 'previewCanvas';
 
-    if ((doc.type === 'pdf' || doc.type === 'image') && !(doc.highResData || doc.thumbnailData)) {
-      canvas.innerHTML = '<div style="color:white; text-align:center; font-family:var(--font-mono); letter-spacing:0.08em;">Loading preview…</div>';
-      body.appendChild(canvas);
-      ensureDocVisual(doc, { highRes: true }).then(ok => {
-        if (ok && currentPreviewDoc() === doc && state.preview.open) renderPreview();
-      });
-      return;
-    }
-
     if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
       const img = document.createElement('img');
       img.src = doc.highResData || doc.thumbnailData;
@@ -3228,10 +3116,6 @@ window.initDocumentsView = function() {
       // high-res), so no upgrade needed.
       if (doc.type === 'pdf' && !doc.highResData && doc.storagePath) {
         (async () => {
-          if (await ensureDocVisual(doc, { highRes: true })) {
-            if (currentPreviewDoc() === doc && doc.highResData) img.src = doc.highResData;
-            return;
-          }
           try {
             // Fetch binary if not already loaded.
             if (!doc.pdfData) {
@@ -4188,11 +4072,10 @@ window.initDocumentsView = function() {
     const startedAt = Date.now();
     while (Date.now() - startedAt < maxMs) {
       try {
-        if (window.currentUser && window.currentUser.id) return true;
-        const { data: { session } } = await window.sb.auth.getSession();
-        if (session && session.user) return true;
+        const { data: { user } } = await window.sb.auth.getUser();
+        if (user) return true;
       } catch (e) { /* swallow — keep polling */ }
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, 100));
     }
     return false;
   }
@@ -4223,177 +4106,92 @@ window.initDocumentsView = function() {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // v8.5.1 — DEFERRED LAZY ENRICHMENT
+  // v8.6.12 — SAFE THUMBNAIL-ONLY ENRICHMENT
   //
-  // The slim hydrate (sbFetchDocumentPages) doesn't include the heavy
-  // columns extracted_text, html_content, or annotations — those are
-  // too expensive to ship with every row at boot (449 rows × 500KB
-  // extracted_text = 225MB, which is what causes Postgres statement
-  // timeout in the first place).
+  // Previous versions tried to "enrich" hydrated rows in the background by
+  // fetching extracted_text, html_content, annotations, and thumbnail_data_url
+  // for many document_pages rows after every hydrate. On real accounts, that
+  // can pull tens/hundreds of MB from PostgREST and cause statement_timeout.
   //
-  // Without those fields, content-search returns no matches and HTML
-  // preview falls back to the thumbnail. To keep search and preview
-  // working, this function back-fills extracted_text and html_content
-  // for every doc in the background, in chunks of 25, with a small
-  // delay between batches so we don't saturate the network.
+  // Important rule:
+  //   • background hydrate/enrichment may fetch lightweight metadata and, at
+  //     most, thumbnail_data_url one page at a time;
+  //   • heavy fields (extracted_text, html_content, annotations) are fetched
+  //     only by an explicit single-page action such as preview/OCR/search.
   //
-  // Concurrency-guarded: only one enrichment can run at a time. If the
-  // user navigates to a different submission mid-enrichment, the new
-  // hydrate will trigger a new enrichment, but only one is active.
-  //
-  // Failure mode: if any chunk fails (network blip, RLS blip, anything),
-  // log + abort gracefully. The UI keeps working with what it has.
+  // This preserves post-refresh thumbnails without the bulk heavy SELECT that
+  // was being triggered by queue row clicks/deletes.
   // ══════════════════════════════════════════════════════════════════
   let _enrichmentInFlight = null;
 
   function scheduleLazyEnrichment(submissionId) {
-    // Guard: don't start another if one's already running. The active
-    // enrichment will pick up newly-hydrated docs on its next chunk.
     if (_enrichmentInFlight) {
-      dlog('[docs] enrichment skipped — already running');
+      dlog('[docs] thumbnail enrichment skipped — already running');
       return;
     }
-    if (typeof window.sbFetchDocumentPageFull !== 'function') {
-      dlog('[docs] enrichment skipped — sbFetchDocumentPageFull unavailable');
+    if (typeof window.sbFetchDocumentPageThumbnail !== 'function') {
+      dlog('[docs] thumbnail enrichment skipped — sbFetchDocumentPageThumbnail unavailable');
       return;
     }
 
     _enrichmentInFlight = (async () => {
-      // Wait 1500ms so the UI is interactive first. The user gets a
-      // working file manager immediately; enrichment happens behind
-      // their back without blocking interactions.
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1200));
 
-      // Pick docs that are missing textContent OR thumbnailData (the
-      // triggers for enrichment). v8.5.2: thumbnailData is also lazy-
-      // loaded now since the slim hydrate dropped thumbnail_data_url
-      // to keep the query under the Postgres timeout threshold. If
-      // submissionId is provided, restrict to that submission.
       const candidates = state.docs.filter(d => {
         if (submissionId && d.submissionId !== submissionId) return false;
-        // Enrich docs that are missing the heavy fields. Fresh-uploaded
-        // docs already have these populated and skip enrichment.
-        const missingText = !d.textContent || d.textContent.length === 0;
-        const missingThumb = !d.thumbnailData;
-        return missingText || missingThumb;
+        if (d.thumbnailData) return false;
+        return d.type === 'pdf' || d.type === 'image' || d.type === 'word' ||
+               d.type === 'email' || d.type === 'powerpoint' || d.type === 'text';
       });
 
       if (candidates.length === 0) {
-        dlog('[docs] enrichment: nothing to enrich', { submissionId });
+        dlog('[docs] thumbnail enrichment: nothing to enrich', { submissionId });
         return;
       }
 
-      dlog('[docs] enrichment start', {
+      dlog('[docs] thumbnail enrichment start', {
         candidateCount: candidates.length,
         submissionId: submissionId || 'all',
       });
 
-      const CHUNK_SIZE = 25;
-      const CHUNK_DELAY_MS = 250;
+      const MAX_TO_FETCH = 60;
+      const DELAY_MS = 75;
       let enriched = 0;
       let failed = 0;
 
-      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
-        const chunk = candidates.slice(i, i + CHUNK_SIZE);
-        // Fetch each doc's heavy fields in parallel within the chunk.
-        // Promise.allSettled so one failure doesn't kill the whole chunk.
-        let rows = [];
-        if (typeof window.sbFetchDocumentPagesFull === 'function') {
-          rows = await window.sbFetchDocumentPagesFull(chunk.map(d => d.id));
-          if (rows.length < chunk.length) failed += (chunk.length - rows.length);
-        } else {
-          const results = await Promise.allSettled(
-            chunk.map(d => window.sbFetchDocumentPageFull(d.id))
-          );
-          rows = results
-            .map(r => (r.status === 'fulfilled' && r.value) ? r.value : null)
-            .filter(Boolean);
-          failed += (chunk.length - rows.length);
-        }
-
-        rows.forEach((row) => {
-          // Find the doc in state again (it might have moved or been
-          // deleted while we were fetching). Mutate in place so the
-          // existing references stay valid.
-          const doc = state.docs.find(d => d.id === row.id);
-          if (!doc) return;
-          if (row.extracted_text != null) {
-            // v8.5.3 Issue #1: only overwrite if local copy is missing.
-            // Without this guard, if the user uploads new content during
-            // the 1.5s enrichment delay, the stale cloud row (which was
-            // queued for fetch BEFORE the upload) will overwrite the
-            // freshly-populated textContent.
-            if (!doc.textContent || doc.textContent.length === 0) {
-              doc.textContent = row.extracted_text;
-            }
-          }
-          if (row.html_content != null) {
-            // Same guard for html_content.
-            if (!doc.htmlContent) {
-              doc.htmlContent = sanitizeHtml(row.html_content);
-            }
-          }
-          // v8.5.2: thumbnailData is lazy too. Populate from the full
-          // fetch so the thumbnail-grid catches up after initial render.
-          if (row.thumbnail_data_url != null && !doc.thumbnailData) {
+      for (const d of candidates.slice(0, MAX_TO_FETCH)) {
+        const doc = state.docs.find(x => x.id === d.id);
+        if (!doc || doc.thumbnailData) continue;
+        try {
+          const row = await window.sbFetchDocumentPageThumbnail(doc.id);
+          if (row && row.thumbnail_data_url && !doc.thumbnailData) {
             doc.thumbnailData = row.thumbnail_data_url;
+            enriched++;
           }
-          if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
-            state.annotations.store[doc.id] = {
-              layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
-              undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
-            };
-          }
-          enriched++;
-        });
-
-        // Re-render after each successful chunk so thumbnails/text appear
-        // progressively instead of waiting for the entire enrichment pass.
-        if (rows.length > 0 && typeof renderDocsList === 'function') {
-          try { renderDocsList(); } catch(e) {}
+        } catch (err) {
+          failed++;
+          console.warn('[docs] thumbnail enrichment failed for ' + d.id + ':', err);
         }
-
-        // Brief pause between chunks so we don't pin the network or
-        // hammer Supabase. With 25 parallel fetches per chunk and a
-        // 250ms gap, 449 docs = ~18 chunks × ~500ms = 9 seconds total
-        // background work, fully invisible to the user.
-        if (i + CHUNK_SIZE < candidates.length) {
-          await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
-        }
-
-        // If too many failures, abort gracefully. UI still works with
-        // partial enrichment.
-        if (failed >= 10 && enriched < failed) {
-          console.warn('[docs] enrichment aborted — too many failures', {
-            enriched,
-            failed,
-            remaining: candidates.length - i - CHUNK_SIZE,
-          });
-          break;
-        }
+        await new Promise(r => setTimeout(r, DELAY_MS));
       }
 
-      dlog('[docs] enrichment complete', {
+      dlog('[docs] thumbnail enrichment complete', {
         enriched,
         failed,
         candidateCount: candidates.length,
+        cappedAt: MAX_TO_FETCH,
       });
 
-      // Re-render so search results pick up the new textContent for
-      // docs that the user has already searched. Cheap operation —
-      // just rebuilds the visible list, no fetch.
-      if (typeof renderDocsList === 'function') {
+      if (enriched && typeof renderDocsList === 'function') {
         try { renderDocsList(); } catch(e) {}
       }
     })().catch(err => {
-      console.warn('[docs] enrichment error:', err);
+      console.warn('[docs] thumbnail enrichment error:', err);
     }).finally(() => {
       _enrichmentInFlight = null;
     });
   }
 
-  // Detect doc type from the persisted row. We don't store type explicitly
-  // because it can be derived from extension + content presence.
   function detectTypeFromRow(row) {
     const ext = (row.file_name || '').split('.').pop()?.toLowerCase() || '';
     if (ext === 'pdf') return 'pdf';
