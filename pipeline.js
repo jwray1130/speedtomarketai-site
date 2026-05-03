@@ -3301,6 +3301,23 @@ async function pushTestFileToDocsView(f, c) {
   const mapping = (typeof docsViewMappingFor === 'function')
     ? docsViewMappingFor(primaryBucket || c.type, c.tag)
     : { category: 'unknown', color: null };
+
+  // CRITICAL: only pass sectionClassifications when the doc is genuinely
+  // multi-section with explicit page ranges. The docs view's
+  // _resolvePerPageTag enters a section-loop branch when this array is
+  // non-empty — and inside that branch, if no entry has a parseable
+  // section_hint matching the current page, it returns null and the
+  // legacy "tag page 1" fallback NEVER fires. That's the bug Justin caught:
+  // ACORD docs landed in the right category but tagged=false, so the
+  // Tagged Pages panel showed 0 pages and no chip painted.
+  //
+  // For single-class results (regex pre-filter, or LLM single-class with
+  // no section_hint), pass null so the legacy path runs and stamps the
+  // chip on page 1 using pipelineTag.
+  const isMultiSectionWithHints = Array.isArray(f.classifications)
+    && f.classifications.length > 1
+    && f.classifications.some(cl => cl.section_hint && typeof cl.section_hint === 'string');
+
   const ingestCtx = {
     category: mapping.category,
     color: mapping.color,
@@ -3309,7 +3326,7 @@ async function pushTestFileToDocsView(f, c) {
     pipelineRoutedTo: f.routedTo || null,
     pipelineTag: pipelineTag,
     primaryBucket: primaryBucket,
-    sectionClassifications: Array.isArray(f.classifications)
+    sectionClassifications: isMultiSectionWithHints
       ? f.classifications.map(cl => ({
           tag: cl.tag || cl.subType || cl.type,
           type: cl.type,
