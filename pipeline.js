@@ -3428,6 +3428,167 @@ function detectLossRun(file) {
 }
 
 // ----------------------------------------------------------------------------
+// SAFETY MANUAL detector — for tagging written safety programs that the
+// insured submits as part of their underwriting package. Includes safety
+// manuals, IIPP (Injury & Illness Prevention Programs), OSHA compliance
+// manuals, loss control manuals, accident prevention programs, employee
+// safety handbooks.
+//
+// Safety manuals are typically long internal HR/operations documents
+// (often 20-200+ pages) with cover page, table of contents, and numbered
+// policy sections covering hazard topics.
+//
+// SIGNALS:
+//
+//   1. Title keyword on page 1 or 2:
+//        Safety Manual / Safety Program / Safety Handbook
+//        Employee Safety Manual / Health and Safety Manual
+//        Injury and Illness Prevention Program (IIPP)
+//        Accident Prevention Program / Plan
+//        OSHA Compliance Manual
+//        Loss Control Manual / Loss Prevention Manual
+//        Risk Management Manual
+//        Workplace Safety Program / Manual
+//
+//   2. Safety vocabulary density (body terms that cluster heavily in
+//      safety manuals but appear rarely in other doc types):
+//        PPE / Personal Protective Equipment
+//        OSHA / 29 CFR
+//        Hazard Communication / HazCom
+//        Lockout/Tagout / LOTO
+//        Confined Space / Fall Protection
+//        MSDS / SDS
+//        Incident Report / Near Miss
+//        Toolbox Talk / Safety Committee
+//        Hot Work Permit
+//
+// FALSE-POSITIVE GUARDS:
+//
+//   - No ACORD form-number stamp on page 1. ACORD 125 and 126 both have
+//     "formal safety program in operation?" question fields that mention
+//     "safety" — would otherwise false-trigger.
+//
+//   - No QUESTIONNAIRE keyword on page 1. Safety-related supp apps ASK
+//     about safety programs but aren't the manual itself.
+//
+//   - No loss run column header sequence. Rules out loss reports that
+//     reference safety incidents.
+//
+// DECISION RULES:
+//
+//   Title + 2+ body terms          → 95% (clear safety manual)
+//   Title alone                    → 90% (could be short safety policy)
+//   4+ body terms (no title)       → 85% (manual with unusual title text)
+//   Anything less                  → no detection
+//
+// Returns single classification (whole-doc). Maps to "Safety Program"
+// tag in CLASSIFIER_TYPES (APPLICATIONS bucket, routes to 'safety').
+// ----------------------------------------------------------------------------
+function detectSafetyManual(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const page1 = pageTexts[0] || '';
+  const earlyText = (page1 + ' ' + (pageTexts[1] || '')).slice(0, 8000);
+
+  // GUARD 1 — must NOT be an ACORD form. ACORD 125/126 have safety
+  // question fields that mention "safety program".
+  const hasAcordStamp = /\bACORD\s*\d{2,4}\s*\(\d{4}\/\d{2}\)/i.test(page1);
+  if (hasAcordStamp) return null;
+
+  // GUARD 2 — must NOT be a supp app questionnaire about safety.
+  const hasQuestionnaire = /\bQUESTIONNAIRE\b/i.test(earlyText);
+  if (hasQuestionnaire) return null;
+
+  // GUARD 3 — must NOT be a loss run. Loss reports occasionally include
+  // safety vocabulary in claim descriptions.
+  const hasLossColumnHeaders =
+    /\b(DATE\s+OF\s+LOSS|DATE\s+OF\s+OCCURRENCE|LOSS\s+DATE)\b[\s\S]{0,400}\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,400}\b(RESERVED?|OUTSTANDING)\b/i.test(earlyText) ||
+    /\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,300}\b(RESERVED?|OUTSTANDING)\b[\s\S]{0,300}\b(INCURRED|TOTAL\s+INCURRED)\b/i.test(earlyText);
+  if (hasLossColumnHeaders) return null;
+
+  // SIGNAL 1 — explicit safety manual title.
+  const titleMatch = earlyText.match(
+    /\b((?:EMPLOYEE\s+|WORKPLACE\s+|COMPANY\s+|CORPORATE\s+|HEALTH\s+(?:AND|&)\s+)?SAFETY\s+(?:MANUAL|PROGRAM|HANDBOOK|POLICY|POLICIES|PLAN)|INJURY\s+(?:AND|&)\s+ILLNESS\s+PREVENTION\s+(?:PROGRAM|PLAN)|IIPP|ACCIDENT\s+PREVENTION\s+(?:PROGRAM|PLAN|MANUAL)|OSHA\s+(?:COMPLIANCE\s+)?MANUAL|LOSS\s+CONTROL\s+(?:MANUAL|PROGRAM|PLAN)|LOSS\s+PREVENTION\s+(?:MANUAL|PROGRAM|PLAN)|RISK\s+MANAGEMENT\s+(?:MANUAL|PROGRAM|PLAN)|HEALTH\s+(?:AND|&)\s+SAFETY\s+(?:MANUAL|PROGRAM|PLAN|POLICY))\b/i
+  );
+  const hasTitle = !!titleMatch;
+
+  // SIGNAL 2 — safety vocabulary density. Each distinct term match counts
+  // once (we don't reward repeated mentions of the same term).
+  const safetyTerms = [
+    /\bPPE\b/i,
+    /\bPERSONAL\s+PROTECTIVE\s+EQUIPMENT\b/i,
+    /\bOSHA\b/i,
+    /\b29\s+CFR\b/i,
+    /\bHAZARD\s+COMMUNICATION\b/i,
+    /\bHAZCOM\b/i,
+    /\bLOCKOUT\s*\/?\s*TAGOUT\b/i,
+    /\bLOTO\b/i,
+    /\bCONFINED\s+SPACE\b/i,
+    /\bFALL\s+PROTECTION\b/i,
+    /\b(?:MSDS|SDS)\b/i,
+    /\bMATERIAL\s+SAFETY\s+DATA\s+SHEET/i,
+    /\bINCIDENT\s+REPORT\b/i,
+    /\bNEAR\s+MISS\b/i,
+    /\bTOOLBOX\s+TALK\b/i,
+    /\bSAFETY\s+COMMITTEE\b/i,
+    /\bHOT\s+WORK\s+PERMIT\b/i,
+    /\bJOB\s+HAZARD\s+ANALYSIS\b/i,
+    /\bJOB\s+SAFETY\s+ANALYSIS\b/i,
+    /\b(?:JHA|JSA)\b/i,
+    /\bRESPIRATORY\s+PROTECTION\b/i,
+    /\bEMERGENCY\s+ACTION\s+PLAN\b/i,
+    /\bBLOODBORNE\s+PATHOGENS?\b/i,
+  ];
+  const matchedTerms = [];
+  for (const pattern of safetyTerms) {
+    if (pattern.test(earlyText)) {
+      // Capture the matched text for the reasoning log
+      const m = earlyText.match(pattern);
+      if (m) matchedTerms.push(m[0].toUpperCase().replace(/\s+/g, ' '));
+    }
+  }
+  const termCount = matchedTerms.length;
+
+  // DECISION RULES
+  let detected = false;
+  let confidence = 0;
+  let reason = '';
+
+  if (hasTitle && termCount >= 2) {
+    detected = true;
+    confidence = 0.95;
+    reason = 'Title "' + titleMatch[0] + '" + ' + termCount + ' safety vocabulary terms (' + matchedTerms.slice(0, 5).join(', ') + (matchedTerms.length > 5 ? ', ...' : '') + ')';
+  } else if (hasTitle) {
+    detected = true;
+    confidence = 0.90;
+    reason = 'Title "' + titleMatch[0] + '" (limited safety vocabulary — likely short safety policy)';
+  } else if (termCount >= 4) {
+    detected = true;
+    confidence = 0.85;
+    reason = termCount + ' safety vocabulary terms (' + matchedTerms.slice(0, 5).join(', ') + (matchedTerms.length > 5 ? ', ...' : '') + ') — no explicit title, manual with unusual heading';
+  }
+
+  if (!detected) return null;
+
+  return {
+    type: 'APPLICATIONS',
+    subType: 'SAFETY_PROGRAM',
+    tag: 'Safety Program',
+    primary_bucket: 'APPLICATIONS',
+    confidence: confidence,
+    reasoning: 'Per-doc scan: ' + reason + '. No ACORD stamp, no Questionnaire keyword, no loss run column headers.',
+    section_hint: pageTexts.length === 1 ? 'page 1' : 'pages 1-' + pageTexts.length,
+    _signals: {
+      hasTitle: hasTitle,
+      titleText: titleMatch ? titleMatch[0] : null,
+      termCount: termCount,
+      matchedTerms: matchedTerms,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -3582,6 +3743,50 @@ function detectDocumentSignature(file) {
         }],
         isCombined: false,
         signatures: [lossRun._signals.titleText, 'column_headers', 'currency', 'dates'].filter(Boolean),
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1.7 — Safety Manual detector. Runs after ACORD/SuppApp/LossRun
+  // so docs that mention "safety program" in those contexts (ACORD 125
+  // safety question, supp apps asking about safety, loss reports listing
+  // safety incidents) are filtered first. Catches the actual written
+  // safety manual / IIPP / OSHA compliance program documents that
+  // insureds submit as part of their underwriting package.
+  const safetyManual = detectSafetyManual(file);
+  if (safetyManual) {
+    return {
+      match: true,
+      method: 'regex_prefilter_safety_manual',
+      method_label: 'Safety manual scan: ' + safetyManual.tag,
+      detector_id: 'safety_manual',
+      signals: [
+        safetyManual._signals.hasTitle ? ('title:' + safetyManual._signals.titleText) : 'no_title',
+        safetyManual._signals.termCount + '_safety_terms',
+      ].concat(safetyManual._signals.matchedTerms.slice(0, 5)),
+      signals_required: 1,
+      signals_total: 2,
+      result: {
+        type: 'APPLICATIONS',
+        subType: 'SAFETY_PROGRAM',
+        tag: 'Safety Program',
+        primary_bucket: 'APPLICATIONS',
+        confidence: safetyManual.confidence,
+        reasoning: safetyManual.reasoning,
+        classifications: [{
+          type: 'APPLICATIONS',
+          subType: 'SAFETY_PROGRAM',
+          tag: 'Safety Program',
+          primary_bucket: 'APPLICATIONS',
+          section_hint: safetyManual.section_hint,
+          confidence: safetyManual.confidence,
+          reasoning: safetyManual.reasoning,
+        }],
+        isCombined: false,
+        signatures: [safetyManual._signals.titleText, 'safety_vocabulary'].filter(Boolean),
         needsReview: false,
         needsReviewReasons: [],
         suppressTag: false,
@@ -4259,4 +4464,5 @@ window.detectDocumentSignature = detectDocumentSignature;
 window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
 window.detectSuppApp = detectSuppApp;
 window.detectLossRun = detectLossRun;
+window.detectSafetyManual = detectSafetyManual;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
