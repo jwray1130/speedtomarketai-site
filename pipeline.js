@@ -80,7 +80,8 @@ const FILE_AND_FORGET_TAGS = new Set([
   'Geotech Report', 'Site Plan', 'Project Budget',
   'Photos of Operations', 'Wrap-Up Forms',
   'Vehicle Schedule', 'Garaging Schedule', 'Org Chart',
-  'SOV', 'Schedule of Values', 'Work on Hand',
+  'Work on Hand',
+  'Premium Summary', 'Premium Recap', 'Pricing Summary',
   'PCAR Report', 'CAB Report', 'Crime Score Report', 'Crime Score',
   'SAFER Snapshot', 'SAFER', 'Site Inspection',
   '???',
@@ -115,7 +116,7 @@ function classifierToRoute(classifierType, subType, tag) {
 
   // Tag-prefix recovery for human-readable tags from v8.4+ classifier
   const tLower = t.toLowerCase();
-  if (tLower.startsWith('premium summary')) return 'excess';
+  if (tLower.includes('premium summary') || tLower.includes('premium recap') || tLower.includes('pricing summary')) return null;
   if (tLower.startsWith('lead $') || tLower.includes(' xs $') || tLower.includes('p/o $')) return 'excess';
   if (tLower.startsWith('excess t&c') || tLower.includes('excess t&c')) return 'excess';
   if (tLower.startsWith('loss run') || tLower.includes('loss runs')) return 'losses';
@@ -203,7 +204,7 @@ function classifierToRoute(classifierType, subType, tag) {
         const tagLower = String(arguments[2]).toLowerCase();
         if (tagLower.startsWith('gl ') || tagLower.includes('gl quote') || tagLower.includes('gl t&c') || tagLower.includes('gl exposure')) return 'gl_quote';
         if (tagLower.startsWith('al ') || tagLower.includes('al quote') || tagLower.includes('al t&c') || tagLower.includes('al fleet')) return 'al_quote';
-        if (tagLower.startsWith('premium summary')) return 'excess';
+        if (tagLower.includes('premium summary') || tagLower.includes('premium recap') || tagLower.includes('pricing summary')) return null;
         if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $')) return 'excess';
         if (tagLower.includes('excess t&c') || tagLower.includes('el quote') || tagLower.includes('aircraft') ||
             tagLower.includes('stop gap') || tagLower.includes('foreign')) return 'excess';
@@ -467,8 +468,10 @@ function docsViewMappingFor(classifierType, tag) {
         tagLower.includes('large loss')) {
       return { category: 'loss-history', color: 'red' };
     }
-    if (tagLower.startsWith('premium summary') ||
-        tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
+    if (tagLower.includes('premium summary') || tagLower.includes('premium recap') || tagLower.includes('pricing summary')) {
+      return { category: 'quotes-indications', color: 'teal' };
+    }
+    if (tagLower.startsWith('lead $') || tagLower.includes(' xs $') || tagLower.includes('p/o $') ||
         tagLower.startsWith('gl ') || tagLower.startsWith('al ') ||
         tagLower.includes('quote') || tagLower.includes('t&c') ||
         tagLower.includes('excess') || tagLower.includes('aircraft') ||
@@ -639,7 +642,6 @@ const CLASSIFIER_TYPES = [
   { value: 'AL T&C',            label: 'AL T&C',                      bucket: 'QUOTES_UNDERLYING' },
   { value: 'AL Fleet',          label: 'AL Fleet',                    bucket: 'QUOTES_UNDERLYING' },
   { value: 'EL Quote',          label: 'EL Quote',                    bucket: 'QUOTES_UNDERLYING' },
-  { value: 'Premium Summary',   label: 'Premium Summary',             bucket: 'QUOTES_UNDERLYING' },
   { value: 'Lead $XM',          label: 'Lead $___M',                  bucket: 'QUOTES_UNDERLYING', variable: true, format: 'lead', placeholder: 'e.g. 2' },
   { value: '$XM xs $YM',        label: '$___M xs $___M (Excess Layer)',bucket: 'QUOTES_UNDERLYING', variable: true, format: 'xs',   placeholder: 'limit, attachment' },
   { value: '$XM P/O $YM xs $ZM',label: '$___M P/O $___M xs $___M (Quota Share)', bucket: 'QUOTES_UNDERLYING', variable: true, format: 'po', placeholder: 'share, total, attach' },
@@ -650,6 +652,7 @@ const CLASSIFIER_TYPES = [
 
   // ── QUOTES / INDICATIONS ─────────────────────────────────────────────
   { value: 'Target Premium',    label: 'Target Premium',              bucket: 'QUOTES_INDICATIONS' },
+  { value: 'Premium Summary',   label: 'Premium Summary',             bucket: 'QUOTES_INDICATIONS' },
   { value: 'Carrier Indication',label: 'Carrier Indication',          bucket: 'QUOTES_INDICATIONS' },
   { value: 'Peer Quote',        label: 'Peer Quote',                  bucket: 'QUOTES_INDICATIONS' },
 
@@ -677,7 +680,6 @@ const CLASSIFIER_TYPES = [
   { value: 'SAFER Report',      label: 'SAFER Report',                bucket: 'ADMINISTRATION' },
   { value: 'PCAR',              label: 'PCAR',                        bucket: 'ADMINISTRATION' },
   { value: 'Crime Score',       label: 'Crime Score',                 bucket: 'ADMINISTRATION' },
-  { value: 'SOV',               label: 'SOV',                         bucket: 'ADMINISTRATION' },
   { value: 'Work on Hand',      label: 'Work on Hand',                bucket: 'ADMINISTRATION' },
   { value: 'Site Inspection',   label: 'Site Inspection',             bucket: 'ADMINISTRATION' },
 
@@ -773,10 +775,7 @@ function renderClassifierReview() {
     // currentTag is the tag currently selected in the dropdown — either the
     // pending user choice or the classifier's original tag (or fall back
     // to legacy classification value if no tag was emitted).
-    const currentTag = (pending && pending.tag) || f.tag ||
-      ((f.classifications || []).find(c => c && c.tag) || {}).tag ||
-      f.classification || '';
-    const currentTagIsKnown = CLASSIFIER_TYPES.some(t => t.value === currentTag);
+    const currentTag = (pending && pending.tag) || f.tag || f.classification || '';
     // The user's typed limit for variable tags (e.g. "2" for Lead $2M).
     // Stored alongside the chosen tag in RECLASSIFY_PENDING.
     const currentLimit = (pending && pending.limit) || '';
@@ -798,7 +797,6 @@ function renderClassifierReview() {
       }).join('');
       return `<optgroup label="${escapeHtml(BUCKET_LABELS[b] || b)}">${opts}</optgroup>`;
     }).join('');
-    const selectPrefix = currentTagIsKnown ? '' : '<option value="" disabled selected>Choose destination…</option>';
 
     // Determine whether the currently-selected tag is a variable one.
     // When yes, render an input box next to the dropdown so the user
@@ -844,7 +842,7 @@ function renderClassifierReview() {
         <div class="cr-controls">
           <div class="cr-sendto-wrap">
             <label class="cr-sendto-label" for="cr-sendto-${escapeHtml(f.id)}">Send to…</label>
-            <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${selectPrefix}${options}</select>
+            <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${options}</select>
             ${variableInput}
           </div>
           <button class="ghost" onclick="acceptClassification('${f.id}')" title="Accept the AI's classification as-is">Confirm</button>
@@ -1120,9 +1118,6 @@ async function incrementalProcess(newFiles) {
     const c = await classifyFile(f);
     f.classification = c.type;
     f.confidence = c.confidence;
-    f.subType = c.subType || null;
-    f.tag = c.tag || null;
-    f.primary_bucket = c.primary_bucket || null;
     f.classifications = c.classifications || [];
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
@@ -1556,8 +1551,7 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.92,  // at or above this → skip verification unless combined/ambiguous
-  reviewThreshold: 0.80,          // at or above this → do NOT force Needs Classification if routed/tagged
+  highConfidenceThreshold: 0.80,  // v13: at or above 80% → auto-proceed; below → review gate
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -1577,6 +1571,283 @@ function truncateForLLM(text, maxChars) {
     + text.slice(-tailChars)
   );
 }
+
+
+// ============================================================================
+// v13 deterministic classifier guards — Justin critical workflow guarantees
+//
+// These guards run after the LLM classifier but before review/routing.
+// Purpose:
+//   1) ACORD 125/126/131 must always be tagged when the OCR/text contains
+//      the form number, including combined ACORD packets.
+//   2) Property/SOV/ACORD 140-only material must not create chips/tags.
+//   3) Premium summaries must be tagged "Premium Summary", never converted
+//      into a lead/excess layer just because dollar limits appear.
+//   4) Auto fleet / vehicle schedules must be identified as "AL Fleet".
+//   5) 80%+ recognized classifications should not be forced into the
+//      Needs Classification queue.
+// ============================================================================
+function _stmTextBlob(file) {
+  return String(
+    (file && file.name ? file.name : '') + '\n' +
+    (file && file.text ? file.text : '') + '\n' +
+    (file && file.emailSubject ? file.emailSubject : '') + '\n' +
+    (file && file.emailContext ? file.emailContext : '')
+  );
+}
+
+function _stmHas(re, text) {
+  try { return re.test(text || ''); } catch (_) { return false; }
+}
+
+function _stmNormTag(tag) {
+  return String(tag || '').trim().toLowerCase();
+}
+
+function _stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
+  return {
+    type: type,
+    subType: subType || null,
+    tag: tag || null,
+    primary_bucket: type,
+    confidence: confidence,
+    section_hint: sectionHint || 'detected section',
+    reasoning: reasoning
+  };
+}
+
+function detectAcordFormsFromText(file) {
+  const text = _stmTextBlob(file);
+  const found = [];
+  ['125', '126', '131'].forEach(num => {
+    const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
+    if (re.test(text)) found.push(num);
+  });
+  return found;
+}
+
+function isPropertyOnlySubmissionText(file) {
+  const text = _stmTextBlob(file);
+  const hasProperty =
+    /\bACORD\s*140\b/i.test(text) ||
+    /\bcommercial property\b/i.test(text) ||
+    /\bproperty\s+(quote|proposal|policy|application|coverage)\b/i.test(text) ||
+    /\bstatement of values\b/i.test(text) ||
+    /\bschedule of values\b/i.test(text) ||
+    /\bSOV\b/i.test(text) ||
+    /\bbuilding\s*(limit|value|coverage)\b/i.test(text) ||
+    /\bbusiness personal property\b/i.test(text);
+
+  const hasExcessCasualty =
+    /\bACORD\s*(125|126|131)\b/i.test(text) ||
+    /\bgeneral liability\b/i.test(text) ||
+    /\bcommercial general liability\b/i.test(text) ||
+    /\bauto liability\b/i.test(text) ||
+    /\bautomobile liability\b/i.test(text) ||
+    /\bumbrella\b/i.test(text) ||
+    /\bexcess liability\b/i.test(text) ||
+    /\blead\s*\$?\s*\d/i.test(text) ||
+    /\b\d+\s*M\s*(xs|excess of)\s*\d+\s*M\b/i.test(text);
+
+  return hasProperty && !hasExcessCasualty;
+}
+
+function isPropertyTag(tag) {
+  const t = _stmNormTag(tag);
+  return t === 'sov' ||
+    t === 'schedule of values' ||
+    t === 'statement of values' ||
+    t === 'property' ||
+    t === 'property quote' ||
+    t === 'property proposal' ||
+    t === 'acord 140' ||
+    t.includes('property quote') ||
+    t.includes('property proposal') ||
+    t.includes('schedule of values') ||
+    t.includes('statement of values') ||
+    t.includes('acord 140');
+}
+
+function detectPremiumSummaryText(file) {
+  const text = _stmTextBlob(file);
+  return /\b(premium summary|premium recap|premium schedule|pricing summary|rate summary|summary of premiums|premium allocation|premium breakdown)\b/i.test(text);
+}
+
+function detectAutoFleetText(file) {
+  const text = _stmTextBlob(file);
+  const hasFleet =
+    /\b(schedule of autos|schedule of automobiles|schedule of vehicles|vehicle schedule|fleet schedule|auto schedule|covered autos|covered vehicles)\b/i.test(text) ||
+    /\b(VIN|vehicle identification number)\b/i.test(text) ||
+    /\b(year\s+make\s+model|make\s+model\s+year|garaging location|power units|unit\s*#)\b/i.test(text);
+
+  const hasAutoContext =
+    /\b(auto liability|automobile liability|commercial auto|business auto|AL quote|auto quote|CA\s*00\s*01|combined single limit|covered auto symbol|symbol\s*(1|7|8|9))\b/i.test(text) ||
+    /\b(schedule of autos|schedule of automobiles|schedule of vehicles|vehicle schedule|fleet schedule|auto schedule)\b/i.test(text);
+
+  const inAcordOnly = /\bACORD\s*(127|129)\b/i.test(text) && !/\b(auto quote|commercial auto quote|business auto|CA\s*00\s*01)\b/i.test(text);
+
+  // Latest Justin requirement: identify Auto Fleet. If it is a real vehicle/
+  // fleet schedule, tag it AL Fleet unless the only evidence is an ACORD auto
+  // application form with no quote context.
+  return hasFleet && hasAutoContext && !inAcordOnly;
+}
+
+function detectGlExposureText(file) {
+  const text = _stmTextBlob(file);
+
+  const explicitHeader =
+    /\bGL\s+Exposure\b/i.test(text) ||
+    /\bGeneral\s+Liability\s+Exposure\b/i.test(text) ||
+    /\bCGL\s+Exposure\b/i.test(text) ||
+    /\bGeneral\s+Liability\s+Rating\s+Basis\b/i.test(text) ||
+    /\bSchedule\s+of\s+Operations\s+(&|and)\s+Exposures\b/i.test(text) ||
+    /\bClass\s+Codes?\s*\/\s*Exposure\s+Bases?\b/i.test(text);
+
+  const classCodeEvidence =
+    /\b(class\s*code|classification\s*code|ISO\s*code|CGL\s*class)\b/i.test(text) &&
+    /\b(payroll|sales|gross\s+sales|receipts|area|square\s+feet|units|cost|total\s+cost|exposure\s+basis|premium\s+basis|exposure\s+amount|rate)\b/i.test(text);
+
+  const glRatingTableEvidence =
+    /\b(general\s+liability|commercial\s+general\s+liability|CGL|GL)\b/i.test(text) &&
+    /\b(exposure\s+basis|premium\s+basis|classification|class\s*code|rate|premiums?)\b/i.test(text) &&
+    /\b(payroll|sales|receipts|area|square\s+feet|units|subcontracted\s+cost|total\s+cost)\b/i.test(text);
+
+  const fiveDigitClassCodes = (String(text).match(/\b[0-9]{5}\b/g) || []).length >= 2;
+  const classCodeWithAmounts =
+    fiveDigitClassCodes &&
+    /\b(payroll|sales|receipts|area|square\s+feet|units|exposure|rate|premium)\b/i.test(text) &&
+    /\$?\d{2,3}(?:,\d{3})+(?:\.\d+)?/.test(text);
+
+  // Avoid grabbing property SOVs as GL exposure.
+  const propertyOnly = isPropertyOnlySubmissionText(file);
+
+  return !propertyOnly && (explicitHeader || classCodeEvidence || glRatingTableEvidence || classCodeWithAmounts);
+}
+
+function applyDeterministicClassifierGuards(parsed, file) {
+  const out = parsed && typeof parsed === 'object' ? JSON.parse(JSON.stringify(parsed)) : {};
+  let cls = Array.isArray(out.classifications) ? out.classifications : [];
+
+  // Property/SOV/ACORD 140-only material is file-only and should not create
+  // a tag/chip or go to Needs Classification.
+  if (isPropertyOnlySubmissionText(file)) {
+    return {
+      classifications: [{
+        type: 'ADMINISTRATION',
+        confidence: 0.99,
+        tag: null,
+        primary_bucket: 'ADMINISTRATION',
+        section_hint: 'property-only material; no excess casualty tag',
+        reasoning: 'Deterministic guard: property/SOV/ACORD 140-only material is not tagged or routed.'
+      }],
+      primary_type: 'ADMINISTRATION',
+      primary_confidence: 0.99,
+      is_combined: false,
+      needs_review: false,
+      reasoning: 'Property-only document filed without chip/tag per excess casualty workflow.'
+    };
+  }
+
+  // Drop property tags if the model emitted them inside a broader document.
+  cls = cls.filter(c => !isPropertyTag(c && (c.tag || c.type)));
+
+  // Premium Summary override: never infer Lead $XM / $XM xs $YM from a premium
+  // summary/recap sheet. The file manager chip must read Premium Summary.
+  if (detectPremiumSummaryText(file)) {
+    cls = cls.filter(c => {
+      const tag = _stmNormTag(c && (c.tag || c.type));
+      return !(tag.startsWith('lead $') || tag.includes(' xs $') || tag.includes('p/o $') || tag.includes('excess layer'));
+    });
+    cls.unshift(_stmClassEntry(
+      'QUOTES_INDICATIONS',
+      'Premium Summary',
+      0.98,
+      'Deterministic guard: premium summary/recap detected; do not classify as a lead or excess layer.',
+      'premium summary / pricing recap',
+      'premium_summary'
+    ));
+    out.primary_type = 'QUOTES_INDICATIONS';
+    out.primary_confidence = Math.max(Number(out.primary_confidence || out.confidence || 0), 0.98);
+    out.needs_review = false;
+  }
+
+  // ACORD 125/126/131 exact form-number guard. This catches forms wherever
+  // they land inside combined packets.
+  const acordForms = detectAcordFormsFromText(file);
+  if (acordForms.length) {
+    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'APPLICATIONS' && !c.tag));
+    acordForms.forEach(num => {
+      const tag = 'ACORD ' + num;
+      if (!cls.some(c => _stmNormTag(c && c.tag) === _stmNormTag(tag) || _stmNormTag(c && c.type) === _stmNormTag(tag))) {
+        cls.push(_stmClassEntry(
+          'APPLICATIONS',
+          tag,
+          0.98,
+          'Deterministic guard: OCR/text contains exact ACORD form number ' + num + '.',
+          tag + ' section',
+          'ACORD'
+        ));
+      }
+    });
+    out.primary_type = 'APPLICATIONS';
+    out.primary_confidence = Math.max(Number(out.primary_confidence || out.confidence || 0), 0.98);
+    out.is_combined = out.is_combined || acordForms.length > 1 || cls.length > 1;
+    out.needs_review = false;
+  }
+
+  // GL Exposure guard.
+  if (detectGlExposureText(file)) {
+    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'QUOTES_UNDERLYING' && !c.tag));
+    if (!cls.some(c => _stmNormTag(c && c.tag) === 'gl exposure' || _stmNormTag(c && c.type) === 'gl exposure')) {
+      cls.push(_stmClassEntry(
+        'QUOTES_UNDERLYING',
+        'GL Exposure',
+        0.94,
+        'Deterministic guard: GL exposure schedule / class-code exposure basis detected.',
+        'general liability exposure schedule',
+        'gl'
+      ));
+    }
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'QUOTES_UNDERLYING';
+      out.primary_confidence = 0.94;
+    }
+  }
+
+  // Auto fleet guard.
+  if (detectAutoFleetText(file)) {
+    cls = cls.filter(c => !(String((c && c.type) || '').toUpperCase() === 'QUOTES_UNDERLYING' && !c.tag));
+    if (!cls.some(c => _stmNormTag(c && c.tag) === 'al fleet' || _stmNormTag(c && c.type) === 'al fleet')) {
+      cls.push(_stmClassEntry(
+        'QUOTES_UNDERLYING',
+        'AL Fleet',
+        0.94,
+        'Deterministic guard: vehicle/fleet schedule detected.',
+        'auto fleet / vehicle schedule',
+        'al'
+      ));
+    }
+    if (!out.primary_type || String(out.primary_type).toUpperCase() === 'UNIDENTIFIED' || out.primary_type === 'unknown') {
+      out.primary_type = 'QUOTES_UNDERLYING';
+      out.primary_confidence = 0.94;
+    }
+  }
+
+  // De-dupe by displayed tag/type while preserving order.
+  const seen = new Set();
+  cls = cls.filter(c => {
+    const key = _stmNormTag((c && c.tag) || (c && c.type) || '');
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (cls.length) out.classifications = cls;
+
+  return out;
+}
+
 
 function normalizeClassifierResult(parsed, fallbackType) {
   // Accept both old-format ({type, confidence}) and new-format ({classifications, primary_type, ...})
@@ -1598,277 +1869,6 @@ function normalizeClassifierResult(parsed, fallbackType) {
     primaryConfidence = sorted[0].confidence || 0;
   }
   return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning };
-}
-
-// v8.6.13 surgical classifier guard for excess-casualty workflow.
-// Purpose: prevent non-casualty premium rows inside package quotes from
-// becoming their own chips/routes while preserving existing casualty tags
-// like AL Fleet, GL Quote, AL Quote, Lead/Excess T&C, and all Loss Runs.
-function sanitizeClassifierForExcessCasualty(norm) {
-  if (!norm || !Array.isArray(norm.classifications)) return norm;
-
-  let dropped = 0;
-  let canonicalizedPremiumSummary = false;
-
-  const cleaned = norm.classifications
-    .map(c => {
-      const next = { ...(c || {}) };
-      const tagText = String(next.tag || next.type || '').trim().toLowerCase();
-      if (tagText.startsWith('premium summary')) {
-        next.type = 'UNDERLYING';
-        next.subType = null;
-        next.tag = 'Premium Summary';
-        next.primary_bucket = 'QUOTES_UNDERLYING';
-        canonicalizedPremiumSummary = true;
-      }
-      return next;
-    })
-    .filter(c => {
-      if (isForbiddenNonCasualtyClassification(c)) { dropped++; return false; }
-      return true;
-    });
-
-  let intentionallySkippedNonCasualty = false;
-
-  if (cleaned.length === 0) {
-    // Mark pure non-excess-casualty files as an intentional file-and-forget
-    // item. Using '???' is important because the pre-flight guard already
-    // treats it as a valid non-routed tag; using ADMINISTRATION here would
-    // make the guard think routing broke and could abort the whole pipeline.
-    intentionallySkippedNonCasualty = true;
-    cleaned.push({
-      type: '???',
-      confidence: Math.max(norm.primaryConfidence || 0, 0.70),
-      subType: null,
-      subTypeConfidence: null,
-      reasoning: 'Non-excess-casualty content only; intentionally skipped by excess-casualty sanitizer.',
-      signaturePhrases: [],
-      section_hint: 'entire document',
-      tag: '???',
-      primary_bucket: 'UNIDENTIFIED'
-    });
-  }
-
-  const sorted = [...cleaned].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-  const primary = sorted[0] || {};
-
-  return {
-    ...norm,
-    classifications: cleaned,
-    primaryType: primary.type || norm.primaryType,
-    primaryConfidence: primary.confidence || norm.primaryConfidence || 0,
-    isCombined: !!(norm.isCombined || cleaned.length > 1),
-    droppedNonCasualtyCount: dropped,
-    canonicalizedPremiumSummary: canonicalizedPremiumSummary,
-    intentionallySkippedNonCasualty: intentionallySkippedNonCasualty
-  };
-}
-
-
-// v8.6.16 surgical ACORD detector.
-// Goal: identify ACORD 125 / 126 / 131 anywhere in any combined packet
-// without hardcoding page numbers. We score every page across the whole
-// document using the printed form number when present, then fall back to
-// form-specific phrases that survive OCR. This stays intentionally limited
-// to the only three ACORD forms Justin cares about.
-function augmentAcordSectionClassifications(norm, file) {
-  if (!norm || !file || !Array.isArray(file.pageTexts) || file.pageTexts.length === 0) return norm;
-
-  const detected = detectAcord125126131Sections(file.pageTexts);
-  if (!detected.length) return norm;
-
-  const existing = Array.isArray(norm.classifications) ? norm.classifications.slice() : [];
-  const wasOnlyUnknown = existing.length <= 1 && existing.every(c => {
-    const label = String((c && (c.tag || c.type)) || '').trim().toLowerCase();
-    return !label || label === 'unknown' || label === 'unidentified' || label === '???';
-  });
-  const nextClasses = wasOnlyUnknown ? [] : existing.map(c => ({ ...(c || {}) }));
-
-  let changed = 0;
-  detected.forEach(sec => {
-    const idx = nextClasses.findIndex(c => String(c.tag || '').trim().toUpperCase() == sec.tag.toUpperCase());
-    const hint = sec.start === sec.end ? ('page ' + sec.start) : ('pages ' + sec.start + '-' + sec.end);
-    const payload = {
-      type: 'APPLICATIONS',
-      confidence: 0.97,
-      subType: null,
-      subTypeConfidence: null,
-      reasoning: sec.tag + ' detected from document-wide page scan (printed form number / OCR-resilient form signatures).',
-      signaturePhrases: [sec.signature],
-      section_hint: hint,
-      tag: sec.tag,
-      primary_bucket: 'APPLICATIONS',
-      _acordStartPage: sec.start
-    };
-
-    if (idx >= 0) {
-      const prior = nextClasses[idx] || {};
-      const priorHint = String(prior.section_hint || '').toLowerCase().trim();
-      const priorWholeDoc = !priorHint || priorHint === 'entire document' || priorHint === 'all pages' || priorHint === 'all';
-      nextClasses[idx] = {
-        ...prior,
-        type: 'APPLICATIONS',
-        confidence: Math.max(prior.confidence || 0, payload.confidence),
-        tag: sec.tag,
-        primary_bucket: 'APPLICATIONS',
-        section_hint: priorWholeDoc ? hint : (prior.section_hint || hint),
-        signaturePhrases: Array.from(new Set([...(prior.signaturePhrases || []), sec.signature])),
-        reasoning: priorWholeDoc ? payload.reasoning : (prior.reasoning || payload.reasoning),
-        _acordStartPage: sec.start
-      };
-      if (priorWholeDoc || String(prior.tag || '').trim().toUpperCase() != sec.tag.toUpperCase()) changed++;
-    } else {
-      nextClasses.push(payload);
-      changed++;
-    }
-  });
-
-  if (!changed) return norm;
-
-  nextClasses.sort((a, b) => {
-    const ar = parseSectionHint(a && a.section_hint, file.pageTexts.length);
-    const br = parseSectionHint(b && b.section_hint, file.pageTexts.length);
-    const ap = (a && a._acordStartPage) || (ar && ar[0]) || 999999;
-    const bp = (b && b._acordStartPage) || (br && br[0]) || 999999;
-    return ap - bp;
-  });
-
-  const publicClasses = nextClasses.map(c => {
-    const out = { ...c };
-    delete out._acordStartPage;
-    return out;
-  });
-  const primary = publicClasses[0] || {};
-
-  return {
-    ...norm,
-    classifications: publicClasses,
-    primaryType: primary.type || norm.primaryType || 'APPLICATIONS',
-    primaryConfidence: Math.max(norm.primaryConfidence || 0, primary.confidence || 0, 0.97),
-    isCombined: !!(norm.isCombined || publicClasses.length > 1),
-    acordAugmentedCount: (norm.acordAugmentedCount || 0) + changed,
-    detectedAcordTags: detected.map(d => d.tag)
-  };
-}
-
-function normalizeAcordDetectorText(raw) {
-  return String(raw || '')
-    .replace(/[\u2010-\u2015]/g, '-')
-    .replace(/\r?\n+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/A\s*C\s*0\s*R\s*D/gi, 'ACORD')
-    .replace(/A\s*C\s*O\s*R\s*D/gi, 'ACORD')
-    .replace(/AC0RD/gi, 'ACORD')
-    .trim();
-}
-
-function scoreAcordPageForTag(pageText, tag) {
-  const t = normalizeAcordDetectorText(pageText).toUpperCase();
-  if (!t) return { score: 0, signature: '' };
-
-  const profiles = {
-    'ACORD 125': {
-      number: /ACORD\s*(?:125|I25|L25|12S|I2S|L2S)/,
-      signatures: [
-        { re: /COMMERCIAL\s+INSURANCE\s+APPLICATION/, label: 'Commercial Insurance Application' },
-        { re: /APPLICANT'?S?\s+BUSINESS/, label: 'Applicant business' },
-        { re: /CONTACT\s+INFORMATION/, label: 'Contact information' },
-        { re: /LOCATIONS\s+INFORMATION/, label: 'Locations information' }
-      ]
-    },
-    'ACORD 126': {
-      number: /ACORD\s*(?:126|I26|L26|12G|I2G|L2G)/,
-      signatures: [
-        { re: /COMMERCIAL\s+GENERAL\s+LIABILITY\s+SECTION/, label: 'Commercial General Liability Section' },
-        { re: /GENERAL\s+LIABILITY\s+SECTION/, label: 'General Liability Section' },
-        { re: /PREMISES\s+OPERATIONS/, label: 'Premises Operations' },
-        { re: /PRODUCTS\s*\/?\s*COMPLETED\s+OPERATIONS/, label: 'Products Completed Operations' },
-        { re: /DAMAGE\s+TO\s+RENTED\s+PREMISES/, label: 'Damage to rented premises' }
-      ]
-    },
-    'ACORD 131': {
-      number: /ACORD\s*(?:131|I31|L31|13I|I3I|L3I)/,
-      signatures: [
-        { re: /UMBRELLA\s*\/?\s*EXCESS\s+SECTION/, label: 'Umbrella/Excess Section' },
-        { re: /EXCESS\s+SECTION/, label: 'Excess Section' },
-        { re: /UMBRELLA\s+SECTION/, label: 'Umbrella Section' },
-        { re: /UNDERLYING\s+INSURANCE/, label: 'Underlying Insurance' },
-        { re: /RETAINED\s+LIMITS?/, label: 'Retained Limits' },
-        { re: /EACH\s+OCCURRENCE.*AGGREGATE/, label: 'Each Occurrence / Aggregate' }
-      ]
-    }
-  };
-
-  const profile = profiles[tag];
-  if (!profile) return { score: 0, signature: '' };
-
-  let score = 0;
-  const matched = [];
-  if (profile.number.test(t)) {
-    score += 10;
-    matched.push(tag + ' printed form number');
-  }
-  profile.signatures.forEach(s => {
-    if (s.re.test(t)) {
-      score += 2;
-      matched.push(s.label);
-    }
-  });
-  if (/ACORD/.test(t) && matched.length > 0) score += 1;
-  return { score, signature: matched[0] || '' };
-}
-
-function detectAcord125126131Sections(pageTexts) {
-  const foundByTag = new Map();
-  const tags = ['ACORD 125', 'ACORD 126', 'ACORD 131'];
-
-  pageTexts.forEach((raw, idx) => {
-    const pageNo = idx + 1;
-    const ranked = tags
-      .map(tag => {
-        const score = scoreAcordPageForTag(raw, tag);
-        return { tag, score: score.score, signature: score.signature };
-      })
-      .sort((a, b) => b.score - a.score);
-
-    const best = ranked[0];
-    if (!best || best.score < 4) return;
-    if (!foundByTag.has(best.tag)) foundByTag.set(best.tag, []);
-    foundByTag.get(best.tag).push({ pageNo, signature: best.signature || (best.tag + ' page signature') });
-  });
-
-  return Array.from(foundByTag.entries())
-    .map(([tag, rows]) => {
-      const sorted = rows.slice().sort((a, b) => a.pageNo - b.pageNo);
-      return {
-        tag,
-        start: sorted[0].pageNo,
-        end: sorted[sorted.length - 1].pageNo,
-        signature: sorted[0].signature || (tag + ' printed form number')
-      };
-    })
-    .sort((a, b) => a.start - b.start);
-}
-
-function isForbiddenNonCasualtyClassification(c) {
-  const label = String([c && c.tag, c && c.subType, c && c.type].filter(Boolean).join(' ')).toLowerCase();
-  if (!label) return false;
-
-  // Keep existing workflow/reference tags that contain overlapping words.
-  if (/\bcrime score\b/.test(label)) return false;
-  if (/\bemployers liability\b|\bemployer's liability\b|\bel quote\b/.test(label)) return false;
-
-  return (
-    /^property(\s|$)/.test(label) ||
-    /commercial property|property quote|property proposal|property policy|property coverage|building and personal property/.test(label) ||
-    /\bepli\b|employment practices liability|employee practices liability/.test(label) ||
-    /\bcyber\b|tech e&o|technology e&o|data breach|privacy liability/.test(label) ||
-    (/\bcrime\b|\bfidelity\b/.test(label) && !/\bcrime score\b/.test(label)) ||
-    /inland marine|equipment floater|\bim quote\b/.test(label) ||
-    (/workers'? compensation|workers comp|\bwc quote\b|\bwc policy\b|\bwc\b/.test(label) &&
-      !/\bemployers liability\b|\bemployer's liability\b|\bel quote\b/.test(label)) ||
-    /professional liability|\be&o\b|\bd&o\b|surety|\bbond\b/.test(label)
-  );
 }
 
 async function classifyFile(file) {
@@ -1923,31 +1923,16 @@ async function classifyFile(file) {
       parsed = JSON.parse(jm[0]);
     }
 
+    parsed = applyDeterministicClassifierGuards(parsed, file);
+
     const normalized = normalizeClassifierResult(parsed);
     const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
     const types = normalized.classifications.map(c => c.type).join(' + ');
     logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
-    // v8.6.13 performance: verify only where it changes risk materially —
-    // long combined PDFs, low-confidence sections, missing tags, or missing
-    // section hints. Obvious high-confidence single-section files keep the
-    // same pass-1 classification and avoid a second LLM round trip.
-    const shouldVerifyClassification =
-      CLASSIFY_CONFIG.enableVerifyPass &&
-      window.currentUser &&
-      file.text.length > 6000 &&
-      (
-        normalized.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold ||
-        normalized.isCombined ||
-        (normalized.classifications || []).some(c =>
-          (c.confidence || 0) < 0.85 ||
-          !c.tag ||
-          c.tag === '???' ||
-          (normalized.isCombined && !c.section_hint)
-        )
-      );
-    if (shouldVerifyClassification) {
+    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
+    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
       try {
         // Sample from MIDDLE + END of the document for verification
         const midStart = Math.floor(file.text.length * 0.4);
@@ -1990,8 +1975,6 @@ async function classifyFile(file) {
       } catch (verifyErr) {
         logAudit('Classifier', 'Verify pass failed for ' + file.name + ' (using pass 1 result): ' + verifyErr.message, 'warn');
       }
-    } else if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
-      logAudit('Classifier', 'Pass 2 skipped: ' + file.name + ' · high-confidence single-section classification', STATE.api.model);
     }
 
   } catch (err) {
@@ -1999,14 +1982,9 @@ async function classifyFile(file) {
     parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
   }
 
-  let final = sanitizeClassifierForExcessCasualty(normalizeClassifierResult(parsed));
-  final = augmentAcordSectionClassifications(final, file);
-  if ((final.acordAugmentedCount || 0) > 0 && typeof logAudit === 'function') {
-    logAudit('Classifier', 'ACORD document-wide detector added/updated ' + final.acordAugmentedCount + ' ACORD 125/126/131 section classification(s) for ' + file.name + ' (' + (final.detectedAcordTags || []).join(', ') + ')', 'ok');
-  }
-  if ((final.droppedNonCasualtyCount || 0) > 0 && typeof logAudit === 'function') {
-    logAudit('Classifier', 'Dropped ' + final.droppedNonCasualtyCount + ' non-excess-casualty classification(s) from ' + file.name + ' (Property/EPLI/Cyber/Crime/Inland Marine/WC are not routed)', 'warn');
-  }
+  parsed = applyDeterministicClassifierGuards(parsed, file);
+
+  const final = normalizeClassifierResult(parsed);
 
   // v8.6.2: surface tag, subType, primary_bucket from the primary
   // classification at the top level so downstream code (routing,
@@ -2018,41 +1996,29 @@ async function classifyFile(file) {
     (final.classifications || [])[0] ||
     {};
 
-  // v8.6.14: Needs Classification is now a true review gate, not a
-  // punishment for combined PDFs. High-confidence routed/tagged documents
-  // (80%+) should flow through without asking Justin to re-classify files
-  // the AI already identified clearly. We still flag true unknowns, no-route
-  // outputs, and low-confidence classifications. Missing section_hint is
-  // logged via classifier/audit but no longer forces manual review by itself.
+  // v8.6.2: needsReview now considers more than just primary confidence.
+  // Per GPT external audit: ambiguity in subType / tag / section_hint
+  // matters as much as ambiguity in primary type — Lead vs Excess vs
+  // GL vs AL routes to different modules. needs_review from the model
+  // is also honored.
   const needsReviewFlags = [];
-  const reviewThreshold = CLASSIFY_CONFIG.reviewThreshold || 0.80;
-  const finalClasses = final.classifications || [];
-  const intentionallySkippedNonCasualty = !!final.intentionallySkippedNonCasualty;
-  const hasUsableTag = finalClasses.some(c => {
-    const tag = String(c.tag || c.subType || c.type || '').trim();
-    return tag && tag !== '???' && tag.toLowerCase() !== 'unknown';
-  });
-  const hasRoutedOrKnownFileForget = finalClasses.some(c => {
-    const tag = c.tag || c.type || '';
-    return !!classifierToRoute(c.type, c.subType, c.tag) || FILE_AND_FORGET_TAGS.has(tag);
-  });
-  const isUnknownPrimary = /^(unknown|unidentified|\?\?\?)$/i.test(String(final.primaryType || primaryClassification.type || ''));
+  const finalPrimaryConfidence = Number(final.primaryConfidence || 0);
+  const finalRecognized = String(final.primaryType || '').toLowerCase() !== 'unknown' &&
+    String(final.primaryType || '').toUpperCase() !== 'UNIDENTIFIED' &&
+    !(final.classifications || []).some(c => String((c && (c.tag || c.type)) || '').trim() === '???');
 
-  if (!intentionallySkippedNonCasualty) {
-    if (isUnknownPrimary) needsReviewFlags.push('unknown_primary');
-    if (final.primaryConfidence < reviewThreshold) needsReviewFlags.push('low_primary_conf');
-    if (!hasUsableTag) needsReviewFlags.push('missing_tag');
-    if (!hasRoutedOrKnownFileForget && !hasUsableTag) needsReviewFlags.push('no_valid_route');
-
-    // Only use the model's own review flag and low section/subtype flags
-    // when the overall result is below the manual-review threshold. This
-    // prevents 95%-confidence combined docs from showing in Needs
-    // Classification solely because one page hint/subsection was imperfect.
-    if (final.primaryConfidence < reviewThreshold) {
-      if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-      if (finalClasses.some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-      if (finalClasses.some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-    }
+  // v13 Justin rule: recognized classifications at 80% or above do NOT go
+  // to Needs Classification, even if the model set needs_review=true or an
+  // internal section confidence is lower. Unknown/??? still require review.
+  if (!finalRecognized) {
+    needsReviewFlags.push('unrecognized_or_unknown');
+  } else if (finalPrimaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) {
+    needsReviewFlags.push('low_primary_conf');
+    if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+    if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+    if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+    if ((final.classifications || []).some(c => !c.tag && String(c.type || '').toUpperCase() !== 'ADMINISTRATION')) needsReviewFlags.push('missing_tag');
+    if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
   }
 
   // Return the FULL classification record — caller decides how to use it
@@ -2285,11 +2251,6 @@ async function runPipeline() {
   // it even if the assignment itself threw.
   let timer = null;
   let archiveErr = null;
-  // v8.6.13 performance: docs-view ingestion is important, but it should
-  // not sit on the pipeline's critical path. We queue those thumbnail/
-  // storage/page-row jobs in the background so Wave 1 extraction can start
-  // as soon as classification is done.
-  const docsIngestPromises = [];
   try {
 
   // === SUBMISSION ID PRE-MINT ===
@@ -2381,9 +2342,6 @@ async function runPipeline() {
     const c = await classifyFile(f);
     f.classification = c.type;                    // primary type (backward compat)
     f.confidence = c.confidence;                  // primary confidence
-    f.subType = c.subType || null;                // v8.6.14: preserve for review/dropdown
-    f.tag = c.tag || null;                        // v8.6.14: preserve granular tag (prevents ACORD 125 default)
-    f.primary_bucket = c.primary_bucket || null;  // v8.6.14: preserve bucket for review/docs view
     f.classifications = c.classifications || [];  // multi-type list for combined docs
     f.isCombined = !!c.isCombined;
     f.needsReview = !!c.needsReview;
@@ -2490,44 +2448,16 @@ async function runPipeline() {
       // push if no File on hand or processFileFromPipeline isn't exposed.
       if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
         try {
-          f._pushedToDocsView = 'syncing';
-          const ingestPromise = window.docsView.processFileFromPipeline(f._rawFile, ingestCtx)
-            .then(newDocIds => {
-              if (newDocIds && newDocIds.length > 0) {
-                f._pushedToDocsView = newDocIds;
-                // Free the File reference once it's safely persisted in Supabase
-                // storage. Keeping it around forever would pin the binary in JS
-                // memory; the docs view re-fetches from storage when needed.
-                f._rawFile = null;
-                if (typeof logAudit === 'function') {
-                  logAudit('Docs View', 'Background synced ' + f.name + ' · ' + newDocIds.length + ' page row' + (newDocIds.length === 1 ? '' : 's'), 'ok');
-                }
-              }
-              return { ok: true, ids: newDocIds || [] };
-            })
-            .catch(err => {
-              console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
-              // Fall back to metadata-only push so the doc at least appears.
-              if (typeof window.docsView.addDocFromPipeline === 'function') {
-                try {
-                  const docId = window.docsView.addDocFromPipeline({
-                    name: f.name || 'Pipeline Doc',
-                    ...ingestCtx,
-                  });
-                  if (docId) f._pushedToDocsView = docId;
-                } catch (e2) {
-                  console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
-                }
-              }
-              if (typeof logAudit === 'function') {
-                logAudit('Docs View', 'Background sync failed for ' + f.name + ': ' + (err.message || err), 'warn');
-              }
-              f._pushedToDocsView = 'sync_failed';
-              return { ok: false, error: err };
-            });
-          docsIngestPromises.push(ingestPromise);
+          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
+          if (newDocIds && newDocIds.length > 0) {
+            f._pushedToDocsView = newDocIds;
+            // Free the File reference once it's safely persisted in Supabase
+            // storage. Keeping it around forever would pin the binary in JS
+            // memory; the docs view re-fetches from storage when needed.
+            f._rawFile = null;
+          }
         } catch (err) {
-          console.warn('Pipeline → docs view queue failed for ' + f.name + ':', err);
+          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
           // Fall back to metadata-only push so the doc at least appears.
           if (typeof window.docsView.addDocFromPipeline === 'function') {
             try {
@@ -2559,20 +2489,6 @@ async function runPipeline() {
     }
   }));
   renderFileList();
-  if (docsIngestPromises.length > 0) {
-    logAudit('Docs View', 'Queued background document sync for ' + docsIngestPromises.length + ' file' + (docsIngestPromises.length === 1 ? '' : 's') + ' · pipeline continuing', 'ok');
-    Promise.allSettled(docsIngestPromises).then(results => {
-      const failed = results.filter(r =>
-        r.status === 'rejected' ||
-        (r.status === 'fulfilled' && r.value && r.value.ok === false)
-      ).length;
-      const ok = results.length - failed;
-      if (typeof logAudit === 'function') {
-        logAudit('Docs View', 'Background document sync finished · ' + ok + ' ok' + (failed ? ', ' + failed + ' failed' : ''), failed ? 'warn' : 'ok');
-      }
-      if (typeof renderFileList === 'function') renderFileList();
-    });
-  }
   setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');
 
   // === FLAG LOW-CONFIDENCE FILES FOR POST-HOC REVIEW ===
