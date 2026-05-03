@@ -3035,8 +3035,16 @@ function detectAcordSectionsPerPage(file) {
     },
     {
       tag: 'ACORD 131',
+      // Title patterns observed in the wild:
+      //   "UMBRELLA / EXCESS SECTION"          (ACORD 131 2013/12 — most common)
+      //   "UMBRELLA / EXCESS LIABILITY SECTION"
+      //   "UMBRELLA LIABILITY SECTION"          (older revisions)
+      //   "EXCESS LIABILITY SECTION"
+      // Permissive form: UMBRELLA or EXCESS, optional /-separator pair, optional
+      // LIABILITY word, then SECTION. The narrow original regex only caught the
+      // last two and missed the actual 2013/12 form.
       stamp: /\bACORD[\s_-]*131(?!\d)/i,
-      title: /(UMBRELLA(\s+LIABILITY)?|EXCESS\s+LIABILITY)\s+SECTION/i,
+      title: /(UMBRELLA(\s*\/\s*EXCESS)?|EXCESS)(\s+LIABILITY)?\s+SECTION/i,
       description: 'Umbrella/Excess Liability Section',
     },
   ];
@@ -3047,18 +3055,33 @@ function detectAcordSectionsPerPage(file) {
     const pageText = pageTexts[i];
     if (!pageText) continue;
     const pageNum = i + 1;
-    // Header zone: first 2000 chars of the page. ACORD form-number stamps
-    // and section titles always live in the top ~1/3 of page 1 of each
-    // section. Limiting to 2000 chars also avoids picking up later content
-    // that mentions "ACORD 125 certificate" in passing prose.
-    const headerZone = pageText.slice(0, 2000);
+    // FULL PAGE SCAN. The original 2000-char header zone was based on the
+    // assumption that ACORD form-number stamps and titles always appear in
+    // the top third of the page. This is true visually, but pdf.js extracts
+    // text in coordinate order, NOT visual reading order. On a heavily
+    // populated form page (ACORD 125 page 1 has the empty Other Named
+    // Insured blocks repeated 3x BEFORE the form-number stamp in extracted
+    // order), the stamp + title can land past 2000 chars.
+    //
+    // Scanning the whole page is safe because:
+    //   (a) the stamp regex requires "ACORD" immediately before the form
+    //       number — prose mentions of just "126" (e.g. on the ACORD 101
+    //       attachment that types "126 Commercial General Liability" into
+    //       the FORM NUMBER field) won't match the stamp pattern.
+    //   (b) the title regex requires the full official section header phrase
+    //       — checkboxes that just say "COMMERCIAL GENERAL LIABILITY" without
+    //       SECTION/EXPOSURE suffix won't match.
+    //   (c) we still require BOTH stamp AND title on the same page, so a
+    //       page with just one signal (e.g. an attachment with "Attach to
+    //       ACORD 125" footer but no application title) won't false-trigger.
+    const scanText = pageText;
 
     for (const form of acordForms) {
       // Each ACORD form starts ONCE in a doc — don't re-detect on later pages
       if (detected.some(d => d.tag === form.tag)) continue;
 
-      const stampMatch = form.stamp.test(headerZone);
-      const titleMatch = form.title.test(headerZone);
+      const stampMatch = form.stamp.test(scanText);
+      const titleMatch = form.title.test(scanText);
 
       const signals = [];
       if (stampMatch) signals.push('form_number_stamp');
