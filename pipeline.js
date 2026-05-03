@@ -3589,6 +3589,174 @@ function detectSafetyManual(file) {
 }
 
 // ----------------------------------------------------------------------------
+// SUBCONTRACTOR AGREEMENT detector — for tagging legal contracts between
+// a general contractor and a subcontractor. Common variants:
+//   - Master Subcontract Agreement
+//   - Standard Subcontract Agreement
+//   - AIA Document A401 (standard form)
+//   - ConsensusDocs 750 / 751 (industry standard)
+//   - Trade Contractor Agreement
+//
+// SIGNALS:
+//
+//   1. Industry-standard form reference — AIA A401 or ConsensusDocs 750/751.
+//      These document numbers are unambiguous and only appear on actual
+//      subcontract agreements.
+//
+//   2. Title pattern — "Subcontract Agreement" / "Master Subcontract
+//      Agreement" / "Agreement Between Contractor and Subcontractor".
+//
+//   3. Body legal terms — WHEREAS recital, Indemnification clause,
+//      Additional Insured, Waiver of Subrogation, Hold Harmless, Mechanics
+//      Lien, Change Order, Performance Bond, Schedule of Values, ARTICLE
+//      structure, etc. Each counts once.
+//
+//   4. "Subcontractor" defined-party density — real subcontracts use
+//      "Subcontractor" as a capitalized defined party 10-50+ times.
+//      Threshold of 5 catches actual contracts; cover letters mentioning
+//      the word once won't fire.
+//
+// FALSE-POSITIVE GUARDS:
+//
+//   - No ACORD stamp on page 1
+//   - No QUESTIONNAIRE keyword (rules out supp apps asking about
+//     subcontracting practices)
+//   - No loss run column headers (rules out claim narratives mentioning
+//     subcontractor disputes)
+//   - No Owner-Contractor agreement markers (AIA A101, "Agreement Between
+//     Owner and Contractor"). These are a separate doc type tagged as
+//     "AIA Contract" / "Owner-GC Contract" — explicitly rejected here so
+//     they fall through to the AIA Contract detector or LLM.
+//
+// DECISION RULES:
+//
+//   AIA A401 / ConsensusDocs 750-751 + 2+ body terms  → 98% (unambiguous)
+//   Title + 2+ body terms                             → 96% (definite)
+//   Title alone                                       → 88% (cover/amend)
+//   5+ body terms + 5+ "Subcontractor" mentions       → 85% (excerpted)
+//
+// Returns single classification (whole-doc). Maps to "Sub Agreement"
+// in CLASSIFIER_TYPES (APPLICATIONS bucket, routes to "subcontract"
+// extraction module).
+// ----------------------------------------------------------------------------
+function detectSubcontractAgreement(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const page1 = pageTexts[0] || '';
+  const earlyText = (page1 + ' ' + (pageTexts[1] || '')).slice(0, 8000);
+
+  // GUARD 1 — must NOT be an ACORD form.
+  if (/\bACORD\s*\d{2,4}\s*\(\d{4}\/\d{2}\)/i.test(page1)) return null;
+
+  // GUARD 2 — must NOT be a supp app questionnaire.
+  if (/\bQUESTIONNAIRE\b/i.test(earlyText)) return null;
+
+  // GUARD 3 — must NOT be a loss run.
+  const hasLossColumnHeaders =
+    /\b(DATE\s+OF\s+LOSS|DATE\s+OF\s+OCCURRENCE|LOSS\s+DATE)\b[\s\S]{0,400}\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,400}\b(RESERVED?|OUTSTANDING)\b/i.test(earlyText) ||
+    /\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,300}\b(RESERVED?|OUTSTANDING)\b[\s\S]{0,300}\b(INCURRED|TOTAL\s+INCURRED)\b/i.test(earlyText);
+  if (hasLossColumnHeaders) return null;
+
+  // GUARD 4 — must NOT be an owner-contractor agreement. AIA A101 and
+  // "Agreement Between Owner and Contractor" are a different doc type
+  // (file-and-forget tag "AIA Contract" / "Owner-GC Contract"). They
+  // share legal vocabulary with subcontracts but should not be tagged
+  // as Sub Agreement.
+  const isOwnerContractorAgreement =
+    /\bAIA\s+(?:DOCUMENT\s+)?A[-\s]?101(?:[-\s]?\d{4})?\b/i.test(earlyText) ||
+    /\b(?:STANDARD\s+FORM\s+OF\s+)?AGREEMENT\s+BETWEEN\s+OWNER\s+AND\s+(?:GENERAL\s+)?CONTRACTOR\b/i.test(earlyText);
+  if (isOwnerContractorAgreement) return null;
+
+  // SIGNAL 1 — Industry-standard form references. Near-zero false-positive
+  // risk because these document numbers are unambiguous.
+  const hasFormRef =
+    /\bAIA\s+(?:DOCUMENT\s+)?A[-\s]?401(?:[-\s]?\d{4})?\b/i.test(earlyText) ||
+    /\bCONSENSUSDOCS?\s+(?:DOCUMENT\s+)?75[01]\b/i.test(earlyText);
+
+  // SIGNAL 2 — title pattern.
+  const titleMatch = earlyText.match(
+    /\b((?:MASTER\s+|STANDARD\s+(?:FORM\s+(?:OF\s+)?)?)?SUBCONTRACT(?:OR)?\s+AGREEMENT|(?:STANDARD\s+FORM\s+OF\s+)?AGREEMENT\s+BETWEEN\s+(?:GENERAL\s+)?CONTRACTOR\s+AND\s+SUBCONTRACTOR|TRADE\s+CONTRACTOR\s+AGREEMENT)\b/i
+  );
+  const hasTitle = !!titleMatch;
+
+  // SIGNAL 3 — body legal terms (each counts once).
+  const bodyTerms = [
+    /\bWHEREAS\b/i,
+    /\bNOW\s+THEREFORE\b/i,
+    /\bSCOPE\s+OF\s+(?:THE\s+)?WORK\b/i,
+    /\bINDEMNIF(?:Y|IES|ICATION|IED)\b/i,
+    /\bHOLD\s+(?:HARMLESS|YOU\s+HARMLESS|HARMLESS\s+FROM)\b/i,
+    /\bADDITIONAL\s+INSURED\b/i,
+    /\bWAIVER\s+OF\s+SUBROGATION\b/i,
+    /\bMECHANICS?\s+LIEN\b/i,
+    /\bCHANGE\s+ORDER\b/i,
+    /\bPERFORMANCE\s+BOND\b/i,
+    /\bPAYMENT\s+BOND\b/i,
+    /\bSCHEDULE\s+OF\s+VALUES\b/i,
+    /\bPROGRESS\s+PAYMENT\b/i,
+    /\bRETAINAGE\b/i,
+    /\bARTICLE\s+\d+\b/i,
+    /\bSECTION\s+\d+\.\d+\b/i,
+    /\bCERTIFICATE\s+OF\s+INSURANCE\b/i,
+    /\bPRIME\s+CONTRACT\b/i,
+    /\bCONTRACT\s+DOCUMENTS\b/i,
+  ];
+  const matchedTerms = [];
+  for (const pattern of bodyTerms) {
+    const m = earlyText.match(pattern);
+    if (m) matchedTerms.push(m[0].toUpperCase().replace(/\s+/g, ' '));
+  }
+  const termCount = matchedTerms.length;
+
+  // SIGNAL 4 — "Subcontractor" defined-party density.
+  const subcontractorMentions = (earlyText.match(/\bSUBCONTRACTOR\b/gi) || []).length;
+
+  // DECISION RULES
+  let detected = false;
+  let confidence = 0;
+  let reason = '';
+
+  if (hasFormRef && termCount >= 2) {
+    detected = true;
+    confidence = 0.98;
+    reason = 'Industry-standard form reference (AIA A401 or ConsensusDocs 750/751) + ' + termCount + ' body legal terms';
+  } else if (hasTitle && termCount >= 2) {
+    detected = true;
+    confidence = 0.96;
+    reason = 'Title "' + titleMatch[0] + '" + ' + termCount + ' body legal terms';
+  } else if (hasTitle) {
+    detected = true;
+    confidence = 0.88;
+    reason = 'Title "' + titleMatch[0] + '" (limited body density — could be cover sheet or amendment)';
+  } else if (termCount >= 5 && subcontractorMentions >= 5) {
+    detected = true;
+    confidence = 0.85;
+    reason = termCount + ' body legal terms + "Subcontractor" mentioned ' + subcontractorMentions + ' times (no explicit title — possibly excerpted/amended)';
+  }
+
+  if (!detected) return null;
+
+  return {
+    type: 'APPLICATIONS',
+    subType: 'SUB_AGREEMENT',
+    tag: 'Sub Agreement',
+    primary_bucket: 'APPLICATIONS',
+    confidence: confidence,
+    reasoning: 'Per-doc scan: ' + reason + '. No ACORD stamp, no Questionnaire, no loss run headers, not owner-contractor agreement.',
+    section_hint: pageTexts.length === 1 ? 'page 1' : 'pages 1-' + pageTexts.length,
+    _signals: {
+      hasTitle: hasTitle,
+      titleText: titleMatch ? titleMatch[0] : null,
+      hasFormRef: hasFormRef,
+      termCount: termCount,
+      matchedTerms: matchedTerms,
+      subcontractorMentions: subcontractorMentions,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -3787,6 +3955,52 @@ function detectDocumentSignature(file) {
         }],
         isCombined: false,
         signatures: [safetyManual._signals.titleText, 'safety_vocabulary'].filter(Boolean),
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1.8 — Subcontract Agreement detector. Runs after the previous
+  // form-detection stages so docs that mention subcontracts in passing
+  // (ACORD apps asking about subs, supp apps with subcontracting questions,
+  // safety manuals with subcontractor sections) are filtered first.
+  // Catches actual legal contracts between GC and subcontractor: AIA A401,
+  // ConsensusDocs 750/751, master subcontract agreements, etc.
+  const subAgreement = detectSubcontractAgreement(file);
+  if (subAgreement) {
+    return {
+      match: true,
+      method: 'regex_prefilter_sub_agreement',
+      method_label: 'Sub agreement scan: ' + subAgreement.tag,
+      detector_id: 'sub_agreement',
+      signals: [
+        subAgreement._signals.hasFormRef ? 'industry_form_ref' : 'no_form_ref',
+        subAgreement._signals.hasTitle ? ('title:' + subAgreement._signals.titleText) : 'no_title',
+        subAgreement._signals.termCount + '_body_terms',
+        subAgreement._signals.subcontractorMentions + '_subcontractor_mentions',
+      ],
+      signals_required: 2,
+      signals_total: 4,
+      result: {
+        type: 'APPLICATIONS',
+        subType: 'SUB_AGREEMENT',
+        tag: 'Sub Agreement',
+        primary_bucket: 'APPLICATIONS',
+        confidence: subAgreement.confidence,
+        reasoning: subAgreement.reasoning,
+        classifications: [{
+          type: 'APPLICATIONS',
+          subType: 'SUB_AGREEMENT',
+          tag: 'Sub Agreement',
+          primary_bucket: 'APPLICATIONS',
+          section_hint: subAgreement.section_hint,
+          confidence: subAgreement.confidence,
+          reasoning: subAgreement.reasoning,
+        }],
+        isCombined: false,
+        signatures: [subAgreement._signals.titleText, 'legal_body_terms'].filter(Boolean),
         needsReview: false,
         needsReviewReasons: [],
         suppressTag: false,
@@ -4465,4 +4679,5 @@ window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
 window.detectSuppApp = detectSuppApp;
 window.detectLossRun = detectLossRun;
 window.detectSafetyManual = detectSafetyManual;
+window.detectSubcontractAgreement = detectSubcontractAgreement;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
