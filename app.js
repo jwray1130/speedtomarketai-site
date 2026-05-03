@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.13-2026-05-02';
+window.STM_BUILD = 'v8.6.12-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1297,38 +1297,14 @@ async function extractText(file, metadata) {
     // v8.5 Rule 9: also build pageTexts[] indexed 0-based, so the
     // pipeline can slice text per-section for combined PDFs.
     const pageTexts = [];
-    // v8.6.13 performance: extract PDF text in small page batches instead
-    // of one page at a time. This keeps page order exactly the same but
-    // shortens the initial drop/parse step on long quote packets and loss
-    // runs. Limit stays conservative to avoid browser memory spikes.
-    const PDF_TEXT_CONCURRENCY = 4;
-    for (let start = 1; start <= pdf.numPages; start += PDF_TEXT_CONCURRENCY) {
-      const end = Math.min(pdf.numPages, start + PDF_TEXT_CONCURRENCY - 1);
-      const batch = [];
-      for (let i = start; i <= end; i++) {
-        batch.push((async (pageNo) => {
-          const page = await pdf.getPage(pageNo);
-          try {
-            const content = await page.getTextContent();
-            return {
-              pageNo,
-              itemCount: content.items.length,
-              pageText: content.items.map(it => it.str).join(' ')
-            };
-          } finally {
-            try { page.cleanup(); } catch(e) {}
-          }
-        })(i));
-      }
-      const results = await Promise.all(batch);
-      results.sort((a, b) => a.pageNo - b.pageNo).forEach(r => {
-        totalItems += r.itemCount;
-        pageTexts[r.pageNo - 1] = r.pageText;
-        text += r.pageText + '\n\n';
-      });
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      totalItems += content.items.length;
+      const pageText = content.items.map(it => it.str).join(' ');
+      pageTexts.push(pageText);
+      text += pageText + '\n\n';
     }
-    try { await pdf.cleanup(); } catch(e) {}
-    try { await pdf.destroy(); } catch(e) {}
     meta.kind = 'pdf';
     meta.pageCount = pdf.numPages;
     meta.pageTexts = pageTexts;
@@ -2713,56 +2689,23 @@ async function deleteSubmission(submissionId, confirmAlready) {
   updateQueueKpi();
   logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
   toast('Deleted · ' + label);
-  // Phase 5 — cascade to documents. We MUST run this BEFORE deleting the
-  // submission row, because submissions FK has ON DELETE CASCADE on
-  // document_pages — if the submission goes first, the cascade nukes the
-  // rows before we can read their storage_paths, leaving orphan binaries
-  // in the bucket. Doing storage+rows first, then submission, is safe in
-  // either order from the user's perspective.
-  // If the local docs view has hydrated docs in memory for this
-  // submission, prune them so the user doesn't see stale rows. (Sync
-  // step — does not await any cloud work.)
+  // v8.6.17: parent delete must be the first cloud operation.
+  // The prior path collected document_pages storage paths before deleting the
+  // parent row. In the live app, the queue × click was getting stuck on a heavy
+  // document_pages read and never reached DELETE /submissions, so the row came
+  // back after refresh. For queue correctness, the parent submission DELETE is
+  // the only required operation. document_pages are handled by FK cascade;
+  // storage cleanup is best-effort and must never block the parent delete.
   if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
     try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
   }
-  // v8.6.9 (per Justin's diagnostic + GPT external audit): NEW deletion flow.
-  //
-  // Old approach (v8.5.7 - v8.6.8):
-  //   1. Explicit DELETE on document_pages (could time out, ~10s wait)
-  //   2. DELETE parent submission
-  // The 10-second wait blocked the parent delete from running quickly. If the
-  // user navigated/refreshed during that window, parent never ran, row stayed.
-  //
-  // New approach (v8.6.9):
-  //   1. SELECT storage_paths from document_pages (fast — index supports it)
-  //   2. DELETE parent submission → ON DELETE CASCADE handles document_pages
-  //      server-side as part of the parent transaction (faster than client-
-  //      issued DELETE per Justin's diagnostic)
-  //   3. Best-effort storage cleanup using collected paths
-  //
-  // Failure modes:
-  //   - SELECT fails: storage paths not collected, binaries become orphans
-  //     (cosmetic — rows still get cascade-deleted)
-  //   - Parent DELETE fails: error toast, row reappears on refresh, tombstone
-  //     cleared, hydrate re-syncs UI
-  //   - Storage remove fails: orphan binaries (cosmetic)
-  let storagePaths = [];
   try {
-    if (typeof sbCollectDocumentStoragePathsForSubmission === 'function') {
-      storagePaths = await sbCollectDocumentStoragePathsForSubmission(submissionId);
+    const deleteFn = window.sbDeleteSubmission;
+    if (typeof deleteFn !== 'function') {
+      throw new Error('window.sbDeleteSubmission not defined');
     }
-    if (typeof sbDeleteSubmission !== 'function') {
-      throw new Error('sbDeleteSubmission not defined');
-    }
-    await sbDeleteSubmission(submissionId);
+    await deleteFn(submissionId);
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
-    // Post-parent storage cleanup. Fire-and-forget — if it fails, binaries
-    // are orphans in the bucket (cosmetic only). Uses sbDeleteStoragePaths
-    // helper so app.js doesn't need direct access to STORAGE_BUCKET const.
-    if (storagePaths.length > 0 && typeof sbDeleteStoragePaths === 'function') {
-      sbDeleteStoragePaths(storagePaths)
-        .catch(e => console.warn('[delete] post-parent storage cleanup threw (non-fatal):', e.message));
-    }
   } catch (err) {
     console.error('Cloud delete failed', submissionId, err);
     const msg = (err && err.message) ? err.message : String(err);
@@ -2866,6 +2809,31 @@ function backfillMissingAccountNames() {
   }
 }
 
+function bindQueueTableClicks(tbody) {
+  if (!tbody || tbody.__queueClicksBound) return;
+  tbody.__queueClicksBound = true;
+  tbody.addEventListener('click', function(e) {
+    const delBtn = e.target.closest('.sub-delete');
+    if (delBtn && tbody.contains(delBtn)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      const id = delBtn.dataset.subId || (delBtn.closest('.sub-row') && delBtn.closest('.sub-row').dataset.subId);
+      if (id) deleteSubmission(id);
+      return;
+    }
+
+    // Keep status menu interactions local; they should not open/rehydrate rows.
+    if (e.target.closest('.status-wrap')) return;
+
+    const row = e.target.closest('.sub-row');
+    if (row && tbody.contains(row)) {
+      const id = row.dataset.subId;
+      if (id) rehydrateSubmission(id);
+    }
+  }, false);
+}
+
 function renderQueueTable() {
   // Auto-backfill missing names BEFORE building rows. One attempt per
   // submission per session (gated by _backfillAttempted). Cheap when there's
@@ -2873,6 +2841,7 @@ function renderQueueTable() {
   try { backfillMissingAccountNames(); } catch (e) { console.warn('Backfill pass threw:', e); }
   const tbody = document.getElementById('queueBody');
   if (!tbody) return;
+  bindQueueTableClicks(tbody);
   if (STATE.submissions.length === 0) {
     tbody.innerHTML = `
       <tr>
@@ -2925,9 +2894,9 @@ function renderQueueRow(rec) {
     </div>
   `;
   const runShort = (rec.pipelineRun || '').replace('PIPE-', '').slice(0, 10);
-  const deleteBtn = `<span class="sub-delete" onclick="event.stopPropagation(); deleteSubmission('${rec.id}')" title="Remove from queue">×</span>`;
+  const deleteBtn = `<button type="button" class="sub-delete" data-sub-id="${escapeHtml(rec.id)}" title="Remove from queue" aria-label="Delete submission">×</button>`;
   return `
-    <tr class="sub-row${isActive ? ' sub-active' : ''}" onclick="rehydrateSubmission('${rec.id}')">
+    <tr class="sub-row${isActive ? ' sub-active' : ''}" data-sub-id="${escapeHtml(rec.id)}">
       <td>
         <div class="acct-name">${account}${activeTag}${deleteBtn}</div>
         <div class="acct-sub">${runShort || '—'}</div>
