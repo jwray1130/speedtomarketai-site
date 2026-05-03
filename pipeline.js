@@ -3757,6 +3757,184 @@ function detectSubcontractAgreement(file) {
 }
 
 // ----------------------------------------------------------------------------
+// LIABILITY DECLARATION PAGES detector — for tagging carrier-issued
+// liability coverage declarations within a package quote. Detects three
+// types of dec pages and returns them as multi-section results (similar
+// to the ACORD per-page detector):
+//
+//   - General Liability dec pages → "GL Quote"
+//   - Auto Liability dec pages → "AL Quote"
+//   - Umbrella / Excess dec pages → "Excess T&C"
+//
+// SIGNALS PER PAGE:
+//
+//   1. DECLARATIONS keyword OR limits structure ("Each Occurrence",
+//      "Limit of Liability") — establishes that the page is a dec page
+//      rather than a coverage form or schedule.
+//
+//   2. Currency density (≥3 dollar amounts) — real dec pages are
+//      money-heavy. Filters out cover letters and TOC pages.
+//
+//   3. Coverage type marker in page HEADER zone (first 1500 chars).
+//      Header position prevents false-trigger from prose mentions
+//      later in the page.
+//
+//   4. Schedule of Underlying Insurance — the distinguishing signal
+//      between primary liability and excess/umbrella. Excess always
+//      has it (because it lists the policies sitting beneath); primary
+//      never has it (because nothing sits beneath primary).
+//
+// CLASSIFICATION DECISION (per page, priority order):
+//
+//   Header has UMBRELLA/EXCESS marker          → Excess T&C
+//   Has Schedule of Underlying + GL/AL marker  → Excess T&C
+//      (catches docs where excess header is in footer due to pdf.js
+//       extraction order, but underlying schedule reveals the truth)
+//   Header has GL marker, no underlying        → GL Quote
+//   Header has AL marker, no underlying        → AL Quote
+//   None of the above                          → skip page
+//
+// FALSE-POSITIVE GUARDS (whole-doc level):
+//
+//   - No ACORD stamp on page 1
+//   - No QUESTIONNAIRE keyword
+//   - No loss run column headers
+//
+// Note: Excess vs Umbrella, and tower position (Lead $5M vs $10M xs $5M
+// vs Quota Share) cannot be determined deterministically — those depend
+// on the actual numeric values which require LLM extraction. Tagging
+// both Umbrella and Excess as "Excess T&C" is the correct deterministic
+// behavior; the LLM extraction module fills in the specific layer.
+//
+// Returns array of section classifications (multi-section, like ACORD),
+// or null if no liability dec pages detected.
+// ----------------------------------------------------------------------------
+function detectLiabilityDecPages(file) {
+  const pageTexts = file && file.pageTexts;
+  if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
+
+  const page1 = pageTexts[0] || '';
+  const earlyText = (page1 + ' ' + (pageTexts[1] || '')).slice(0, 5000);
+
+  // GUARD 1 — not an ACORD form
+  if (/\bACORD\s*\d{2,4}\s*\(\d{4}\/\d{2}\)/i.test(page1)) return null;
+
+  // GUARD 2 — not a questionnaire
+  if (/\bQUESTIONNAIRE\b/i.test(earlyText)) return null;
+
+  // GUARD 3 — not a loss run
+  const hasLossColumnHeaders =
+    /\b(DATE\s+OF\s+LOSS|DATE\s+OF\s+OCCURRENCE|LOSS\s+DATE)\b[\s\S]{0,400}\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,400}\b(RESERVED?|OUTSTANDING)\b/i.test(earlyText) ||
+    /\b(PAID|AMOUNT\s+PAID)\b[\s\S]{0,300}\b(RESERVED?|OUTSTANDING)\b[\s\S]{0,300}\b(INCURRED|TOTAL\s+INCURRED)\b/i.test(earlyText);
+  if (hasLossColumnHeaders) return null;
+
+  // Per-page scan
+  const detected = []; // [{tag, subType, startPage, signals}]
+
+  for (let i = 0; i < pageTexts.length; i++) {
+    const pageText = pageTexts[i] || '';
+    if (!pageText) continue;
+    const pageNum = i + 1;
+    const headerZone = pageText.slice(0, 1500);
+
+    // Dec page baseline — must have DECLARATIONS keyword or limits structure
+    const hasDeclarations = /\bDECLARATIONS\b/i.test(pageText);
+    const hasLimits = /\b(?:LIMIT(?:S)?\s+OF\s+(?:LIABILITY|INSURANCE)|EACH\s+OCCURRENCE|LIMIT\s+OF\s+LIABILITY)\b/i.test(pageText);
+    if (!hasDeclarations && !hasLimits) continue;
+
+    // Currency density — dec pages have multiple dollar amounts
+    // (limits, premium, deductible, retention). 3+ filters out cover
+    // letters and tables of contents that mention dollar figures.
+    const currencyMatches = (pageText.match(/\$\s?[\d,]+(?:\.\d{2})?/g) || []).length;
+    if (currencyMatches < 3) continue;
+
+    // Coverage type markers in HEADER zone (first 1500 chars)
+    const hasUmbrella = /\b(?:COMMERCIAL\s+UMBRELLA|UMBRELLA\s+(?:LIABILITY|POLICY|DECLARATIONS)|EXCESS\s+(?:LIABILITY|DECLARATIONS|POLICY)|FOLLOWING\s+FORM\s+EXCESS|FOLLOW(?:-|\s+)FORM)\b/i.test(headerZone);
+    const hasGL = /\b(?:COMMERCIAL\s+GENERAL\s+LIABILITY|CGL\s+DECLARATIONS|GENERAL\s+LIABILITY\s+DECLARATIONS)\b/i.test(headerZone);
+    const hasAL = /\b(?:BUSINESS\s+AUTO|COMMERCIAL\s+AUTO|AUTOMOBILE\s+LIABILITY)\b/i.test(headerZone);
+
+    // Schedule of Underlying — full page check (often appears later
+    // on the page than the header zone)
+    const hasUnderlying = /\b(?:SCHEDULE\s+OF\s+UNDERLYING|UNDERLYING\s+INSURANCE|UNDERLYING\s+POLICIES|UNDERLYING\s+CARRIER|UNDERLYING\s+LIMITS?)\b/i.test(pageText);
+
+    // Classification (priority order)
+    let tag = null;
+    let subType = null;
+    const signals = [];
+
+    if (hasUmbrella) {
+      tag = 'Excess T&C';
+      subType = 'EXCESS';
+      signals.push('umbrella_or_excess_in_header');
+      if (hasUnderlying) signals.push('schedule_of_underlying');
+    } else if (hasUnderlying && (hasGL || hasAL)) {
+      // Edge case: page header didn't clearly say umbrella/excess but
+      // the page has a Schedule of Underlying. This pattern shows up
+      // when the excess/umbrella title is in the page footer instead
+      // of header (pdf.js extraction order quirk). Underlying schedule
+      // is the load-bearing signal that this is excess, not primary.
+      tag = 'Excess T&C';
+      subType = 'EXCESS';
+      signals.push('schedule_of_underlying_disambiguates');
+      signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
+    } else if (hasGL) {
+      tag = 'GL Quote';
+      subType = 'GL';
+      signals.push('commercial_general_liability_in_header');
+    } else if (hasAL) {
+      tag = 'AL Quote';
+      subType = 'AL';
+      signals.push('business_auto_in_header');
+    }
+
+    if (!tag) continue;
+
+    // Only record FIRST occurrence of each coverage type — subsequent
+    // continuation pages (more limit details, forms list, etc.) are
+    // implicitly part of the same section via section_hint range.
+    if (detected.some(d => d.tag === tag)) continue;
+
+    signals.push(hasDeclarations ? 'declarations_keyword' : 'limits_keyword');
+    signals.push(currencyMatches + '_currency_values');
+
+    detected.push({
+      tag: tag,
+      subType: subType,
+      startPage: pageNum,
+      signals: signals,
+    });
+  }
+
+  if (detected.length === 0) return null;
+
+  // Sort by start page (defensive — should already be in order)
+  detected.sort((a, b) => a.startPage - b.startPage);
+
+  // Build section ranges — each section ends one page before next begins,
+  // or at totalPages for the last section. Same approach as ACORD detector.
+  const totalPages = pageTexts.length;
+  return detected.map((d, i) => {
+    const nextStart = i < detected.length - 1 ? detected[i + 1].startPage : totalPages + 1;
+    const endPage = nextStart - 1;
+    const sectionHint = d.startPage === endPage
+      ? 'page ' + d.startPage
+      : 'pages ' + d.startPage + '-' + endPage;
+    return {
+      tag: d.tag,
+      type: 'QUOTES_UNDERLYING',
+      subType: d.subType,
+      primary_bucket: 'QUOTES_UNDERLYING',
+      section_hint: sectionHint,
+      confidence: 0.92,
+      reasoning: 'Per-page scan: ' + d.tag + ' declaration page found at page ' + d.startPage + ' (' + d.signals.join(' + ') + ').',
+      _detectedSignals: d.signals,
+      _startPage: d.startPage,
+      _endPage: endPage,
+    };
+  });
+}
+
+// ----------------------------------------------------------------------------
 // Generalized signature detector — runs the full registry against a file and
 // returns the first matching detector (or {match: false} if nothing fires).
 //
@@ -4001,6 +4179,69 @@ function detectDocumentSignature(file) {
         }],
         isCombined: false,
         signatures: [subAgreement._signals.titleText, 'legal_body_terms'].filter(Boolean),
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
+  // STAGE 1.9 — Liability Declaration Pages detector. Per-page scanner
+  // (multi-section, like ACORD) for package quotes containing GL / AL /
+  // Umbrella / Excess dec pages. Each section gets its own tag and page
+  // range. Excess vs primary is disambiguated via Schedule of Underlying.
+  //
+  // The actual layer structure (Lead $5M vs $10M xs $5M vs Quota Share)
+  // is not determined here — that requires LLM extraction of numeric
+  // limit/attachment values. This detector files the doc correctly into
+  // QUOTES_UNDERLYING bucket and tags each section's coverage line; the
+  // existing extraction modules pull the specific layer details.
+  const decSections = detectLiabilityDecPages(file);
+  if (decSections && decSections.length > 0) {
+    const isCombined = decSections.length > 1;
+    const primary = decSections[0];
+    const allSignals = decSections.flatMap(s =>
+      s._detectedSignals.map(sig => s.tag + '@p' + s._startPage + ':' + sig)
+    );
+    const summary = decSections
+      .map(s => s.tag + ' (p.' + s._startPage + (s._startPage !== s._endPage ? '-' + s._endPage : '') + ')')
+      .join(', ');
+
+    return {
+      match: true,
+      method: 'regex_prefilter_dec_pages',
+      method_label: isCombined
+        ? 'Per-page liability dec scan: ' + decSections.length + ' coverages — ' + summary
+        : 'Per-page liability dec scan: ' + primary.tag,
+      detector_id: isCombined ? 'liability_dec_combined' : ('liability_dec_' + primary.subType.toLowerCase()),
+      signals: allSignals,
+      signals_required: 1,
+      signals_total: allSignals.length,
+      result: {
+        type: 'QUOTES_UNDERLYING',
+        subType: primary.subType,
+        // For combined package quote: tag string lists all coverages
+        // ("GL Quote + AL Quote + Excess T&C") so file manager chip
+        // is informative. For single: just the one tag.
+        tag: isCombined ? decSections.map(s => s.tag).join(' + ') : primary.tag,
+        primary_bucket: 'QUOTES_UNDERLYING',
+        confidence: primary.confidence,
+        reasoning: 'Per-page scan found ' + decSections.length + ' liability dec section(s): ' +
+                   summary + '. No LLM call required for filing; LLM extraction modules pull layer details.',
+        // Multi-section result with section_hint values — pushTestFileToDocsView
+        // will see length>1 + section_hint strings and chip each section's
+        // start page independently in the docs view.
+        classifications: decSections.map(s => ({
+          type: s.type,
+          subType: s.subType,
+          tag: s.tag,
+          primary_bucket: s.primary_bucket,
+          section_hint: s.section_hint,
+          confidence: s.confidence,
+          reasoning: s.reasoning,
+        })),
+        isCombined: isCombined,
+        signatures: allSignals,
         needsReview: false,
         needsReviewReasons: [],
         suppressTag: false,
@@ -4680,4 +4921,5 @@ window.detectSuppApp = detectSuppApp;
 window.detectLossRun = detectLossRun;
 window.detectSafetyManual = detectSafetyManual;
 window.detectSubcontractAgreement = detectSubcontractAgreement;
+window.detectLiabilityDecPages = detectLiabilityDecPages;
 window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
