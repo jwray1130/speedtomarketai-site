@@ -39,9 +39,70 @@
 // Supabase directly for data. Auth and LLM proxy paths are separate (above).
 // ============================================================================
 
+// v8.6.18: Auth user cache / single-flight.
+// sbUser() is on hot paths (delete, hydrate, document thumbnails, audit writes).
+// Calling auth.getUser() every time performs a network request and can block
+// behind GoTrue auth-lock contention. Prefer the already-hydrated app profile,
+// then a cached local session via getSession(). This also prevents queue delete
+// from stopping at /auth/v1/user before it ever sends DELETE /submissions.
+const SB_USER_CACHE_MS = 60000;
+let __sbCachedUser = null;
+let __sbCachedUserAt = 0;
+let __sbUserInflight = null;
+
+function __sbSetCachedUser(user) {
+  __sbCachedUser = user || null;
+  __sbCachedUserAt = user ? Date.now() : 0;
+}
+
+function __sbUserFromCurrentProfile() {
+  if (typeof window === 'undefined' || !window.currentUser || !window.currentUser.id) return null;
+  return {
+    id: window.currentUser.id,
+    email: window.currentUser.email || null,
+    user_metadata: {
+      display_name: window.currentUser.display_name || null,
+      role: window.currentUser.role || null
+    }
+  };
+}
+
+if (typeof window !== 'undefined' && window.sb && window.sb.auth && !window.__stmSbUserCacheListenerAttached) {
+  window.__stmSbUserCacheListenerAttached = true;
+  try {
+    window.sb.auth.onAuthStateChange((_event, session) => {
+      __sbSetCachedUser(session && session.user ? session.user : null);
+    });
+  } catch (e) {
+    console.warn('[supabase-data] auth cache listener failed:', e && e.message ? e.message : e);
+  }
+}
+
 async function sbUser() {
-  const { data: { user } } = await window.sb.auth.getUser();
-  return user;   // null if signed out
+  const now = Date.now();
+
+  const profileUser = __sbUserFromCurrentProfile();
+  if (profileUser) {
+    __sbSetCachedUser(profileUser);
+    return profileUser;
+  }
+
+  if (__sbCachedUser && (now - __sbCachedUserAt) < SB_USER_CACHE_MS) {
+    return __sbCachedUser;
+  }
+
+  if (__sbUserInflight) return __sbUserInflight;
+
+  __sbUserInflight = (async () => {
+    const { data: { session } } = await window.sb.auth.getSession();
+    const user = session && session.user ? session.user : null;
+    __sbSetCachedUser(user);
+    return user;
+  })().finally(() => {
+    __sbUserInflight = null;
+  });
+
+  return __sbUserInflight;
 }
 
 // ---- Submissions ----------------------------------------------------------
