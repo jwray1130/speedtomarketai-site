@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-surgical-classifier-2026-05-03';
+window.STM_BUILD = 'v8.6.12-2026-05-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1408,60 +1408,6 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.eml')) {
     meta.kind = 'eml';
-    // If postal-mime is available, use it for proper MIME parsing + attachment
-    // extraction. Falls back to the legacy text-only parseEml when the lib
-    // failed to load. The metadata layout (subject, body, attachments) matches
-    // the .msg path so handleFiles() can use the same unpack logic for both.
-    if (typeof window.PostalMime !== 'undefined' && window.PostalMime) {
-      try {
-        const buf = await file.arrayBuffer();
-        const parsed = await window.PostalMime.parse(buf);
-
-        // Populate meta in the same shape as the .msg parser. The .msg path
-        // (extractText for .msg files above) sets meta.kind='msg' and
-        // meta.attachments=[{name, content, contentLength, mimeType}]. We
-        // mirror that here so the existing attachment-unpack code in
-        // handleFiles works for .eml too without modification.
-        meta.subject = parsed.subject || '';
-        const fromAddr = (parsed.from && parsed.from.address) || '';
-        const fromName = (parsed.from && parsed.from.name) || '';
-        meta.from = fromName ? (fromName + ' <' + fromAddr + '>') : fromAddr;
-        meta.to = (parsed.to || []).map(t => t.address).join(', ');
-        meta.body = (parsed.text || '').trim();
-
-        // Filter inline images (logos, signatures) — they have disposition
-        // 'inline' and aren't real attachments. Same filter the explode
-        // function uses.
-        const realAttachments = (parsed.attachments || []).filter(a => a.disposition !== 'inline');
-        meta.attachments = realAttachments.map(a => ({
-          name: a.filename || ('attachment-' + Math.random().toString(36).slice(2, 6) + '.bin'),
-          content: a.content,                          // Uint8Array
-          contentLength: (a.content && a.content.byteLength) ? a.content.byteLength : 0,
-          mimeType: a.mimeType || 'application/octet-stream',
-        })).filter(a => a.content && a.contentLength > 0);
-
-        // Reconstruct a text representation for the email body. This is the
-        // "doc text" the email gets classified on — Stage 1.0 detector keys
-        // on the From:/To:/Subject: structure here.
-        let bodyText = '';
-        if (meta.from) bodyText += 'From: ' + meta.from + '\n';
-        if (meta.to) bodyText += 'To: ' + meta.to + '\n';
-        if (parsed.cc && parsed.cc.length) bodyText += 'Cc: ' + parsed.cc.map(t => t.address).join(', ') + '\n';
-        if (meta.subject) bodyText += 'Subject: ' + meta.subject + '\n';
-        if (parsed.date) bodyText += 'Date: ' + new Date(parsed.date).toString() + '\n';
-        bodyText += '\n' + (parsed.text || '');
-
-        return bodyText;
-      } catch (postalErr) {
-        // Postal-mime parse failed for some reason (malformed MIME, encrypted
-        // wrapper, etc). Fall back to legacy text-only parser so we at least
-        // get the body. No attachments will be extracted in this case, but
-        // the email itself still gets classified.
-        console.warn('postal-mime parse failed for ' + file.name + ', falling back to legacy parser:', postalErr);
-        return parseEml(await file.text());
-      }
-    }
-    // Legacy fallback when postal-mime unavailable
     return parseEml(await file.text());
   }
 
@@ -1724,16 +1670,11 @@ async function handleFiles(fileList) {
         logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
 
         // === EMAIL ATTACHMENT UNPACK ===
-        // If this is a .msg or .eml with attachments, synthesize File objects
-        // from each attachment and inject them back into newFiles so they
-        // flow through the normal parse + classify pipeline. We cap nesting
-        // at one level — if an attached email contains its own attachments,
-        // we leave those opaque.
-        //
-        // For .eml: parseEml in extractText uses postal-mime to populate
-        // meta.attachments in the same layout as the .msg parser, so this
-        // single code path handles both formats.
-        if ((meta.kind === 'msg' || meta.kind === 'eml') && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
+        // If this is a .msg with attachments, synthesize File objects from each
+        // attachment and inject them back into newFiles so they flow through the
+        // normal parse + classify pipeline. We cap nesting at one level — if an
+        // attached .msg contains its own attachments, we leave those opaque.
+        if (meta.kind === 'msg' && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
           const attachmentContext = buildAttachmentContext(meta);
           for (const att of meta.attachments) {
             try {
@@ -2732,45 +2673,94 @@ async function deleteSubmission(submissionId, confirmAlready) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
-
   const label = displayAccount(rec);
-  const deleteFn = window.sbDeleteSubmission;
-  if (typeof deleteFn !== 'function') {
-    const msg = 'window.sbDeleteSubmission not defined';
-    console.error('Cloud delete failed', submissionId, msg);
-    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg, 'error');
-    return;
+  // v8.5.6: tombstone. Any in-flight save (resyncActiveSnapshot,
+  // backfillMissingAccountNames, status change handler, pipeline
+  // completion handler, etc.) checks this set BEFORE upserting. Without
+  // this, a save firing AFTER delete recreates the row via upsert and
+  // the user sees the deleted submission reappear on next refresh.
+  if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
+  STATE._deletedSubmissionIds.add(submissionId);
+  STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
+  if (STATE.activeSubmissionId === submissionId) {
+    STATE.activeSubmissionId = null;
   }
-
-  // v8.6.19: cloud-confirmed delete. Do NOT optimistically remove from the
-  // queue before the parent DELETE is confirmed. The previous flow removed the
-  // row locally first, which made failed/no-op deletes look successful until the
-  // next hydrate put the row back. Now a row only disappears after Supabase
-  // confirms that DELETE /rest/v1/submissions affected at least one row.
-  if (typeof toast === 'function') toast('Deleting · ' + label);
-  if (typeof logAudit === 'function') logAudit('Submissions', 'Delete requested · ' + submissionId + ' · ' + label, '—');
-
+  renderQueueTable();
+  updateQueueKpi();
+  logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
+  toast('Deleted · ' + label);
+  // Phase 5 — cascade to documents. We MUST run this BEFORE deleting the
+  // submission row, because submissions FK has ON DELETE CASCADE on
+  // document_pages — if the submission goes first, the cascade nukes the
+  // rows before we can read their storage_paths, leaving orphan binaries
+  // in the bucket. Doing storage+rows first, then submission, is safe in
+  // either order from the user's perspective.
+  // If the local docs view has hydrated docs in memory for this
+  // submission, prune them so the user doesn't see stale rows. (Sync
+  // step — does not await any cloud work.)
+  if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
+    try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
+  }
+  // v8.6.9 (per Justin's diagnostic + GPT external audit): NEW deletion flow.
+  //
+  // Old approach (v8.5.7 - v8.6.8):
+  //   1. Explicit DELETE on document_pages (could time out, ~10s wait)
+  //   2. DELETE parent submission
+  // The 10-second wait blocked the parent delete from running quickly. If the
+  // user navigated/refreshed during that window, parent never ran, row stayed.
+  //
+  // New approach (v8.6.9):
+  //   1. SELECT storage_paths from document_pages (fast — index supports it)
+  //   2. DELETE parent submission → ON DELETE CASCADE handles document_pages
+  //      server-side as part of the parent transaction (faster than client-
+  //      issued DELETE per Justin's diagnostic)
+  //   3. Best-effort storage cleanup using collected paths
+  //
+  // Failure modes:
+  //   - SELECT fails: storage paths not collected, binaries become orphans
+  //     (cosmetic — rows still get cascade-deleted)
+  //   - Parent DELETE fails: error toast, row reappears on refresh, tombstone
+  //     cleared, hydrate re-syncs UI
+  //   - Storage remove fails: orphan binaries (cosmetic)
+  let storagePaths = [];
   try {
-    await deleteFn(submissionId);
-
-    if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
-    STATE._deletedSubmissionIds.add(submissionId);
-    STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
-    if (STATE.activeSubmissionId === submissionId) STATE.activeSubmissionId = null;
-    if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
-      try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
+    if (typeof sbCollectDocumentStoragePathsForSubmission === 'function') {
+      storagePaths = await sbCollectDocumentStoragePathsForSubmission(submissionId);
     }
-
-    renderQueueTable();
-    updateQueueKpi();
+    if (typeof sbDeleteSubmission !== 'function') {
+      throw new Error('sbDeleteSubmission not defined');
+    }
+    await sbDeleteSubmission(submissionId);
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
-    if (typeof toast === 'function') toast('Deleted · ' + label, 'success');
+    // Post-parent storage cleanup. Fire-and-forget — if it fails, binaries
+    // are orphans in the bucket (cosmetic only). Uses sbDeleteStoragePaths
+    // helper so app.js doesn't need direct access to STORAGE_BUCKET const.
+    if (storagePaths.length > 0 && typeof sbDeleteStoragePaths === 'function') {
+      sbDeleteStoragePaths(storagePaths)
+        .catch(e => console.warn('[delete] post-parent storage cleanup threw (non-fatal):', e.message));
+    }
   } catch (err) {
     console.error('Cloud delete failed', submissionId, err);
     const msg = (err && err.message) ? err.message : String(err);
-    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg, 'error');
-    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 120), 'error');
+    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh', 'error');
+    // v8.5.7: clear the tombstone so future legitimate saves can persist
+    // this submission. If we leave the tombstone in place, the row remains
+    // in the cloud database (delete failed) but the client refuses to save
+    // updates to it — confusing state.
     if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
+    // Re-hydrate from cloud so the queue UI matches the actual database
+    // state. Without this, the user sees an empty row in the queue and
+    // thinks the delete worked when it didn't.
+    if (typeof sbHydrate === 'function') {
+      try {
+        await sbHydrate();
+        if (typeof renderQueueTable === 'function') renderQueueTable();
+        if (typeof updateQueueKpi === 'function') updateQueueKpi();
+      } catch (hydrateErr) {
+        console.warn('Re-hydrate after failed delete also failed:', hydrateErr);
+      }
+    }
   }
 }
 
@@ -2852,31 +2842,6 @@ function backfillMissingAccountNames() {
   }
 }
 
-function bindQueueTableClicks(tbody) {
-  if (!tbody || tbody.__queueClicksBound) return;
-  tbody.__queueClicksBound = true;
-  tbody.addEventListener('click', function(e) {
-    const delBtn = e.target.closest('.sub-delete');
-    if (delBtn && tbody.contains(delBtn)) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      const id = delBtn.dataset.subId || (delBtn.closest('.sub-row') && delBtn.closest('.sub-row').dataset.subId);
-      if (id) deleteSubmission(id);
-      return;
-    }
-
-    // Keep status menu interactions local; they should not open/rehydrate rows.
-    if (e.target.closest('.status-wrap')) return;
-
-    const row = e.target.closest('.sub-row');
-    if (row && tbody.contains(row)) {
-      const id = row.dataset.subId;
-      if (id) rehydrateSubmission(id);
-    }
-  }, false);
-}
-
 function renderQueueTable() {
   // Auto-backfill missing names BEFORE building rows. One attempt per
   // submission per session (gated by _backfillAttempted). Cheap when there's
@@ -2884,7 +2849,6 @@ function renderQueueTable() {
   try { backfillMissingAccountNames(); } catch (e) { console.warn('Backfill pass threw:', e); }
   const tbody = document.getElementById('queueBody');
   if (!tbody) return;
-  bindQueueTableClicks(tbody);
   if (STATE.submissions.length === 0) {
     tbody.innerHTML = `
       <tr>
@@ -2937,9 +2901,9 @@ function renderQueueRow(rec) {
     </div>
   `;
   const runShort = (rec.pipelineRun || '').replace('PIPE-', '').slice(0, 10);
-  const deleteBtn = `<button type="button" class="sub-delete" data-sub-id="${escapeHtml(rec.id)}" title="Remove from queue" aria-label="Delete submission">×</button>`;
+  const deleteBtn = `<span class="sub-delete" onclick="event.stopPropagation(); deleteSubmission('${rec.id}')" title="Remove from queue">×</span>`;
   return `
-    <tr class="sub-row${isActive ? ' sub-active' : ''}" data-sub-id="${escapeHtml(rec.id)}">
+    <tr class="sub-row${isActive ? ' sub-active' : ''}" onclick="rehydrateSubmission('${rec.id}')">
       <td>
         <div class="acct-name">${account}${activeTag}${deleteBtn}</div>
         <div class="acct-sub">${runShort || '—'}</div>
