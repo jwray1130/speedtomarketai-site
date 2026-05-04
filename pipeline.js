@@ -3807,6 +3807,14 @@ function detectSubcontractAgreement(file) {
 // Returns array of section classifications (multi-section, like ACORD),
 // or null if no liability/quote pages detected.
 // ----------------------------------------------------------------------------
+// ISO General Liability classification codes — 1,288 codes covering the
+// full range of GL classifications carriers rate against. Used as the
+// primary signal in GL Exposure detection because matches against this
+// set are far more specific than any 5-digit number (which could be a
+// zip code, dollar amount, etc.). Known-code matches are weighted higher
+// in the firing rules below.
+const KNOWN_GL_CLASS_CODES = new Set(['01205','01206','01207','01235','01350','01352','01355','01356','01357','01360','01380','01381','01391','01411','01412','01415','01418','01901','01905','01906','01907','02995','02996','02997','03210','03320','03909','04122','04601','04602','04603','04604','04605','04606','04607','04608','04609','04610','04621','04622','05113','05114','05117','05118','05123','05124','05125','05135','05213','05223','05224','07106','07230','07990','07995','10010','10015','10020','10026','10036','10040','10042','10052','10054','10060','10065','10066','10070','10071','10072','10073','10075','10100','10101','10105','10107','10110','10111','10113','10115','10117','10119','10120','10130','10132','10133','10135','10140','10141','10145','10146','10150','10151','10160','10204','10205','10220','10255','10256','10257','10309','10315','10331','10332','10352','10367','10368','10375','10378','10379','10380','10381','11007','11020','11039','11052','11101','11120','11126','11127','11128','11138','11155','11160','11167','11168','11201','11202','11203','11204','11205','11206','11207','11208','11209','11210','11211','11212','11213','11214','11222','11234','11248','11258','11259','11273','11274','11288','12014','12356','12361','12362','12373','12374','12375','12391','12393','12467','12509','12510','12583','12651','12683','12707','12797','12805','12841','12927','13049','13111','13112','13201','13204','13205','13314','13351','13352','13410','13411','13412','13453','13454','13455','13506','13507','13590','13591','13621','13670','13673','13715','13716','13720','13759','13930','14068','14101','14279','14401','14405','14527','14655','14731','14732','14733','14734','14855','14913','15060','15061','15062','15063','15070','15119','15120','15123','15124','15188','15191','15192','15223','15224','15300','15314','15404','15405','15406','15407','15408','15409','15488','15538','15600','15607','15608','15656','15699','15733','15734','15839','15991','15993','16005','16009','16292','16402','16403','16404','16471','16501','16527','16588','16604','16670','16676','16694','16705','16722','16723','16750','16751','16819','16820','16881','16890','16891','16892','16900','16901','16902','16910','16911','16915','16916','16920','16921','16930','16931','16940','16941','18078','18109','18110','18200','18205','18206','18335','18435','18436','18437','18438','18501','18506','18507','18570','18575','18616','18707','18708','18833','18834','18911','18912','18920','18991','19007','19051','19061','19795','19796','40005','40006','40010','40015','40020','40026','40031','40032','40040','40041','40042','40045','40046','40047','40059','40061','40063','40064','40066','40067','40069','40072','40075','40101','40102','40111','40115','40117','40140','41001','41210','41421','41422','41510','41603','41604','41620','41650','41664','41665','41666','41667','41668','41669','41670','41672','41673','41675','41677','41678','41679','41680','41696','41697','41700','41715','41716','43007','43117','43151','43152','43200','43215','43421','43422','43424','43470','43517','43518','43550','43551','43626','43628','43629','43754','43760','43822','43840','43860','43889','43945','43946','43990','43991','44009','44010','44069','44070','44071','44072','44100','44101','44102','44103','44104','44105','44106','44108','44109','44110','44111','44112','44113','44193','44194','44222','44276','44277','44280','44311','44315','44427','44428','44429','44430','44431','44432','44433','44434','44435','44436','44437','44438','44439','44440','44444','44451','44452','44453','44454','44455','44456','44457','44458','44459','44460','44461','44462','44463','44464','44465','44466','44467','44468','44469','44470','44471','44472','44500','44501','45190','45191','45192','45193','45194','45195','45196','45197','45210','45224','45225','45334','45380','45381','45450','45523','45524','45539','45678','45771','45819','45900','45901','45937','45993','46004','46005','46112','46202','46203','46362','46426','46427','46510','46590','46603','46604','46606','46607','46622','46671','46700','46773','46822','46881','46882','46911','46912','46913','46914','46915','46916','47050','47051','47052','47103','47146','47147','47148','47149','47221','47253','47254','47318','47366','47367','47420','47468','47469','47471','47473','47474','47475','47476','47477','47478','47600','47610','48039','48177','48178','48206','48252','48441','48557','48558','48600','48610','48636','48637','48638','48727','48808','48924','48925','49005','49111','49181','49183','49184','49185','49239','49292','49305','49333','49451','49452','49617','49618','49619','49763','49800','49801','49802','49803','49840','49870','49890','49891','49902','49903','49904','49905','49910','49913','49920','49950','50010','50015','50017','50045','50047','51001','51005','51029','51098','51116','51201','51205','51206','51210','51211','51220','51221','51222','51224','51230','51240','51241','51250','51251','51252','51253','51254','51255','51300','51305','51315','51330','51333','51340','51350','51351','51352','51355','51356','51357','51358','51359','51370','51380','51400','51401','51500','51516','51517','51550','51551','51552','51553','51554','51575','51576','51600','51613','51625','51666','51702','51703','51734','51741','51752','51767','51777','51790','51796','51808','51809','51833','51850','51851','51852','51853','51854','51855','51856','51857','51869','51877','51889','51896','51900','51909','51910','51919','51926','51927','51934','51941','51942','51956','51957','51958','51959','51960','51970','51982','51985','51986','51999','52002','52075','52076','52109','52134','52137','52150','52315','52341','52342','52343','52401','52402','52432','52433','52435','52438','52440','52467','52469','52505','52547','52581','52619','52660','52744','52767','52876','52911','52967','53001','53077','53078','53095','53096','53121','53147','53229','53271','53333','53374','53375','53376','53377','53403','53425','53426','53565','53631','53632','53731','53732','53733','53734','53803','53901','53902','53903','53904','53905','53907','53951','54012','54077','54426','54444','55010','55011','55012','55013','55214','55371','55410','55426','55597','55647','55648','55649','55715','55716','55717','55718','55802','55918','55919','56040','56041','56042','56170','56171','56172','56202','56390','56391','56427','56428','56488','56567','56650','56651','56652','56653','56654','56690','56699','56758','56759','56760','56805','56806','56807','56808','56900','56901','56910','56911','56912','56913','56915','56916','56917','56918','56919','56920','56921','56922','56923','56924','56980','57001','57002','57090','57146','57202','57257','57401','57403','57410','57411','57572','57600','57611','57612','57625','57651','57690','57716','57725','57726','57798','57800','57808','57809','57810','57871','57913','57997','57998','57999','58009','58010','58020','58056','58057','58058','58095','58096','58301','58302','58397','58408','58409','58456','58457','58458','58459','58503','58532','58559','58560','58561','58575','58627','58663','58682','58713','58737','58755','58756','58757','58758','58759','58802','58813','58822','58837','58840','58873','58874','58903','58904','58922','59005','59057','59058','59188','59189','59223','59257','59306','59378','59481','59482','59537','59538','59601','59647','59660','59661','59693','59695','59701','59713','59722','59723','59724','59725','59726','59738','59750','59751','59773','59774','59775','59781','59782','59783','59784','59790','59798','59806','59867','59886','59889','59892','59904','59905','59914','59915','59917','59923','59925','59926','59927','59931','59932','59941','59947','59955','59963','59964','59970','59973','59975','59977','59984','59985','59986','59988','59989','60010','60011','60012','60013','60015','60016','60035','61000','61212','61216','61217','61218','61223','61224','61225','61226','61227','62000','62001','62002','62003','63010','63011','63012','63013','63215','63216','63217','63218','63219','63220','64074','64075','64500','65007','65210','66122','66123','66309','66561','67017','67508','67509','67510','67511','67512','67513','67634','67635','68001','68439','68500','68604','68606','68607','68702','68703','68706','68707','90089','91111','91125','91127','91130','91135','91150','91155','91160','91175','91177','91179','91190','91200','91210','91235','91250','91265','91266','91280','91302','91315','91324','91325','91340','91341','91342','91343','91405','91436','91481','91507','91523','91547','91551','91555','91560','91562','91577','91580','91581','91582','91583','91584','91585','91586','91587','91588','91589','91590','91591','91600','91606','91618','91629','91636','91641','91666','91722','91746','91805','92053','92054','92055','92101','92102','92215','92338','92445','92446','92447','92451','92453','92478','92593','92663','93166','93167','93169','94007','94099','94225','94276','94304','94381','94404','94444','94569','94590','94617','94638','95124','95233','95305','95306','95310','95357','95358','95410','95455','95487','95505','95620','95625','95630','95647','95648','96053','96317','96408','96409','96410','96611','96702','96703','96816','96872','96930','97002','97003','97047','97050','97111','97219','97220','97221','97222','97223','97308','97447','97501','97650','97651','97652','97653','97654','97655','98001','98002','98003','98004','98090','98091','98092','98111','98150','98151','98152','98153','98154','98155','98156','98157','98158','98159','98160','98161','98162','98163','98164','98257','98303','98304','98305','98306','98307','98308','98309','98344','98405','98413','98414','98415','98423','98424','98425','98426','98427','98428','98429','98430','98449','98482','98483','98502','98555','98597','98598','98601','98622','98623','98624','98636','98640','98658','98659','98677','98678','98698','98699','98705','98710','98751','98805','98806','98810','98813','98820','98871','98884','98914','98949','98967','98993','99003','99004','99080','99111','99160','99163','99165','99220','99221','99222','99223','99303','99310','99315','99321','99445','99471','99505','99506','99507','99570','99571','99572','99573','99600','99613','99614','99620','99650','99709','99718','99746','99760','99777','99793','99798','99803','99826','99827','99851','99917','99938','99943','99946','99948','99952','99953','99954','99955','99963','99969','99975','99986','99987','99988']);
+
 function detectLiabilityDecPages(file) {
   const pageTexts = file && file.pageTexts;
   if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
@@ -3835,48 +3843,77 @@ function detectLiabilityDecPages(file) {
     const pageNum = i + 1;
     const headerZone = pageText.slice(0, 1500);
 
+    // Convenience flag — what's already been detected
+    const has = (t) => detected.some(d => d.tag === t);
+
     // ── DEC PAGE CHECKS (priority — these have highest info content) ──
+    //
+    // Dec pages run only if the corresponding tag hasn't already fired.
+    // If GL Quote was already tagged on an earlier page, this page can
+    // still be a schedule (GL Exposure / GL T&C / AL Fleet) — fall
+    // through to those checks instead of skipping.
 
     const hasDeclarations = /\bDECLARATIONS\b/i.test(pageText);
     const hasLimits = /\b(?:LIMIT(?:S)?\s+OF\s+(?:LIABILITY|INSURANCE)|EACH\s+OCCURRENCE|LIMIT\s+OF\s+LIABILITY)\b/i.test(pageText);
     const currencyMatches = (pageText.match(/\$\s?[\d,]+(?:\.\d{2})?/g) || []).length;
 
-    const hasUmbrella = /\b(?:COMMERCIAL\s+UMBRELLA|UMBRELLA\s+(?:LIABILITY|POLICY|DECLARATIONS)|EXCESS\s+(?:LIABILITY|DECLARATIONS|POLICY)|FOLLOWING\s+FORM\s+EXCESS|FOLLOW(?:-|\s+)FORM)\b/i.test(headerZone);
-    const hasGL = /\b(?:COMMERCIAL\s+GENERAL\s+LIABILITY|CGL\s+DECLARATIONS|GENERAL\s+LIABILITY\s+DECLARATIONS)\b/i.test(headerZone);
-    const hasAL = /\b(?:BUSINESS\s+AUTO|COMMERCIAL\s+AUTO|AUTOMOBILE\s+LIABILITY)\b/i.test(headerZone);
+    const hasUmbrella = /\b(?:COMMERCIAL\s+UMBRELLA|UMBRELLA\s+(?:LIABILITY|POLICY|DECLARATIONS)|EXCESS\s+(?:LIABILITY|DECLARATIONS|POLICY)|FOLLOWING\s+FORM\s+EXCESS|FOLLOW(?:-|\s+)FORM|COMMERCIAL\s+LIABILITY\s+UMBRELLA)\b/i.test(headerZone);
+    const hasGL = /\b(?:COMMERCIAL\s+GENERAL\s+LIABILITY|CGL\s+DECLARATIONS|GENERAL\s+LIABILITY\s+DECLARATIONS|DECLARATIONS:?\s*COMMERCIAL\s+GENERAL\s+LIABILITY)\b/i.test(headerZone);
+    const hasAL = /\b(?:BUSINESS\s+AUTO|COMMERCIAL\s+AUTO|AUTOMOBILE\s+LIABILITY|BUSINESS\s+AUTOMOBILE)\b/i.test(headerZone);
     const hasUnderlying = /\b(?:SCHEDULE\s+OF\s+UNDERLYING|UNDERLYING\s+INSURANCE|UNDERLYING\s+POLICIES|UNDERLYING\s+CARRIER|UNDERLYING\s+LIMITS?)\b/i.test(pageText);
 
     const isDecPage = (hasDeclarations || hasLimits) && currencyMatches >= 3;
+
+    // SUMMARY PAGE GUARD — pages that list ALL coverages with their
+    // premium subtotals (Quote Declarations, Coverage Summary, Account
+    // Summary) are not dec pages for any specific coverage. They have
+    // "DECLARATIONS" keyword (e.g. "QUOTE DECLARATIONS" header) and
+    // currency density, so they pass isDecPage. Disambiguate via:
+    //   - "Total Annual Premium" / "Total Premium" phrase, AND
+    //   - 3+ coverage type markers in header zone (the summary lists
+    //     GL + Auto + Umbrella + Property + Crime + EPL + ...)
+    const hasTotalPremium = /\bTOTAL\s+(?:ANNUAL\s+)?PREMIUM\b/i.test(headerZone);
+    const coverageMarkerCount =
+      (hasUmbrella ? 1 : 0) + (hasGL ? 1 : 0) + (hasAL ? 1 : 0);
+    const isCoverageSummaryPage = hasTotalPremium && coverageMarkerCount >= 2;
 
     let tag = null;
     let subType = null;
     const signals = [];
 
-    if (isDecPage) {
-      if (hasUmbrella) {
+    if (isDecPage && !isCoverageSummaryPage) {
+      if (hasUmbrella && !has('Excess T&C')) {
         tag = 'Excess T&C';
         subType = 'EXCESS';
         signals.push('umbrella_or_excess_in_header');
         if (hasUnderlying) signals.push('schedule_of_underlying');
-      } else if (hasUnderlying && (hasGL || hasAL)) {
+      } else if (hasUnderlying && (hasGL || hasAL) && !has('Excess T&C')) {
         tag = 'Excess T&C';
         subType = 'EXCESS';
         signals.push('schedule_of_underlying_disambiguates');
         signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
-      } else if (hasGL) {
+      } else if (hasGL && !has('GL Quote')) {
         tag = 'GL Quote';
         subType = 'GL';
         signals.push('commercial_general_liability_in_header');
-      } else if (hasAL) {
+      } else if (hasAL && !has('AL Quote')) {
         tag = 'AL Quote';
         subType = 'AL';
         signals.push('business_auto_in_header');
       }
     }
 
-    // ── SCHEDULE PAGE CHECKS (if not already classified as dec page) ──
+    // ── SCHEDULE PAGE CHECKS ──
+    //
+    // These run if no dec page was tagged for this page. Critical:
+    // if GL Quote was tagged on an earlier page, the GL classification
+    // schedule (which is a continuation page within the GL section)
+    // should still get checked here so it can be tagged GL Exposure.
+    //
+    // Each schedule check also gates on "tag not already taken" so
+    // we don't double-tag the same coverage type.
 
-    if (!tag) {
+    if (!tag && !has('AL Fleet')) {
       // AL FLEET — vehicle schedule.
       // VIN regex: 17 chars, alphanumeric, no I/O/Q. Real VINs follow
       // strict format. Three or more on a page = vehicle schedule.
@@ -3902,7 +3939,7 @@ function detectLiabilityDecPages(file) {
       }
     }
 
-    if (!tag) {
+    if (!tag && !has('GL Exposure')) {
       // GL EXPOSURE — class code rating schedule.
       //
       // Real carrier GL rating pages have a tabular layout with:
@@ -3937,9 +3974,23 @@ function detectLiabilityDecPages(file) {
       // (001) = Gross Sales is the most common; full ACORD set is (001)-(009).
       const acordBasisCodes = (pageText.match(/\((?:00[1-9]|0?1[0-9])\)/g) || []).length;
 
-      // 5-digit ISO class codes — permissive match (table cells, no strict
-      // word-boundary since codes sit next to other digits in pdf.js text)
-      const classCodeMatches = (pageText.match(/(?:^|[^\d])([1-9]\d{4})(?:[^\d]|$)/g) || []).length;
+      // ISO class codes — match every 5-digit number permissively, then
+      // separately count how many of those match the known ISO catalog.
+      // Known-code matches are far more specific (zip codes / dollar
+      // amounts / random IDs won't accidentally match real ISO codes)
+      // and get weighted higher in the firing rules.
+      const allFiveDigit = pageText.match(/(?:^|[^\d])([1-9]\d{4})(?:[^\d]|$)/g) || [];
+      const wildcardCount = allFiveDigit.length;
+      // Strip surrounding non-digits to get just the code, then check Set
+      const knownCodeMatches = allFiveDigit.filter(m => {
+        const code = m.match(/[1-9]\d{4}/)[0];
+        return KNOWN_GL_CLASS_CODES.has(code);
+      }).length;
+      // Use known count when meaningful, fall back to wildcard for
+      // carriers using codes outside the catalog (e.g. proprietary
+      // class codes from MGAs, newly-published ISO codes not yet
+      // in the list).
+      const classCodeMatches = knownCodeMatches > 0 ? knownCodeMatches : wildcardCount;
 
       // Optional secondary patterns — exposure unit phrases (when they appear)
       const hasUnitPhrases =
@@ -3965,15 +4016,25 @@ function detectLiabilityDecPages(file) {
       let exposureFired = false;
       const exposureSignals = [];
 
-      if (hasPremiumBasisHeader && classCodeMatches >= 2) {
-        // Strongest: literal "PREMIUM BASIS" column header + class codes
+      if (knownCodeMatches >= 2 && (hasPremiumBasisHeader || hasUnitPhrases || acordBasisCodes >= 1 || hasClassificationHeader)) {
+        // Strongest: 2+ codes that match the known ISO catalog.
+        // Known codes are specific — won't false-match zip codes or
+        // dollar amounts. Even a light supporting signal confirms.
+        exposureFired = true;
+        exposureSignals.push(knownCodeMatches + '_known_iso_codes');
+        if (hasPremiumBasisHeader) exposureSignals.push('premium_basis_column_header');
+        if (hasPremOpsHeader) exposureSignals.push('prem_ops_column');
+        if (hasProdCompHeader) exposureSignals.push('prod_comp_column');
+        if (acordBasisCodes >= 1) exposureSignals.push(acordBasisCodes + '_acord_basis_codes');
+      } else if (hasPremiumBasisHeader && classCodeMatches >= 2) {
+        // Literal "PREMIUM BASIS" column header + class codes (wildcard)
         exposureFired = true;
         exposureSignals.push('premium_basis_column_header');
         exposureSignals.push(classCodeMatches + '_class_codes');
         if (hasPremOpsHeader) exposureSignals.push('prem_ops_column');
         if (hasProdCompHeader) exposureSignals.push('prod_comp_column');
       } else if (columnHeaderScore >= 3 && classCodeMatches >= 1) {
-        // Multiple GL rating column headers present — definite GL rating page
+        // Multiple GL rating column headers present
         exposureFired = true;
         exposureSignals.push(columnHeaderScore + '_gl_rating_columns');
         exposureSignals.push(classCodeMatches + '_class_codes');
@@ -3986,7 +4047,7 @@ function detectLiabilityDecPages(file) {
         // Heavy class code density with at least one supporting signal
         exposureFired = true;
         exposureSignals.push(classCodeMatches + '_class_codes');
-        if (hasUnitPhrases) exposureSignals.push('unit_phrases');
+        if (hasPremiumBasis) exposureSignals.push('unit_phrases');
         if (hasClassificationHeader) exposureSignals.push('classification_column');
       } else if (hasExposureTitle && (classCodeMatches >= 1 || hasUnitPhrases)) {
         // Title + any supporting signal
@@ -4003,7 +4064,7 @@ function detectLiabilityDecPages(file) {
       }
     }
 
-    if (!tag) {
+    if (!tag && !has('GL T&C')) {
       // GL T&C / FORMS SCHEDULE — list of attached forms and endorsements.
       // ISO form codes have a strict format: 2-letter prefix + 2-digit
       // + 2-digit + 2-digit + 2-digit edition date. Common prefixes:
@@ -4011,7 +4072,7 @@ function detectLiabilityDecPages(file) {
       //   property), CU (commercial umbrella), IL (interline), CO (crime).
       // 3+ codes on a page = forms schedule.
       const formCodeMatches = (pageText.match(/\b(?:CG|CA|CP|CU|IL|CO|WC|GL|CR|EB|BP)\s?\d{2}\s?\d{2}(?:\s?\d{2}\s?\d{2})?\b/gi) || []).length;
-      const hasFormsTitle = /\b(?:FORMS\s+(?:AND|&)\s+ENDORSEMENTS?\s+SCHEDULE|SCHEDULE\s+OF\s+FORMS|FORMS\s+SCHEDULE|FORMS\s+LIST|ENDORSEMENT\s+SCHEDULE|GL\s+FORMS|GL\s+T&C|GL\s+TERMS\s+AND\s+CONDITIONS|TERMS\s+AND\s+CONDITIONS)\b/i.test(headerZone);
+      const hasFormsTitle = /\b(?:TITLES?\s+OF\s+APPLICABLE\s+(?:POLICY\s+)?FORMS|APPLICABLE\s+(?:POLICY\s+)?FORMS\s+(?:AND|&)\s+ENDORSEMENTS|FORMS\s+(?:AND|&)\s+ENDORSEMENTS?\s+SCHEDULE|SCHEDULE\s+OF\s+FORMS|FORMS\s+SCHEDULE|FORMS\s+LIST|ENDORSEMENT\s+SCHEDULE|GL\s+FORMS|GL\s+T&C|GL\s+TERMS\s+AND\s+CONDITIONS|TERMS\s+AND\s+CONDITIONS)\b/i.test(headerZone);
       const hasFormColumns = /\b(?:FORM\s+(?:NUMBER|TITLE|NAME)|EDITION\s+DATE|FORM\s+NO\.?)\b/i.test(pageText);
 
       if (formCodeMatches >= 3 && (hasFormsTitle || hasFormColumns)) {
@@ -4030,11 +4091,6 @@ function detectLiabilityDecPages(file) {
 
     // No match for this page — continue to next
     if (!tag) continue;
-
-    // Only record FIRST occurrence of each coverage type — subsequent
-    // continuation pages are implicitly part of the same section via
-    // the section_hint range built below.
-    if (detected.some(d => d.tag === tag)) continue;
 
     if (isDecPage) {
       signals.push(hasDeclarations ? 'declarations_keyword' : 'limits_keyword');
