@@ -3758,41 +3758,39 @@ function detectSubcontractAgreement(file) {
 
 // ----------------------------------------------------------------------------
 // LIABILITY DECLARATION PAGES detector — for tagging carrier-issued
-// liability coverage declarations within a package quote. Detects three
-// types of dec pages and returns them as multi-section results (similar
+// liability coverage declarations within a package quote. Detects six
+// types of pages and returns them as multi-section results (similar
 // to the ACORD per-page detector):
 //
 //   - General Liability dec pages → "GL Quote"
-//   - Auto Liability dec pages → "AL Quote"
+//   - Auto Liability dec pages    → "AL Quote"
 //   - Umbrella / Excess dec pages → "Excess T&C"
+//   - Vehicle/Auto schedule pages → "AL Fleet"
+//   - GL class code schedule      → "GL Exposure"
+//   - Forms & Endorsements list   → "GL T&C"
 //
-// SIGNALS PER PAGE:
+// SIGNALS PER PAGE (priority order):
 //
-//   1. DECLARATIONS keyword OR limits structure ("Each Occurrence",
-//      "Limit of Liability") — establishes that the page is a dec page
-//      rather than a coverage form or schedule.
+//   1. Excess/Umbrella dec page — header has UMBRELLA/EXCESS marker OR
+//      page has Schedule of Underlying + GL/AL marker. Dollar density
+//      and DECLARATIONS keyword required.
 //
-//   2. Currency density (≥3 dollar amounts) — real dec pages are
-//      money-heavy. Filters out cover letters and TOC pages.
+//   2. GL Dec page — header has Commercial General Liability marker,
+//      no Schedule of Underlying, dollar density, DECLARATIONS keyword.
 //
-//   3. Coverage type marker in page HEADER zone (first 1500 chars).
-//      Header position prevents false-trigger from prose mentions
-//      later in the page.
+//   3. AL Dec page — header has Business Auto / Commercial Auto marker,
+//      no Schedule of Underlying, dollar density, DECLARATIONS keyword.
 //
-//   4. Schedule of Underlying Insurance — the distinguishing signal
-//      between primary liability and excess/umbrella. Excess always
-//      has it (because it lists the policies sitting beneath); primary
-//      never has it (because nothing sits beneath primary).
+//   4. AL Fleet (vehicle schedule) — VIN density + vehicle attribute
+//      columns (Year, Make, Model, GVW). VINs are 17-character
+//      alphanumerics with no I/O/Q — extremely specific signal.
 //
-// CLASSIFICATION DECISION (per page, priority order):
+//   5. GL Exposure (class code schedule) — ISO 5-digit class codes +
+//      premium basis indicators ("(S) Gross Sales", "(P) Payroll", etc).
 //
-//   Header has UMBRELLA/EXCESS marker          → Excess T&C
-//   Has Schedule of Underlying + GL/AL marker  → Excess T&C
-//      (catches docs where excess header is in footer due to pdf.js
-//       extraction order, but underlying schedule reveals the truth)
-//   Header has GL marker, no underlying        → GL Quote
-//   Header has AL marker, no underlying        → AL Quote
-//   None of the above                          → skip page
+//   6. GL T&C / Forms Schedule — ISO form code density (CG 00 01 04 13
+//      pattern) + schedule title. Form codes are unambiguous: 2-letter
+//      prefix + 2-digit + 2-digit + 2-digit + 2-digit edition.
 //
 // FALSE-POSITIVE GUARDS (whole-doc level):
 //
@@ -3800,14 +3798,14 @@ function detectSubcontractAgreement(file) {
 //   - No QUESTIONNAIRE keyword
 //   - No loss run column headers
 //
-// Note: Excess vs Umbrella, and tower position (Lead $5M vs $10M xs $5M
-// vs Quota Share) cannot be determined deterministically — those depend
-// on the actual numeric values which require LLM extraction. Tagging
-// both Umbrella and Excess as "Excess T&C" is the correct deterministic
-// behavior; the LLM extraction module fills in the specific layer.
+// Note: Tagging is deterministic at the section level. Specific layer
+// structure within Excess T&C (Lead $5M vs $10M xs $5M vs Quota Share)
+// still requires LLM extraction. AL Fleet vehicle counts and GL
+// Exposure class-code premiums also pull from extraction modules —
+// this detector just files them correctly.
 //
 // Returns array of section classifications (multi-section, like ACORD),
-// or null if no liability dec pages detected.
+// or null if no liability/quote pages detected.
 // ----------------------------------------------------------------------------
 function detectLiabilityDecPages(file) {
   const pageTexts = file && file.pageTexts;
@@ -3837,65 +3835,136 @@ function detectLiabilityDecPages(file) {
     const pageNum = i + 1;
     const headerZone = pageText.slice(0, 1500);
 
-    // Dec page baseline — must have DECLARATIONS keyword or limits structure
+    // ── DEC PAGE CHECKS (priority — these have highest info content) ──
+
     const hasDeclarations = /\bDECLARATIONS\b/i.test(pageText);
     const hasLimits = /\b(?:LIMIT(?:S)?\s+OF\s+(?:LIABILITY|INSURANCE)|EACH\s+OCCURRENCE|LIMIT\s+OF\s+LIABILITY)\b/i.test(pageText);
-    if (!hasDeclarations && !hasLimits) continue;
-
-    // Currency density — dec pages have multiple dollar amounts
-    // (limits, premium, deductible, retention). 3+ filters out cover
-    // letters and tables of contents that mention dollar figures.
     const currencyMatches = (pageText.match(/\$\s?[\d,]+(?:\.\d{2})?/g) || []).length;
-    if (currencyMatches < 3) continue;
 
-    // Coverage type markers in HEADER zone (first 1500 chars)
     const hasUmbrella = /\b(?:COMMERCIAL\s+UMBRELLA|UMBRELLA\s+(?:LIABILITY|POLICY|DECLARATIONS)|EXCESS\s+(?:LIABILITY|DECLARATIONS|POLICY)|FOLLOWING\s+FORM\s+EXCESS|FOLLOW(?:-|\s+)FORM)\b/i.test(headerZone);
     const hasGL = /\b(?:COMMERCIAL\s+GENERAL\s+LIABILITY|CGL\s+DECLARATIONS|GENERAL\s+LIABILITY\s+DECLARATIONS)\b/i.test(headerZone);
     const hasAL = /\b(?:BUSINESS\s+AUTO|COMMERCIAL\s+AUTO|AUTOMOBILE\s+LIABILITY)\b/i.test(headerZone);
-
-    // Schedule of Underlying — full page check (often appears later
-    // on the page than the header zone)
     const hasUnderlying = /\b(?:SCHEDULE\s+OF\s+UNDERLYING|UNDERLYING\s+INSURANCE|UNDERLYING\s+POLICIES|UNDERLYING\s+CARRIER|UNDERLYING\s+LIMITS?)\b/i.test(pageText);
 
-    // Classification (priority order)
+    const isDecPage = (hasDeclarations || hasLimits) && currencyMatches >= 3;
+
     let tag = null;
     let subType = null;
     const signals = [];
 
-    if (hasUmbrella) {
-      tag = 'Excess T&C';
-      subType = 'EXCESS';
-      signals.push('umbrella_or_excess_in_header');
-      if (hasUnderlying) signals.push('schedule_of_underlying');
-    } else if (hasUnderlying && (hasGL || hasAL)) {
-      // Edge case: page header didn't clearly say umbrella/excess but
-      // the page has a Schedule of Underlying. This pattern shows up
-      // when the excess/umbrella title is in the page footer instead
-      // of header (pdf.js extraction order quirk). Underlying schedule
-      // is the load-bearing signal that this is excess, not primary.
-      tag = 'Excess T&C';
-      subType = 'EXCESS';
-      signals.push('schedule_of_underlying_disambiguates');
-      signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
-    } else if (hasGL) {
-      tag = 'GL Quote';
-      subType = 'GL';
-      signals.push('commercial_general_liability_in_header');
-    } else if (hasAL) {
-      tag = 'AL Quote';
-      subType = 'AL';
-      signals.push('business_auto_in_header');
+    if (isDecPage) {
+      if (hasUmbrella) {
+        tag = 'Excess T&C';
+        subType = 'EXCESS';
+        signals.push('umbrella_or_excess_in_header');
+        if (hasUnderlying) signals.push('schedule_of_underlying');
+      } else if (hasUnderlying && (hasGL || hasAL)) {
+        tag = 'Excess T&C';
+        subType = 'EXCESS';
+        signals.push('schedule_of_underlying_disambiguates');
+        signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
+      } else if (hasGL) {
+        tag = 'GL Quote';
+        subType = 'GL';
+        signals.push('commercial_general_liability_in_header');
+      } else if (hasAL) {
+        tag = 'AL Quote';
+        subType = 'AL';
+        signals.push('business_auto_in_header');
+      }
     }
 
+    // ── SCHEDULE PAGE CHECKS (if not already classified as dec page) ──
+
+    if (!tag) {
+      // AL FLEET — vehicle schedule.
+      // VIN regex: 17 chars, alphanumeric, no I/O/Q. Real VINs follow
+      // strict format. Three or more on a page = vehicle schedule.
+      // (Standalone VIN on a single ID document wouldn't trigger.)
+      const vinMatches = (pageText.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || []).length;
+      const hasVehicleColumns = /\b(?:V\.?I\.?N\.?|VEHICLE\s+IDENTIFICATION)\b[\s\S]{0,200}\b(?:YEAR|MAKE|MODEL)\b/i.test(pageText) ||
+                                /\b(?:YEAR\s+MAKE|MAKE\s+MODEL|GVW|GARAGING)\b/i.test(pageText);
+      const hasFleetTitle = /\b(?:SCHEDULE\s+OF\s+(?:AUTOS|VEHICLES)|VEHICLE\s+SCHEDULE|COVERED\s+AUTOS|AUTO\s+SCHEDULE|FLEET\s+SCHEDULE|VEHICLE\s+(?:DESCRIPTION|LIST))\b/i.test(headerZone);
+
+      if (vinMatches >= 3 && hasVehicleColumns) {
+        tag = 'AL Fleet';
+        subType = 'AL_FLEET';
+        signals.push(vinMatches + '_vins');
+        signals.push('vehicle_columns');
+        if (hasFleetTitle) signals.push('fleet_title_in_header');
+      } else if (hasFleetTitle && vinMatches >= 1) {
+        // Title present but VIN density lower (could be paginated fleet
+        // continuation page). Still tag as AL Fleet.
+        tag = 'AL Fleet';
+        subType = 'AL_FLEET';
+        signals.push('fleet_title_in_header');
+        signals.push(vinMatches + '_vins');
+      }
+    }
+
+    if (!tag) {
+      // GL EXPOSURE — class code schedule.
+      // ISO GL class codes are 5-digit numbers in the 10000-99999 range.
+      // Real exposure schedules have 3+ class codes plus premium basis
+      // indicators like "(S) Gross Sales", "(P) Payroll", "(A) Area".
+      const classCodeMatches = (pageText.match(/\b[1-9]\d{4}\b/g) || []).length;
+      const hasPremiumBasis = /\((?:S|P|A|C|M|U|T)\)\s*(?:GROSS\s+SALES|PAYROLL|AREA|TOTAL\s+COST|ADMISSIONS|UNIT|OTHER)/i.test(pageText) ||
+                              /\b(?:PREMIUM\s+BASIS|RATING\s+AND\s+PREMIUM\s+BASIS|EXPOSURE\s+(?:BASIS|UNIT))\b/i.test(pageText);
+      const hasExposureTitle = /\b(?:SCHEDULE\s+OF\s+HAZARDS|CLASSIFICATION\s+SCHEDULE|GL\s+EXPOSURES?|GENERAL\s+LIABILITY\s+EXPOSURES?|PREMIUM\s+COMPUTATION|EXPOSURE\s+SCHEDULE)\b/i.test(headerZone);
+      const hasCgKeyword = /\b(?:CLASS\s+CODE|CLASS\s+DESCRIPTION|HAZARD\s+(?:GROUP|GRADE)\s*\d?)\b/i.test(pageText);
+
+      if (classCodeMatches >= 3 && (hasPremiumBasis || hasCgKeyword)) {
+        tag = 'GL Exposure';
+        subType = 'GL_EXPOSURE';
+        signals.push(classCodeMatches + '_class_codes');
+        if (hasPremiumBasis) signals.push('premium_basis_markers');
+        if (hasCgKeyword) signals.push('class_code_columns');
+        if (hasExposureTitle) signals.push('exposure_title_in_header');
+      } else if (hasExposureTitle && classCodeMatches >= 1) {
+        tag = 'GL Exposure';
+        subType = 'GL_EXPOSURE';
+        signals.push('exposure_title_in_header');
+        signals.push(classCodeMatches + '_class_codes');
+      }
+    }
+
+    if (!tag) {
+      // GL T&C / FORMS SCHEDULE — list of attached forms and endorsements.
+      // ISO form codes have a strict format: 2-letter prefix + 2-digit
+      // + 2-digit + 2-digit + 2-digit edition date. Common prefixes:
+      //   CG (commercial general), CA (commercial auto), CP (commercial
+      //   property), CU (commercial umbrella), IL (interline), CO (crime).
+      // 3+ codes on a page = forms schedule.
+      const formCodeMatches = (pageText.match(/\b(?:CG|CA|CP|CU|IL|CO|WC|GL|CR|EB|BP)\s?\d{2}\s?\d{2}(?:\s?\d{2}\s?\d{2})?\b/gi) || []).length;
+      const hasFormsTitle = /\b(?:FORMS\s+(?:AND|&)\s+ENDORSEMENTS?\s+SCHEDULE|SCHEDULE\s+OF\s+FORMS|FORMS\s+SCHEDULE|FORMS\s+LIST|ENDORSEMENT\s+SCHEDULE|GL\s+FORMS|GL\s+T&C|GL\s+TERMS\s+AND\s+CONDITIONS|TERMS\s+AND\s+CONDITIONS)\b/i.test(headerZone);
+      const hasFormColumns = /\b(?:FORM\s+(?:NUMBER|TITLE|NAME)|EDITION\s+DATE|FORM\s+NO\.?)\b/i.test(pageText);
+
+      if (formCodeMatches >= 3 && (hasFormsTitle || hasFormColumns)) {
+        tag = 'GL T&C';
+        subType = 'GL_TC';
+        signals.push(formCodeMatches + '_iso_form_codes');
+        if (hasFormsTitle) signals.push('forms_title_in_header');
+        if (hasFormColumns) signals.push('form_table_columns');
+      } else if (hasFormsTitle && formCodeMatches >= 1) {
+        tag = 'GL T&C';
+        subType = 'GL_TC';
+        signals.push('forms_title_in_header');
+        signals.push(formCodeMatches + '_iso_form_codes');
+      }
+    }
+
+    // No match for this page — continue to next
     if (!tag) continue;
 
     // Only record FIRST occurrence of each coverage type — subsequent
-    // continuation pages (more limit details, forms list, etc.) are
-    // implicitly part of the same section via section_hint range.
+    // continuation pages are implicitly part of the same section via
+    // the section_hint range built below.
     if (detected.some(d => d.tag === tag)) continue;
 
-    signals.push(hasDeclarations ? 'declarations_keyword' : 'limits_keyword');
-    signals.push(currencyMatches + '_currency_values');
+    if (isDecPage) {
+      signals.push(hasDeclarations ? 'declarations_keyword' : 'limits_keyword');
+      signals.push(currencyMatches + '_currency_values');
+    }
 
     detected.push({
       tag: tag,
@@ -3926,7 +3995,7 @@ function detectLiabilityDecPages(file) {
       primary_bucket: 'QUOTES_UNDERLYING',
       section_hint: sectionHint,
       confidence: 0.92,
-      reasoning: 'Per-page scan: ' + d.tag + ' declaration page found at page ' + d.startPage + ' (' + d.signals.join(' + ') + ').',
+      reasoning: 'Per-page scan: ' + d.tag + ' page found at page ' + d.startPage + ' (' + d.signals.join(' + ') + ').',
       _detectedSignals: d.signals,
       _startPage: d.startPage,
       _endPage: endPage,
