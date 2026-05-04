@@ -3903,28 +3903,89 @@ function detectLiabilityDecPages(file) {
     }
 
     if (!tag) {
-      // GL EXPOSURE — class code schedule.
-      // ISO GL class codes are 5-digit numbers in the 10000-99999 range.
-      // Real exposure schedules have 3+ class codes plus premium basis
-      // indicators like "(S) Gross Sales", "(P) Payroll", "(A) Area".
-      const classCodeMatches = (pageText.match(/\b[1-9]\d{4}\b/g) || []).length;
-      const hasPremiumBasis = /\((?:S|P|A|C|M|U|T)\)\s*(?:GROSS\s+SALES|PAYROLL|AREA|TOTAL\s+COST|ADMISSIONS|UNIT|OTHER)/i.test(pageText) ||
-                              /\b(?:PREMIUM\s+BASIS|RATING\s+AND\s+PREMIUM\s+BASIS|EXPOSURE\s+(?:BASIS|UNIT))\b/i.test(pageText);
-      const hasExposureTitle = /\b(?:SCHEDULE\s+OF\s+HAZARDS|CLASSIFICATION\s+SCHEDULE|GL\s+EXPOSURES?|GENERAL\s+LIABILITY\s+EXPOSURES?|PREMIUM\s+COMPUTATION|EXPOSURE\s+SCHEDULE)\b/i.test(headerZone);
-      const hasCgKeyword = /\b(?:CLASS\s+CODE|CLASS\s+DESCRIPTION|HAZARD\s+(?:GROUP|GRADE)\s*\d?)\b/i.test(pageText);
+      // GL EXPOSURE — class code schedule with exposure bases.
+      //
+      // Detection signals (in priority order):
+      //
+      //   1. ISO premium basis units. ISO publishes a wide catalog of
+      //      exposure units carriers use to rate GL — sales, payroll,
+      //      area, units, persons, vehicles, etc. The full set is
+      //      ~100+ phrases, but they all follow recognizable patterns:
+      //
+      //        - "$1,000 of [Gross Sales|Payroll|Cost|...]"
+      //        - "Number of [Lessees|Towers|Employees|Units|...]"
+      //        - "Per [Person|Show|bed|unit|Site|...]"
+      //        - "Each [Additional Insured|ATV|Tower|Watercraft|Zoo|...]"
+      //        - "Thousands of [Admissions|Square Feet|Tons|Gallons|...]"
+      //        - Standalone units: "Gross Sales", "Gallons", "Acres"
+      //
+      //      Just two of these phrases on a page = very strong signal.
+      //      They don't appear in other doc types.
+      //
+      //   2. ISO class codes (5-digit, 10000-99999). Real exposure
+      //      schedules have multiple codes. Permissive match — codes
+      //      sit inside table cells next to other digits in pdf.js
+      //      extracted text, so strict word-boundary fails. We use
+      //      lookbehind for non-digit instead.
+      //
+      //   3. Schedule title (header-zone) — confirms the page intent.
+      //
+      // FIRING RULES:
+      //   - 2+ premium basis phrases  → fire (strongest single signal)
+      //   - 3+ class codes + 1 phrase → fire
+      //   - Schedule title + 1 code   → fire
+      const premiumBasisPatterns = [
+        // $1,000 of [unit] — most common construction
+        /\$\s?1[,]?000\s+(?:OF\s+)?(?:GROSS\s+SALES|GROSS\s+RECEIPTS|PAYROLL|TOTAL\s+COST|TOTAL\s+OPERATING|COST|SALES|RECEIPTS|REMUNERATION)/i,
+        // Number of [thing] — covers Lessees, Towers, Units, Employees, Members,
+        // Locations, Persons, Lakes, Stations, Acres, Animals, Snowmobiles, etc.
+        /\bNUMBER\s+OF\s+[A-Z][A-Za-z]+/i,
+        // Per [unit] — Person, Show, bed, unit, Site, outpatient visit
+        /\bPER\s+(?:PERSON|SHOW|BED|UNIT|SITE|OUTPATIENT|ADMISSION|VISIT|HEAD)\b/i,
+        // Each [thing] — Additional Insured, ATV, Tower, Watercraft, Zoo, etc.
+        /\bEACH\s+(?:ADDITIONAL\s+(?:INSURED|FARM|RESIDENCE)|ALL[\s-]TERRAIN|RESIDENCE|WATERCRAFT|TOWER|ZOO|ACTIVITY\s+DAY|PERSON)\b/i,
+        // Thousands of [unit]
+        /\bTHOUSANDS\s+OF\s+(?:ADMISSIONS|SQUARE\s+FEET|TONS|GALLONS|VEHICLES|PASSENGER)/i,
+        // Common standalone units when adjacent to "Premium" / "Rate" / class code context
+        /\b(?:GROSS\s+SALES|PAYROLL|GALLONS|ACRES|MILES)\b/i,
+        // ACORD parenthetical-letter format used on ACORD 126 hazard schedule
+        /\((?:S|P|A|C|M|U|T)\)\s*(?:GROSS\s+SALES|PAYROLL|AREA|TOTAL\s+COST|ADMISSIONS|UNIT|OTHER)/i,
+      ];
+      const basisHits = premiumBasisPatterns.filter(p => p.test(pageText)).length;
 
-      if (classCodeMatches >= 3 && (hasPremiumBasis || hasCgKeyword)) {
+      // ISO class codes — permissive match (table cells, not word-bounded)
+      const classCodeMatches = (pageText.match(/(?:^|[^\d])([1-9]\d{4})(?:[^\d]|$)/g) || []).length;
+
+      // Schedule title (header zone)
+      const hasExposureTitle =
+        /\b(?:SCHEDULE\s+OF\s+HAZARDS|CLASSIFICATION\s+(?:SCHEDULE|AND\s+PREMIUM)|GL\s+EXPOSURES?|GENERAL\s+LIABILITY\s+EXPOSURES?|PREMIUM\s+COMPUTATION|EXPOSURE\s+SCHEDULE|RATING\s+(?:AND\s+PREMIUM\s+)?(?:BASIS|INFORMATION|WORKSHEET)|CLASS\s+(?:AND\s+)?PREMIUM|UNDERWRITING\s+CLASS)\b/i.test(headerZone);
+
+      // Column header markers
+      const hasClassColumns =
+        /\b(?:CLASS\s+CODE|CLASS\s+DESCRIPTION|HAZARD\s+(?:GROUP|GRADE)\s*\d?|CLASSIFICATION)\b/i.test(pageText);
+
+      // Decision rules — graduated by signal strength
+      let exposureFired = false;
+      const exposureSignals = [];
+      if (basisHits >= 2) {
+        exposureFired = true;
+        exposureSignals.push(basisHits + '_premium_basis_phrases');
+      } else if (classCodeMatches >= 3 && (basisHits >= 1 || hasClassColumns)) {
+        exposureFired = true;
+        exposureSignals.push(classCodeMatches + '_class_codes');
+        if (basisHits >= 1) exposureSignals.push(basisHits + '_premium_basis_phrases');
+        if (hasClassColumns) exposureSignals.push('class_code_columns');
+      } else if (hasExposureTitle && (classCodeMatches >= 1 || basisHits >= 1)) {
+        exposureFired = true;
+        exposureSignals.push('exposure_title_in_header');
+        if (classCodeMatches >= 1) exposureSignals.push(classCodeMatches + '_class_codes');
+        if (basisHits >= 1) exposureSignals.push(basisHits + '_premium_basis_phrases');
+      }
+
+      if (exposureFired) {
         tag = 'GL Exposure';
         subType = 'GL_EXPOSURE';
-        signals.push(classCodeMatches + '_class_codes');
-        if (hasPremiumBasis) signals.push('premium_basis_markers');
-        if (hasCgKeyword) signals.push('class_code_columns');
-        if (hasExposureTitle) signals.push('exposure_title_in_header');
-      } else if (hasExposureTitle && classCodeMatches >= 1) {
-        tag = 'GL Exposure';
-        subType = 'GL_EXPOSURE';
-        signals.push('exposure_title_in_header');
-        signals.push(classCodeMatches + '_class_codes');
+        signals.push.apply(signals, exposureSignals);
       }
     }
 
