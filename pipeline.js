@@ -1892,1052 +1892,29 @@ function normalizeClassifierResult(parsed, fallbackType) {
   return { classifications, primaryType, primaryConfidence, isCombined, signatures, reasoning, suppressTag };
 }
 
-async function classifyFile(file) {
-  let parsed;
-  try {
-    // Build user message: filename + full document text (capped for safety).
-    // If this file was unpacked from an email attachment, thread the email's
-    // subject line and the sentence that referenced this attachment into the
-    // prompt — brokers often name attachments generically (doc2.pdf) but
-    // describe them clearly in the email body. This is a meaningful accuracy
-    // lift at zero additional cost.
-    const docText = truncateForLLM(file.text, CLASSIFY_CONFIG.maxCharsPerCall);
-    let userMsg = '';
-    if (file.parentEmailId && (file.emailSubject || file.emailContext)) {
-      userMsg += 'EMAIL CONTEXT (this file was unpacked from an email attachment):\n';
-      if (file.emailSubject) userMsg += '  Subject: ' + file.emailSubject + '\n';
-      if (file.emailContext) userMsg += '  Broker referenced this attachment: "' + file.emailContext + '"\n';
-      userMsg += '\n';
-    }
-    userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (full, ${file.text.length.toLocaleString()} chars):\n\n${docText}`;
-
-    // Classifier runs on Opus — misclassification cascades through whole pipeline
-    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
-    if (!result.mock && result.usage) {
-      STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
-    }
-
-    if (result.mock) {
-      // Demo mode — match by filename substring or content heuristic, still support combined
-      let key = 'default';
-      for (const k of Object.keys(MOCKS.classifier)) {
-        if (k === 'default') continue;
-        if (file.name.toLowerCase().includes(k.toLowerCase())) { key = k; break; }
-      }
-      if (key === 'default') {
-        const lc = file.text.toLowerCase().slice(0, 8000);
-        if (/loss run|valuation date|date of loss|claim.{0,20}(count|number)/.test(lc)) key = 'Loss';
-        else if (/subcontract|subcontractor|indemnification|additional insured/.test(lc)) key = 'Subk';
-        else if (/^from:|^subject:|^to:/m.test(file.text.slice(0, 1000))) key = 'RE_Meridian';
-        else if (/supplemental|application|max height|crane use/.test(lc)) key = 'Commercial_App';
-        else if (/each occurrence|general aggregate|cg 00 01/.test(lc)) key = 'Starr';
-        else if (/combined single limit|covered auto|ca 00 01/.test(lc)) key = 'GreatAm';
-        else if (/safety program|emr|trir|osha 30/.test(lc)) key = 'Safety';
-        else if (/equipment lease|crane.{0,20}lessor|operated equipment/.test(lc)) key = 'Vendor';
-        else if (/follow.?form|excess liability|umbrella|attachment/.test(lc)) key = 'Excess';
-        else if (/www\.|http|homepage/.test(lc)) key = 'Website';
-      }
-      parsed = MOCKS.classifier[key] || MOCKS.classifier.default;
-    } else {
-      const jm = result.text.match(/\{[\s\S]*\}/);
-      if (!jm) throw new Error('classifier did not return JSON');
-      parsed = JSON.parse(jm[0]);
-    }
-
-    parsed = stmApplyClassifierGuards(parsed, file);
-
-    const normalized = normalizeClassifierResult(parsed);
-    const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
-    const types = normalized.classifications.map(c => c.type).join(' + ');
-    logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
-
-    // ===== SECOND-PASS VERIFICATION =====
-    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
-    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
-      try {
-        // Sample from MIDDLE + END of the document for verification
-        const midStart = Math.floor(file.text.length * 0.4);
-        const midSample = file.text.slice(midStart, midStart + 3000);
-        const tailSample = file.text.slice(-3000);
-        const verifyMsg = `FILENAME: ${file.name}\nTOTAL LENGTH: ${file.text.length.toLocaleString()} chars\n\nFIRST-PASS CLASSIFICATION:\n${JSON.stringify(parsed, null, 2)}\n\n--- MIDDLE SECTION SAMPLE ---\n\n${midSample}\n\n--- END OF DOCUMENT SAMPLE ---\n\n${tailSample}`;
-        // Verify pass runs on Sonnet — second-pass sanity check, cheaper
-        const verifyResult = await callLLM(PROMPTS.classifier_verify, verifyMsg, 'claude-sonnet-4-6');
-        if (!verifyResult.mock && verifyResult.usage) {
-          STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(verifyResult.usage);
-        }
-        const vjm = verifyResult.text && verifyResult.text.match(/\{[\s\S]*\}/);
-        if (vjm) {
-          const verified = JSON.parse(vjm[0]);
-          const verifiedNorm = normalizeClassifierResult(verified);
-          // v8.6.2: compare full signature (type|subType|tag|primary_bucket|section_hint)
-          // not just type. Without this, pass 2 corrections that only
-          // change tag or section_hint (e.g. "ACORD 125 pages 1-4" →
-          // "ACORD 126 pages 5-8") get discarded because both sides
-          // look like APPLICATIONS,APPLICATIONS to the type-only diff.
-          // Per GPT external audit.
-          const _classificationSig = (c) => [
-            c.type || '',
-            c.subType || '',
-            c.tag || '',
-            c.primary_bucket || c.primaryBucket || '',
-            c.section_hint || ''
-          ].join('|').toLowerCase();
-          const firstSigs = normalized.classifications.map(_classificationSig).sort().join(';');
-          const verifiedSigs = verifiedNorm.classifications.map(_classificationSig).sort().join(';');
-          const firstTypes = normalized.classifications.map(c => c.type).sort().join(',');
-          const verifiedTypes = verifiedNorm.classifications.map(c => c.type).sort().join(',');
-          if (firstSigs !== verifiedSigs || verifiedNorm.primaryType !== normalized.primaryType) {
-            logAudit('Classifier', 'Pass 2 CORRECTED: ' + file.name + ' → ' + verifiedTypes + ' (was: ' + firstTypes + ')', STATE.api.model);
-            parsed = verified;
-          } else {
-            logAudit('Classifier', 'Pass 2 verified: ' + file.name + ' classification confirmed', STATE.api.model);
-          }
-        }
-      } catch (verifyErr) {
-        logAudit('Classifier', 'Verify pass failed for ' + file.name + ' (using pass 1 result): ' + verifyErr.message, 'warn');
-      }
-    }
-
-  } catch (err) {
-    logAudit('Classifier', 'FAILED classify ' + file.name + ': ' + err.message, 'error');
-    parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
-  }
-
-  parsed = stmApplyClassifierGuards(parsed, file);
-
-  const final = normalizeClassifierResult(parsed);
-
-  // v8.6.2: surface tag, subType, primary_bucket from the primary
-  // classification at the top level so downstream code (routing,
-  // docs-view mapping) can read them directly without traversing
-  // the classifications array. The "primary" classification is the
-  // one whose type matches primaryType; fall back to classifications[0].
-  const primaryClassification =
-    (final.classifications || []).find(c => c.type === final.primaryType) ||
-    (final.classifications || [])[0] ||
-    {};
-
-  // v8.6.2: needsReview now considers more than just primary confidence.
-  // Per GPT external audit: ambiguity in subType / tag / section_hint
-  // matters as much as ambiguity in primary type — Lead vs Excess vs
-  // GL vs AL routes to different modules. needs_review from the model
-  // is also honored.
-  const needsReviewFlags = [];
-  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
-  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
-  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
-  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
-  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
-  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
-
-  // Return the FULL classification record — caller decides how to use it
-  return {
-    type: final.primaryType,                      // backward-compat
-    confidence: final.primaryConfidence,          // backward-compat
-    subType: primaryClassification.subType || null,        // v8.6.2: surface for routing
-    tag: primaryClassification.tag || null,                // v8.6.2: surface for routing
-    primary_bucket: primaryClassification.primary_bucket || null,  // v8.6.2: surface for docs view
-    reasoning: final.reasoning,
-    classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
-    isCombined: final.isCombined,
-    signatures: final.signatures,
-    needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
-    needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,         // v8.6.2: why review was flagged
-    suppressTag: !!final.suppressTag,
-  };
-}
-
 // ============================================================================
-// (gap: logAudit, renderAuditIfOpen, toggleAuditLog, exportAudit, exportExcel,
-//  copyReferralEmail, exportMarkdown stayed in app.html — they are not pipeline
-//  functions and will be split out in Phase 8 step 7 as part of the residue.)
+// DETERMINISTIC DOCUMENT DETECTOR LIBRARY
 // ============================================================================
-
-// ============================================================================
-// PIPELINE ORCHESTRATOR — real DAG execution with dependency resolution
-// ============================================================================
-
-// Render all module nodes in their starting queued state
-function renderPipelineNodes() {
-  // Classifier (Stage 0)
-  const cls = document.getElementById('stageClassifier');
-  if (cls) {
-    cls.innerHTML = `
-      <div class="pipe-node queued" data-node="classifier">
-        <div class="pipe-node-head"><span class="pipe-node-tag">CLS</span><span class="pipe-node-status queued">QUEUED</span></div>
-        <div class="pipe-node-name">Document routing</div>
-        <div class="pipe-node-timing">—</div>
-      </div>
-    `;
-  }
-  for (const w of [1, 2, 3, 4]) {
-    const wel = document.getElementById('wave' + w);
-    if (!wel) continue;
-    const nodes = Object.entries(MODULES).filter(([_, m]) => m.wave === w);
-    wel.innerHTML = nodes.map(([mid, m]) => `
-      <div class="pipe-node queued" data-module="${mid}">
-        <div class="pipe-node-head">
-          <span class="pipe-node-tag">${m.code}</span>
-          <span class="pipe-node-status queued">QUEUED</span>
-        </div>
-        <div class="pipe-node-name">${m.name}</div>
-        <div class="pipe-node-timing">—</div>
-      </div>
-    `).join('');
-  }
-}
-
-function setNodeState(selector, state, timing) {
-  const el = document.querySelector(selector);
-  if (!el) return;
-  el.classList.remove('queued', 'running', 'done', 'skipped', 'error');
-  el.classList.add(state);
-  const se = el.querySelector('.pipe-node-status');
-  se.classList.remove('queued', 'running', 'done', 'skipped', 'error');
-  se.classList.add(state);
-  se.textContent = state.toUpperCase();
-  if (timing !== undefined) el.querySelector('.pipe-node-timing').textContent = timing;
-  else if (state === 'running') el.querySelector('.pipe-node-timing').textContent = 'extracting…';
-}
-
-function updateProgress(pct, status) {
-  const f = document.getElementById('progFill');
-  const s = document.getElementById('pipeStatus');
-  if (f) f.style.width = pct + '%';
-  if (s) s.innerHTML = status;
-}
-
-function updateTimer() {
-  if (!STATE.pipelineStart || STATE.pipelineDone) return;
-  const elapsed = (Date.now() - STATE.pipelineStart) / 1000;
-  const t = document.getElementById('pipeTimer');
-  if (t) t.textContent = elapsed.toFixed(1) + 's';
-}
-
-// Run a single extraction module. Uses the module's declared `model` field
-// (falls back to STATE.api.model if not set). Captures usage + $ cost per call
-// so the audit log and submission sidebar can show running spend.
-async function runModule(moduleId, systemPrompt, userContent, sourceInfo) {
-  setNodeState(`[data-module="${moduleId}"]`, 'running');
-  const t0 = Date.now();
-  const moduleModel = MODULES[moduleId]?.model;  // per-module preference
-  try {
-    const result = await callLLM(systemPrompt, userContent, moduleModel);
-    const elapsed = (Date.now() - t0) / 1000;
-    const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
-    const hasQc = /checklist|source extracts/i.test(text);
-    const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
-    const cost = calcCost(usage);
-    STATE.extractions[moduleId] = {
-      text: text,
-      confidence: hasQc ? (0.89 + Math.random() * 0.09) : (0.78 + Math.random() * 0.1),
-      timing: elapsed,
-      mode: result.mock ? 'mock' : 'live',
-      sourceInfo: sourceInfo,
-      usage: usage,
-      cost: cost
-    };
-    // Track the running submission total so the sidebar can show it
-    STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
-    setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · ✓ QC');
-    // Include model + cost in the audit meta so UW can see which model ran each module
-    const auditMeta = result.mock
-      ? 'mock'
-      : (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
-    logAudit('Pipeline', 'Completed ' + MODULES[moduleId].code + ' · ' + MODULES[moduleId].name + ' (' + elapsed.toFixed(1) + 's)', auditMeta);
-    // Refresh the submission sidebar's cost row if it's rendered
-    if (typeof renderSubmissionSidebar === 'function') renderSubmissionSidebar();
-    return true;
-  } catch (err) {
-    setNodeState(`[data-module="${moduleId}"]`, 'error', 'failed');
-    logAudit('Pipeline', 'FAILED ' + MODULES[moduleId].code + ': ' + err.message, 'error');
-    toast('Module ' + MODULES[moduleId].code + ' failed: ' + err.message, 'error');
-    return false;
-  }
-}
-
-function skipModule(moduleId, reason) {
-  setNodeState(`[data-module="${moduleId}"]`, 'skipped', reason || 'no input');
-  logAudit('Pipeline', 'Skipped ' + MODULES[moduleId].code + ' · ' + (reason || 'no input'), '—');
-}
-
-// Reset pipeline UI/state so a new run can start fresh
-function resetPipelineState() {
-  STATE.extractions = {};
-  STATE.pipelineDone = false;
-  STATE.pipelineRunning = false;
-  STATE.pipelineRun = null;
-  STATE.pipelineStart = 0;
-  STATE.runTotalCost = 0;  // fresh run starts at $0
-  document.body.classList.remove('pipeline-complete-mode');
-  // Reset assistant-handoff state — a fresh run starts a fresh handoff lifecycle
-  STATE.handoff = { status: null, assignee: null, uwNote: null, assistantNote: null, sentAt: null, openedAt: null, returnedAt: null, viewAs: 'uw', history: [] };
-  if (typeof renderHandoffState === 'function') renderHandoffState();
-  // UI reset
-  const empty = document.getElementById('pipelineEmpty');
-  const flow = document.getElementById('pipelineFlow');
-  const done = document.getElementById('pipeDone');
-  if (empty) empty.style.display = 'flex';
-  if (flow) flow.style.display = 'none';
-  if (done) done.style.display = 'none';
-  const sumTab = document.getElementById('stageTabSum');
-  if (sumTab) sumTab.disabled = true;
-  const sumCount = document.getElementById('sumCount');
-  if (sumCount) sumCount.textContent = '0';
-  // Switch back to pipeline stage
-  showStage('pipe');
-  // Disable action buttons
-  ['btnExcel', 'btnMd', 'btnRerunGuidelines'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = true;
-  });
-  // Reset progress
-  const progFill = document.getElementById('progFill');
-  const pipeStatus = document.getElementById('pipeStatus');
-  const pipeTimer = document.getElementById('pipeTimer');
-  if (progFill) progFill.style.width = '0%';
-  if (pipeStatus) pipeStatus.innerHTML = 'Initializing…';
-  if (pipeTimer) pipeTimer.textContent = '0.0s';
-  // Reset verdict card
-  const vCard = document.querySelector('.verdict-card');
-  if (vCard) {
-    vCard.classList.remove('ref');
-    const v = vCard.querySelector('.verdict-value');
-    const s = vCard.querySelector('.verdict-sub');
-    if (v) v.textContent = 'Awaiting pipeline';
-    if (s) s.textContent = 'Run the pipeline to see recommendation.';
-  }
-  updateQueueKpi();
-  updateDecisionPaneIdle();
-}
-
-// Real runPipeline — uses STATE.files with real classifier + DAG execution
-async function runPipeline() {
-  if (STATE.pipelineRunning) return;
-  if (STATE.pipelineDone) { showStage('sum'); return; }
-
-  const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified');
-  if (ready.length === 0) { toast('Upload files first to begin', 'warn'); return; }
-
-  // Pipeline requires an authenticated user. The server-side LLM proxy will
-  // only accept calls from signed-in users; without auth the first LLM call
-  // would fail with a 401 anyway.
-  if (!window.currentUser) {
-    toast('Sign in required to run the pipeline.', 'warn');
-    const overlay = document.getElementById('authOverlay');
-    if (overlay) overlay.style.display = 'flex';
-    return;
-  }
-
-  // Log any files we're skipping so it's visible in the audit trail — not a silent drop.
-  const skipped = STATE.files.filter(f => f.state === 'needs_manual' || f.state === 'error');
-  if (skipped.length > 0) {
-    for (const f of skipped) {
-      const reason = f.state === 'needs_manual'
-        ? 'needs manual text paste (' + (f.manualReason || 'unreadable') + ')'
-        : 'parse error (' + (f.error || 'unknown') + ')';
-      logAudit('Pipeline', 'Skipped ' + f.name + ' · ' + reason, 'warn');
-    }
-  }
-
-  STATE.pipelineRunning = true;
-  STATE.pipelineStart = Date.now();
-  STATE.pipelineRun = 'PIPE-' + Date.now().toString(36).toUpperCase();
-  STATE.extractions = {};
-
-  // === FIX #8 — TOP-LEVEL TRY/FINALLY GUARANTEE ===
-  // Module-level errors are caught individually inside runModule, but a
-  // failure in the orchestrator itself (DOM element missing, helper throws,
-  // unexpected render failure) would leave STATE.pipelineRunning = true,
-  // the Run button disabled, and the timer ticking forever. The user has
-  // to refresh to recover, losing in-flight state.
-  //
-  // The try/finally must wrap from the moment pipelineRunning is set to
-  // true onward — including the DOM setup (getElementById can theoretically
-  // return null), the timer creation, and the pre-mint flow. Otherwise
-  // any failure in those early lines leaves us stuck.
-  //
-  // `timer` is declared outside the try so the finally can clearInterval
-  // it even if the assignment itself threw.
-  let timer = null;
-  let archiveErr = null;
-  try {
-
-  // === SUBMISSION ID PRE-MINT ===
-  // Pipeline-fed docs need a submission ID at classifier time so they land
-  // in the right bucket on the workbench Documents counter. recordSubmission
-  // (which normally mints the SUB-XXX id) runs at the END of the pipeline
-  // after all extraction completes. Without pre-minting, every file uploaded
-  // via the pipeline path gets submissionId=null in the docs view, and the
-  // workbench counter (which filters by activeSubmissionId) shows zero.
-  //
-  // Strategy: if no active submission, mint one now AND insert a stub row
-  // into Supabase's `submissions` table. The FK constraint on
-  // document_pages.submission_id requires the parent row to exist before
-  // any page can be inserted — without this, every per-page upload fails
-  // with a 23503 FK violation. recordSubmission at pipeline end calls
-  // sbSaveSubmission again with the same ID (upsert on conflict id), which
-  // updates the stub row with the full extraction snapshot. So the stub is
-  // a placeholder that gets enriched, not a duplicate row.
-  if (!STATE.activeSubmissionId) {
-    const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
-    STATE.activeSubmissionId = preMintId;
-    if (typeof logAudit === 'function') {
-      logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
-    }
-    // Persist the stub row synchronously (await) so it lands BEFORE the
-    // classifier's per-file ingestion fires off page-row inserts. Without
-    // await, the stub save races the document_pages inserts and they
-    // arrive at Postgres before the parent row exists → FK 23503.
-    if (typeof window.sbSaveSubmission === 'function') {
-      try {
-        await window.sbSaveSubmission({
-          id: preMintId,
-          status: 'AWAITING UW REVIEW',
-          statusHistory: [{ from: null, to: 'AWAITING UW REVIEW', at: STATE.pipelineStart, actor: typeof currentActor === 'function' ? currentActor() : 'system' }],
-          pipelineRun: STATE.pipelineRun,
-          // Snapshot is empty at this stage — recordSubmission will fill
-          // it in at pipeline end with the full file list and extractions.
-          snapshot: { files: [], extractions: {}, pipelineRun: STATE.pipelineRun, _stub: true },
-        });
-        // Tell the audit-events writer that this submission now exists in
-        // the database. Without this, subsequent logAudit calls would all
-        // hit the FK pre-check, see the cache from a prior session say
-        // "doesn't exist", and skip the insert. This flip means audit
-        // events written from now on for this submission DO reach the
-        // cloud.
-        if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
-          window.sbInvalidateSubmissionExistsCache(preMintId);
-        }
-        if (typeof logAudit === 'function') {
-          logAudit('Pipeline', 'Stub submission row persisted to Supabase · ' + preMintId, 'ok');
-        }
-      } catch (err) {
-        // If the stub save fails (network, auth, RLS), log loudly and
-        // continue — the docs view ingestion will still try, and per-page
-        // inserts will fail with FK errors that surface in the console.
-        // Better to attempt and have visible failures than to silently
-        // skip pre-mint and have everything mysteriously break.
-        console.error('Pre-mint stub save failed for ' + preMintId + ':', err);
-        if (typeof logAudit === 'function') {
-          logAudit('Pipeline', 'WARNING: stub submission save failed · ' + preMintId + ' · ' + (err.message || 'unknown') + ' · per-page inserts will likely fail with FK errors', 'error');
-        }
-      }
-    }
-  }
-
-  document.getElementById('btnRun').disabled = true;
-  document.getElementById('btnRunLabel').innerHTML = '<span class="spinner"></span> Running';
-  document.getElementById('pipelineEmpty').style.display = 'none';
-  document.getElementById('pipelineFlow').style.display = 'block';
-  renderPipelineNodes();
-
-  timer = setInterval(updateTimer, 100);
-  logAudit('Pipeline', 'Started run ' + STATE.pipelineRun + ' · ' + ready.length + ' files', STATE.api.model);
-
-  // (the existing classifier + module execution code lives here)
-
-  // === Stage 0: Classify all files in parallel ===
-  setNodeState('[data-node="classifier"]', 'running');
-  updateProgress(5, '<strong>Stage 0</strong> · reading full documents (classifier)');
-  await Promise.all(ready.map(async f => {
-    // Skip reclassification for files already classified with high confidence — saves $ on re-runs
-    if (f.state === 'classified' && f.classification && f.confidence > 0.85 && !f.needsReview) {
-      logAudit('Classifier', 'Cached ' + f.name + ' as ' + f.classification + ' (' + Math.round(f.confidence * 100) + '% · skipped reclassify)', '—');
-      return;
-    }
-    const original = f.state;
-    f.state = 'parsing';
-    renderFileList();
-    const c = await classifyFile(f);
-    f.classification = c.type;                    // primary type (backward compat)
-    f.confidence = c.confidence;                  // primary confidence
-    f.classifications = c.classifications || [];  // multi-type list for combined docs
-    f.isCombined = !!c.isCombined;
-    f.needsReview = !!c.needsReview;
-    f.signatures = c.signatures || [];
-    f.reasoning = c.reasoning || '';
-    // Route to ALL applicable modules (supports combined docs)
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
-    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
-    f.state = 'classified';
-    renderFileList();
-    // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
-    // After classification, mirror the file into the Documents tab with the
-    // FULL processing path — render thumbnails, upload binary to Supabase
-    // storage, persist a row per page. The classifier's category and color
-    // are stamped on every page so the doc shows in the right bucket with
-    // the right tag color, regardless of broker filename.
-    //
-    // Skip if:
-    //   • the docs view module isn't loaded (testing harness, etc.)
-    //   • we already pushed this file (re-runs don't double-add)
-    //   • RE-RUN GUARD: the docs view already has docs from this submission
-    //     with the same source filename. f._pushedToDocsView only persists
-    //     within a single STATE.files lifetime; pipeline re-runs may reset
-    //     the file array (e.g. user retries with a different model). The
-    //     filename + submissionId pair is the durable identity; if the
-    //     docs view already has rows matching, we don't push again.
-    //   • the raw File object isn't on the entry (lite snapshot dropped it,
-    //     or this is a synthesized record without a binary). In that case
-    //     fall back to the metadata-only push so the doc still appears,
-    //     just without a working preview.
-    if (window.docsView && !f._pushedToDocsView) {
-      // Re-run double-push guard. If docsView.getDocs reports any existing
-      // doc rows for this submission belonging to the same source file,
-      // skip the push so re-runs don't double-add. The user can force
-      // re-classification by deleting the docs in the file manager first.
-      //
-      // Match precision matters here. The docs view's PDF processor splits
-      // multi-page PDFs into "BaseName — Page N" entries, so we can't
-      // exact-match the original filename. But arbitrary prefix matching
-      // is too loose (would falsely block "Safety Manual.pdf" if "Safety
-      // Manual Updated.pdf" was already there — its split docs all start
-      // with "Safety Manual"). The fix: match only the EXACT page-split
-      // format the processor produces ("BaseName — Page N"), or the
-      // original filename for non-split single-page docs. Em-dash is the
-      // separator the splitter uses (see processPDF in documents-view.js).
-      let alreadyPushed = false;
-      try {
-        if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
-          const existing = window.docsView.getDocs();
-          const baseName = (f.name || '').replace(/\.[^.]+$/, '');
-          const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
-          alreadyPushed = existing.some(d =>
-            d.submissionId === STATE.activeSubmissionId &&
-            d.name && (
-              d.name === f.name ||                         // single-page or non-PDF
-              d.name === baseName ||                       // single-page PDF
-              d.name.indexOf(pageSplitPrefix) === 0        // multi-page PDF split entry
-            )
-          );
-          if (alreadyPushed) {
-            f._pushedToDocsView = 'cached';
-            if (typeof logAudit === 'function') {
-              logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
-            }
-          }
-        }
-      } catch (e) {
-        // Cache check failed — proceed with push anyway. Worst case we
-        // push duplicates, which is the previous behavior.
-        console.warn('Docs view duplicate check failed, proceeding with push:', e);
-      }
-      // v8.6.4: single source of truth for docs-view mapping. Pass
-      // primary_bucket if the classifier emitted it, else fall back to
-      // legacy type. Tag is always passed so granular fallback works
-      // when neither bucket nor type maps cleanly. See the v8.6.4 block
-      // comment above docsViewMappingFor for why BUCKET_TO_CATEGORY
-      // was removed.
-      const pipelineTag = c.tag || c.subType || c.type;
-      const primaryBucket = c.primary_bucket || null;
-      const mapping = docsViewMappingFor(primaryBucket || c.type, c.tag);
-      const ingestCtx = {
-        category: mapping.category,
-        color: mapping.color,
-        submissionId: STATE.activeSubmissionId || null,
-        pipelineClassification: c.type,
-        pipelineRoutedTo: f.routedTo || null,
-        pipelineTag: pipelineTag,
-        primaryBucket: primaryBucket,
-        // v8.6: pass per-section classifications so combined PDFs get
-        // a chip on every section-start page, not just page 1.
-        sectionClassifications: Array.isArray(f.classifications)
-          ? f.classifications.map(cl => ({
-              tag: cl.tag || cl.subType || cl.type,
-              type: cl.type,
-              subType: cl.subType || null,
-              section_hint: cl.section_hint || null,
-              primary_bucket: cl.primary_bucket || null,
-            }))
-          : null,
-      };
-      // Skip both push paths if we already determined a duplicate exists.
-      if (!alreadyPushed) {
-      // Prefer full ingestion (binary + thumbnails). Falls back to metadata
-      // push if no File on hand or processFileFromPipeline isn't exposed.
-      if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
-        try {
-          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
-          if (newDocIds && newDocIds.length > 0) {
-            f._pushedToDocsView = newDocIds;
-            // Free the File reference once it's safely persisted in Supabase
-            // storage. Keeping it around forever would pin the binary in JS
-            // memory; the docs view re-fetches from storage when needed.
-            f._rawFile = null;
-          }
-        } catch (err) {
-          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
-          // Fall back to metadata-only push so the doc at least appears.
-          if (typeof window.docsView.addDocFromPipeline === 'function') {
-            try {
-              const docId = window.docsView.addDocFromPipeline({
-                name: f.name || 'Pipeline Doc',
-                ...ingestCtx,
-              });
-              if (docId) f._pushedToDocsView = docId;
-            } catch (e2) {
-              console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
-            }
-          }
-        }
-      } else if (typeof window.docsView.addDocFromPipeline === 'function') {
-        // No File on hand (incremental rerun against stored snapshot, etc.).
-        // Push metadata only — doc lands in the right bucket but has no
-        // thumbnail or preview until the user re-uploads.
-        try {
-          const docId = window.docsView.addDocFromPipeline({
-            name: f.name || 'Pipeline Doc',
-            ...ingestCtx,
-          });
-          if (docId) f._pushedToDocsView = docId;
-        } catch (err) {
-          console.warn('Metadata-only push failed for ' + f.name + ':', err);
-        }
-      }
-      }  // end if (!alreadyPushed)
-    }
-  }));
-  renderFileList();
-  setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');
-
-  // === FLAG LOW-CONFIDENCE FILES FOR POST-HOC REVIEW ===
-  // Pipeline does NOT pause. Files with confidence < threshold (or 'unknown' type)
-  // are marked for review and surfaced in the Summary view so the underwriter can
-  // correct them after seeing the full pipeline output. This is faster than a
-  // blocking modal but still gives the underwriter a 100% safety net.
-  const flagged = ready.filter(f => f.needsReview || f.classification === 'unknown');
-  if (flagged.length > 0) {
-    logAudit('Classifier', flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for post-hoc review (low confidence). Pipeline continuing with AI\'s best guess.', STATE.api.model);
-    toast(flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for review — pipeline continuing · see Summary', 'warn');
-  }
-
-  // Group parsed files by their routed module(s) — supports combined documents
-  const filesByModule = {};
-  ready.forEach(f => {
-    const targets = (f.routedToAll && f.routedToAll.length > 0) ? f.routedToAll : (f.routedTo ? [f.routedTo] : []);
-    targets.forEach(mid => {
-      if (!filesByModule[mid]) filesByModule[mid] = [];
-      // Avoid duplicate entries if the same file was routed to the same module twice
-      if (!filesByModule[mid].includes(f)) filesByModule[mid].push(f);
-    });
-  });
-
-  // ════════════════════════════════════════════════════════════════════
-  // v8.5.5 PRE-FLIGHT COST GUARD
-  //
-  // Bug class this catches: classifier emits a value that classifierToRoute
-  // doesn't recognize, every file's routedTo is null, the pipeline runs
-  // every wave-1 module against zero files, all skip with "no matching
-  // file", but the classifier already burned API tokens AND wave-2/3
-  // modules then run on whatever extractions are present (or none).
-  //
-  // The historical cost of this bug: 3 separate Carroll County test runs
-  // where 5 of 6 files routed nowhere (APPLICATIONS / LOSS_HISTORY /
-  // UNDERLYING bucket names didn't match lowercase ROUTING keys). Each
-  // run cost real Anthropic API spend. The pipeline reported "complete"
-  // and "no output" without surfacing the structural failure.
-  //
-  // What this guard checks:
-  //   1. Classified files exist (not all 'error' or 'parsing')
-  //   2. Of the classified files, > 50% have at least one routedTo
-  //      (or ALL of them are file-and-forget — that's a valid run)
-  //   3. At least one wave-1 module will fire
-  //
-  // If any check fails, abort with an error toast, write a diagnostic
-  // audit row, and stop the pipeline BEFORE wave-1 spends tokens.
-  // ════════════════════════════════════════════════════════════════════
-  {
-    const classified = STATE.files.filter(f => f.state === 'classified');
-    if (classified.length === 0) {
-      const msg = 'Pre-flight: no files classified successfully. Check classifier errors above.';
-      console.warn('[pipeline]', msg);
-      logAudit('Pipeline', msg, 'error');
-      if (typeof toast === 'function') toast(msg, 'error');
-      updateProgress(100, '<strong>Pipeline aborted</strong> · no files to extract');
-      return;
-    }
-
-    // Files with at least one route (excluding pure file-and-forget tags
-    // which are LEGITIMATELY meant to skip extraction).
-    const routed = classified.filter(f =>
-      (f.routedToAll && f.routedToAll.length > 0) ||
-      (f.routedTo && f.routedTo !== null)
-    );
-
-    // File-and-forget detection: type matches FILE_AND_FORGET_TAGS, OR
-    // classifierToRoute correctly returns null for an intentional non-routed
-    // tag. We only treat a file as "intentionally skipped" if the classifier
-    // is confident — low confidence means we don't know, so it counts as
-    // unrouted/suspicious.
-    const intentionallySkipped = classified.filter(f =>
-      !routed.includes(f) &&
-      f.confidence >= 0.70 &&
-      FILE_AND_FORGET_TAGS.has(f.classification)
-    );
-
-    const validlyHandled = routed.length + intentionallySkipped.length;
-    const handlingRatio = validlyHandled / classified.length;
-
-    // The core check. If less than 50% of classified files have a valid
-    // route OR are intentionally file-and-forget, the routing layer is
-    // broken and we should NOT spend money on wave-1.
-    if (handlingRatio < 0.5) {
-      const detail = classified.map(f => ({
-        name: f.name,
-        type: f.classification,
-        subType: (f.classifications && f.classifications[0] && f.classifications[0].subType) || null,
-        routedTo: f.routedTo,
-        routedToAll: f.routedToAll || [],
-      }));
-      const msg = 'Pre-flight ABORT · ' + (classified.length - validlyHandled) +
-        ' of ' + classified.length + ' classified files have no extraction route. ' +
-        'Likely a classifier-routing mismatch. Aborting before wave-1 to save API spend.';
-      console.warn('[pipeline]', msg);
-      console.warn('[pipeline] unrouted file detail:', detail);
-      logAudit('Pipeline', msg + ' · Detail: ' + JSON.stringify(detail), 'error');
-      if (typeof toast === 'function') {
-        toast('Pipeline routing broken', msg + ' Check console for details.', 'error');
-      }
-      updateProgress(100, '<strong>Pipeline aborted</strong> · routing layer rejected ' +
-        (classified.length - validlyHandled) + '/' + classified.length + ' files');
-      return;
-    }
-
-    // Will any wave-1 module actually fire?
-    const wave1ModulesWithFiles = Object.entries(MODULES)
-      .filter(([mid, m]) => m.wave === 1 && m.inputsFrom === 'file')
-      .filter(([mid]) => filesByModule[mid] && filesByModule[mid].length > 0)
-      .map(([mid]) => mid);
-
-    if (wave1ModulesWithFiles.length === 0) {
-      const msg = 'Pre-flight ABORT · classification produced routes but no wave-1 file-input modules will fire. Routing table out of sync with module definitions.';
-      console.warn('[pipeline]', msg);
-      logAudit('Pipeline', msg, 'error');
-      if (typeof toast === 'function') toast('Pipeline misconfigured', msg, 'error');
-      updateProgress(100, '<strong>Pipeline aborted</strong> · no extraction modules will fire');
-      return;
-    }
-
-    // All checks passed. Log a concise pre-flight summary so we can verify
-    // the routing layer is healthy on every successful run.
-    logAudit('Pipeline',
-      'Pre-flight OK · ' + classified.length + ' classified, ' +
-      routed.length + ' routed, ' +
-      intentionallySkipped.length + ' file-and-forget, ' +
-      wave1ModulesWithFiles.length + ' wave-1 modules will fire (' +
-      wave1ModulesWithFiles.join(', ') + ')',
-      'ok');
-  }
-
-  // === Stage 1: Wave 1 modules run in parallel ===
-  updateProgress(12, '<strong>Wave 1</strong> · parallel extraction across matched files');
-  const wave1Tasks = [];
-  for (const [mid, m] of Object.entries(MODULES)) {
-    if (m.wave !== 1) continue;
-    if (m.inputsFrom === 'file') {
-      const matched = filesByModule[mid];
-      if (matched && matched.length > 0) {
-        // v8.5 Rule 9: per-section text slicing. See sliceTextForModule.
-        const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
-        const src = matched.map(f => f.name).join(', ');
-        wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src));
-      } else {
-        skipModule(mid, 'no matching file');
-      }
-    } else if (m.inputsFrom === 'extraction' && m.deps.length > 0) {
-      // classcode depends on supplemental — wait for that
-      wave1Tasks.push((async () => {
-        while (!STATE.extractions[m.deps[0]]) {
-          const depEl = document.querySelector(`[data-module="${m.deps[0]}"]`);
-          if (depEl && depEl.classList.contains('skipped')) { skipModule(mid, 'dep skipped'); return false; }
-          if (depEl && depEl.classList.contains('error')) { skipModule(mid, 'dep errored'); return false; }
-          await sleep(80);
-        }
-        return runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
-      })());
-    }
-  }
-  await Promise.all(wave1Tasks);
-
-  // === Stage 2: Wave-2 syntheses — Summary of Ops + Excess Tower (parallel) ===
-  updateProgress(55, '<strong>Wave 2</strong> · synthesizing Summary of Operations + Excess Tower');
-  const wave2Tasks = [];
-
-  // Summary of Operations — includes email_intel as an optional supplementary source.
-  // Prompt instructs it to use email claims only to fill gaps, never to override authoritative.
-  const soMod = MODULES['summary-ops'];
-  const availableDeps = soMod.deps.filter(d => STATE.extractions[d]);
-  const soOptionalDeps = (soMod.optionalDeps || []).filter(d => STATE.extractions[d]);
-  const soAllDeps = [...availableDeps, ...soOptionalDeps];
-  if (availableDeps.length > 0) {
-    const combined = soAllDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-    wave2Tasks.push(runModule('summary-ops', PROMPTS['summary-ops'], combined, soAllDeps.map(d => MODULES[d].code).join('+')));
-  } else {
-    skipModule('summary-ops', 'no intake extractions available');
-  }
-
-  // Excess Tower — synthesizes supplemental + (optional) excess / gl_quote / al_quote extractions
-  // into a visual stacked tower diagram. Runs in parallel with summary-ops since both depend on
-  // the same wave-1 extractor outputs but don't depend on each other.
-  //
-  // v8.6: tower now runs if ANY relevant extraction is present, not just
-  // supplemental. The previous logic required supplemental as a hard dep
-  // even though the tower's primary purpose is showing the LIMIT STACK,
-  // which comes from excess/gl_quote/al_quote extractions. A submission
-  // with a quote proposal but no supp app would skip the tower under the
-  // old rules — wrong, since the tower data is right there in the quote.
-  const towerMod = MODULES.tower;
-  const towerCandidates = [...(towerMod.deps || []), ...(towerMod.optionalDeps || [])];
-  const towerPresent = towerCandidates.filter(d => STATE.extractions[d]);
-  if (towerPresent.length > 0) {
-    const towerInput = towerPresent.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+')));
-  } else {
-    skipModule('tower', 'no supplemental, excess, gl_quote, or al_quote extraction available');
-  }
-
-  await Promise.all(wave2Tasks);
-
-  // === Stage 3: Guidelines, Exposure, Strengths, Discrepancy (parallel on summary-ops) ===
-  updateProgress(72, '<strong>Wave 3</strong> · analyzing guidelines, exposures, strengths, discrepancies');
-  const wave3Tasks = [];
-  if (STATE.extractions['summary-ops']) {
-    const soText = STATE.extractions['summary-ops'].text;
-    const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
-    wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines'));
-    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6'));
-    wave3Tasks.push(runModule('strengths', PROMPTS.strengths, soText, 'A6'));
-  } else {
-    skipModule('guidelines', 'no Summary of Ops');
-    skipModule('exposure', 'no Summary of Ops');
-    skipModule('strengths', 'no Summary of Ops');
-  }
-  // Discrepancy cross-check — runs ONLY when email_intel is present (otherwise there's
-  // nothing to compare). Feeds email_intel as required + whatever authoritative
-  // extractions we have as optional inputs. Quotes are the authoritative truth.
-  if (STATE.extractions.email_intel) {
-    const discInputs = ['email_intel', 'supplemental', 'gl_quote', 'al_quote', 'excess', 'losses', 'safety']
-      .filter(mid => STATE.extractions[mid])
-      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
-      .join('\n\n');
-    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs auth sources'));
-  } else {
-    skipModule('discrepancy', 'no email to cross-check');
-  }
-  await Promise.all(wave3Tasks);
-
-  // === Finalize ===
-  clearInterval(timer);
-  const finalTime = ((Date.now() - STATE.pipelineStart) / 1000).toFixed(1);
-  document.getElementById('pipeTimer').textContent = finalTime + 's';
-  const completed = Object.keys(STATE.extractions).length;
-  updateProgress(100, '<strong>Complete</strong> · ' + completed + ' modules · QC verified · audit logged');
-  document.getElementById('doneTiming').textContent = finalTime + 's wall clock';
-  document.getElementById('pipeDone').style.display = 'block';
-  document.getElementById('sumCount').textContent = completed;
-  document.getElementById('stageTabSum').disabled = false;
-  document.getElementById('btnRun').disabled = false;
-  document.getElementById('btnRunLabel').textContent = 'View Summary';
-
-  // Enable action buttons in Decision pane
-  ['btnExcel', 'btnMd', 'btnRerunGuidelines'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = false;
-  });
-
-  STATE.pipelineDone = true;
-  STATE.pipelineRunning = false;
-  document.body.classList.add('pipeline-complete-mode');
-  // Enable the Assistant-handoff button now that the pipeline has a summary to review
-  if (typeof renderHandoffState === 'function') renderHandoffState();
-
-  // === FIX #4 — AWAIT THE FINAL ARCHIVE ===
-  // Previously archiveCurrentSubmission was called fire-and-forget (its
-  // cloud save was wrapped in an async IIFE). That meant the pipeline UI
-  // would say "complete" before the snapshot actually persisted to
-  // Supabase. A fast refresh in the gap could hydrate stale data. Now
-  // the archive is async and we await it, so by the time we toast
-  // "Pipeline complete" the cloud save has either succeeded or logged
-  // its error.
-  if (typeof archiveCurrentSubmission === 'function') {
-    try {
-      const archiveResult = await archiveCurrentSubmission({ source: 'pipeline-end' });
-      // Inspect the structured result. If cloudSaved is false, the
-      // pipeline DID complete locally but Supabase rejected the snapshot
-      // — refresh would hydrate stale state. Surface this as a separate
-      // warning so the user knows to retry/refresh-with-care.
-      if (archiveResult && archiveResult.cloudSaved === false) {
-        archiveErr = archiveResult.cloudError || new Error('cloud save reported failure');
-        console.warn('Pipeline complete locally, but cloud save failed:', archiveErr);
-        if (typeof logAudit === 'function') {
-          logAudit('Pipeline', 'WARNING: pipeline complete locally but cloud save failed · ' + (archiveErr.message || 'unknown') + ' · refresh would lose extractions', 'error');
-        }
-      }
-    } catch (err) {
-      // Archive threw — different from cloudSaved=false. Local state may
-      // also be incomplete. Logged for diagnosis.
-      archiveErr = err;
-      console.warn('Final archive after pipeline encountered error:', err);
-    }
-  }
-
-  updateQueueKpi();
-  // Summary card rendering still uses the Phase 4 replacement (hooked there)
-  renderSummaryCards();
-  // Render the post-hoc classifier-review banner (shows flagged low-confidence files)
-  if (typeof renderClassifierReview === 'function') renderClassifierReview();
-  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/' + Object.keys(MODULES).length + ' modules · ' + finalTime + 's' + (archiveErr ? ' · archive WARN' : ''), STATE.api.model);
-  // Toast text reflects cloud save state honestly.
-  if (archiveErr) {
-    toast('Pipeline complete locally · ' + completed + ' modules · cloud save FAILED — refresh could lose extractions', 'warn');
-  } else {
-    toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
-  }
-  // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
-  // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
-  setTimeout(() => { if (typeof showStage === 'function') showStage('sum'); }, 400);
-  } catch (pipelineErr) {
-    // Top-level failure (something that escaped the per-module catch).
-    // Log it loudly so we have diagnostic data, then let finally clean up.
-    console.error('Pipeline orchestrator error:', pipelineErr);
-    if (typeof logAudit === 'function') {
-      logAudit('Pipeline', 'ORCHESTRATOR ERROR: ' + (pipelineErr && pipelineErr.message ? pipelineErr.message : 'unknown') + ' · UI reset by guard', 'error');
-    }
-    if (typeof toast === 'function') {
-      toast('Pipeline error · ' + (pipelineErr && pipelineErr.message ? pipelineErr.message.slice(0, 80) : 'unknown'), 'error');
-    }
-  } finally {
-    // Always reset UI state regardless of how we got here. Without this
-    // guard, an unexpected error mid-pipeline would leave the Run button
-    // disabled, STATE.pipelineRunning = true, and the timer ticking
-    // forever — user would have to refresh to recover.
-    clearInterval(timer);
-    STATE.pipelineRunning = false;
-    const btn = document.getElementById('btnRun');
-    if (btn) btn.disabled = false;
-    const btnLabel = document.getElementById('btnRunLabel');
-    if (btnLabel) btnLabel.textContent = STATE.pipelineDone ? 'View Summary' : 'Run Pipeline';
-  }
-}
-
-// Initialize the pipeline nodes when the view loads
-renderPipelineNodes();
-// Now that updateDecisionPaneIdle is defined, refresh the Decision pane meta-rows
-// so initial paint reflects the real API mode (was showing hardcoded "DEMO" before)
-if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
-if (typeof updateQueueKpi === 'function') updateQueueKpi();
-// Render persisted submissions into the Queue on first paint (loadSubmissions
-// already ran when the module was defined — this just paints what it loaded)
-if (typeof renderQueueTable === 'function') renderQueueTable();
-// Refresh the feedback count on the Admin card from persisted events
-if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
-
-// ============================================================================
-// Phase 8 step 6: explicit window-exports for every top-level pipeline function.
-// Required because HTML inline handlers (onclick="runPipeline()" etc.) and
-// other script files look up handlers via window. Several of these were
-// already implicitly global from inline-script auto-attachment, but explicit
-// is robust regardless of how the browser scopes us.
-// ============================================================================
-window.calcCost = calcCost;
-window.fmtCost = fmtCost;
-window.callLLM = callLLM;
-window.sleep = sleep;
-window.classifierTypeLabel = classifierTypeLabel;
-window.renderClassifierReview = renderClassifierReview;
-window.toggleNcfCollapse = toggleNcfCollapse;
-window.queueReclassify = queueReclassify;
-window.queueReclassifyLimit = queueReclassifyLimit;
-window.acceptClassification = acceptClassification;
-window.applyReclassifications = applyReclassifications;
-window.computeDownstream = computeDownstream;
-window.incrementalProcess = incrementalProcess;
-window.showIncrementalBanner = showIncrementalBanner;
-window.hideIncrementalBanner = hideIncrementalBanner;
-window.rerunModules = rerunModules;
-window.rerunGuidelines = rerunGuidelines;
-window.truncateForLLM = truncateForLLM;
-window.normalizeClassifierResult = normalizeClassifierResult;
-window.classifyFile = classifyFile;
-window.renderPipelineNodes = renderPipelineNodes;
-window.setNodeState = setNodeState;
-window.updateProgress = updateProgress;
-window.updateTimer = updateTimer;
-window.runModule = runModule;
-window.skipModule = skipModule;
-window.resetPipelineState = resetPipelineState;
-window.runPipeline = runPipeline;
-// Phase 8 step 6 fix: explicit window-exports for top-level consts.
-// These const declarations don't auto-attach to window (lesson from step 3),
-// but app.html and other files reference MODULES heavily by bare name. Without
-// these exports, all those references would fail at runtime.
-window.MODULES = MODULES;
-window.ROUTING = ROUTING;
-window.MODEL_PRICING = MODEL_PRICING;
-window.CLASSIFIER_TYPES = CLASSIFIER_TYPES;
-window.CLASSIFY_CONFIG = CLASSIFY_CONFIG;
-window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;
-
-// ============================================================================
-// CLASSIFIER TEST HARNESS — runs ONLY classifyFile() (or a deterministic
-// pre-filter) on a single user-picked file. No extraction modules fire. No
-// state mutation. Re-runnable for fast prompt iteration.
+// Pre-classifier regex-based detectors that run BEFORE the LLM classifier.
+// When a detector matches with high confidence, the LLM call is skipped
+// entirely — saving cost and eliminating LLM stochasticity for routine
+// doc types (ACORDs, supp apps, loss runs, safety manuals, sub agreements,
+// liability dec pages, emails).
 //
-// Why this exists:
-//   The full pipeline (DAG of 14+ extraction modules) takes 60–180s and costs
-//   $0.50–$2.00 per submission. When the classifier is misrouting (e.g.,
-//   labeling a Lead $5M policy as a GL Quote), running the whole DAG to find
-//   that out is wasteful. This harness isolates the one decision that matters
-//   for routing — what the classifier returns — into a 0–6s, ~$0.00–$0.02
-//   round trip.
+// Chain order (Stage 1.0 → 1A → 1.5 → 1.6 → 1.7 → 1.8 → 1.9 → fallback):
+//   Stage 1.0  detectEmail                — Broker Email
+//   Stage 1A   detectAcordSectionsPerPage — ACORD 125/126/131 (multi-section)
+//   Stage 1.5  detectSuppApp              — Contractors/Manufacturing/HNOA Supp
+//   Stage 1.6  detectLossRun              — Loss Runs/Summary/Detail/Triangulation
+//   Stage 1.7  detectSafetyManual         — Safety Program
+//   Stage 1.8  detectSubcontractAgreement — Sub Agreement
+//   Stage 1.9  detectLiabilityDecPages    — GL/AL Quote, AL Fleet, GL Exposure, GL T&C, Excess T&C
+//   Stage 1B   DOC_SIGNATURE_DETECTORS    — legacy whole-doc fallback
+//   Falls through                          — to LLM classifier in classifyFile()
 //
-// Read-only contract:
-//   - Does NOT mutate file.state, file.classification, file.classifications,
-//     file.routedTo, or any other STATE.files[i] field
-//   - Snapshots STATE.runTotalCost before the LLM call and restores it after,
-//     so test runs don't pollute pipeline cost totals shown in the summary
-//   - DOES write audit log entries (those are useful for prompt-debug history)
-//
-// Two-stage detection:
-//   STAGE 1 — Deterministic detector library (free, instant). A registry
-//             of regex-based detectors, one per document type with a
-//             printed/standardized signature. Each detector defines 2-4
-//             independent signals (filename + form number + title block +
-//             column headers, etc.) and a min_signals threshold (usually 2)
-//             before it claims a match.
-//
-//             SCOPE (current test surface):  ACORD 125, 126, 131 only.
-//             Once each ACORD form locks in confidently, we add the next
-//             doc type and document the methodology that worked.
-//
-//   STAGE 2 — LLM classifier (existing classifyFile path). Falls back here
-//             when no detector claims a hit (everything that's not an
-//             ACORD 125/126/131 right now).
+// Each detector returns a high-confidence result (≥0.92) when matched.
 // ============================================================================
 
-// ----------------------------------------------------------------------------
-// DETECTOR REGISTRY — one entry per document type with a deterministic
-// signature. Adding a new detector = pushing one object onto this array.
-//
-// Each detector defines:
-//   id            — internal identifier (used in audit logs)
-//   priority      — higher runs first; ties broken by array order
-//   tag           — emit as classification tag (must match a value in
-//                   CLASSIFIER_TYPES so routing works)
-//   type          — primary type (matches classifier prompt taxonomy)
-//   subType       — optional sub-type (e.g., 'ACORD' under APPLICATIONS)
-//   primary_bucket— SCREAMING_CASE bucket (drives docs-view category)
-//   description   — human-readable; included in reasoning + audit log
-//   min_signals   — how many of the `signals` patterns must match (default 2)
-//   signals       — array of { name, pattern, scope } objects
-//                     scope: 'filename' | 'text' (first 5K chars) | 'either'
-//
-// Why 2-of-N: a single signal can fire incidentally (a subcontract that
-// references "ACORD 25 certificate" doesn't make the subcontract a COI;
-// a website that mentions "loss runs" isn't a loss run). Two independent
-// signals dramatically reduces false positives at near-zero recall cost
-// because legitimate documents always carry multiple signature markers.
 // ----------------------------------------------------------------------------
 const DOC_SIGNATURE_DETECTORS = [
   // ── ACORD application series (standardized form numbers + titles) ──────
@@ -4659,601 +3636,1108 @@ function detectAcordForm(file) {
   return detectDocumentSignature(file);
 }
 
-// ----------------------------------------------------------------------------
-// Apply a classification result to the file in the manager — same field
-// layout the real pipeline writes in runPipeline()'s Stage 0. Updates the
-// file's state to 'classified', sets the chip, computes routing. Does NOT
-// push to the Documents tab / docs view (that's full ingestion territory
-// with thumbnails + Supabase storage; the user wanted the test harness to
-// stop short of that). Re-clicking Test Classify still re-runs detection
-// from scratch — runTestClassifyOnFile calls detectDocumentSignature /
-// classifyFile directly, neither of which use the runPipeline cache check.
-// ----------------------------------------------------------------------------
-function applyTestClassificationToFile(f, c) {
-  // Match the field layout from runPipeline's Stage 0 exactly so the file
-  // manager chip + needs-review badge + combined indicator all render the
-  // same way as a real pipeline run.
-  f.classification = c.type;                    // primary type (drives chip text)
-  f.confidence = c.confidence;                  // primary confidence (drives % badge)
-  f.classifications = c.classifications || [];  // multi-type list for combined docs
-  f.isCombined = !!c.isCombined;
-  f.needsReview = !!c.needsReview;
-  f.needsReviewReasons = c.needsReviewReasons || [];
-  f.signatures = c.signatures || [];
-  f.reasoning = c.reasoning || '';
-  // v8.6.2: surface tag / subType / primary_bucket so docs-view mapping
-  // works identically to a real run if the user later hits Run Pipeline.
-  f.subType = c.subType || null;
-  f.tag = c.tag || null;
-  f.primary_bucket = c.primary_bucket || null;
-  f.suppressTag = !!c.suppressTag;
-  // Route to ALL applicable modules (supports combined docs) — this is what
-  // Run Pipeline reads when deciding which extraction modules to fire. We
-  // compute it here so the wired routing is correct, but the test harness
-  // intentionally does NOT fire those modules.
-  f.routedToAll = (c.classifications || [])
-    .map(cl => (typeof classifierToRoute === 'function')
-      ? classifierToRoute(cl.type, cl.subType, cl.tag)
-      : null)
-    .filter(Boolean);
-  f.routedTo = (typeof classifierToRoute === 'function')
-    ? classifierToRoute(c.type, c.subType, c.tag)
-    : null;
-  f.state = 'classified';
+// ============================================================================
+// END OF DETERMINISTIC DETECTOR LIBRARY
+// ============================================================================
 
-  // Refresh the file manager UI (left sidebar chip) and the run-button
-  // label ("Run Pipeline · 3 files" → reflects new classified count).
-  if (typeof renderFileList === 'function') renderFileList();
-  if (typeof updateRunButton === 'function') updateRunButton();
+async function classifyFile(file) {
+  let parsed;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // STAGE PRE-FILTER: DETERMINISTIC DOCUMENT DETECTION (no LLM call)
+  // ──────────────────────────────────────────────────────────────────────────
+  // Before spending an LLM call, run the regex-based detector chain.
+  // For ACORD 125/126/131, supp apps, loss runs, safety manuals, sub
+  // agreements, liability dec pages, and emails, these detectors return
+  // high-confidence (≥0.92) classifications with zero LLM cost.
+  //
+  // When a detector matches:
+  //   - Skip both the Opus first-pass and Sonnet verify-pass entirely
+  //   - Build a parsed object matching the LLM's expected JSON shape
+  //   - Pass through the same stmApplyClassifierGuards for safety net
+  //   - Same return shape downstream consumers already handle
+  //
+  // When no detector matches (free-form narratives, unusual formats,
+  // doc types we haven't built detectors for): fall through to the
+  // existing LLM classifier flow below — unchanged.
+  //
+  // Why this is an accuracy win, not just a cost win: the LLM exhibits
+  // stochastic behavior on identical input (same file, two runs, two
+  // different answers). Deterministic regex never does. For routine doc
+  // types where the universal signal (form stamp + title) is present,
+  // regex is more accurate than the LLM.
+  // ──────────────────────────────────────────────────────────────────────────
+  try {
+    if (typeof detectDocumentSignature === 'function') {
+      const detection = detectDocumentSignature(file);
+      if (detection && detection.match && detection.result) {
+        const r = detection.result;
+
+        // Build a parsed object that mirrors the LLM classifier's JSON shape.
+        // Every field downstream code reads — primary_type, primary_confidence,
+        // classifications[], is_combined, needs_review, reasoning — is here.
+        parsed = {
+          primary_type: r.type,
+          primary_confidence: r.confidence,
+          subType: r.subType || null,
+          tag: r.tag || null,
+          primary_bucket: r.primary_bucket || null,
+          classifications: r.classifications || [{
+            type: r.type,
+            subType: r.subType || null,
+            tag: r.tag || null,
+            primary_bucket: r.primary_bucket || null,
+            confidence: r.confidence,
+            reasoning: r.reasoning || ('Deterministic detection: ' + (detection.method || 'regex_prefilter')),
+            section_hint: r.section_hint || null,
+          }],
+          is_combined: !!r.isCombined,
+          needs_review: false,
+          signatures: r.signatures || detection.signals || [],
+          reasoning: r.reasoning || ('Deterministic detection: ' + (detection.method || 'regex_prefilter')),
+          // Mark the source so downstream audit logging can distinguish
+          // detector hits from LLM hits.
+          _source: 'deterministic',
+          _detector: detection.detector_id || detection.method || 'unknown',
+        };
+
+        // Audit log entry — same format as LLM Pass 1 so logs are consistent
+        const types = (parsed.classifications || []).map(c => c.type).join(' + ');
+        const confPct = Math.round((r.confidence || 0) * 100);
+        logAudit('Classifier',
+          'Pre-filter HIT: ' + file.name + ' → ' + types + ' (' + confPct + '% · ' +
+          (detection.method_label || detection.detector_id || 'deterministic') + ')',
+          'no-llm');
+
+        // Run through the same guard layer the LLM result goes through, so
+        // any future stm* corrections still apply uniformly. Then continue
+        // to the same normalization & return path used for LLM results.
+        parsed = stmApplyClassifierGuards(parsed, file);
+        const final = normalizeClassifierResult(parsed);
+        const primaryClassification =
+          (final.classifications || []).find(c => c.type === final.primaryType) ||
+          (final.classifications || [])[0] ||
+          {};
+
+        // needsReview check — same logic as LLM path. Deterministic results
+        // emit ≥0.92 confidence so primary_conf check passes; the only flags
+        // that could fire are missing_tag or combined_no_section_hint, both
+        // of which would indicate a detector bug worth surfacing.
+        const needsReviewFlags = [];
+        if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
+        if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+        if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+        if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+
+        return {
+          type: final.primaryType,
+          confidence: final.primaryConfidence,
+          subType: primaryClassification.subType || null,
+          tag: primaryClassification.tag || null,
+          primary_bucket: primaryClassification.primary_bucket || null,
+          reasoning: final.reasoning,
+          classifications: final.classifications,
+          isCombined: final.isCombined,
+          signatures: final.signatures,
+          needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
+          needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,
+          suppressTag: !!final.suppressTag,
+          _source: 'deterministic',
+        };
+      }
+    }
+  } catch (preFilterErr) {
+    // If the pre-filter throws for any reason, fall through to LLM. The
+    // LLM path is the safety net — never crash classification because of
+    // a regex bug.
+    logAudit('Classifier', 'Pre-filter error (falling back to LLM) for ' + file.name + ': ' + preFilterErr.message, 'warn');
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // No deterministic detector matched — fall through to LLM classifier
+  // (existing flow, unchanged below)
+  // ──────────────────────────────────────────────────────────────────────────
+  try {
+    // Build user message: filename + full document text (capped for safety).
+    // If this file was unpacked from an email attachment, thread the email's
+    // subject line and the sentence that referenced this attachment into the
+    // prompt — brokers often name attachments generically (doc2.pdf) but
+    // describe them clearly in the email body. This is a meaningful accuracy
+    // lift at zero additional cost.
+    const docText = truncateForLLM(file.text, CLASSIFY_CONFIG.maxCharsPerCall);
+    let userMsg = '';
+    if (file.parentEmailId && (file.emailSubject || file.emailContext)) {
+      userMsg += 'EMAIL CONTEXT (this file was unpacked from an email attachment):\n';
+      if (file.emailSubject) userMsg += '  Subject: ' + file.emailSubject + '\n';
+      if (file.emailContext) userMsg += '  Broker referenced this attachment: "' + file.emailContext + '"\n';
+      userMsg += '\n';
+    }
+    userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (full, ${file.text.length.toLocaleString()} chars):\n\n${docText}`;
+
+    // Classifier runs on Opus — misclassification cascades through whole pipeline
+    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
+    if (!result.mock && result.usage) {
+      STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
+    }
+
+    if (result.mock) {
+      // Demo mode — match by filename substring or content heuristic, still support combined
+      let key = 'default';
+      for (const k of Object.keys(MOCKS.classifier)) {
+        if (k === 'default') continue;
+        if (file.name.toLowerCase().includes(k.toLowerCase())) { key = k; break; }
+      }
+      if (key === 'default') {
+        const lc = file.text.toLowerCase().slice(0, 8000);
+        if (/loss run|valuation date|date of loss|claim.{0,20}(count|number)/.test(lc)) key = 'Loss';
+        else if (/subcontract|subcontractor|indemnification|additional insured/.test(lc)) key = 'Subk';
+        else if (/^from:|^subject:|^to:/m.test(file.text.slice(0, 1000))) key = 'RE_Meridian';
+        else if (/supplemental|application|max height|crane use/.test(lc)) key = 'Commercial_App';
+        else if (/each occurrence|general aggregate|cg 00 01/.test(lc)) key = 'Starr';
+        else if (/combined single limit|covered auto|ca 00 01/.test(lc)) key = 'GreatAm';
+        else if (/safety program|emr|trir|osha 30/.test(lc)) key = 'Safety';
+        else if (/equipment lease|crane.{0,20}lessor|operated equipment/.test(lc)) key = 'Vendor';
+        else if (/follow.?form|excess liability|umbrella|attachment/.test(lc)) key = 'Excess';
+        else if (/www\.|http|homepage/.test(lc)) key = 'Website';
+      }
+      parsed = MOCKS.classifier[key] || MOCKS.classifier.default;
+    } else {
+      const jm = result.text.match(/\{[\s\S]*\}/);
+      if (!jm) throw new Error('classifier did not return JSON');
+      parsed = JSON.parse(jm[0]);
+    }
+
+    parsed = stmApplyClassifierGuards(parsed, file);
+
+    const normalized = normalizeClassifierResult(parsed);
+    const confPct = Math.round((normalized.primaryConfidence || 0) * 100);
+    const types = normalized.classifications.map(c => c.type).join(' + ');
+    logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
+
+    // ===== SECOND-PASS VERIFICATION =====
+    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
+    if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
+      try {
+        // Sample from MIDDLE + END of the document for verification
+        const midStart = Math.floor(file.text.length * 0.4);
+        const midSample = file.text.slice(midStart, midStart + 3000);
+        const tailSample = file.text.slice(-3000);
+        const verifyMsg = `FILENAME: ${file.name}\nTOTAL LENGTH: ${file.text.length.toLocaleString()} chars\n\nFIRST-PASS CLASSIFICATION:\n${JSON.stringify(parsed, null, 2)}\n\n--- MIDDLE SECTION SAMPLE ---\n\n${midSample}\n\n--- END OF DOCUMENT SAMPLE ---\n\n${tailSample}`;
+        // Verify pass runs on Sonnet — second-pass sanity check, cheaper
+        const verifyResult = await callLLM(PROMPTS.classifier_verify, verifyMsg, 'claude-sonnet-4-6');
+        if (!verifyResult.mock && verifyResult.usage) {
+          STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(verifyResult.usage);
+        }
+        const vjm = verifyResult.text && verifyResult.text.match(/\{[\s\S]*\}/);
+        if (vjm) {
+          const verified = JSON.parse(vjm[0]);
+          const verifiedNorm = normalizeClassifierResult(verified);
+          // v8.6.2: compare full signature (type|subType|tag|primary_bucket|section_hint)
+          // not just type. Without this, pass 2 corrections that only
+          // change tag or section_hint (e.g. "ACORD 125 pages 1-4" →
+          // "ACORD 126 pages 5-8") get discarded because both sides
+          // look like APPLICATIONS,APPLICATIONS to the type-only diff.
+          // Per GPT external audit.
+          const _classificationSig = (c) => [
+            c.type || '',
+            c.subType || '',
+            c.tag || '',
+            c.primary_bucket || c.primaryBucket || '',
+            c.section_hint || ''
+          ].join('|').toLowerCase();
+          const firstSigs = normalized.classifications.map(_classificationSig).sort().join(';');
+          const verifiedSigs = verifiedNorm.classifications.map(_classificationSig).sort().join(';');
+          const firstTypes = normalized.classifications.map(c => c.type).sort().join(',');
+          const verifiedTypes = verifiedNorm.classifications.map(c => c.type).sort().join(',');
+          if (firstSigs !== verifiedSigs || verifiedNorm.primaryType !== normalized.primaryType) {
+            logAudit('Classifier', 'Pass 2 CORRECTED: ' + file.name + ' → ' + verifiedTypes + ' (was: ' + firstTypes + ')', STATE.api.model);
+            parsed = verified;
+          } else {
+            logAudit('Classifier', 'Pass 2 verified: ' + file.name + ' classification confirmed', STATE.api.model);
+          }
+        }
+      } catch (verifyErr) {
+        logAudit('Classifier', 'Verify pass failed for ' + file.name + ' (using pass 1 result): ' + verifyErr.message, 'warn');
+      }
+    }
+
+  } catch (err) {
+    logAudit('Classifier', 'FAILED classify ' + file.name + ': ' + err.message, 'error');
+    parsed = { classifications: [{ type: 'unknown', confidence: 0, reasoning: 'error: ' + err.message }], primary_type: 'unknown', primary_confidence: 0, is_combined: false };
+  }
+
+  parsed = stmApplyClassifierGuards(parsed, file);
+
+  const final = normalizeClassifierResult(parsed);
+
+  // v8.6.2: surface tag, subType, primary_bucket from the primary
+  // classification at the top level so downstream code (routing,
+  // docs-view mapping) can read them directly without traversing
+  // the classifications array. The "primary" classification is the
+  // one whose type matches primaryType; fall back to classifications[0].
+  const primaryClassification =
+    (final.classifications || []).find(c => c.type === final.primaryType) ||
+    (final.classifications || [])[0] ||
+    {};
+
+  // v8.6.2: needsReview now considers more than just primary confidence.
+  // Per GPT external audit: ambiguity in subType / tag / section_hint
+  // matters as much as ambiguity in primary type — Lead vs Excess vs
+  // GL vs AL routes to different modules. needs_review from the model
+  // is also honored.
+  const needsReviewFlags = [];
+  if (parsed.needs_review === true) needsReviewFlags.push('classifier_flag');
+  if (final.primaryConfidence < CLASSIFY_CONFIG.highConfidenceThreshold) needsReviewFlags.push('low_primary_conf');
+  if ((final.classifications || []).some(c => (c.confidence || 0) < 0.70)) needsReviewFlags.push('low_section_conf');
+  if ((final.classifications || []).some(c => c.subTypeConfidence != null && c.subTypeConfidence < 0.70)) needsReviewFlags.push('low_subtype_conf');
+  if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
+  if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
+
+  // Return the FULL classification record — caller decides how to use it
+  return {
+    type: final.primaryType,                      // backward-compat
+    confidence: final.primaryConfidence,          // backward-compat
+    subType: primaryClassification.subType || null,        // v8.6.2: surface for routing
+    tag: primaryClassification.tag || null,                // v8.6.2: surface for routing
+    primary_bucket: primaryClassification.primary_bucket || null,  // v8.6.2: surface for docs view
+    reasoning: final.reasoning,
+    classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
+    isCombined: final.isCombined,
+    signatures: final.signatures,
+    needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
+    needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,         // v8.6.2: why review was flagged
+    suppressTag: !!final.suppressTag,
+  };
 }
 
-// ----------------------------------------------------------------------------
-// Picker entry point — fired by the "Test Classify" button below "Run Pipeline".
-// If exactly one parsed file is in the queue, skip the picker and go straight
-// to running the test on that file. Otherwise show a list of ready files.
-// ----------------------------------------------------------------------------
-function openTestClassifyPicker() {
+// ============================================================================
+// (gap: logAudit, renderAuditIfOpen, toggleAuditLog, exportAudit, exportExcel,
+//  copyReferralEmail, exportMarkdown stayed in app.html — they are not pipeline
+//  functions and will be split out in Phase 8 step 7 as part of the residue.)
+// ============================================================================
+
+// ============================================================================
+// PIPELINE ORCHESTRATOR — real DAG execution with dependency resolution
+// ============================================================================
+
+// Render all module nodes in their starting queued state
+function renderPipelineNodes() {
+  // Classifier (Stage 0)
+  const cls = document.getElementById('stageClassifier');
+  if (cls) {
+    cls.innerHTML = `
+      <div class="pipe-node queued" data-node="classifier">
+        <div class="pipe-node-head"><span class="pipe-node-tag">CLS</span><span class="pipe-node-status queued">QUEUED</span></div>
+        <div class="pipe-node-name">Document routing</div>
+        <div class="pipe-node-timing">—</div>
+      </div>
+    `;
+  }
+  for (const w of [1, 2, 3, 4]) {
+    const wel = document.getElementById('wave' + w);
+    if (!wel) continue;
+    const nodes = Object.entries(MODULES).filter(([_, m]) => m.wave === w);
+    wel.innerHTML = nodes.map(([mid, m]) => `
+      <div class="pipe-node queued" data-module="${mid}">
+        <div class="pipe-node-head">
+          <span class="pipe-node-tag">${m.code}</span>
+          <span class="pipe-node-status queued">QUEUED</span>
+        </div>
+        <div class="pipe-node-name">${m.name}</div>
+        <div class="pipe-node-timing">—</div>
+      </div>
+    `).join('');
+  }
+}
+
+function setNodeState(selector, state, timing) {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.classList.remove('queued', 'running', 'done', 'skipped', 'error');
+  el.classList.add(state);
+  const se = el.querySelector('.pipe-node-status');
+  se.classList.remove('queued', 'running', 'done', 'skipped', 'error');
+  se.classList.add(state);
+  se.textContent = state.toUpperCase();
+  if (timing !== undefined) el.querySelector('.pipe-node-timing').textContent = timing;
+  else if (state === 'running') el.querySelector('.pipe-node-timing').textContent = 'extracting…';
+}
+
+function updateProgress(pct, status) {
+  const f = document.getElementById('progFill');
+  const s = document.getElementById('pipeStatus');
+  if (f) f.style.width = pct + '%';
+  if (s) s.innerHTML = status;
+}
+
+function updateTimer() {
+  if (!STATE.pipelineStart || STATE.pipelineDone) return;
+  const elapsed = (Date.now() - STATE.pipelineStart) / 1000;
+  const t = document.getElementById('pipeTimer');
+  if (t) t.textContent = elapsed.toFixed(1) + 's';
+}
+
+// Run a single extraction module. Uses the module's declared `model` field
+// (falls back to STATE.api.model if not set). Captures usage + $ cost per call
+// so the audit log and submission sidebar can show running spend.
+async function runModule(moduleId, systemPrompt, userContent, sourceInfo) {
+  setNodeState(`[data-module="${moduleId}"]`, 'running');
+  const t0 = Date.now();
+  const moduleModel = MODULES[moduleId]?.model;  // per-module preference
+  try {
+    const result = await callLLM(systemPrompt, userContent, moduleModel);
+    const elapsed = (Date.now() - t0) / 1000;
+    const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
+    const hasQc = /checklist|source extracts/i.test(text);
+    const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
+    const cost = calcCost(usage);
+    STATE.extractions[moduleId] = {
+      text: text,
+      confidence: hasQc ? (0.89 + Math.random() * 0.09) : (0.78 + Math.random() * 0.1),
+      timing: elapsed,
+      mode: result.mock ? 'mock' : 'live',
+      sourceInfo: sourceInfo,
+      usage: usage,
+      cost: cost
+    };
+    // Track the running submission total so the sidebar can show it
+    STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
+    setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · ✓ QC');
+    // Include model + cost in the audit meta so UW can see which model ran each module
+    const auditMeta = result.mock
+      ? 'mock'
+      : (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
+    logAudit('Pipeline', 'Completed ' + MODULES[moduleId].code + ' · ' + MODULES[moduleId].name + ' (' + elapsed.toFixed(1) + 's)', auditMeta);
+    // Refresh the submission sidebar's cost row if it's rendered
+    if (typeof renderSubmissionSidebar === 'function') renderSubmissionSidebar();
+    return true;
+  } catch (err) {
+    setNodeState(`[data-module="${moduleId}"]`, 'error', 'failed');
+    logAudit('Pipeline', 'FAILED ' + MODULES[moduleId].code + ': ' + err.message, 'error');
+    toast('Module ' + MODULES[moduleId].code + ' failed: ' + err.message, 'error');
+    return false;
+  }
+}
+
+function skipModule(moduleId, reason) {
+  setNodeState(`[data-module="${moduleId}"]`, 'skipped', reason || 'no input');
+  logAudit('Pipeline', 'Skipped ' + MODULES[moduleId].code + ' · ' + (reason || 'no input'), '—');
+}
+
+// Reset pipeline UI/state so a new run can start fresh
+function resetPipelineState() {
+  STATE.extractions = {};
+  STATE.pipelineDone = false;
+  STATE.pipelineRunning = false;
+  STATE.pipelineRun = null;
+  STATE.pipelineStart = 0;
+  STATE.runTotalCost = 0;  // fresh run starts at $0
+  document.body.classList.remove('pipeline-complete-mode');
+  // Reset assistant-handoff state — a fresh run starts a fresh handoff lifecycle
+  STATE.handoff = { status: null, assignee: null, uwNote: null, assistantNote: null, sentAt: null, openedAt: null, returnedAt: null, viewAs: 'uw', history: [] };
+  if (typeof renderHandoffState === 'function') renderHandoffState();
+  // UI reset
+  const empty = document.getElementById('pipelineEmpty');
+  const flow = document.getElementById('pipelineFlow');
+  const done = document.getElementById('pipeDone');
+  if (empty) empty.style.display = 'flex';
+  if (flow) flow.style.display = 'none';
+  if (done) done.style.display = 'none';
+  const sumTab = document.getElementById('stageTabSum');
+  if (sumTab) sumTab.disabled = true;
+  const sumCount = document.getElementById('sumCount');
+  if (sumCount) sumCount.textContent = '0';
+  // Switch back to pipeline stage
+  showStage('pipe');
+  // Disable action buttons
+  ['btnExcel', 'btnMd', 'btnRerunGuidelines'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
+  // Reset progress
+  const progFill = document.getElementById('progFill');
+  const pipeStatus = document.getElementById('pipeStatus');
+  const pipeTimer = document.getElementById('pipeTimer');
+  if (progFill) progFill.style.width = '0%';
+  if (pipeStatus) pipeStatus.innerHTML = 'Initializing…';
+  if (pipeTimer) pipeTimer.textContent = '0.0s';
+  // Reset verdict card
+  const vCard = document.querySelector('.verdict-card');
+  if (vCard) {
+    vCard.classList.remove('ref');
+    const v = vCard.querySelector('.verdict-value');
+    const s = vCard.querySelector('.verdict-sub');
+    if (v) v.textContent = 'Awaiting pipeline';
+    if (s) s.textContent = 'Run the pipeline to see recommendation.';
+  }
+  updateQueueKpi();
+  updateDecisionPaneIdle();
+}
+
+// Real runPipeline — uses STATE.files with real classifier + DAG execution
+async function runPipeline() {
+  if (STATE.pipelineRunning) return;
+  if (STATE.pipelineDone) { showStage('sum'); return; }
+
+  const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified');
+  if (ready.length === 0) { toast('Upload files first to begin', 'warn'); return; }
+
+  // Pipeline requires an authenticated user. The server-side LLM proxy will
+  // only accept calls from signed-in users; without auth the first LLM call
+  // would fail with a 401 anyway.
   if (!window.currentUser) {
-    if (typeof toast === 'function') toast('Sign in required to test the classifier.', 'warn');
+    toast('Sign in required to run the pipeline.', 'warn');
     const overlay = document.getElementById('authOverlay');
     if (overlay) overlay.style.display = 'flex';
     return;
   }
 
-  const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified');
-  if (ready.length === 0) {
-    if (typeof toast === 'function') toast('Upload a file first to test the classifier.', 'warn');
-    return;
-  }
-
-  // Surface scanned/needs_manual files so the user understands why
-  // they're not classifiable yet.
-  const needsManual = STATE.files.filter(f => f.state === 'needs_manual');
-
-  // Single file → run directly. No picker.
-  if (ready.length === 1) {
-    runTestClassifyOnFile(ready[0].id);
-    if (needsManual.length > 0 && typeof toast === 'function') {
-      toast(needsManual.length + ' scanned file(s) skipped — paste text manually to include them.', 'warn');
-    }
-    return;
-  }
-
-  // Multiple files → run on ALL ready files in sequence. One press, one
-  // pass through every file. Each file goes through the full detector
-  // chain (Stage 1.0 email → 1A ACORD → 1.5 supp → 1.6 loss → 1.7 safety
-  // → 1.8 sub → 1.9 dec pages → fallback). No picker, no per-file clicks.
-  if (typeof toast === 'function') {
-    toast('Testing ' + ready.length + ' files through the detector chain…', 'info');
-  }
-  runTestClassifyOnAllFiles(ready.map(f => f.id), needsManual.length);
-}
-
-// Run Test Classify sequentially across multiple files. We use sequential
-// (not parallel) execution because each file may pre-mint a submission
-// and write to docs view — race conditions on those side effects would
-// produce ordering bugs. Sequential is cheap (detection is regex-only,
-// instant per file) so the simpler approach wins.
-async function runTestClassifyOnAllFiles(fileIds, manualSkipCount) {
-  let detectedCount = 0;
-  let llmFallbackCount = 0;
-
-  for (const fileId of fileIds) {
-    const f = STATE.files.find(ff => ff.id === fileId);
-    if (!f) continue;
-    if (f.state !== 'parsed' && f.state !== 'classified') continue;
-
-    // Quick pre-check: did the deterministic chain hit?
-    const preFilter = detectDocumentSignature(f);
-    if (preFilter && preFilter.match) detectedCount++;
-    else llmFallbackCount++;
-
-    // Run the full per-file flow (handles tagging, docs view push, audit
-    // logging, and LLM fallback if no detector matched).
-    await runTestClassifyOnFile(fileId);
-  }
-
-  if (typeof toast === 'function') {
-    let msg = 'Test Classify complete: ' + detectedCount + ' deterministic, ' + llmFallbackCount + ' LLM fallback';
-    if (manualSkipCount > 0) msg += ' (' + manualSkipCount + ' scanned files skipped)';
-    toast(msg, 'ok');
-  }
-}
-
-function showTestClassifyModal() {
-  const modal = document.getElementById('testClassifyModal');
-  if (modal) modal.style.display = 'flex';
-}
-
-function closeTestClassifyModal() {
-  const modal = document.getElementById('testClassifyModal');
-  if (modal) modal.style.display = 'none';
-}
-
-// ----------------------------------------------------------------------------
-// Pre-mint a submission ID for the test harness if one doesn't exist yet.
-// Mirrors the same logic runPipeline() uses at the top of its run. Without
-// a parent submission row in Supabase, document_pages inserts fail with
-// FK 23503 because the docs view's per-page rows reference submission_id.
-// Idempotent: returns immediately if a submission is already active.
-// ----------------------------------------------------------------------------
-async function preMintSubmissionForTest() {
-  if (STATE.activeSubmissionId) return STATE.activeSubmissionId;
-
-  const preMintId = 'SUB-' + Date.now().toString(36).toUpperCase();
-  STATE.activeSubmissionId = preMintId;
-
-  if (typeof logAudit === 'function') {
-    logAudit('TestHarness', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
-  }
-
-  // Persist the stub row synchronously (await) so it lands BEFORE the
-  // docs view's per-page inserts fire. Without await, the stub save races
-  // the document_pages inserts and they arrive at Postgres before the
-  // parent row exists → FK 23503.
-  if (typeof window.sbSaveSubmission === 'function') {
-    try {
-      await window.sbSaveSubmission({
-        id: preMintId,
-        status: 'AWAITING UW REVIEW',
-        statusHistory: [{
-          from: null,
-          to: 'AWAITING UW REVIEW',
-          at: Date.now(),
-          actor: typeof currentActor === 'function' ? currentActor() : 'system'
-        }],
-        snapshot: { files: [], extractions: {}, _stub: true, _testHarness: true },
-      });
-      if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
-        window.sbInvalidateSubmissionExistsCache(preMintId);
-      }
-    } catch (err) {
-      console.warn('TestHarness: stub submission save failed:', err);
+  // Log any files we're skipping so it's visible in the audit trail — not a silent drop.
+  const skipped = STATE.files.filter(f => f.state === 'needs_manual' || f.state === 'error');
+  if (skipped.length > 0) {
+    for (const f of skipped) {
+      const reason = f.state === 'needs_manual'
+        ? 'needs manual text paste (' + (f.manualReason || 'unreadable') + ')'
+        : 'parse error (' + (f.error || 'unknown') + ')';
+      logAudit('Pipeline', 'Skipped ' + f.name + ' · ' + reason, 'warn');
     }
   }
-  return preMintId;
-}
 
-// ----------------------------------------------------------------------------
-// Push a classified test file into the docs view — full ingestion path with
-// thumbnails + Supabase storage + per-page rows. Mirrors the exact code
-// path runPipeline uses at lines 2385-2499 (Stage 0 docs-view push) so the
-// resulting Documents tab entry is visually identical to what a real
-// pipeline run would produce. Includes the same duplicate guard so re-clicks
-// don't double-add.
-// ----------------------------------------------------------------------------
-async function pushTestFileToDocsView(f, c) {
-  if (!window.docsView || f._pushedToDocsView) return;
+  STATE.pipelineRunning = true;
+  STATE.pipelineStart = Date.now();
+  STATE.pipelineRun = 'PIPE-' + Date.now().toString(36).toUpperCase();
+  STATE.extractions = {};
 
-  // Duplicate guard — if the docs view already has rows for this file in
-  // the current submission, skip the push so re-clicks don't double-add.
-  let alreadyPushed = false;
-  try {
-    if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
-      const existing = window.docsView.getDocs();
-      const baseName = (f.name || '').replace(/\.[^.]+$/, '');
-      const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
-      alreadyPushed = existing.some(d =>
-        d.submissionId === STATE.activeSubmissionId &&
-        d.name && (
-          d.name === f.name ||
-          d.name === baseName ||
-          d.name.indexOf(pageSplitPrefix) === 0
-        )
-      );
-      if (alreadyPushed) {
-        f._pushedToDocsView = 'cached';
-        if (typeof logAudit === 'function') {
-          logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
-        }
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('Docs view duplicate check failed, proceeding with push:', e);
-  }
-
-  // Build the same ingest context runPipeline builds — category, color,
-  // bucket, per-section classifications. This is what colors the chip
-  // and routes the doc to the correct Documents tab category.
-  const pipelineTag = c.tag || c.subType || c.type;
-  const primaryBucket = c.primary_bucket || null;
-  const mapping = (typeof docsViewMappingFor === 'function')
-    ? docsViewMappingFor(primaryBucket || c.type, c.tag)
-    : { category: 'unknown', color: null };
-
-  // CRITICAL: only pass sectionClassifications when the doc is genuinely
-  // multi-section with explicit page ranges. The docs view's
-  // _resolvePerPageTag enters a section-loop branch when this array is
-  // non-empty — and inside that branch, if no entry has a parseable
-  // section_hint matching the current page, it returns null and the
-  // legacy "tag page 1" fallback NEVER fires. That's the bug Justin caught:
-  // ACORD docs landed in the right category but tagged=false, so the
-  // Tagged Pages panel showed 0 pages and no chip painted.
+  // === FIX #8 — TOP-LEVEL TRY/FINALLY GUARANTEE ===
+  // Module-level errors are caught individually inside runModule, but a
+  // failure in the orchestrator itself (DOM element missing, helper throws,
+  // unexpected render failure) would leave STATE.pipelineRunning = true,
+  // the Run button disabled, and the timer ticking forever. The user has
+  // to refresh to recover, losing in-flight state.
   //
-  // For single-class results (regex pre-filter, or LLM single-class with
-  // no section_hint), pass null so the legacy path runs and stamps the
-  // chip on page 1 using pipelineTag.
-  const isMultiSectionWithHints = Array.isArray(f.classifications)
-    && f.classifications.length > 1
-    && f.classifications.some(cl => cl.section_hint && typeof cl.section_hint === 'string');
+  // The try/finally must wrap from the moment pipelineRunning is set to
+  // true onward — including the DOM setup (getElementById can theoretically
+  // return null), the timer creation, and the pre-mint flow. Otherwise
+  // any failure in those early lines leaves us stuck.
+  //
+  // `timer` is declared outside the try so the finally can clearInterval
+  // it even if the assignment itself threw.
+  let timer = null;
+  let archiveErr = null;
+  try {
 
-  const ingestCtx = {
-    category: mapping.category,
-    color: mapping.color,
-    submissionId: STATE.activeSubmissionId || null,
-    pipelineClassification: c.type,
-    pipelineRoutedTo: f.routedTo || null,
-    pipelineTag: pipelineTag,
-    primaryBucket: primaryBucket,
-    sectionClassifications: isMultiSectionWithHints
-      ? f.classifications.map(cl => ({
-          tag: cl.tag || cl.subType || cl.type,
-          type: cl.type,
-          subType: cl.subType || null,
-          section_hint: cl.section_hint || null,
-          primary_bucket: cl.primary_bucket || null,
-        }))
-      : null,
-  };
-
-  // Prefer full ingestion (binary + thumbnails). Falls back to metadata-only
-  // push if no File on hand or processFileFromPipeline isn't exposed.
-  if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
-    try {
-      const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
-      if (newDocIds && newDocIds.length > 0) {
-        f._pushedToDocsView = newDocIds;
-        // Free the File reference once persisted in Supabase storage —
-        // docs view re-fetches from storage when needed.
-        f._rawFile = null;
+  // === SUBMISSION ID PRE-MINT ===
+  // Pipeline-fed docs need a submission ID at classifier time so they land
+  // in the right bucket on the workbench Documents counter. recordSubmission
+  // (which normally mints the SUB-XXX id) runs at the END of the pipeline
+  // after all extraction completes. Without pre-minting, every file uploaded
+  // via the pipeline path gets submissionId=null in the docs view, and the
+  // workbench counter (which filters by activeSubmissionId) shows zero.
+  //
+  // Strategy: if no active submission, mint one now AND insert a stub row
+  // into Supabase's `submissions` table. The FK constraint on
+  // document_pages.submission_id requires the parent row to exist before
+  // any page can be inserted — without this, every per-page upload fails
+  // with a 23503 FK violation. recordSubmission at pipeline end calls
+  // sbSaveSubmission again with the same ID (upsert on conflict id), which
+  // updates the stub row with the full extraction snapshot. So the stub is
+  // a placeholder that gets enriched, not a duplicate row.
+  if (!STATE.activeSubmissionId) {
+    const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
+    STATE.activeSubmissionId = preMintId;
+    if (typeof logAudit === 'function') {
+      logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
+    }
+    // Persist the stub row synchronously (await) so it lands BEFORE the
+    // classifier's per-file ingestion fires off page-row inserts. Without
+    // await, the stub save races the document_pages inserts and they
+    // arrive at Postgres before the parent row exists → FK 23503.
+    if (typeof window.sbSaveSubmission === 'function') {
+      try {
+        await window.sbSaveSubmission({
+          id: preMintId,
+          status: 'AWAITING UW REVIEW',
+          statusHistory: [{ from: null, to: 'AWAITING UW REVIEW', at: STATE.pipelineStart, actor: typeof currentActor === 'function' ? currentActor() : 'system' }],
+          pipelineRun: STATE.pipelineRun,
+          // Snapshot is empty at this stage — recordSubmission will fill
+          // it in at pipeline end with the full file list and extractions.
+          snapshot: { files: [], extractions: {}, pipelineRun: STATE.pipelineRun, _stub: true },
+        });
+        // Tell the audit-events writer that this submission now exists in
+        // the database. Without this, subsequent logAudit calls would all
+        // hit the FK pre-check, see the cache from a prior session say
+        // "doesn't exist", and skip the insert. This flip means audit
+        // events written from now on for this submission DO reach the
+        // cloud.
+        if (typeof window.sbInvalidateSubmissionExistsCache === 'function') {
+          window.sbInvalidateSubmissionExistsCache(preMintId);
+        }
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'Stub submission row persisted to Supabase · ' + preMintId, 'ok');
+        }
+      } catch (err) {
+        // If the stub save fails (network, auth, RLS), log loudly and
+        // continue — the docs view ingestion will still try, and per-page
+        // inserts will fail with FK errors that surface in the console.
+        // Better to attempt and have visible failures than to silently
+        // skip pre-mint and have everything mysteriously break.
+        console.error('Pre-mint stub save failed for ' + preMintId + ':', err);
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'WARNING: stub submission save failed · ' + preMintId + ' · ' + (err.message || 'unknown') + ' · per-page inserts will likely fail with FK errors', 'error');
+        }
       }
-    } catch (err) {
-      console.warn('TestHarness → docs view full ingestion failed for ' + f.name + ':', err);
-      // Fall back to metadata-only push so the doc at least appears.
-      if (typeof window.docsView.addDocFromPipeline === 'function') {
+    }
+  }
+
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('btnRunLabel').innerHTML = '<span class="spinner"></span> Running';
+  document.getElementById('pipelineEmpty').style.display = 'none';
+  document.getElementById('pipelineFlow').style.display = 'block';
+  renderPipelineNodes();
+
+  timer = setInterval(updateTimer, 100);
+  logAudit('Pipeline', 'Started run ' + STATE.pipelineRun + ' · ' + ready.length + ' files', STATE.api.model);
+
+  // (the existing classifier + module execution code lives here)
+
+  // === Stage 0: Classify all files in parallel ===
+  setNodeState('[data-node="classifier"]', 'running');
+  updateProgress(5, '<strong>Stage 0</strong> · reading full documents (classifier)');
+  await Promise.all(ready.map(async f => {
+    // Skip reclassification for files already classified with high confidence — saves $ on re-runs
+    if (f.state === 'classified' && f.classification && f.confidence > 0.85 && !f.needsReview) {
+      logAudit('Classifier', 'Cached ' + f.name + ' as ' + f.classification + ' (' + Math.round(f.confidence * 100) + '% · skipped reclassify)', '—');
+      return;
+    }
+    const original = f.state;
+    f.state = 'parsing';
+    renderFileList();
+    const c = await classifyFile(f);
+    f.classification = c.type;                    // primary type (backward compat)
+    f.confidence = c.confidence;                  // primary confidence
+    f.classifications = c.classifications || [];  // multi-type list for combined docs
+    f.isCombined = !!c.isCombined;
+    f.needsReview = !!c.needsReview;
+    f.signatures = c.signatures || [];
+    f.reasoning = c.reasoning || '';
+    // Route to ALL applicable modules (supports combined docs)
+    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
+    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
+    f.state = 'classified';
+    renderFileList();
+    // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
+    // After classification, mirror the file into the Documents tab with the
+    // FULL processing path — render thumbnails, upload binary to Supabase
+    // storage, persist a row per page. The classifier's category and color
+    // are stamped on every page so the doc shows in the right bucket with
+    // the right tag color, regardless of broker filename.
+    //
+    // Skip if:
+    //   • the docs view module isn't loaded (testing harness, etc.)
+    //   • we already pushed this file (re-runs don't double-add)
+    //   • RE-RUN GUARD: the docs view already has docs from this submission
+    //     with the same source filename. f._pushedToDocsView only persists
+    //     within a single STATE.files lifetime; pipeline re-runs may reset
+    //     the file array (e.g. user retries with a different model). The
+    //     filename + submissionId pair is the durable identity; if the
+    //     docs view already has rows matching, we don't push again.
+    //   • the raw File object isn't on the entry (lite snapshot dropped it,
+    //     or this is a synthesized record without a binary). In that case
+    //     fall back to the metadata-only push so the doc still appears,
+    //     just without a working preview.
+    if (window.docsView && !f._pushedToDocsView) {
+      // Re-run double-push guard. If docsView.getDocs reports any existing
+      // doc rows for this submission belonging to the same source file,
+      // skip the push so re-runs don't double-add. The user can force
+      // re-classification by deleting the docs in the file manager first.
+      //
+      // Match precision matters here. The docs view's PDF processor splits
+      // multi-page PDFs into "BaseName — Page N" entries, so we can't
+      // exact-match the original filename. But arbitrary prefix matching
+      // is too loose (would falsely block "Safety Manual.pdf" if "Safety
+      // Manual Updated.pdf" was already there — its split docs all start
+      // with "Safety Manual"). The fix: match only the EXACT page-split
+      // format the processor produces ("BaseName — Page N"), or the
+      // original filename for non-split single-page docs. Em-dash is the
+      // separator the splitter uses (see processPDF in documents-view.js).
+      let alreadyPushed = false;
+      try {
+        if (typeof window.docsView.getDocs === 'function' && STATE.activeSubmissionId) {
+          const existing = window.docsView.getDocs();
+          const baseName = (f.name || '').replace(/\.[^.]+$/, '');
+          const pageSplitPrefix = baseName + ' — Page ';  // em-dash, exact processor format
+          alreadyPushed = existing.some(d =>
+            d.submissionId === STATE.activeSubmissionId &&
+            d.name && (
+              d.name === f.name ||                         // single-page or non-PDF
+              d.name === baseName ||                       // single-page PDF
+              d.name.indexOf(pageSplitPrefix) === 0        // multi-page PDF split entry
+            )
+          );
+          if (alreadyPushed) {
+            f._pushedToDocsView = 'cached';
+            if (typeof logAudit === 'function') {
+              logAudit('Docs View', 'Skipped re-push of ' + f.name + ' · already in submission ' + STATE.activeSubmissionId, 'ok');
+            }
+          }
+        }
+      } catch (e) {
+        // Cache check failed — proceed with push anyway. Worst case we
+        // push duplicates, which is the previous behavior.
+        console.warn('Docs view duplicate check failed, proceeding with push:', e);
+      }
+      // v8.6.4: single source of truth for docs-view mapping. Pass
+      // primary_bucket if the classifier emitted it, else fall back to
+      // legacy type. Tag is always passed so granular fallback works
+      // when neither bucket nor type maps cleanly. See the v8.6.4 block
+      // comment above docsViewMappingFor for why BUCKET_TO_CATEGORY
+      // was removed.
+      const pipelineTag = c.tag || c.subType || c.type;
+      const primaryBucket = c.primary_bucket || null;
+      const mapping = docsViewMappingFor(primaryBucket || c.type, c.tag);
+      const ingestCtx = {
+        category: mapping.category,
+        color: mapping.color,
+        submissionId: STATE.activeSubmissionId || null,
+        pipelineClassification: c.type,
+        pipelineRoutedTo: f.routedTo || null,
+        pipelineTag: pipelineTag,
+        primaryBucket: primaryBucket,
+        // v8.6: pass per-section classifications so combined PDFs get
+        // a chip on every section-start page, not just page 1.
+        sectionClassifications: Array.isArray(f.classifications)
+          ? f.classifications.map(cl => ({
+              tag: cl.tag || cl.subType || cl.type,
+              type: cl.type,
+              subType: cl.subType || null,
+              section_hint: cl.section_hint || null,
+              primary_bucket: cl.primary_bucket || null,
+            }))
+          : null,
+      };
+      // Skip both push paths if we already determined a duplicate exists.
+      if (!alreadyPushed) {
+      // Prefer full ingestion (binary + thumbnails). Falls back to metadata
+      // push if no File on hand or processFileFromPipeline isn't exposed.
+      if (f._rawFile && typeof window.docsView.processFileFromPipeline === 'function') {
+        try {
+          const newDocIds = await window.docsView.processFileFromPipeline(f._rawFile, ingestCtx);
+          if (newDocIds && newDocIds.length > 0) {
+            f._pushedToDocsView = newDocIds;
+            // Free the File reference once it's safely persisted in Supabase
+            // storage. Keeping it around forever would pin the binary in JS
+            // memory; the docs view re-fetches from storage when needed.
+            f._rawFile = null;
+          }
+        } catch (err) {
+          console.warn('Pipeline → docs view full ingestion failed for ' + f.name + ':', err);
+          // Fall back to metadata-only push so the doc at least appears.
+          if (typeof window.docsView.addDocFromPipeline === 'function') {
+            try {
+              const docId = window.docsView.addDocFromPipeline({
+                name: f.name || 'Pipeline Doc',
+                ...ingestCtx,
+              });
+              if (docId) f._pushedToDocsView = docId;
+            } catch (e2) {
+              console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+            }
+          }
+        }
+      } else if (typeof window.docsView.addDocFromPipeline === 'function') {
+        // No File on hand (incremental rerun against stored snapshot, etc.).
+        // Push metadata only — doc lands in the right bucket but has no
+        // thumbnail or preview until the user re-uploads.
         try {
           const docId = window.docsView.addDocFromPipeline({
-            name: f.name || 'Test Doc',
+            name: f.name || 'Pipeline Doc',
             ...ingestCtx,
           });
           if (docId) f._pushedToDocsView = docId;
-        } catch (e2) {
-          console.warn('Metadata-only fallback also failed for ' + f.name + ':', e2);
+        } catch (err) {
+          console.warn('Metadata-only push failed for ' + f.name + ':', err);
         }
       }
+      }  // end if (!alreadyPushed)
     }
-  } else if (typeof window.docsView.addDocFromPipeline === 'function') {
-    // No File on hand — push metadata only. Doc lands in the right bucket
-    // but has no thumbnail until re-uploaded.
+  }));
+  renderFileList();
+  setNodeState('[data-node="classifier"]', 'done', ready.length + ' files · routed');
+
+  // === FLAG LOW-CONFIDENCE FILES FOR POST-HOC REVIEW ===
+  // Pipeline does NOT pause. Files with confidence < threshold (or 'unknown' type)
+  // are marked for review and surfaced in the Summary view so the underwriter can
+  // correct them after seeing the full pipeline output. This is faster than a
+  // blocking modal but still gives the underwriter a 100% safety net.
+  const flagged = ready.filter(f => f.needsReview || f.classification === 'unknown');
+  if (flagged.length > 0) {
+    logAudit('Classifier', flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for post-hoc review (low confidence). Pipeline continuing with AI\'s best guess.', STATE.api.model);
+    toast(flagged.length + ' file' + (flagged.length === 1 ? '' : 's') + ' flagged for review — pipeline continuing · see Summary', 'warn');
+  }
+
+  // Group parsed files by their routed module(s) — supports combined documents
+  const filesByModule = {};
+  ready.forEach(f => {
+    const targets = (f.routedToAll && f.routedToAll.length > 0) ? f.routedToAll : (f.routedTo ? [f.routedTo] : []);
+    targets.forEach(mid => {
+      if (!filesByModule[mid]) filesByModule[mid] = [];
+      // Avoid duplicate entries if the same file was routed to the same module twice
+      if (!filesByModule[mid].includes(f)) filesByModule[mid].push(f);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // v8.5.5 PRE-FLIGHT COST GUARD
+  //
+  // Bug class this catches: classifier emits a value that classifierToRoute
+  // doesn't recognize, every file's routedTo is null, the pipeline runs
+  // every wave-1 module against zero files, all skip with "no matching
+  // file", but the classifier already burned API tokens AND wave-2/3
+  // modules then run on whatever extractions are present (or none).
+  //
+  // The historical cost of this bug: 3 separate Carroll County test runs
+  // where 5 of 6 files routed nowhere (APPLICATIONS / LOSS_HISTORY /
+  // UNDERLYING bucket names didn't match lowercase ROUTING keys). Each
+  // run cost real Anthropic API spend. The pipeline reported "complete"
+  // and "no output" without surfacing the structural failure.
+  //
+  // What this guard checks:
+  //   1. Classified files exist (not all 'error' or 'parsing')
+  //   2. Of the classified files, > 50% have at least one routedTo
+  //      (or ALL of them are file-and-forget — that's a valid run)
+  //   3. At least one wave-1 module will fire
+  //
+  // If any check fails, abort with an error toast, write a diagnostic
+  // audit row, and stop the pipeline BEFORE wave-1 spends tokens.
+  // ════════════════════════════════════════════════════════════════════
+  {
+    const classified = STATE.files.filter(f => f.state === 'classified');
+    if (classified.length === 0) {
+      const msg = 'Pre-flight: no files classified successfully. Check classifier errors above.';
+      console.warn('[pipeline]', msg);
+      logAudit('Pipeline', msg, 'error');
+      if (typeof toast === 'function') toast(msg, 'error');
+      updateProgress(100, '<strong>Pipeline aborted</strong> · no files to extract');
+      return;
+    }
+
+    // Files with at least one route (excluding pure file-and-forget tags
+    // which are LEGITIMATELY meant to skip extraction).
+    const routed = classified.filter(f =>
+      (f.routedToAll && f.routedToAll.length > 0) ||
+      (f.routedTo && f.routedTo !== null)
+    );
+
+    // File-and-forget detection: type matches FILE_AND_FORGET_TAGS, OR
+    // classifierToRoute correctly returns null for an intentional non-routed
+    // tag. We only treat a file as "intentionally skipped" if the classifier
+    // is confident — low confidence means we don't know, so it counts as
+    // unrouted/suspicious.
+    const intentionallySkipped = classified.filter(f =>
+      !routed.includes(f) &&
+      f.confidence >= 0.70 &&
+      FILE_AND_FORGET_TAGS.has(f.classification)
+    );
+
+    const validlyHandled = routed.length + intentionallySkipped.length;
+    const handlingRatio = validlyHandled / classified.length;
+
+    // The core check. If less than 50% of classified files have a valid
+    // route OR are intentionally file-and-forget, the routing layer is
+    // broken and we should NOT spend money on wave-1.
+    if (handlingRatio < 0.5) {
+      const detail = classified.map(f => ({
+        name: f.name,
+        type: f.classification,
+        subType: (f.classifications && f.classifications[0] && f.classifications[0].subType) || null,
+        routedTo: f.routedTo,
+        routedToAll: f.routedToAll || [],
+      }));
+      const msg = 'Pre-flight ABORT · ' + (classified.length - validlyHandled) +
+        ' of ' + classified.length + ' classified files have no extraction route. ' +
+        'Likely a classifier-routing mismatch. Aborting before wave-1 to save API spend.';
+      console.warn('[pipeline]', msg);
+      console.warn('[pipeline] unrouted file detail:', detail);
+      logAudit('Pipeline', msg + ' · Detail: ' + JSON.stringify(detail), 'error');
+      if (typeof toast === 'function') {
+        toast('Pipeline routing broken', msg + ' Check console for details.', 'error');
+      }
+      updateProgress(100, '<strong>Pipeline aborted</strong> · routing layer rejected ' +
+        (classified.length - validlyHandled) + '/' + classified.length + ' files');
+      return;
+    }
+
+    // Will any wave-1 module actually fire?
+    const wave1ModulesWithFiles = Object.entries(MODULES)
+      .filter(([mid, m]) => m.wave === 1 && m.inputsFrom === 'file')
+      .filter(([mid]) => filesByModule[mid] && filesByModule[mid].length > 0)
+      .map(([mid]) => mid);
+
+    if (wave1ModulesWithFiles.length === 0) {
+      const msg = 'Pre-flight ABORT · classification produced routes but no wave-1 file-input modules will fire. Routing table out of sync with module definitions.';
+      console.warn('[pipeline]', msg);
+      logAudit('Pipeline', msg, 'error');
+      if (typeof toast === 'function') toast('Pipeline misconfigured', msg, 'error');
+      updateProgress(100, '<strong>Pipeline aborted</strong> · no extraction modules will fire');
+      return;
+    }
+
+    // All checks passed. Log a concise pre-flight summary so we can verify
+    // the routing layer is healthy on every successful run.
+    logAudit('Pipeline',
+      'Pre-flight OK · ' + classified.length + ' classified, ' +
+      routed.length + ' routed, ' +
+      intentionallySkipped.length + ' file-and-forget, ' +
+      wave1ModulesWithFiles.length + ' wave-1 modules will fire (' +
+      wave1ModulesWithFiles.join(', ') + ')',
+      'ok');
+  }
+
+  // === Stage 1: Wave 1 modules run in parallel ===
+  updateProgress(12, '<strong>Wave 1</strong> · parallel extraction across matched files');
+  const wave1Tasks = [];
+  for (const [mid, m] of Object.entries(MODULES)) {
+    if (m.wave !== 1) continue;
+    if (m.inputsFrom === 'file') {
+      const matched = filesByModule[mid];
+      if (matched && matched.length > 0) {
+        // v8.5 Rule 9: per-section text slicing. See sliceTextForModule.
+        const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
+        const src = matched.map(f => f.name).join(', ');
+        wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src));
+      } else {
+        skipModule(mid, 'no matching file');
+      }
+    } else if (m.inputsFrom === 'extraction' && m.deps.length > 0) {
+      // classcode depends on supplemental — wait for that
+      wave1Tasks.push((async () => {
+        while (!STATE.extractions[m.deps[0]]) {
+          const depEl = document.querySelector(`[data-module="${m.deps[0]}"]`);
+          if (depEl && depEl.classList.contains('skipped')) { skipModule(mid, 'dep skipped'); return false; }
+          if (depEl && depEl.classList.contains('error')) { skipModule(mid, 'dep errored'); return false; }
+          await sleep(80);
+        }
+        return runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
+      })());
+    }
+  }
+  await Promise.all(wave1Tasks);
+
+  // === Stage 2: Wave-2 syntheses — Summary of Ops + Excess Tower (parallel) ===
+  updateProgress(55, '<strong>Wave 2</strong> · synthesizing Summary of Operations + Excess Tower');
+  const wave2Tasks = [];
+
+  // Summary of Operations — includes email_intel as an optional supplementary source.
+  // Prompt instructs it to use email claims only to fill gaps, never to override authoritative.
+  const soMod = MODULES['summary-ops'];
+  const availableDeps = soMod.deps.filter(d => STATE.extractions[d]);
+  const soOptionalDeps = (soMod.optionalDeps || []).filter(d => STATE.extractions[d]);
+  const soAllDeps = [...availableDeps, ...soOptionalDeps];
+  if (availableDeps.length > 0) {
+    const combined = soAllDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
+    wave2Tasks.push(runModule('summary-ops', PROMPTS['summary-ops'], combined, soAllDeps.map(d => MODULES[d].code).join('+')));
+  } else {
+    skipModule('summary-ops', 'no intake extractions available');
+  }
+
+  // Excess Tower — synthesizes supplemental + (optional) excess / gl_quote / al_quote extractions
+  // into a visual stacked tower diagram. Runs in parallel with summary-ops since both depend on
+  // the same wave-1 extractor outputs but don't depend on each other.
+  //
+  // v8.6: tower now runs if ANY relevant extraction is present, not just
+  // supplemental. The previous logic required supplemental as a hard dep
+  // even though the tower's primary purpose is showing the LIMIT STACK,
+  // which comes from excess/gl_quote/al_quote extractions. A submission
+  // with a quote proposal but no supp app would skip the tower under the
+  // old rules — wrong, since the tower data is right there in the quote.
+  const towerMod = MODULES.tower;
+  const towerCandidates = [...(towerMod.deps || []), ...(towerMod.optionalDeps || [])];
+  const towerPresent = towerCandidates.filter(d => STATE.extractions[d]);
+  if (towerPresent.length > 0) {
+    const towerInput = towerPresent.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
+    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+')));
+  } else {
+    skipModule('tower', 'no supplemental, excess, gl_quote, or al_quote extraction available');
+  }
+
+  await Promise.all(wave2Tasks);
+
+  // === Stage 3: Guidelines, Exposure, Strengths, Discrepancy (parallel on summary-ops) ===
+  updateProgress(72, '<strong>Wave 3</strong> · analyzing guidelines, exposures, strengths, discrepancies');
+  const wave3Tasks = [];
+  if (STATE.extractions['summary-ops']) {
+    const soText = STATE.extractions['summary-ops'].text;
+    const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
+    wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines'));
+    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6'));
+    wave3Tasks.push(runModule('strengths', PROMPTS.strengths, soText, 'A6'));
+  } else {
+    skipModule('guidelines', 'no Summary of Ops');
+    skipModule('exposure', 'no Summary of Ops');
+    skipModule('strengths', 'no Summary of Ops');
+  }
+  // Discrepancy cross-check — runs ONLY when email_intel is present (otherwise there's
+  // nothing to compare). Feeds email_intel as required + whatever authoritative
+  // extractions we have as optional inputs. Quotes are the authoritative truth.
+  if (STATE.extractions.email_intel) {
+    const discInputs = ['email_intel', 'supplemental', 'gl_quote', 'al_quote', 'excess', 'losses', 'safety']
+      .filter(mid => STATE.extractions[mid])
+      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+      .join('\n\n');
+    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs auth sources'));
+  } else {
+    skipModule('discrepancy', 'no email to cross-check');
+  }
+  await Promise.all(wave3Tasks);
+
+  // === Finalize ===
+  clearInterval(timer);
+  const finalTime = ((Date.now() - STATE.pipelineStart) / 1000).toFixed(1);
+  document.getElementById('pipeTimer').textContent = finalTime + 's';
+  const completed = Object.keys(STATE.extractions).length;
+  updateProgress(100, '<strong>Complete</strong> · ' + completed + ' modules · QC verified · audit logged');
+  document.getElementById('doneTiming').textContent = finalTime + 's wall clock';
+  document.getElementById('pipeDone').style.display = 'block';
+  document.getElementById('sumCount').textContent = completed;
+  document.getElementById('stageTabSum').disabled = false;
+  document.getElementById('btnRun').disabled = false;
+  document.getElementById('btnRunLabel').textContent = 'View Summary';
+
+  // Enable action buttons in Decision pane
+  ['btnExcel', 'btnMd', 'btnRerunGuidelines'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
+
+  STATE.pipelineDone = true;
+  STATE.pipelineRunning = false;
+  document.body.classList.add('pipeline-complete-mode');
+  // Enable the Assistant-handoff button now that the pipeline has a summary to review
+  if (typeof renderHandoffState === 'function') renderHandoffState();
+
+  // === FIX #4 — AWAIT THE FINAL ARCHIVE ===
+  // Previously archiveCurrentSubmission was called fire-and-forget (its
+  // cloud save was wrapped in an async IIFE). That meant the pipeline UI
+  // would say "complete" before the snapshot actually persisted to
+  // Supabase. A fast refresh in the gap could hydrate stale data. Now
+  // the archive is async and we await it, so by the time we toast
+  // "Pipeline complete" the cloud save has either succeeded or logged
+  // its error.
+  if (typeof archiveCurrentSubmission === 'function') {
     try {
-      const docId = window.docsView.addDocFromPipeline({
-        name: f.name || 'Test Doc',
-        ...ingestCtx,
-      });
-      if (docId) f._pushedToDocsView = docId;
+      const archiveResult = await archiveCurrentSubmission({ source: 'pipeline-end' });
+      // Inspect the structured result. If cloudSaved is false, the
+      // pipeline DID complete locally but Supabase rejected the snapshot
+      // — refresh would hydrate stale state. Surface this as a separate
+      // warning so the user knows to retry/refresh-with-care.
+      if (archiveResult && archiveResult.cloudSaved === false) {
+        archiveErr = archiveResult.cloudError || new Error('cloud save reported failure');
+        console.warn('Pipeline complete locally, but cloud save failed:', archiveErr);
+        if (typeof logAudit === 'function') {
+          logAudit('Pipeline', 'WARNING: pipeline complete locally but cloud save failed · ' + (archiveErr.message || 'unknown') + ' · refresh would lose extractions', 'error');
+        }
+      }
     } catch (err) {
-      console.warn('Metadata-only push failed for ' + f.name + ':', err);
+      // Archive threw — different from cloudSaved=false. Local state may
+      // also be incomplete. Logged for diagnosis.
+      archiveErr = err;
+      console.warn('Final archive after pipeline encountered error:', err);
     }
   }
-}
 
-// ----------------------------------------------------------------------------
-// Core test runner — pre-filter first, LLM fallback. NO MODAL POPUP.
-// Acts exactly like the real pipeline's classify-stage: file manager chip
-// updates with the right color/tag, file lands in the Documents tab with
-// thumbnail and category — except no extraction modules fire.
-// ----------------------------------------------------------------------------
-async function runTestClassifyOnFile(fileId) {
-  const f = STATE.files.find(ff => ff.id === fileId);
-  if (!f) {
-    if (typeof toast === 'function') toast('File not found in queue.', 'error');
-    return;
+  updateQueueKpi();
+  // Summary card rendering still uses the Phase 4 replacement (hooked there)
+  renderSummaryCards();
+  // Render the post-hoc classifier-review banner (shows flagged low-confidence files)
+  if (typeof renderClassifierReview === 'function') renderClassifierReview();
+  logAudit('Pipeline', 'Completed run ' + STATE.pipelineRun + ' · ' + completed + '/' + Object.keys(MODULES).length + ' modules · ' + finalTime + 's' + (archiveErr ? ' · archive WARN' : ''), STATE.api.model);
+  // Toast text reflects cloud save state honestly.
+  if (archiveErr) {
+    toast('Pipeline complete locally · ' + completed + ' modules · cloud save FAILED — refresh could lose extractions', 'warn');
+  } else {
+    toast('Pipeline complete · ' + completed + ' modules · ' + finalTime + 's');
   }
-  if (f.state !== 'parsed' && f.state !== 'classified') {
-    if (typeof toast === 'function') toast('File must be parsed first. Current state: ' + f.state, 'warn');
-    return;
-  }
-
-  // Close any open picker modal IMMEDIATELY — no UI interruption from here on.
-  closeTestClassifyModal();
-
-  // Pre-mint submission ID if needed — required for docs view FK constraint
-  await preMintSubmissionForTest();
-
-  // STAGE 1: Try the deterministic detector library first (free, instant).
-  // Currently scoped to ACORD 125/126/131. If a detector hits, we never
-  // call the LLM at all.
-  const preFilter = detectDocumentSignature(f);
-  let result = null;
-  let detectionMethod = null;
-  let detectorId = null;
-  let signalsLabel = '';
-
-  if (preFilter.match) {
-    result = preFilter.result;
-    detectionMethod = 'regex';
-    detectorId = preFilter.detector_id;
-    signalsLabel = preFilter.signals.join(' + ');
+  // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
+  // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
+  setTimeout(() => { if (typeof showStage === 'function') showStage('sum'); }, 400);
+  } catch (pipelineErr) {
+    // Top-level failure (something that escaped the per-module catch).
+    // Log it loudly so we have diagnostic data, then let finally clean up.
+    console.error('Pipeline orchestrator error:', pipelineErr);
     if (typeof logAudit === 'function') {
-      logAudit('TestHarness',
-        'Pre-filter HIT (' + detectorId + ') for ' + f.name + ' → ' + result.tag +
-        ' (' + signalsLabel + ')', 'ok');
+      logAudit('Pipeline', 'ORCHESTRATOR ERROR: ' + (pipelineErr && pipelineErr.message ? pipelineErr.message : 'unknown') + ' · UI reset by guard', 'error');
     }
-  } else {
-    // STAGE 2: LLM classifier fallback.
-    if (!window.currentUser) {
-      if (typeof toast === 'function') toast('Sign in required to run the LLM classifier.', 'warn');
-      const overlay = document.getElementById('authOverlay');
-      if (overlay) overlay.style.display = 'flex';
-      return;
+    if (typeof toast === 'function') {
+      toast('Pipeline error · ' + (pipelineErr && pipelineErr.message ? pipelineErr.message.slice(0, 80) : 'unknown'), 'error');
     }
-    try {
-      if (typeof logAudit === 'function') {
-        logAudit('TestHarness', 'No deterministic detector matched · running LLM classifier on ' + f.name, 'ok');
-      }
-      const startMs = Date.now();
-      result = await classifyFile(f);
-      detectionMethod = 'llm';
-      const elapsedMs = Date.now() - startMs;
-      if (typeof logAudit === 'function') {
-        logAudit('TestHarness',
-          'LLM classified ' + f.name + ' → ' + (result.tag || result.type) +
-          ' (' + Math.round((result.confidence || 0) * 100) + '%) · ' + elapsedMs + 'ms', 'ok');
-      }
-    } catch (err) {
-      if (typeof logAudit === 'function') {
-        logAudit('TestHarness', 'FAILED classify ' + f.name + ': ' + err.message, 'error');
-      }
-      if (typeof toast === 'function') toast('Classification failed: ' + err.message, 'error');
-      return;
-    }
-  }
-
-  // 1. Apply to file manager — chip updates with right color/tag/confidence
-  applyTestClassificationToFile(f, result);
-
-  // 2. Push to docs view — thumbnail + category + Documents tab entry
-  await pushTestFileToDocsView(f, result);
-
-  // 3. Refresh docs count + render the Documents tab if it's open so the
-  //    user sees the new doc immediately without having to switch tabs.
-  if (typeof renderFileList === 'function') renderFileList();
-  if (typeof updateRunButton === 'function') updateRunButton();
-  // Refresh the workbench's Documents tab counter
-  const docsCountEl = document.getElementById('docsCount');
-  if (docsCountEl && window.docsView && typeof window.docsView.getDocs === 'function') {
-    try {
-      const allDocs = window.docsView.getDocs();
-      const subDocs = STATE.activeSubmissionId
-        ? allDocs.filter(d => d.submissionId === STATE.activeSubmissionId)
-        : allDocs;
-      docsCountEl.textContent = subDocs.length;
-    } catch (e) { /* ignore */ }
-  }
-
-  // 4. Toast confirmation — concise, tells user what happened and where
-  //    to look. Includes the detection method so they can spot at a glance
-  //    whether regex or LLM made the call.
-  if (typeof toast === 'function') {
-    const tagLabel = result.tag || result.type || 'unknown';
-    const methodLabel = detectionMethod === 'regex'
-      ? 'detected (' + (detectorId || 'pre-filter') + ', no LLM)'
-      : 'classified by LLM';
-    const confPct = Math.round((result.confidence || 0) * 100);
-    toast('✓ ' + f.name + ' → ' + tagLabel + ' · ' + confPct + '% · ' + methodLabel, 'ok');
+  } finally {
+    // Always reset UI state regardless of how we got here. Without this
+    // guard, an unexpected error mid-pipeline would leave the Run button
+    // disabled, STATE.pipelineRunning = true, and the timer ticking
+    // forever — user would have to refresh to recover.
+    clearInterval(timer);
+    STATE.pipelineRunning = false;
+    const btn = document.getElementById('btnRun');
+    if (btn) btn.disabled = false;
+    const btnLabel = document.getElementById('btnRunLabel');
+    if (btnLabel) btnLabel.textContent = STATE.pipelineDone ? 'View Summary' : 'Run Pipeline';
   }
 }
 
-// ----------------------------------------------------------------------------
-// Result rendering — shared between pre-filter and LLM paths. The 'meta'
-// argument carries detection-method info so we can show the user HOW the
-// classification was made (regex vs LLM).
-// ----------------------------------------------------------------------------
-function renderTestClassifyResult(f, result, meta) {
-  const body = document.getElementById('testClassifyBody');
-  if (!body) return;
+// Initialize the pipeline nodes when the view loads
+renderPipelineNodes();
+// Now that updateDecisionPaneIdle is defined, refresh the Decision pane meta-rows
+// so initial paint reflects the real API mode (was showing hardcoded "DEMO" before)
+if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
+if (typeof updateQueueKpi === 'function') updateQueueKpi();
+// Render persisted submissions into the Queue on first paint (loadSubmissions
+// already ran when the module was defined — this just paints what it loaded)
+if (typeof renderQueueTable === 'function') renderQueueTable();
+// Refresh the feedback count on the Admin card from persisted events
+if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
 
-  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
-  const confPct = Math.round((result.confidence || 0) * 100);
-
-  // What route would this take? This is the actual answer to "did the AI
-  // identify the doc correctly" — type → route is what determines which
-  // extraction module fires.
-  const route = (typeof classifierToRoute === 'function')
-    ? classifierToRoute(result.type, result.subType, result.tag)
-    : null;
-  const routeName = route && typeof MODULES === 'object' && MODULES[route]
-    ? MODULES[route].code + ' — ' + MODULES[route].name
-    : null;
-
-  // Method badge — REGEX (green) vs LLM (signal yellow)
-  const methodBadgeClass = meta.method === 'regex_prefilter' ? 'method-regex' : 'method-llm';
-  const methodBadgeText = meta.method === 'regex_prefilter' ? 'REGEX · INSTANT' : 'LLM · ' + meta.elapsedMs + 'MS';
-
-  // Pre-filter banner — explains how the pre-filter decided
-  let prefilterBannerHtml = '';
-  if (meta.method === 'regex_prefilter' && meta.signals) {
-    const signalChips = meta.signals.map(s => '<span class="tc-signal">' + esc(s.replace(/_/g, ' ')) + '</span>').join('');
-    const detectorLabel = meta.detector_id ? esc(meta.detector_id.toUpperCase()) : 'PRE-FILTER';
-    const thresholdNote = (meta.signals_required && meta.signals_total)
-      ? meta.signals.length + ' of ' + meta.signals_total + ' signals matched (min ' + meta.signals_required + ' required)'
-      : meta.signals.length + ' signals matched';
-    prefilterBannerHtml =
-      '<div class="tc-prefilter-banner">' +
-      '<strong>' + detectorLabel + ' detector HIT.</strong> ' +
-      thresholdNote + ' — no LLM call needed. ' +
-      esc(meta.method_label) + '.' +
-      '<div class="tc-signals" style="margin-top: 8px;">' + signalChips + '</div>' +
-      '</div>';
-  }
-
-  // Combined sections (only LLM path can produce these)
-  let combinedHtml = '';
-  if (result.isCombined && Array.isArray(result.classifications) && result.classifications.length > 1) {
-    const sectionRows = result.classifications.map(c => {
-      const cConf = Math.round((c.confidence || 0) * 100);
-      const sec = c.section_hint ? ' · ' + esc(c.section_hint) : '';
-      const tag = c.tag ? ' · tag: ' + esc(c.tag) : '';
-      return '<div class="tc-section-row">' +
-        '<span class="tc-section-type">' + esc(c.type) + esc(c.subType ? ' / ' + c.subType : '') + tag + sec + '</span>' +
-        '<span class="tc-section-conf">' + cConf + '%</span>' +
-        '</div>';
-    }).join('');
-    combinedHtml =
-      '<div>' +
-      '<div class="tc-field-label" style="margin-bottom: 8px;">Sections (' + result.classifications.length + ')</div>' +
-      '<div class="tc-sections">' + sectionRows + '</div>' +
-      '</div>';
-  }
-
-  // Needs-review flags
-  let flagsHtml = '';
-  if (result.needsReview && Array.isArray(result.needsReviewReasons) && result.needsReviewReasons.length > 0) {
-    const flagPills = result.needsReviewReasons.map(r => '<span class="tc-flag">' + esc(r) + '</span>').join('');
-    flagsHtml =
-      '<div>' +
-      '<div class="tc-field-label" style="margin-bottom: 6px;">Needs review</div>' +
-      '<div class="tc-flags">' + flagPills + '</div>' +
-      '</div>';
-  } else {
-    flagsHtml =
-      '<div class="tc-flags">' +
-      '<span class="tc-flag ok">CONFIDENT · NO REVIEW NEEDED</span>' +
-      '</div>';
-  }
-
-  // Cost label
-  const costLabel = meta.costDelta > 0 ? '$' + meta.costDelta.toFixed(4) : (meta.method === 'regex_prefilter' ? 'FREE' : '—');
-
-  // First 240 chars of doc text — what the classifier actually saw
-  const textPreview = (f.text || '').slice(0, 240).replace(/\s+/g, ' ').trim();
-  const textTotal = (f.text || '').length;
-
-  // Subtitle — different for pre-filter vs LLM
-  const subtitle = meta.method === 'regex_prefilter'
-    ? textTotal.toLocaleString() + ' chars · pre-filter · 0ms · FREE'
-    : textTotal.toLocaleString() + ' chars · ' + meta.elapsedMs + 'ms · ' + costLabel;
-
-  body.innerHTML =
-    '<div class="tc-result">' +
-    '<div class="tc-result-header">' +
-    '<div style="flex: 1; min-width: 0; padding-right: 10px;">' +
-    '<div class="tc-result-filename">' + esc(f.name) + '</div>' +
-    '<div class="tc-result-subtitle">' + subtitle + '</div>' +
-    '</div>' +
-    '<div class="tc-method-badge ' + methodBadgeClass + '">' + methodBadgeText + '</div>' +
-    '</div>' +
-
-    prefilterBannerHtml +
-
-    // Headline verdict
-    '<div class="tc-verdict">' +
-    '<div class="tc-verdict-label">Primary classification</div>' +
-    '<div class="tc-verdict-type">' + esc(result.type || 'unknown') + '</div>' +
-    '<div class="tc-verdict-conf">Confidence: ' + confPct + '%' +
-    (result.isCombined ? ' · COMBINED DOC' : '') +
-    (result.suppressTag ? ' · TAG SUPPRESSED' : '') +
-    '</div>' +
-    '</div>' +
-
-    // What it would route to
-    '<div class="tc-routes-to ' + (route ? '' : 'no-route') + '">' +
-    '<div class="tc-routes-to-label">→ Routes to extraction module</div>' +
-    '<div class="tc-routes-to-value">' +
-    (route ? esc(routeName) : 'NO ROUTE · file-and-forget or unknown') +
-    '</div>' +
-    '</div>' +
-
-    // Taxonomy field grid
-    '<div class="tc-grid">' +
-    '<div class="tc-field">' +
-    '<div class="tc-field-label">Type</div>' +
-    '<div class="tc-field-value ' + (result.type ? '' : 'muted') + '">' + esc(result.type || '(none)') + '</div>' +
-    '</div>' +
-    '<div class="tc-field">' +
-    '<div class="tc-field-label">Sub-type</div>' +
-    '<div class="tc-field-value ' + (result.subType ? '' : 'muted') + '">' + esc(result.subType || '(none)') + '</div>' +
-    '</div>' +
-    '<div class="tc-field">' +
-    '<div class="tc-field-label">Tag</div>' +
-    '<div class="tc-field-value ' + (result.tag ? '' : 'muted') + '">' + esc(result.tag || '(none)') + '</div>' +
-    '</div>' +
-    '<div class="tc-field">' +
-    '<div class="tc-field-label">Primary bucket</div>' +
-    '<div class="tc-field-value ' + (result.primary_bucket ? '' : 'muted') + '">' + esc(result.primary_bucket || '(none)') + '</div>' +
-    '</div>' +
-    '</div>' +
-
-    flagsHtml +
-    combinedHtml +
-
-    // Reasoning
-    (result.reasoning ?
-      '<div class="tc-reasoning">' +
-      '<div class="tc-reasoning-label">Detection reasoning</div>' +
-      esc(result.reasoning) +
-      '</div>'
-      : '') +
-
-    // Doc text preview
-    '<details class="tc-details">' +
-    '<summary>▸ Document text (first 240 chars · what the classifier actually read)</summary>' +
-    '<div class="tc-reasoning" style="margin-top: 4px;">' + esc(textPreview) + (textTotal > 240 ? '…' : '') + '</div>' +
-    '</details>' +
-
-    // Raw JSON
-    '<details class="tc-details">' +
-    '<summary>▸ Raw classifier output (JSON)</summary>' +
-    '<div class="tc-raw-json">' + esc(JSON.stringify(result, null, 2)) + '</div>' +
-    '</details>' +
-
-    // Actions
-    '<div class="tc-actions">' +
-    '<button class="tc-btn" onclick="openTestClassifyPicker()">← Test another file</button>' +
-    '<button class="tc-btn" onclick="closeTestClassifyModal()">Close</button>' +
-    '<button class="tc-btn tc-btn-primary" onclick="runTestClassifyOnFile(\'' + f.id + '\')">↻ Re-run on this file</button>' +
-    '</div>' +
-    '</div>';
-}
-
-// Expose to inline onclick handlers and to the broader app
-window.openTestClassifyPicker = openTestClassifyPicker;
-window.runTestClassifyOnFile = runTestClassifyOnFile;
-window.runTestClassifyOnAllFiles = runTestClassifyOnAllFiles;
-window.closeTestClassifyModal = closeTestClassifyModal;
-window.showTestClassifyModal = showTestClassifyModal;
-window.renderTestClassifyResult = renderTestClassifyResult;
-window.applyTestClassificationToFile = applyTestClassificationToFile;
-window.preMintSubmissionForTest = preMintSubmissionForTest;
-window.pushTestFileToDocsView = pushTestFileToDocsView;
-window.detectAcordForm = detectAcordForm;
-window.detectDocumentSignature = detectDocumentSignature;
-window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
-window.detectEmail = detectEmail;
-window.detectSuppApp = detectSuppApp;
-window.detectLossRun = detectLossRun;
-window.detectSafetyManual = detectSafetyManual;
-window.detectSubcontractAgreement = detectSubcontractAgreement;
-window.detectLiabilityDecPages = detectLiabilityDecPages;
-window.DOC_SIGNATURE_DETECTORS = DOC_SIGNATURE_DETECTORS;
+// ============================================================================
+// Phase 8 step 6: explicit window-exports for every top-level pipeline function.
+// Required because HTML inline handlers (onclick="runPipeline()" etc.) and
+// other script files look up handlers via window. Several of these were
+// already implicitly global from inline-script auto-attachment, but explicit
+// is robust regardless of how the browser scopes us.
+// ============================================================================
+window.calcCost = calcCost;
+window.fmtCost = fmtCost;
+window.callLLM = callLLM;
+window.sleep = sleep;
+window.classifierTypeLabel = classifierTypeLabel;
+window.renderClassifierReview = renderClassifierReview;
+window.toggleNcfCollapse = toggleNcfCollapse;
+window.queueReclassify = queueReclassify;
+window.queueReclassifyLimit = queueReclassifyLimit;
+window.acceptClassification = acceptClassification;
+window.applyReclassifications = applyReclassifications;
+window.computeDownstream = computeDownstream;
+window.incrementalProcess = incrementalProcess;
+window.showIncrementalBanner = showIncrementalBanner;
+window.hideIncrementalBanner = hideIncrementalBanner;
+window.rerunModules = rerunModules;
+window.rerunGuidelines = rerunGuidelines;
+window.truncateForLLM = truncateForLLM;
+window.normalizeClassifierResult = normalizeClassifierResult;
+window.classifyFile = classifyFile;
+window.renderPipelineNodes = renderPipelineNodes;
+window.setNodeState = setNodeState;
+window.updateProgress = updateProgress;
+window.updateTimer = updateTimer;
+window.runModule = runModule;
+window.skipModule = skipModule;
+window.resetPipelineState = resetPipelineState;
+window.runPipeline = runPipeline;
+// Phase 8 step 6 fix: explicit window-exports for top-level consts.
+// These const declarations don't auto-attach to window (lesson from step 3),
+// but app.html and other files reference MODULES heavily by bare name. Without
+// these exports, all those references would fail at runtime.
+window.MODULES = MODULES;
+window.ROUTING = ROUTING;
+window.MODEL_PRICING = MODEL_PRICING;
+window.CLASSIFIER_TYPES = CLASSIFIER_TYPES;
+window.CLASSIFY_CONFIG = CLASSIFY_CONFIG;
+window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;

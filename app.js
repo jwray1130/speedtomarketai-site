@@ -1290,90 +1290,30 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.pdf')) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF parser not loaded');
-
-    // PHASE 1 — READING. Load the binary into memory. Fires immediately
-    // so the user sees something happening from second 1, not a 30-60s
-    // silent gap. The phase callback updates the file-list row with a
-    // descriptive status. Yield to the browser between phases so paint
-    // can flush.
-    if (typeof meta.onProgress === 'function') meta.onProgress(0, 1, 'reading');
-    await new Promise(r => setTimeout(r, 0));  // yield to paint
-
     const buf = await file.arrayBuffer();
-
-    // PHASE 2 — ANALYZING. pdfjs.getDocument analyzes the entire PDF
-    // structure (page tree, fonts, encryption, embedded resources) before
-    // any page can be extracted. For 50+ page packages this can take
-    // 20-40 seconds on its own. We fire onProgress with the analyze phase
-    // here AND wire pdfjs's loadingTask.onProgress (it fires 'loaded/total'
-    // events as the parser walks the structure) so the user sees movement
-    // during this phase too.
-    if (typeof meta.onProgress === 'function') meta.onProgress(0, 1, 'analyzing');
-    await new Promise(r => setTimeout(r, 0));  // yield to paint
-
-    const loadingTask = pdfjsLib.getDocument({ data: buf });
-    if (typeof loadingTask === 'object' && loadingTask !== null) {
-      loadingTask.onProgress = function (progress) {
-        // pdf.js fires { loaded, total } during structure parse. total may
-        // be null on first event before it knows the size — guard for that.
-        if (typeof meta.onProgress === 'function' && progress && progress.total) {
-          try { meta.onProgress(progress.loaded || 0, progress.total, 'analyzing'); } catch (e) { /* never let UI break extraction */ }
-        }
-      };
-    }
-    const pdf = await loadingTask.promise;
-
-    // PHASE 3 — EXTRACTING. Parallel page extraction. Was sequential
-    // (~30-60s on 50-page PDFs), now runs 8 pages in parallel through
-    // pdf.js's worker. Typical 3-5x speedup. Each page completion fires
-    // onProgress so the user sees "page 12/40 · 30%" tick up in real time.
-    //
-    // Concurrency cap: 8 simultaneous pages. Going higher doesn't help —
-    // pdf.js bottlenecks on its single worker thread — and risks main-thread
-    // contention on weaker hardware.
-    if (typeof meta.onProgress === 'function') meta.onProgress(0, pdf.numPages, 'extracting');
-
-    const PARALLEL_PAGES = 8;
-    const totalPages = pdf.numPages;
-    const pageTexts = new Array(totalPages);
-    let pagesDone = 0;
-
-    const pageNums = Array.from({ length: totalPages }, (_, i) => i + 1);
-    let cursor = 0;
-
-    async function worker() {
-      while (cursor < pageNums.length) {
-        const pageNum = pageNums[cursor++];
-        try {
-          const page = await pdf.getPage(pageNum);
-          const content = await page.getTextContent();
-          pageTexts[pageNum - 1] = content.items.map(it => it.str).join(' ');
-        } catch (err) {
-          console.warn('PDF page ' + pageNum + ' extraction failed:', err);
-          pageTexts[pageNum - 1] = '';
-        }
-        pagesDone++;
-        if (typeof meta.onProgress === 'function') {
-          try { meta.onProgress(pagesDone, totalPages, 'extracting'); } catch (e) { /* never let UI break extraction */ }
-        }
-      }
-    }
-
-    await Promise.all(Array.from({ length: Math.min(PARALLEL_PAGES, totalPages) }, () => worker()));
-
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     let text = '';
-    for (let i = 0; i < totalPages; i++) {
-      const pt = pageTexts[i] || '';
-      text += pt + '\n\n';
+    let totalItems = 0;
+    // v8.5 Rule 9: also build pageTexts[] indexed 0-based, so the
+    // pipeline can slice text per-section for combined PDFs.
+    const pageTexts = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      totalItems += content.items.length;
+      const pageText = content.items.map(it => it.str).join(' ');
+      pageTexts.push(pageText);
+      text += pageText + '\n\n';
     }
     meta.kind = 'pdf';
-    meta.pageCount = totalPages;
+    meta.pageCount = pdf.numPages;
     meta.pageTexts = pageTexts;
     // Scanned-PDF detection: empty or tiny text layer relative to page count.
+    // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
     const cleanedLength = text.replace(/\s+/g, '').length;
-    const avgCharsPerPage = cleanedLength / totalPages;
+    const avgCharsPerPage = cleanedLength / pdf.numPages;
     if (cleanedLength < 100 || avgCharsPerPage < 50) {
-      throw new Error('__SCANNED_PDF__::' + totalPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
+      throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
     }
     return text;
   }
@@ -1468,7 +1408,61 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.eml')) {
     meta.kind = 'eml';
-    return parseEml(await file.text(), meta);
+    // If postal-mime is available, use it for proper MIME parsing + attachment
+    // extraction. Falls back to the legacy text-only parseEml when the lib
+    // failed to load. The metadata layout (subject, body, attachments) matches
+    // the .msg path so handleFiles() can use the same unpack logic for both.
+    if (typeof window.PostalMime !== 'undefined' && window.PostalMime) {
+      try {
+        const buf = await file.arrayBuffer();
+        const parsed = await window.PostalMime.parse(buf);
+
+        // Populate meta in the same shape as the .msg parser. The .msg path
+        // (extractText for .msg files above) sets meta.kind='msg' and
+        // meta.attachments=[{name, content, contentLength, mimeType}]. We
+        // mirror that here so the existing attachment-unpack code in
+        // handleFiles works for .eml too without modification.
+        meta.subject = parsed.subject || '';
+        const fromAddr = (parsed.from && parsed.from.address) || '';
+        const fromName = (parsed.from && parsed.from.name) || '';
+        meta.from = fromName ? (fromName + ' <' + fromAddr + '>') : fromAddr;
+        meta.to = (parsed.to || []).map(t => t.address).join(', ');
+        meta.body = (parsed.text || '').trim();
+
+        // Filter inline images (logos, signatures) — they have disposition
+        // 'inline' and aren't real attachments. Same filter the explode
+        // function uses.
+        const realAttachments = (parsed.attachments || []).filter(a => a.disposition !== 'inline');
+        meta.attachments = realAttachments.map(a => ({
+          name: a.filename || ('attachment-' + Math.random().toString(36).slice(2, 6) + '.bin'),
+          content: a.content,                          // Uint8Array
+          contentLength: (a.content && a.content.byteLength) ? a.content.byteLength : 0,
+          mimeType: a.mimeType || 'application/octet-stream',
+        })).filter(a => a.content && a.contentLength > 0);
+
+        // Reconstruct a text representation for the email body. This is the
+        // "doc text" the email gets classified on — Stage 1.0 detector keys
+        // on the From:/To:/Subject: structure here.
+        let bodyText = '';
+        if (meta.from) bodyText += 'From: ' + meta.from + '\n';
+        if (meta.to) bodyText += 'To: ' + meta.to + '\n';
+        if (parsed.cc && parsed.cc.length) bodyText += 'Cc: ' + parsed.cc.map(t => t.address).join(', ') + '\n';
+        if (meta.subject) bodyText += 'Subject: ' + meta.subject + '\n';
+        if (parsed.date) bodyText += 'Date: ' + new Date(parsed.date).toString() + '\n';
+        bodyText += '\n' + (parsed.text || '');
+
+        return bodyText;
+      } catch (postalErr) {
+        // Postal-mime parse failed for some reason (malformed MIME, encrypted
+        // wrapper, etc). Fall back to legacy text-only parser so we at least
+        // get the body. No attachments will be extracted in this case, but
+        // the email itself still gets classified.
+        console.warn('postal-mime parse failed for ' + file.name + ', falling back to legacy parser:', postalErr);
+        return parseEml(await file.text());
+      }
+    }
+    // Legacy fallback when postal-mime unavailable
+    return parseEml(await file.text());
   }
 
   if (name.endsWith('.html') || name.endsWith('.htm')) {
@@ -1549,261 +1543,50 @@ function buildAttachmentContext(meta) {
   return out;
 }
 
-// ============================================================================
-// EML PARSER — recursive MIME walker that extracts:
-//   1. Email headers (From, To, Subject, Date)
-//   2. Email body (prefers text/plain, falls back to text/html stripped)
-//   3. Attachments → meta.attachments[] (Uint8Array + mime + filename)
-//
-// Mirrors the .msg parser interface so handleFiles can reuse the existing
-// attachment-unpack pipeline. Each attachment becomes a synthetic File
-// pushed into the queue, which then flows through extractText + the
-// detector chain like any other dropped file.
-//
-// Handles: multipart/mixed, multipart/alternative, multipart/related;
-// base64 and quoted-printable encoding; RFC 2047 encoded-word filenames
-// and subjects; nested multipart trees.
-// ============================================================================
-function parseEml(raw, meta) {
-  meta = meta || {};
-  meta.attachments = [];
-
-  // Walk the MIME tree starting from the root part. Returns body text.
-  // Side-effect: populates meta.attachments[] when it encounters parts
-  // with filenames or attachment dispositions.
-  function walkPart(rawPart, depth) {
-    depth = depth || 0;
-    if (depth > 8) return ''; // safety bound on recursion depth
-
-    // Split headers from body at first blank line
-    const split = rawPart.search(/\r?\n\r?\n/);
-    if (split === -1) return rawPart;
-    const headersRaw = rawPart.substring(0, split);
-    const body = rawPart.substring(split).replace(/^\r?\n\r?\n/, '');
-
-    // Unfold multi-line headers (RFC 2822 §2.2.3 — leading whitespace
-    // continues prior header line) and build a name→value lookup.
-    const unfolded = headersRaw.replace(/\r?\n[ \t]+/g, ' ');
-    const getHeader = (name) => {
-      const m = unfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
-      return m ? m[1].trim() : '';
-    };
-
-    const contentType = getHeader('Content-Type').toLowerCase();
-    const disposition = getHeader('Content-Disposition').toLowerCase();
-    const encoding = getHeader('Content-Transfer-Encoding').toLowerCase();
-
-    // Filename extraction — checks Content-Disposition first (where
-    // attachment filenames live) then Content-Type's name= parameter
-    // (older / less standard but still seen in the wild).
-    let filename = extractParam(getHeader('Content-Disposition'), 'filename') ||
-                   extractParam(getHeader('Content-Type'), 'name');
-    if (filename) filename = decodeMimeWord(filename);
-
-    // ── MULTIPART: recurse into each sub-part ──
-    if (contentType.startsWith('multipart/')) {
-      const bm = contentType.match(/boundary\s*=\s*"?([^";\s]+)"?/i);
-      if (!bm) return body; // malformed — fall through
-      const boundary = '--' + bm[1];
-      // Split on boundary, drop empty leading/trailing fragments
-      const segments = body.split(boundary)
-        .map(s => s.replace(/^\r?\n/, '').replace(/\r?\n$/, ''))
-        .filter(s => s.trim() && s.trim() !== '--');
-
-      // multipart/alternative: prefer text/plain over text/html.
-      // multipart/mixed: collect body text from each non-attachment part.
-      let collected = [];
-      for (const seg of segments) {
-        const childText = walkPart(seg, depth + 1);
-        if (childText) collected.push(childText);
-      }
-      if (contentType.startsWith('multipart/alternative')) {
-        // The nested parts already preferred plain — just take first
-        return collected[0] || '';
-      }
-      return collected.join('\n').trim();
-    }
-
-    // ── ATTACHMENT: has filename, or explicit attachment disposition ──
-    const isInlineImage = disposition.startsWith('inline') &&
-                          contentType.startsWith('image/') &&
-                          !filename;
-    if (filename && !isInlineImage) {
-      try {
-        const bytes = decodeBody(body, encoding);
-        const mimeType = contentType.split(';')[0].trim() || 'application/octet-stream';
-        meta.attachments.push({
-          name: filename,
-          mimeType: mimeType,
-          content: bytes,
-          contentLength: bytes.length,
-        });
-      } catch (e) {
-        // Decoding failure — log via meta but don't abort the whole parse
-        meta.attachmentDecodeErrors = (meta.attachmentDecodeErrors || []);
-        meta.attachmentDecodeErrors.push({ name: filename, error: e.message });
-      }
-      return ''; // attachment parts contribute nothing to body text
-    }
-
-    // ── TEXT BODY ──
-    if (contentType.startsWith('text/plain') || (!contentType && depth === 0)) {
-      return decodeText(body, encoding, contentType);
-    }
-    if (contentType.startsWith('text/html')) {
-      // Strip HTML tags with the browser's own renderer
-      const html = decodeText(body, encoding, contentType);
-      try {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = html;
-        tmp.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
-        return (tmp.innerText || tmp.textContent || '').trim();
-      } catch (e) {
-        return html; // fall back to raw HTML if browser rendering errors
-      }
-    }
-
-    // Unknown content type with no filename — ignore (boundary noise, etc.)
-    return '';
-  }
-
-  // ── Decoding helpers ──
-
-  function decodeBody(body, encoding) {
-    // Returns Uint8Array of decoded binary content
-    if (encoding === 'base64') {
-      const cleaned = body.replace(/[\r\n\s]/g, '');
-      const binaryStr = atob(cleaned);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-      return bytes;
-    }
-    if (encoding === 'quoted-printable') {
-      const decoded = body
-        .replace(/=\r?\n/g, '')
-        .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-      const bytes = new Uint8Array(decoded.length);
-      for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i) & 0xff;
-      return bytes;
-    }
-    // 7bit / 8bit / binary / unspecified — body is already raw bytes-as-string
-    const bytes = new Uint8Array(body.length);
-    for (let i = 0; i < body.length; i++) bytes[i] = body.charCodeAt(i) & 0xff;
-    return bytes;
-  }
-
-  function decodeText(body, encoding, contentType) {
-    // Returns decoded text string (handles charset)
-    let bytes;
-    if (encoding === 'base64' || encoding === 'quoted-printable') {
-      bytes = decodeBody(body, encoding);
-    } else {
-      // Already a string — but might have wrong charset. Most modern emails
-      // are utf-8; fall back to as-is if TextDecoder fails.
-      bytes = null;
-      const charsetMatch = (contentType || '').match(/charset\s*=\s*"?([^";\s]+)"?/i);
-      const charset = (charsetMatch ? charsetMatch[1] : 'utf-8').toLowerCase();
-      if (charset === 'utf-8' || charset === 'us-ascii' || !charset) {
-        return body; // Already correct
-      }
-      // For non-UTF-8 charsets we'd need iconv; fall back to as-is
-      return body;
-    }
-    try {
-      const charsetMatch = (contentType || '').match(/charset\s*=\s*"?([^";\s]+)"?/i);
-      const charset = (charsetMatch ? charsetMatch[1] : 'utf-8').toLowerCase();
-      return new TextDecoder(charset).decode(bytes);
-    } catch (e) {
-      return new TextDecoder('utf-8').decode(bytes);
-    }
-  }
-
-  function extractParam(headerValue, paramName) {
-    // Extracts a parameter from a header value: 'attachment; filename="foo.pdf"'
-    // Handles quoted, unquoted, and RFC 2231 split parameters
-    // (filename*0="part1"; filename*1="part2", or filename*=charset''encoded).
-    if (!headerValue) return '';
-
-    // RFC 2231 split: filename*0="..."; filename*1="..."
-    const splitParts = [];
-    const splitRegex = new RegExp(paramName + '\\*(\\d+)\\*?\\s*=\\s*"?([^";]*)"?', 'gi');
-    let m;
-    while ((m = splitRegex.exec(headerValue)) !== null) {
-      splitParts[parseInt(m[1], 10)] = m[2];
-    }
-    if (splitParts.length > 0) return splitParts.join('');
-
-    // Standard quoted: filename="foo bar.pdf"
-    const quotedMatch = headerValue.match(new RegExp(paramName + '\\s*=\\s*"([^"]+)"', 'i'));
-    if (quotedMatch) return quotedMatch[1];
-
-    // Unquoted: filename=foo.pdf
-    const unquotedMatch = headerValue.match(new RegExp(paramName + '\\s*=\\s*([^;]+)', 'i'));
-    if (unquotedMatch) return unquotedMatch[1].trim();
-
-    return '';
-  }
-
-  function decodeMimeWord(s) {
-    // RFC 2047: =?charset?encoding?text?=
-    return s.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_, charset, enc, text) => {
-      try {
-        if (enc.toUpperCase() === 'B') {
-          const binary = atob(text);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          return new TextDecoder(charset.toLowerCase()).decode(bytes);
-        } else { // Q encoding
-          return text
-            .replace(/_/g, ' ')
-            .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-        }
-      } catch (e) {
-        return text;
-      }
-    });
-  }
-
-  // ── MAIN PARSE ──
-
-  // Get top-level headers for the audit/output prefix
-  const topSplit = raw.search(/\r?\n\r?\n/);
-  const topHeadersRaw = topSplit === -1 ? raw : raw.substring(0, topSplit);
-  const topUnfolded = topHeadersRaw.replace(/\r?\n[ \t]+/g, ' ');
-  const topHdr = (name) => {
-    const m = topUnfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
-    return m ? decodeMimeWord(m[1].trim()) : '';
+function parseEml(raw) {
+  let he = raw.search(/\r?\n\r?\n/);
+  if (he === -1) return raw;
+  const headers = raw.substring(0, he);
+  const body = raw.substring(he).replace(/^\r?\n\r?\n/, '');
+  const unfolded = headers.replace(/\r?\n[ \t]+/g, ' ');
+  const hdr = name => {
+    const m = unfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
+    return m ? m[1].trim() : '';
   };
-
-  const subject = topHdr('Subject');
-  const from = topHdr('From');
-  const to = topHdr('To');
-  const cc = topHdr('Cc');
-  const date = topHdr('Date');
-
-  // Walk the tree to extract body text + populate meta.attachments
-  const bodyText = walkPart(raw, 0);
-
-  // Populate meta for downstream consumers (handleFiles attachment unpack,
-  // audit logging, classifier context).
-  meta.subject = subject;
-  meta.from = from;
-  meta.to = to;
-  meta.date = date;
-  meta.body = bodyText;
-  meta.attachmentCount = meta.attachments.length;
-
-  // Build the output text (headers + body) — same format as the prior
-  // implementation, so the classifier prompt sees the same shape.
   let out = '';
-  if (from) out += 'From: ' + from + '\n';
-  if (to) out += 'To: ' + to + '\n';
-  if (cc) out += 'Cc: ' + cc + '\n';
-  if (subject) out += 'Subject: ' + subject + '\n';
-  if (date) out += 'Date: ' + date + '\n';
+  if (hdr('From')) out += 'From: ' + hdr('From') + '\n';
+  if (hdr('To')) out += 'To: ' + hdr('To') + '\n';
+  if (hdr('Cc')) out += 'Cc: ' + hdr('Cc') + '\n';
+  if (hdr('Subject')) out += 'Subject: ' + hdr('Subject') + '\n';
+  if (hdr('Date')) out += 'Date: ' + hdr('Date') + '\n';
   out += '\n';
-  out += bodyText;
-
+  const ct = hdr('Content-Type').toLowerCase();
+  if (ct.includes('multipart')) {
+    const bm = ct.match(/boundary="?([^";\s]+)"?/i);
+    if (bm) {
+      const boundary = '--' + bm[1];
+      const parts = body.split(boundary).filter(p => p.trim());
+      for (const part of parts) {
+        if (/content-type:\s*text\/plain/i.test(part)) {
+          const bs = part.search(/\r?\n\r?\n/);
+          if (bs > -1) { out += part.substring(bs).replace(/^\r?\n\r?\n/, '').trim(); return out; }
+        }
+      }
+      for (const part of parts) {
+        if (/content-type:\s*text\/html/i.test(part)) {
+          const bs = part.search(/\r?\n\r?\n/);
+          if (bs > -1) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = part.substring(bs).replace(/^\r?\n\r?\n/, '').trim();
+            tmp.querySelectorAll('script, style').forEach(el => el.remove());
+            out += (tmp.innerText || tmp.textContent || '').trim();
+            return out;
+          }
+        }
+      }
+    }
+  }
+  out += body;
   return out;
 }
 
@@ -1851,131 +1634,7 @@ function setupDropzone() {
   });
 }
 
-// ----------------------------------------------------------------------------
-// EMAIL EXPLOSION — given a dropped .eml/.msg file, parse it via postal-mime
-// and return an array of synthetic File objects representing:
-//   1. The email body itself (as a .txt File with email headers + body) —
-//      gets tagged as "Broker Email" by Stage 1.0 of the detector chain.
-//   2. Each attachment as a separate File preserving original filename and
-//      content-type — each goes through normal parse + classify flow.
-//
-// Returns array of File objects ready to feed into the existing
-// handleFiles ingestion path. If parsing fails, returns null and the
-// caller falls back to treating the .eml as a single opaque file.
-// ----------------------------------------------------------------------------
-async function explodeEmailFile(emlFile) {
-  const PostalMime = window.PostalMime;
-  if (!PostalMime) {
-    console.warn('PostalMime library not loaded — email explosion unavailable');
-    return null;
-  }
-
-  const buf = await emlFile.arrayBuffer();
-  const parsed = await PostalMime.parse(buf);
-
-  const out = [];
-
-  // 1. SYNTHESIZE the email body as a standalone "file" so it gets tagged
-  //    as Broker Email. We construct a text representation that includes
-  //    headers (From/To/Subject/Date) at the top so the Stage 1.0 detector
-  //    matches the From:/To:/Subject: pattern on first scan. Body comes
-  //    after for context.
-  const fromAddr = (parsed.from && parsed.from.address) || '?';
-  const fromName = (parsed.from && parsed.from.name) || '';
-  const toList = (parsed.to || []).map(t => (t.name ? t.name + ' <' + t.address + '>' : t.address)).join(', ');
-  const ccList = (parsed.cc || []).map(t => t.address).join(', ');
-  const subject = parsed.subject || '(no subject)';
-  const dateStr = parsed.date ? new Date(parsed.date).toString() : '';
-  const bodyText = (parsed.text || '').trim();
-
-  const bodyDoc =
-    'From: ' + (fromName ? fromName + ' <' + fromAddr + '>' : fromAddr) + '\n' +
-    'To: ' + toList + '\n' +
-    (ccList ? 'Cc: ' + ccList + '\n' : '') +
-    'Subject: ' + subject + '\n' +
-    (dateStr ? 'Date: ' + dateStr + '\n' : '') +
-    '\n' +
-    bodyText;
-
-  // Use original .eml filename (with the extension) so file-extension
-  // signal in detectEmail() catches it as 99% confidence Broker Email.
-  // We KEEP the .eml extension on the synthetic body file because that's
-  // the detector's strongest signal.
-  const bodyFile = new File(
-    [bodyDoc],
-    emlFile.name,  // preserve original filename to retain .eml extension
-    { type: 'message/rfc822', lastModified: Date.now() }
-  );
-  // Mark this as a synthesized email body so other code paths can treat
-  // it specially (thumbnail rendering, body display, etc.) if needed.
-  bodyFile._isEmailBody = true;
-  bodyFile._emailHeaders = { from: fromAddr, to: toList, subject: subject, date: dateStr };
-  bodyFile._emailBodyHtml = parsed.html || null;
-  out.push(bodyFile);
-
-  // 2. EACH ATTACHMENT becomes its own File with original name & MIME type.
-  //    Inline images (logos, signatures) are filtered out — disposition is
-  //    'inline' and they have no real underwriting content.
-  for (const att of (parsed.attachments || [])) {
-    const isInline = att.disposition === 'inline';
-    if (isInline) continue;
-
-    const filename = att.filename || ('attachment-' + (out.length) + '.bin');
-    const mimeType = att.mimeType || 'application/octet-stream';
-    const content = att.content;  // Uint8Array per postal-mime spec
-
-    if (!content || !content.byteLength) continue;
-
-    const attFile = new File(
-      [content],
-      filename,
-      { type: mimeType, lastModified: Date.now() }
-    );
-    attFile._fromEmail = emlFile.name;
-    out.push(attFile);
-  }
-
-  return out;
-}
-
-
 async function handleFiles(fileList) {
-  // EMAIL EXPLOSION — if any dropped file is .eml/.msg, parse it FIRST
-  // and replace it in the queue with: (1) a synthetic file representing
-  // the email body itself (so the email gets tagged as Broker Email),
-  // and (2) one synthetic file per attachment (so each PDF/doc inside
-  // the email gets parsed and classified independently like any other
-  // dropped file).
-  //
-  // Why "explode" model: brokers send submissions as one email with
-  // attachments, not 5 separate files. Single drop → 6 tagged thumbnails
-  // matches the actual workflow. Each attachment goes through the full
-  // detector chain (Stage 1.0 email → 1A ACORD → 1.5 supp → ... → 1.9 dec)
-  // exactly like a manually-dropped file would.
-  const expanded = [];
-  for (const file of fileList) {
-    const lower = (file.name || '').toLowerCase();
-    if (/\.(eml|mht|mhtml)$/i.test(lower) && typeof window.PostalMime !== 'undefined') {
-      try {
-        const exploded = await explodeEmailFile(file);
-        if (exploded && exploded.length > 0) {
-          expanded.push(...exploded);
-          if (typeof toast === 'function') {
-            toast('Email opened: ' + exploded.length + ' file(s) — body + ' + (exploded.length - 1) + ' attachment(s)', 'info');
-          }
-          continue;
-        }
-      } catch (err) {
-        console.error('Email explosion failed for', file.name, err);
-        if (typeof toast === 'function') {
-          toast('Could not parse email · falling back to single-file ingestion', 'warn');
-        }
-      }
-    }
-    expanded.push(file);
-  }
-  fileList = expanded;
-
   // Detect if this is an incremental addition — pipeline already completed,
   // new files should refresh only affected modules, not nuke the run.
   const isIncremental = STATE.pipelineDone;
@@ -2009,36 +1668,9 @@ async function handleFiles(fileList) {
     STATE.files.push(entry);
     newFiles.push(entry);
     renderFileList();
-
-    // YIELD TO PAINT before we start the heavy extraction work. Without
-    // this, the renderFileList scheduling gets queued behind the upcoming
-    // pdf.js work and the user sees a blank/stale list for the first ~30s
-    // of parsing on large PDFs (the "1 minute dead zone"). A 0ms timeout
-    // is enough for the browser to flush a paint cycle.
-    await new Promise(r => setTimeout(r, 0));
-
     try {
       const meta = {};
-      // Progress hook — fires during all 3 phases (reading binary, analyzing
-      // PDF structure, extracting pages). Phase is included so the file-list
-      // row can show a phase-aware status string. Throttled via timestamp
-      // so we don't slam renderFileList() on every event.
-      let lastProgressFrame = 0;
-      meta.onProgress = (done, total, phase) => {
-        entry._parseProgress = { done: done, total: total, phase: phase || 'extracting' };
-        // Throttle DOM updates to ~20fps. Always render on phase transitions
-        // (so the user sees state change immediately, not after 50ms delay).
-        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const phaseChanged = entry._lastRenderedPhase !== phase;
-        if (phaseChanged || now - lastProgressFrame > 50) {
-          lastProgressFrame = now;
-          entry._lastRenderedPhase = phase;
-          renderFileList();
-        }
-      };
       entry.text = await extractText(file, meta);
-      entry._parseProgress = null;
-      entry._lastRenderedPhase = null;
       // v8.5 Rule 9: persist pageTexts on the file entry for the pipeline's
       // per-section slicer. Only set when meta returned the array (PDFs).
       if (meta.pageTexts && Array.isArray(meta.pageTexts)) {
@@ -2086,8 +1718,6 @@ async function handleFiles(fileList) {
           if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
         } else if (meta.kind === 'eml') {
           coverageDetail = 'email';
-          if (meta.subject) coverageDetail += ' · "' + meta.subject.slice(0, 50) + '"';
-          if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
         } else {
           coverageDetail = (meta.kind || 'text') + ' file';
         }
@@ -2096,9 +1726,13 @@ async function handleFiles(fileList) {
         // === EMAIL ATTACHMENT UNPACK ===
         // If this is a .msg or .eml with attachments, synthesize File objects
         // from each attachment and inject them back into newFiles so they
-        // flow through the normal parse + classify pipeline. Cap nesting at
-        // one level — if an attached email contains its own attachments,
+        // flow through the normal parse + classify pipeline. We cap nesting
+        // at one level — if an attached email contains its own attachments,
         // we leave those opaque.
+        //
+        // For .eml: parseEml in extractText uses postal-mime to populate
+        // meta.attachments in the same layout as the .msg parser, so this
+        // single code path handles both formats.
         if ((meta.kind === 'msg' || meta.kind === 'eml') && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
           const attachmentContext = buildAttachmentContext(meta);
           for (const att of meta.attachments) {
@@ -2238,33 +1872,7 @@ function renderFileList() {
     let stateText = '';
     let extraBadge = '';
 
-    if (f.state === 'parsing') {
-      stateClass = 'parsing';
-      // Phase-aware progress display. extractText fires onProgress for each
-      // of 3 phases (reading binary, analyzing PDF structure, extracting
-      // pages). Showing a phase string + progress gives the user constant
-      // feedback from second 1 instead of a long silent gap.
-      const prog = f._parseProgress;
-      if (prog && prog.phase === 'reading') {
-        stateText = 'reading file…';
-      } else if (prog && prog.phase === 'analyzing') {
-        if (prog.total > 1) {
-          const pct = Math.round((prog.done / prog.total) * 100);
-          stateText = 'analyzing PDF… ' + pct + '%';
-        } else {
-          stateText = 'analyzing PDF structure…';
-        }
-      } else if (prog && prog.phase === 'extracting' && prog.total > 1) {
-        const pct = Math.round((prog.done / prog.total) * 100);
-        stateText = 'extracting… ' + prog.done + '/' + prog.total + ' pages · ' + pct + '%';
-      } else if (prog && prog.total > 1) {
-        // Fallback for non-PDF parsers that report progress without phase
-        const pct = Math.round((prog.done / prog.total) * 100);
-        stateText = 'parsing… ' + prog.done + '/' + prog.total + ' · ' + pct + '%';
-      } else {
-        stateText = 'parsing…';
-      }
-    }
+    if (f.state === 'parsing') { stateClass = 'parsing'; stateText = 'parsing…'; }
     else if (f.state === 'parsed') { stateClass = 'classified'; stateText = Math.round(f.text.length / 1024) + 'K chars · ready'; }
     else if (f.state === 'needs_manual') {
       // Scanned PDF or unreadable format — show amber warning badge + click-to-paste affordance.
@@ -2288,13 +1896,9 @@ function renderFileList() {
         if (t === 'supplemental') return 'SUPP · GENERIC';
         return t.toUpperCase();
       };
-      // Show combined-doc info. For combined docs where multiple sections
-      // share the same primary type (e.g., a single PDF with ACORD 125 +
-      // 126 + 131 — all type=APPLICATIONS), use the per-section tag instead
-      // of the type so the chip reads "ACORD 125 + ACORD 126 + ACORD 131"
-      // instead of "APPLICATIONS + APPLICATIONS + APPLICATIONS".
+      // Show combined-doc info
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        stateText = f.classifications.map(c => c.tag || prettyType(c.type)).join(' + ');
+        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
         stateText = prettyType(f.classification);
@@ -2349,26 +1953,6 @@ function updateRunButton() {
     btn.disabled = true;
     label.textContent = 'Drop files to begin';
   }
-
-  // Test Classify button — same gating logic (needs >= 1 parsed file).
-  // Single press runs the full deterministic detector chain on every
-  // ready file (no per-file picker). Read-only diagnostic: doesn't fire
-  // extraction modules, doesn't mutate file state, can be re-clicked
-  // freely while iterating.
-  const testBtn = document.getElementById('btnTestClassify');
-  const testLabel = document.getElementById('btnTestClassifyLabel');
-  if (testBtn && testLabel) {
-    if (ready > 0) {
-      testBtn.disabled = false;
-      testLabel.textContent = ready === 1
-        ? 'Test Classify (1 file)'
-        : 'Test Classify · ' + ready + ' files at once';
-    } else {
-      testBtn.disabled = true;
-      testLabel.textContent = 'Test Classify';
-    }
-  }
-
   updateQueueKpi();
 }
 

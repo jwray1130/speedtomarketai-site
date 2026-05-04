@@ -14,13 +14,15 @@
 <script type="module">
   // postal-mime is ESM-only; load via esm.sh and attach to window so the
   // rest of app.js (non-module) can call window.PostalMime.parse(buf).
-  // Used by explodeEmailFile() in app.js to expand .eml drops into the
-  // email body + each attachment as separate file-queue entries.
+  // Used by parseEml() in app.js to expand .eml drops into the email body
+  // + each attachment as separate file-queue entries (mirroring the .msg
+  // attachment unpack flow so the deterministic detector chain runs on
+  // every attachment independently).
   try {
     const mod = await import('https://esm.sh/postal-mime@2.2.7');
     window.PostalMime = mod.default || mod.PostalMime || mod;
   } catch (err) {
-    console.warn('postal-mime failed to load — .eml ingestion will fall back to single-file mode', err);
+    console.warn('postal-mime failed to load — .eml will fall back to text-only parsing', err);
     window.__postalMimeFailed = true;
   }
 </script>
@@ -227,15 +229,6 @@
         <button class="btn-run" id="btnRun" onclick="runPipeline()" disabled>
           <svg viewBox="0 0 20 20" fill="none"><path d="M5 4 L15 10 L5 16 Z" fill="currentColor"/></svg>
           <span id="btnRunLabel">Drop files to begin</span>
-        </button>
-
-        <!-- Classifier-only diagnostic button: runs ONLY the classify step on a single
-             file (no extraction modules, no Wave 2/3 synthesis). For iterating on the
-             classifier prompt without paying for the full DAG. Read-only — does NOT
-             mutate file state or pipeline cost totals. -->
-        <button class="btn-run btn-run-test" id="btnTestClassify" onclick="openTestClassifyPicker()" disabled>
-          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 10 L9.2 11.7 L12.5 8.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          <span id="btnTestClassifyLabel">Test Classify (single doc)</span>
         </button>
       </div>
     </aside>
@@ -1050,28 +1043,6 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============================================================================
-     CLASSIFIER TEST HARNESS MODAL
-     Runs the classifier ONLY on one selected file. No extraction modules fire.
-     No state mutation. ACORD pre-filter runs first (regex-based, free, instant)
-     for ACORD 125/126/131; falls back to LLM classifier for everything else.
-     Re-run button enables fast prompt iteration.
-============================================================================ -->
-<div class="modal-backdrop" id="testClassifyModal" onclick="if(event.target===this) closeTestClassifyModal()">
-  <div class="modal" style="max-width: 880px; width: 92vw;">
-    <div class="modal-header">
-      <h2 style="display: flex; align-items: center; gap: 10px;">
-        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" style="color: var(--signal);"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 10 L9.2 11.7 L12.5 8.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Classifier Test Harness
-      </h2>
-      <button class="btn-icon" onclick="closeTestClassifyModal()" style="border:none;">✕</button>
-    </div>
-    <div class="modal-body" id="testClassifyBody">
-      <!-- Filled by openTestClassifyPicker() / runTestClassifyOnFile() -->
     </div>
   </div>
 </div>
