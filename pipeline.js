@@ -2996,6 +2996,99 @@ const DOC_SIGNATURE_DETECTORS = [
 DOC_SIGNATURE_DETECTORS.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
 // ----------------------------------------------------------------------------
+// EMAIL detector — for tagging broker submission emails / cover notes.
+// Justin's taxonomy: Cover Note = Broker Email (single tag, no carrier
+// vs broker distinction needed at the deterministic stage).
+//
+// SIGNALS (in priority order):
+//
+//   1. File extension — .msg (Outlook) or .eml (universal email format).
+//      Unambiguous: any file with these extensions IS an email.
+//
+//   2. PDF-of-email pattern — when a broker prints an email to PDF and
+//      attaches it, the extracted text starts with structured email
+//      headers (From: / To: / Subject: / Sent: / Date:). Real emails
+//      have at least 3 of these in the first ~1500 chars; documents
+//      mentioning "From:" in prose (cover letter signatures, etc.)
+//      typically have 1-2 at most.
+//
+// Tags as "Broker Email" (CORRESPONDENCE bucket). Cover Note = Broker
+// Email per Justin's taxonomy — single tag, no distinction needed.
+//
+// Returns single-section classification or null.
+// ----------------------------------------------------------------------------
+function detectEmail(file) {
+  const filename = (file && file.name || '').toLowerCase();
+
+  // SIGNAL 1 — file extension
+  const hasEmailExtension = /\.(msg|eml|mht|mhtml)$/i.test(filename);
+
+  // SIGNAL 2 — PDF-of-email header pattern
+  // Scan first ~1500 chars for email header structure. Count how many
+  // distinct header types appear (From / To / Subject / Sent / Date / Cc).
+  const pageTexts = file && file.pageTexts;
+  const page1 = (Array.isArray(pageTexts) && pageTexts[0])
+    ? pageTexts[0]
+    : (file && file.text || '');
+  const headerZone = page1.slice(0, 1500);
+
+  const emailHeaderPatterns = [
+    /^[\s>]*From\s*:/im,
+    /^[\s>]*To\s*:/im,
+    /^[\s>]*Subject\s*:/im,
+    /^[\s>]*Sent\s*:/im,
+    /^[\s>]*Date\s*:/im,
+    /^[\s>]*Cc\s*:/im,
+    /^[\s>]*Bcc\s*:/im,
+    /^[\s>]*Reply[\s-]*To\s*:/im,
+  ];
+  const headerMatches = emailHeaderPatterns.filter(p => p.test(headerZone)).length;
+
+  // DECISION RULES
+  let detected = false;
+  let confidence = 0;
+  const signals = [];
+
+  if (hasEmailExtension) {
+    detected = true;
+    confidence = 0.99;
+    signals.push('email_file_extension');
+    if (headerMatches >= 2) signals.push(headerMatches + '_email_headers');
+  } else if (headerMatches >= 3) {
+    // PDF-of-email — needs at least 3 distinct headers to fire.
+    // From: + To: + Subject: at minimum. Two alone could be coincidental
+    // (cover letter "From: John Smith / To: Underwriting Dept" in body).
+    detected = true;
+    confidence = 0.95;
+    signals.push(headerMatches + '_email_headers_in_pdf');
+  } else if (headerMatches === 2 && /^[\s>]*Subject\s*:/im.test(headerZone)) {
+    // Edge case: 2 headers including Subject — moderate confidence
+    detected = true;
+    confidence = 0.85;
+    signals.push(headerMatches + '_email_headers_with_subject');
+  }
+
+  if (!detected) return null;
+
+  return {
+    type: 'CORRESPONDENCE',
+    subType: 'BROKER_EMAIL',
+    tag: 'Broker Email',
+    primary_bucket: 'CORRESPONDENCE',
+    confidence: confidence,
+    reasoning: 'Per-doc scan: ' + signals.join(' + ') + '. Tagged as Broker Email (Cover Note in CORRESPONDENCE bucket).',
+    section_hint: Array.isArray(pageTexts) && pageTexts.length > 1
+      ? 'pages 1-' + pageTexts.length
+      : 'page 1',
+    _signals: {
+      hasEmailExtension: hasEmailExtension,
+      headerMatches: headerMatches,
+      detectedHeaders: signals,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // PER-PAGE ACORD scanner — designed for combined PDF packages where multiple
 // ACORD forms are concatenated into a single file. The whole-doc scanner
 // only sees the first 5K chars, which covers page 1 of a 50-page combined
@@ -4142,6 +4235,46 @@ function detectLiabilityDecPages(file) {
 // detectAcordForm() is kept as a thin alias for backward compatibility.
 // ----------------------------------------------------------------------------
 function detectDocumentSignature(file) {
+  // STAGE 1.0 — Email detector. Runs FIRST because emails are
+  // structurally distinct (file extension or From/To/Subject headers).
+  // An email that mentions "ACORD 125" or "loss runs" in its body is
+  // still an email, not those doc types. Catches both .msg/.eml files
+  // and PDFs of emails (broker prints email and attaches it).
+  const email = detectEmail(file);
+  if (email) {
+    return {
+      match: true,
+      method: 'regex_prefilter_email',
+      method_label: 'Email scan: ' + email.tag,
+      detector_id: 'broker_email',
+      signals: email._signals.detectedHeaders,
+      signals_required: 1,
+      signals_total: 2,
+      result: {
+        type: 'CORRESPONDENCE',
+        subType: 'BROKER_EMAIL',
+        tag: 'Broker Email',
+        primary_bucket: 'CORRESPONDENCE',
+        confidence: email.confidence,
+        reasoning: email.reasoning,
+        classifications: [{
+          type: 'CORRESPONDENCE',
+          subType: 'BROKER_EMAIL',
+          tag: 'Broker Email',
+          primary_bucket: 'CORRESPONDENCE',
+          section_hint: email.section_hint,
+          confidence: email.confidence,
+          reasoning: email.reasoning,
+        }],
+        isCombined: false,
+        signatures: email._signals.detectedHeaders,
+        needsReview: false,
+        needsReviewReasons: [],
+        suppressTag: false,
+      },
+    };
+  }
+
   // STAGE 1A — Per-page ACORD scanner. Handles the combined-package case
   // where 125 + 126 + 131 are concatenated in one PDF. Whole-doc scanner
   // misses 126 and 131 because they're past the 5K-char window.
@@ -4593,59 +4726,58 @@ function openTestClassifyPicker() {
     return;
   }
 
-  // Surface scanned/needs_manual files in the picker so the user understands
-  // why they're not classifiable yet.
+  // Surface scanned/needs_manual files so the user understands why
+  // they're not classifiable yet.
   const needsManual = STATE.files.filter(f => f.state === 'needs_manual');
 
-  // Single file → skip picker entirely, run directly. The runner closes any
-  // open modal at the top, so this never shows a popup.
-  if (ready.length === 1 && needsManual.length === 0) {
+  // Single file → run directly. No picker.
+  if (ready.length === 1) {
     runTestClassifyOnFile(ready[0].id);
+    if (needsManual.length > 0 && typeof toast === 'function') {
+      toast(needsManual.length + ' scanned file(s) skipped — paste text manually to include them.', 'warn');
+    }
     return;
   }
 
-  // Multiple files → render picker
-  const body = document.getElementById('testClassifyBody');
-  if (!body) return;
+  // Multiple files → run on ALL ready files in sequence. One press, one
+  // pass through every file. Each file goes through the full detector
+  // chain (Stage 1.0 email → 1A ACORD → 1.5 supp → 1.6 loss → 1.7 safety
+  // → 1.8 sub → 1.9 dec pages → fallback). No picker, no per-file clicks.
+  if (typeof toast === 'function') {
+    toast('Testing ' + ready.length + ' files through the detector chain…', 'info');
+  }
+  runTestClassifyOnAllFiles(ready.map(f => f.id), needsManual.length);
+}
 
-  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s == null ? '' : s);
+// Run Test Classify sequentially across multiple files. We use sequential
+// (not parallel) execution because each file may pre-mint a submission
+// and write to docs view — race conditions on those side effects would
+// produce ordering bugs. Sequential is cheap (detection is regex-only,
+// instant per file) so the simpler approach wins.
+async function runTestClassifyOnAllFiles(fileIds, manualSkipCount) {
+  let detectedCount = 0;
+  let llmFallbackCount = 0;
 
-  const readyRows = ready.map(f => {
-    const sizeLabel = f.text ? Math.round(f.text.length / 1024) + 'K chars' : '—';
-    const stateLabel = f.state === 'classified' ? 'previously classified' : 'parsed · ready';
-    return '<div class="tc-file-row" onclick="runTestClassifyOnFile(\'' + f.id + '\')">' +
-      '<div>' +
-      '<div class="tc-file-name">' + esc(f.name) + '</div>' +
-      '<div class="tc-file-meta">' + sizeLabel + ' · ' + stateLabel + '</div>' +
-      '</div>' +
-      '<div class="tc-file-go">TEST →</div>' +
-      '</div>';
-  }).join('');
+  for (const fileId of fileIds) {
+    const f = STATE.files.find(ff => ff.id === fileId);
+    if (!f) continue;
+    if (f.state !== 'parsed' && f.state !== 'classified') continue;
 
-  // Show needs_manual files as disabled rows so the user sees them but
-  // can't click them. Vision/OCR not yet wired into the test harness.
-  const manualRows = needsManual.map(f => {
-    return '<div class="tc-file-row" style="opacity: 0.45; cursor: not-allowed;" title="Scanned PDF — text extraction failed. Click the file in the queue to paste text manually, then re-test.">' +
-      '<div>' +
-      '<div class="tc-file-name">' + esc(f.name) + '</div>' +
-      '<div class="tc-file-meta">scanned / unreadable · needs manual paste</div>' +
-      '</div>' +
-      '<div class="tc-file-go" style="color: var(--warning, #ffb400);">NEEDS TEXT</div>' +
-      '</div>';
-  }).join('');
+    // Quick pre-check: did the deterministic chain hit?
+    const preFilter = detectDocumentSignature(f);
+    if (preFilter && preFilter.match) detectedCount++;
+    else llmFallbackCount++;
 
-  body.innerHTML =
-    '<p style="margin: 0 0 14px; color: var(--text-2); font-size: 12.5px; line-height: 1.5;">' +
-    'Pick one file. The harness scans page 1 for ACORD 125, 126, or 131 form signatures ' +
-    '(filename + form number stamp + title block — free, instant). ' +
-    'If no ACORD match, falls back to the LLM classifier. ' +
-    '<strong style="color: var(--signal);">No popup — the file goes straight to the file manager and Documents tab</strong> ' +
-    'with the right color, tag, and thumbnail, exactly like the real pipeline classify step. ' +
-    'Extraction modules do NOT fire.' +
-    '</p>' +
-    '<div>' + readyRows + manualRows + '</div>';
+    // Run the full per-file flow (handles tagging, docs view push, audit
+    // logging, and LLM fallback if no detector matched).
+    await runTestClassifyOnFile(fileId);
+  }
 
-  showTestClassifyModal();
+  if (typeof toast === 'function') {
+    let msg = 'Test Classify complete: ' + detectedCount + ' deterministic, ' + llmFallbackCount + ' LLM fallback';
+    if (manualSkipCount > 0) msg += ' (' + manualSkipCount + ' scanned files skipped)';
+    toast(msg, 'ok');
+  }
 }
 
 function showTestClassifyModal() {
@@ -5108,6 +5240,7 @@ function renderTestClassifyResult(f, result, meta) {
 // Expose to inline onclick handlers and to the broader app
 window.openTestClassifyPicker = openTestClassifyPicker;
 window.runTestClassifyOnFile = runTestClassifyOnFile;
+window.runTestClassifyOnAllFiles = runTestClassifyOnAllFiles;
 window.closeTestClassifyModal = closeTestClassifyModal;
 window.showTestClassifyModal = showTestClassifyModal;
 window.renderTestClassifyResult = renderTestClassifyResult;
@@ -5117,6 +5250,7 @@ window.pushTestFileToDocsView = pushTestFileToDocsView;
 window.detectAcordForm = detectAcordForm;
 window.detectDocumentSignature = detectDocumentSignature;
 window.detectAcordSectionsPerPage = detectAcordSectionsPerPage;
+window.detectEmail = detectEmail;
 window.detectSuppApp = detectSuppApp;
 window.detectLossRun = detectLossRun;
 window.detectSafetyManual = detectSafetyManual;

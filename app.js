@@ -2012,22 +2012,22 @@ function updateRunButton() {
     label.textContent = 'Drop files to begin';
   }
 
-  // Test Classify button — same gating logic (needs >= 1 parsed file), but its
-  // own label so the user knows whether they'll get a picker or go straight
-  // to the result modal. Read-only diagnostic: doesn't fire extraction modules
-  // and doesn't mutate file state, so it can be re-clicked freely while
-  // iterating on the classifier prompt.
+  // Test Classify button — same gating logic (needs >= 1 parsed file).
+  // Single press runs the full deterministic detector chain on every
+  // ready file (no per-file picker). Read-only diagnostic: doesn't fire
+  // extraction modules, doesn't mutate file state, can be re-clicked
+  // freely while iterating.
   const testBtn = document.getElementById('btnTestClassify');
   const testLabel = document.getElementById('btnTestClassifyLabel');
   if (testBtn && testLabel) {
     if (ready > 0) {
       testBtn.disabled = false;
       testLabel.textContent = ready === 1
-        ? 'Test Classify (single doc)'
-        : 'Test Classify · pick from ' + ready + ' files';
+        ? 'Test Classify (1 file)'
+        : 'Test Classify · ' + ready + ' files at once';
     } else {
       testBtn.disabled = true;
-      testLabel.textContent = 'Test Classify (single doc)';
+      testLabel.textContent = 'Test Classify';
     }
   }
 
