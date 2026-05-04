@@ -3903,83 +3903,97 @@ function detectLiabilityDecPages(file) {
     }
 
     if (!tag) {
-      // GL EXPOSURE — class code schedule with exposure bases.
+      // GL EXPOSURE — class code rating schedule.
       //
-      // Detection signals (in priority order):
+      // Real carrier GL rating pages have a tabular layout with:
+      //   - Column headers: CLASSIFICATION | CODE# | PREMIUM BASIS | RATE | PREM/OPS | PROD/COMP OPS
+      //   - Class descriptions (FERTILIZER DEALERS, HARDWARE STORES, etc.)
+      //   - 5-digit ISO class codes (12683, 13716, 21001, etc.)
+      //   - Parenthetical premium basis codes: (001) Gross Sales, (002) Payroll, etc.
+      //   - Large exposure dollar amounts (sales/payroll figures)
       //
-      //   1. ISO premium basis units. ISO publishes a wide catalog of
-      //      exposure units carriers use to rate GL — sales, payroll,
-      //      area, units, persons, vehicles, etc. The full set is
-      //      ~100+ phrases, but they all follow recognizable patterns:
+      // The UNIVERSAL signals on every carrier's GL rating page are the
+      // column headers themselves (PREMIUM BASIS, PREM/OPS, PROD/COMP)
+      // and the class code density. The exposure unit phrasing varies
+      // wildly carrier-to-carrier — sometimes "$1,000 of Gross Sales",
+      // sometimes just a parenthetical code (001), sometimes nothing.
       //
-      //        - "$1,000 of [Gross Sales|Payroll|Cost|...]"
-      //        - "Number of [Lessees|Towers|Employees|Units|...]"
-      //        - "Per [Person|Show|bed|unit|Site|...]"
-      //        - "Each [Additional Insured|ATV|Tower|Watercraft|Zoo|...]"
-      //        - "Thousands of [Admissions|Square Feet|Tons|Gallons|...]"
-      //        - Standalone units: "Gross Sales", "Gallons", "Acres"
-      //
-      //      Just two of these phrases on a page = very strong signal.
-      //      They don't appear in other doc types.
-      //
-      //   2. ISO class codes (5-digit, 10000-99999). Real exposure
-      //      schedules have multiple codes. Permissive match — codes
-      //      sit inside table cells next to other digits in pdf.js
-      //      extracted text, so strict word-boundary fails. We use
-      //      lookbehind for non-digit instead.
-      //
-      //   3. Schedule title (header-zone) — confirms the page intent.
-      //
-      // FIRING RULES:
-      //   - 2+ premium basis phrases  → fire (strongest single signal)
-      //   - 3+ class codes + 1 phrase → fire
-      //   - Schedule title + 1 code   → fire
-      const premiumBasisPatterns = [
-        // $1,000 of [unit] — most common construction
-        /\$\s?1[,]?000\s+(?:OF\s+)?(?:GROSS\s+SALES|GROSS\s+RECEIPTS|PAYROLL|TOTAL\s+COST|TOTAL\s+OPERATING|COST|SALES|RECEIPTS|REMUNERATION)/i,
-        // Number of [thing] — covers Lessees, Towers, Units, Employees, Members,
-        // Locations, Persons, Lakes, Stations, Acres, Animals, Snowmobiles, etc.
-        /\bNUMBER\s+OF\s+[A-Z][A-Za-z]+/i,
-        // Per [unit] — Person, Show, bed, unit, Site, outpatient visit
-        /\bPER\s+(?:PERSON|SHOW|BED|UNIT|SITE|OUTPATIENT|ADMISSION|VISIT|HEAD)\b/i,
-        // Each [thing] — Additional Insured, ATV, Tower, Watercraft, Zoo, etc.
-        /\bEACH\s+(?:ADDITIONAL\s+(?:INSURED|FARM|RESIDENCE)|ALL[\s-]TERRAIN|RESIDENCE|WATERCRAFT|TOWER|ZOO|ACTIVITY\s+DAY|PERSON)\b/i,
-        // Thousands of [unit]
-        /\bTHOUSANDS\s+OF\s+(?:ADMISSIONS|SQUARE\s+FEET|TONS|GALLONS|VEHICLES|PASSENGER)/i,
-        // Common standalone units when adjacent to "Premium" / "Rate" / class code context
-        /\b(?:GROSS\s+SALES|PAYROLL|GALLONS|ACRES|MILES)\b/i,
-        // ACORD parenthetical-letter format used on ACORD 126 hazard schedule
-        /\((?:S|P|A|C|M|U|T)\)\s*(?:GROSS\s+SALES|PAYROLL|AREA|TOTAL\s+COST|ADMISSIONS|UNIT|OTHER)/i,
-      ];
-      const basisHits = premiumBasisPatterns.filter(p => p.test(pageText)).length;
+      // FIRING RULES (graduated by signal strength):
+      //   - "PREMIUM BASIS" column header + 2+ class codes      → strongest
+      //   - "PREM/OPS" + "PROD/COMP" column headers + 1+ code   → strong
+      //   - 3+ class codes + parenthetical (NNN) basis codes    → strong
+      //   - Schedule title + 1+ class code                       → moderate
+      //   - 4+ class codes + ratings table indicators            → moderate
 
-      // ISO class codes — permissive match (table cells, not word-bounded)
+      // Universal column header signals — these literally appear on
+      // every ACORD 126 / carrier GL rating page.
+      const hasPremiumBasisHeader = /\bPREMIUM\s+BASIS\b/i.test(pageText);
+      const hasPremOpsHeader = /\b(?:PREM\s*\/\s*OPS|PREMISES\s*\/\s*OPERATIONS|PREMISES\s+OPERATIONS)\b/i.test(pageText);
+      const hasProdCompHeader = /\b(?:PROD\s*\/\s*COMP|PRODUCTS?\s*\/\s*COMPLETED|PRODUCTS\s+COMPLETED|PROD\s+COMP\s+OPS)\b/i.test(pageText);
+      const hasClassificationHeader = /\bCLASSIFICATION\b/i.test(pageText);
+      const hasCodeHeader = /\b(?:CODE\s*#|CLASS\s+CODE|CODE\s+NO\.?)\b/i.test(pageText);
+
+      // ACORD parenthetical basis codes: (001), (002), (003), etc.
+      // (001) = Gross Sales is the most common; full ACORD set is (001)-(009).
+      const acordBasisCodes = (pageText.match(/\((?:00[1-9]|0?1[0-9])\)/g) || []).length;
+
+      // 5-digit ISO class codes — permissive match (table cells, no strict
+      // word-boundary since codes sit next to other digits in pdf.js text)
       const classCodeMatches = (pageText.match(/(?:^|[^\d])([1-9]\d{4})(?:[^\d]|$)/g) || []).length;
 
-      // Schedule title (header zone)
+      // Optional secondary patterns — exposure unit phrases (when they appear)
+      const hasUnitPhrases =
+        /\$\s?1[,]?000\s+(?:OF\s+)?(?:GROSS\s+SALES|PAYROLL|TOTAL\s+COST|COST|SALES|RECEIPTS)/i.test(pageText) ||
+        /\bNUMBER\s+OF\s+[A-Z][A-Za-z]+/i.test(pageText) ||
+        /\bPER\s+(?:PERSON|SHOW|BED|UNIT|SITE)\b/i.test(pageText) ||
+        /\bEACH\s+(?:ADDITIONAL|RESIDENCE|WATERCRAFT|TOWER|ZOO|PERSON)\b/i.test(pageText) ||
+        /\bTHOUSANDS\s+OF\s+(?:ADMISSIONS|SQUARE\s+FEET|TONS|GALLONS)/i.test(pageText);
+
+      // Schedule title (header zone) — confirms page intent when present
       const hasExposureTitle =
         /\b(?:SCHEDULE\s+OF\s+HAZARDS|CLASSIFICATION\s+(?:SCHEDULE|AND\s+PREMIUM)|GL\s+EXPOSURES?|GENERAL\s+LIABILITY\s+EXPOSURES?|PREMIUM\s+COMPUTATION|EXPOSURE\s+SCHEDULE|RATING\s+(?:AND\s+PREMIUM\s+)?(?:BASIS|INFORMATION|WORKSHEET)|CLASS\s+(?:AND\s+)?PREMIUM|UNDERWRITING\s+CLASS)\b/i.test(headerZone);
 
-      // Column header markers
-      const hasClassColumns =
-        /\b(?:CLASS\s+CODE|CLASS\s+DESCRIPTION|HAZARD\s+(?:GROUP|GRADE)\s*\d?|CLASSIFICATION)\b/i.test(pageText);
+      // Build column header score — count distinct GL rating columns present
+      const columnHeaderScore =
+        (hasPremiumBasisHeader ? 1 : 0) +
+        (hasPremOpsHeader ? 1 : 0) +
+        (hasProdCompHeader ? 1 : 0) +
+        (hasClassificationHeader ? 1 : 0) +
+        (hasCodeHeader ? 1 : 0);
 
-      // Decision rules — graduated by signal strength
+      // Decision rules
       let exposureFired = false;
       const exposureSignals = [];
-      if (basisHits >= 2) {
+
+      if (hasPremiumBasisHeader && classCodeMatches >= 2) {
+        // Strongest: literal "PREMIUM BASIS" column header + class codes
         exposureFired = true;
-        exposureSignals.push(basisHits + '_premium_basis_phrases');
-      } else if (classCodeMatches >= 3 && (basisHits >= 1 || hasClassColumns)) {
+        exposureSignals.push('premium_basis_column_header');
+        exposureSignals.push(classCodeMatches + '_class_codes');
+        if (hasPremOpsHeader) exposureSignals.push('prem_ops_column');
+        if (hasProdCompHeader) exposureSignals.push('prod_comp_column');
+      } else if (columnHeaderScore >= 3 && classCodeMatches >= 1) {
+        // Multiple GL rating column headers present — definite GL rating page
+        exposureFired = true;
+        exposureSignals.push(columnHeaderScore + '_gl_rating_columns');
+        exposureSignals.push(classCodeMatches + '_class_codes');
+      } else if (classCodeMatches >= 3 && acordBasisCodes >= 2) {
+        // Class codes + ACORD parenthetical basis codes — ACORD 126 format
         exposureFired = true;
         exposureSignals.push(classCodeMatches + '_class_codes');
-        if (basisHits >= 1) exposureSignals.push(basisHits + '_premium_basis_phrases');
-        if (hasClassColumns) exposureSignals.push('class_code_columns');
-      } else if (hasExposureTitle && (classCodeMatches >= 1 || basisHits >= 1)) {
+        exposureSignals.push(acordBasisCodes + '_acord_basis_codes');
+      } else if (classCodeMatches >= 4 && (hasUnitPhrases || hasClassificationHeader)) {
+        // Heavy class code density with at least one supporting signal
+        exposureFired = true;
+        exposureSignals.push(classCodeMatches + '_class_codes');
+        if (hasUnitPhrases) exposureSignals.push('unit_phrases');
+        if (hasClassificationHeader) exposureSignals.push('classification_column');
+      } else if (hasExposureTitle && (classCodeMatches >= 1 || hasUnitPhrases)) {
+        // Title + any supporting signal
         exposureFired = true;
         exposureSignals.push('exposure_title_in_header');
         if (classCodeMatches >= 1) exposureSignals.push(classCodeMatches + '_class_codes');
-        if (basisHits >= 1) exposureSignals.push(basisHits + '_premium_basis_phrases');
+        if (hasUnitPhrases) exposureSignals.push('unit_phrases');
       }
 
       if (exposureFired) {
