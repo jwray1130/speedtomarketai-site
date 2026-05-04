@@ -11,6 +11,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/lib/index.browser.js" onerror="window.__msgReaderFailed=true"></script>
+<script type="module">
+  // postal-mime is ESM-only; load via esm.sh and attach to window so the
+  // rest of app.js (non-module) can call window.PostalMime.parse(buf).
+  // Used by explodeEmailFile() in app.js to expand .eml drops into the
+  // email body + each attachment as separate file-queue entries.
+  try {
+    const mod = await import('https://esm.sh/postal-mime@2.2.7');
+    window.PostalMime = mod.default || mod.PostalMime || mod;
+  } catch (err) {
+    console.warn('postal-mime failed to load — .eml ingestion will fall back to single-file mode', err);
+    window.__postalMimeFailed = true;
+  }
+</script>
 <script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->

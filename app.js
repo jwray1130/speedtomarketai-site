@@ -1468,7 +1468,7 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.eml')) {
     meta.kind = 'eml';
-    return parseEml(await file.text());
+    return parseEml(await file.text(), meta);
   }
 
   if (name.endsWith('.html') || name.endsWith('.htm')) {
@@ -1549,50 +1549,261 @@ function buildAttachmentContext(meta) {
   return out;
 }
 
-function parseEml(raw) {
-  let he = raw.search(/\r?\n\r?\n/);
-  if (he === -1) return raw;
-  const headers = raw.substring(0, he);
-  const body = raw.substring(he).replace(/^\r?\n\r?\n/, '');
-  const unfolded = headers.replace(/\r?\n[ \t]+/g, ' ');
-  const hdr = name => {
-    const m = unfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
-    return m ? m[1].trim() : '';
-  };
-  let out = '';
-  if (hdr('From')) out += 'From: ' + hdr('From') + '\n';
-  if (hdr('To')) out += 'To: ' + hdr('To') + '\n';
-  if (hdr('Cc')) out += 'Cc: ' + hdr('Cc') + '\n';
-  if (hdr('Subject')) out += 'Subject: ' + hdr('Subject') + '\n';
-  if (hdr('Date')) out += 'Date: ' + hdr('Date') + '\n';
-  out += '\n';
-  const ct = hdr('Content-Type').toLowerCase();
-  if (ct.includes('multipart')) {
-    const bm = ct.match(/boundary="?([^";\s]+)"?/i);
-    if (bm) {
+// ============================================================================
+// EML PARSER — recursive MIME walker that extracts:
+//   1. Email headers (From, To, Subject, Date)
+//   2. Email body (prefers text/plain, falls back to text/html stripped)
+//   3. Attachments → meta.attachments[] (Uint8Array + mime + filename)
+//
+// Mirrors the .msg parser interface so handleFiles can reuse the existing
+// attachment-unpack pipeline. Each attachment becomes a synthetic File
+// pushed into the queue, which then flows through extractText + the
+// detector chain like any other dropped file.
+//
+// Handles: multipart/mixed, multipart/alternative, multipart/related;
+// base64 and quoted-printable encoding; RFC 2047 encoded-word filenames
+// and subjects; nested multipart trees.
+// ============================================================================
+function parseEml(raw, meta) {
+  meta = meta || {};
+  meta.attachments = [];
+
+  // Walk the MIME tree starting from the root part. Returns body text.
+  // Side-effect: populates meta.attachments[] when it encounters parts
+  // with filenames or attachment dispositions.
+  function walkPart(rawPart, depth) {
+    depth = depth || 0;
+    if (depth > 8) return ''; // safety bound on recursion depth
+
+    // Split headers from body at first blank line
+    const split = rawPart.search(/\r?\n\r?\n/);
+    if (split === -1) return rawPart;
+    const headersRaw = rawPart.substring(0, split);
+    const body = rawPart.substring(split).replace(/^\r?\n\r?\n/, '');
+
+    // Unfold multi-line headers (RFC 2822 §2.2.3 — leading whitespace
+    // continues prior header line) and build a name→value lookup.
+    const unfolded = headersRaw.replace(/\r?\n[ \t]+/g, ' ');
+    const getHeader = (name) => {
+      const m = unfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
+      return m ? m[1].trim() : '';
+    };
+
+    const contentType = getHeader('Content-Type').toLowerCase();
+    const disposition = getHeader('Content-Disposition').toLowerCase();
+    const encoding = getHeader('Content-Transfer-Encoding').toLowerCase();
+
+    // Filename extraction — checks Content-Disposition first (where
+    // attachment filenames live) then Content-Type's name= parameter
+    // (older / less standard but still seen in the wild).
+    let filename = extractParam(getHeader('Content-Disposition'), 'filename') ||
+                   extractParam(getHeader('Content-Type'), 'name');
+    if (filename) filename = decodeMimeWord(filename);
+
+    // ── MULTIPART: recurse into each sub-part ──
+    if (contentType.startsWith('multipart/')) {
+      const bm = contentType.match(/boundary\s*=\s*"?([^";\s]+)"?/i);
+      if (!bm) return body; // malformed — fall through
       const boundary = '--' + bm[1];
-      const parts = body.split(boundary).filter(p => p.trim());
-      for (const part of parts) {
-        if (/content-type:\s*text\/plain/i.test(part)) {
-          const bs = part.search(/\r?\n\r?\n/);
-          if (bs > -1) { out += part.substring(bs).replace(/^\r?\n\r?\n/, '').trim(); return out; }
-        }
+      // Split on boundary, drop empty leading/trailing fragments
+      const segments = body.split(boundary)
+        .map(s => s.replace(/^\r?\n/, '').replace(/\r?\n$/, ''))
+        .filter(s => s.trim() && s.trim() !== '--');
+
+      // multipart/alternative: prefer text/plain over text/html.
+      // multipart/mixed: collect body text from each non-attachment part.
+      let collected = [];
+      for (const seg of segments) {
+        const childText = walkPart(seg, depth + 1);
+        if (childText) collected.push(childText);
       }
-      for (const part of parts) {
-        if (/content-type:\s*text\/html/i.test(part)) {
-          const bs = part.search(/\r?\n\r?\n/);
-          if (bs > -1) {
-            const tmp = document.createElement('div');
-            tmp.innerHTML = part.substring(bs).replace(/^\r?\n\r?\n/, '').trim();
-            tmp.querySelectorAll('script, style').forEach(el => el.remove());
-            out += (tmp.innerText || tmp.textContent || '').trim();
-            return out;
-          }
-        }
+      if (contentType.startsWith('multipart/alternative')) {
+        // The nested parts already preferred plain — just take first
+        return collected[0] || '';
+      }
+      return collected.join('\n').trim();
+    }
+
+    // ── ATTACHMENT: has filename, or explicit attachment disposition ──
+    const isInlineImage = disposition.startsWith('inline') &&
+                          contentType.startsWith('image/') &&
+                          !filename;
+    if (filename && !isInlineImage) {
+      try {
+        const bytes = decodeBody(body, encoding);
+        const mimeType = contentType.split(';')[0].trim() || 'application/octet-stream';
+        meta.attachments.push({
+          name: filename,
+          mimeType: mimeType,
+          content: bytes,
+          contentLength: bytes.length,
+        });
+      } catch (e) {
+        // Decoding failure — log via meta but don't abort the whole parse
+        meta.attachmentDecodeErrors = (meta.attachmentDecodeErrors || []);
+        meta.attachmentDecodeErrors.push({ name: filename, error: e.message });
+      }
+      return ''; // attachment parts contribute nothing to body text
+    }
+
+    // ── TEXT BODY ──
+    if (contentType.startsWith('text/plain') || (!contentType && depth === 0)) {
+      return decodeText(body, encoding, contentType);
+    }
+    if (contentType.startsWith('text/html')) {
+      // Strip HTML tags with the browser's own renderer
+      const html = decodeText(body, encoding, contentType);
+      try {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        tmp.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
+        return (tmp.innerText || tmp.textContent || '').trim();
+      } catch (e) {
+        return html; // fall back to raw HTML if browser rendering errors
       }
     }
+
+    // Unknown content type with no filename — ignore (boundary noise, etc.)
+    return '';
   }
-  out += body;
+
+  // ── Decoding helpers ──
+
+  function decodeBody(body, encoding) {
+    // Returns Uint8Array of decoded binary content
+    if (encoding === 'base64') {
+      const cleaned = body.replace(/[\r\n\s]/g, '');
+      const binaryStr = atob(cleaned);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      return bytes;
+    }
+    if (encoding === 'quoted-printable') {
+      const decoded = body
+        .replace(/=\r?\n/g, '')
+        .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+      const bytes = new Uint8Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i) & 0xff;
+      return bytes;
+    }
+    // 7bit / 8bit / binary / unspecified — body is already raw bytes-as-string
+    const bytes = new Uint8Array(body.length);
+    for (let i = 0; i < body.length; i++) bytes[i] = body.charCodeAt(i) & 0xff;
+    return bytes;
+  }
+
+  function decodeText(body, encoding, contentType) {
+    // Returns decoded text string (handles charset)
+    let bytes;
+    if (encoding === 'base64' || encoding === 'quoted-printable') {
+      bytes = decodeBody(body, encoding);
+    } else {
+      // Already a string — but might have wrong charset. Most modern emails
+      // are utf-8; fall back to as-is if TextDecoder fails.
+      bytes = null;
+      const charsetMatch = (contentType || '').match(/charset\s*=\s*"?([^";\s]+)"?/i);
+      const charset = (charsetMatch ? charsetMatch[1] : 'utf-8').toLowerCase();
+      if (charset === 'utf-8' || charset === 'us-ascii' || !charset) {
+        return body; // Already correct
+      }
+      // For non-UTF-8 charsets we'd need iconv; fall back to as-is
+      return body;
+    }
+    try {
+      const charsetMatch = (contentType || '').match(/charset\s*=\s*"?([^";\s]+)"?/i);
+      const charset = (charsetMatch ? charsetMatch[1] : 'utf-8').toLowerCase();
+      return new TextDecoder(charset).decode(bytes);
+    } catch (e) {
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+  }
+
+  function extractParam(headerValue, paramName) {
+    // Extracts a parameter from a header value: 'attachment; filename="foo.pdf"'
+    // Handles quoted, unquoted, and RFC 2231 split parameters
+    // (filename*0="part1"; filename*1="part2", or filename*=charset''encoded).
+    if (!headerValue) return '';
+
+    // RFC 2231 split: filename*0="..."; filename*1="..."
+    const splitParts = [];
+    const splitRegex = new RegExp(paramName + '\\*(\\d+)\\*?\\s*=\\s*"?([^";]*)"?', 'gi');
+    let m;
+    while ((m = splitRegex.exec(headerValue)) !== null) {
+      splitParts[parseInt(m[1], 10)] = m[2];
+    }
+    if (splitParts.length > 0) return splitParts.join('');
+
+    // Standard quoted: filename="foo bar.pdf"
+    const quotedMatch = headerValue.match(new RegExp(paramName + '\\s*=\\s*"([^"]+)"', 'i'));
+    if (quotedMatch) return quotedMatch[1];
+
+    // Unquoted: filename=foo.pdf
+    const unquotedMatch = headerValue.match(new RegExp(paramName + '\\s*=\\s*([^;]+)', 'i'));
+    if (unquotedMatch) return unquotedMatch[1].trim();
+
+    return '';
+  }
+
+  function decodeMimeWord(s) {
+    // RFC 2047: =?charset?encoding?text?=
+    return s.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_, charset, enc, text) => {
+      try {
+        if (enc.toUpperCase() === 'B') {
+          const binary = atob(text);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          return new TextDecoder(charset.toLowerCase()).decode(bytes);
+        } else { // Q encoding
+          return text
+            .replace(/_/g, ' ')
+            .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+        }
+      } catch (e) {
+        return text;
+      }
+    });
+  }
+
+  // ── MAIN PARSE ──
+
+  // Get top-level headers for the audit/output prefix
+  const topSplit = raw.search(/\r?\n\r?\n/);
+  const topHeadersRaw = topSplit === -1 ? raw : raw.substring(0, topSplit);
+  const topUnfolded = topHeadersRaw.replace(/\r?\n[ \t]+/g, ' ');
+  const topHdr = (name) => {
+    const m = topUnfolded.match(new RegExp('^' + name + ':\\s*(.*)$', 'im'));
+    return m ? decodeMimeWord(m[1].trim()) : '';
+  };
+
+  const subject = topHdr('Subject');
+  const from = topHdr('From');
+  const to = topHdr('To');
+  const cc = topHdr('Cc');
+  const date = topHdr('Date');
+
+  // Walk the tree to extract body text + populate meta.attachments
+  const bodyText = walkPart(raw, 0);
+
+  // Populate meta for downstream consumers (handleFiles attachment unpack,
+  // audit logging, classifier context).
+  meta.subject = subject;
+  meta.from = from;
+  meta.to = to;
+  meta.date = date;
+  meta.body = bodyText;
+  meta.attachmentCount = meta.attachments.length;
+
+  // Build the output text (headers + body) — same format as the prior
+  // implementation, so the classifier prompt sees the same shape.
+  let out = '';
+  if (from) out += 'From: ' + from + '\n';
+  if (to) out += 'To: ' + to + '\n';
+  if (cc) out += 'Cc: ' + cc + '\n';
+  if (subject) out += 'Subject: ' + subject + '\n';
+  if (date) out += 'Date: ' + date + '\n';
+  out += '\n';
+  out += bodyText;
+
   return out;
 }
 
@@ -1640,7 +1851,131 @@ function setupDropzone() {
   });
 }
 
+// ----------------------------------------------------------------------------
+// EMAIL EXPLOSION — given a dropped .eml/.msg file, parse it via postal-mime
+// and return an array of synthetic File objects representing:
+//   1. The email body itself (as a .txt File with email headers + body) —
+//      gets tagged as "Broker Email" by Stage 1.0 of the detector chain.
+//   2. Each attachment as a separate File preserving original filename and
+//      content-type — each goes through normal parse + classify flow.
+//
+// Returns array of File objects ready to feed into the existing
+// handleFiles ingestion path. If parsing fails, returns null and the
+// caller falls back to treating the .eml as a single opaque file.
+// ----------------------------------------------------------------------------
+async function explodeEmailFile(emlFile) {
+  const PostalMime = window.PostalMime;
+  if (!PostalMime) {
+    console.warn('PostalMime library not loaded — email explosion unavailable');
+    return null;
+  }
+
+  const buf = await emlFile.arrayBuffer();
+  const parsed = await PostalMime.parse(buf);
+
+  const out = [];
+
+  // 1. SYNTHESIZE the email body as a standalone "file" so it gets tagged
+  //    as Broker Email. We construct a text representation that includes
+  //    headers (From/To/Subject/Date) at the top so the Stage 1.0 detector
+  //    matches the From:/To:/Subject: pattern on first scan. Body comes
+  //    after for context.
+  const fromAddr = (parsed.from && parsed.from.address) || '?';
+  const fromName = (parsed.from && parsed.from.name) || '';
+  const toList = (parsed.to || []).map(t => (t.name ? t.name + ' <' + t.address + '>' : t.address)).join(', ');
+  const ccList = (parsed.cc || []).map(t => t.address).join(', ');
+  const subject = parsed.subject || '(no subject)';
+  const dateStr = parsed.date ? new Date(parsed.date).toString() : '';
+  const bodyText = (parsed.text || '').trim();
+
+  const bodyDoc =
+    'From: ' + (fromName ? fromName + ' <' + fromAddr + '>' : fromAddr) + '\n' +
+    'To: ' + toList + '\n' +
+    (ccList ? 'Cc: ' + ccList + '\n' : '') +
+    'Subject: ' + subject + '\n' +
+    (dateStr ? 'Date: ' + dateStr + '\n' : '') +
+    '\n' +
+    bodyText;
+
+  // Use original .eml filename (with the extension) so file-extension
+  // signal in detectEmail() catches it as 99% confidence Broker Email.
+  // We KEEP the .eml extension on the synthetic body file because that's
+  // the detector's strongest signal.
+  const bodyFile = new File(
+    [bodyDoc],
+    emlFile.name,  // preserve original filename to retain .eml extension
+    { type: 'message/rfc822', lastModified: Date.now() }
+  );
+  // Mark this as a synthesized email body so other code paths can treat
+  // it specially (thumbnail rendering, body display, etc.) if needed.
+  bodyFile._isEmailBody = true;
+  bodyFile._emailHeaders = { from: fromAddr, to: toList, subject: subject, date: dateStr };
+  bodyFile._emailBodyHtml = parsed.html || null;
+  out.push(bodyFile);
+
+  // 2. EACH ATTACHMENT becomes its own File with original name & MIME type.
+  //    Inline images (logos, signatures) are filtered out — disposition is
+  //    'inline' and they have no real underwriting content.
+  for (const att of (parsed.attachments || [])) {
+    const isInline = att.disposition === 'inline';
+    if (isInline) continue;
+
+    const filename = att.filename || ('attachment-' + (out.length) + '.bin');
+    const mimeType = att.mimeType || 'application/octet-stream';
+    const content = att.content;  // Uint8Array per postal-mime spec
+
+    if (!content || !content.byteLength) continue;
+
+    const attFile = new File(
+      [content],
+      filename,
+      { type: mimeType, lastModified: Date.now() }
+    );
+    attFile._fromEmail = emlFile.name;
+    out.push(attFile);
+  }
+
+  return out;
+}
+
+
 async function handleFiles(fileList) {
+  // EMAIL EXPLOSION — if any dropped file is .eml/.msg, parse it FIRST
+  // and replace it in the queue with: (1) a synthetic file representing
+  // the email body itself (so the email gets tagged as Broker Email),
+  // and (2) one synthetic file per attachment (so each PDF/doc inside
+  // the email gets parsed and classified independently like any other
+  // dropped file).
+  //
+  // Why "explode" model: brokers send submissions as one email with
+  // attachments, not 5 separate files. Single drop → 6 tagged thumbnails
+  // matches the actual workflow. Each attachment goes through the full
+  // detector chain (Stage 1.0 email → 1A ACORD → 1.5 supp → ... → 1.9 dec)
+  // exactly like a manually-dropped file would.
+  const expanded = [];
+  for (const file of fileList) {
+    const lower = (file.name || '').toLowerCase();
+    if (/\.(eml|mht|mhtml)$/i.test(lower) && typeof window.PostalMime !== 'undefined') {
+      try {
+        const exploded = await explodeEmailFile(file);
+        if (exploded && exploded.length > 0) {
+          expanded.push(...exploded);
+          if (typeof toast === 'function') {
+            toast('Email opened: ' + exploded.length + ' file(s) — body + ' + (exploded.length - 1) + ' attachment(s)', 'info');
+          }
+          continue;
+        }
+      } catch (err) {
+        console.error('Email explosion failed for', file.name, err);
+        if (typeof toast === 'function') {
+          toast('Could not parse email · falling back to single-file ingestion', 'warn');
+        }
+      }
+    }
+    expanded.push(file);
+  }
+  fileList = expanded;
+
   // Detect if this is an incremental addition — pipeline already completed,
   // new files should refresh only affected modules, not nuke the run.
   const isIncremental = STATE.pipelineDone;
@@ -1751,17 +2086,20 @@ async function handleFiles(fileList) {
           if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
         } else if (meta.kind === 'eml') {
           coverageDetail = 'email';
+          if (meta.subject) coverageDetail += ' · "' + meta.subject.slice(0, 50) + '"';
+          if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
         } else {
           coverageDetail = (meta.kind || 'text') + ' file';
         }
         logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
 
         // === EMAIL ATTACHMENT UNPACK ===
-        // If this is a .msg with attachments, synthesize File objects from each
-        // attachment and inject them back into newFiles so they flow through the
-        // normal parse + classify pipeline. We cap nesting at one level — if an
-        // attached .msg contains its own attachments, we leave those opaque.
-        if (meta.kind === 'msg' && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
+        // If this is a .msg or .eml with attachments, synthesize File objects
+        // from each attachment and inject them back into newFiles so they
+        // flow through the normal parse + classify pipeline. Cap nesting at
+        // one level — if an attached email contains its own attachments,
+        // we leave those opaque.
+        if ((meta.kind === 'msg' || meta.kind === 'eml') && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
           const attachmentContext = buildAttachmentContext(meta);
           for (const att of meta.attachments) {
             try {
