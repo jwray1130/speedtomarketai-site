@@ -34,22 +34,27 @@ window.initDocumentsView = function() {
   const CONFIG = {
     // PDF render scales — calibrated for actual on-screen display, not print.
     //
-    // thumbnailScale 0.75x → 459px wide letter page. Doc grid renders thumbs
-    //   at minmax(220px, 1fr), so 459px covers retina (DPR=2) at 220px display
-    //   with headroom. Was 3.0x = 1836px = 8.3× actual display size. Wasteful.
+    // ── PDF render scales ─────────────────────────────────────────────
+    // Picked to keep memory + render time predictable on 17 specialist
+    // module pipelines while staying sharp at modern panel sizes.
+    //
+    // thumbnailScale 1.5x → 918px wide letter page. Doc grid renders thumbs
+    //   at this size. Sharp at panel widths up to ~900px without any
+    //   resize-driven re-render. Past 900px, ensurePdfHighRes upgrades to
+    //   highResScale on-demand (triggered by panel resize when applicable).
+    //
+    //   v8.6.29 BUMP: was 0.75x. Justin reported quality loss when panels
+    //   stretched past ~600px because the source data URL was 459px wide.
+    //   1.5x doubles base resolution at the cost of slightly slower thumb
+    //   generation (still well under 300ms per page on modern machines).
     //
     // highResScale 2.0x → 1224px wide. Standard retina-ready scale per PDF.js
-    //   conventions (matches devicePixelRatio on most modern displays). Was
-    //   3.5x = print-quality, unnecessary for screen viewing in the modal.
+    //   recommendation. Used for preview modal, PDF export, and now also
+    //   used as the upgrade target when a panel grows past ~900px.
     //
     // ocrScale 3.0x → 1836px wide. OCR genuinely benefits from high resolution
-    //   for character recognition, so we keep this above viewing scale, but
-    //   trimmed from 3.5x → 3.0x since OCR engines saturate well below print res.
-    //
-    // Memory impact on a 50-page PDF: was ~500-800MB image data, now ~50-90MB.
-    // Parse time impact: ~3-5x faster (rendering is CPU-bound on canvas + PNG
-    // encoding; smaller canvas = faster encode).
-    pdf:   { thumbnailScale: 0.75, highResScale: 2.0, ocrScale: 3.0 },
+    //   on dense forms. Kept at 3.0 (separate from preview path).
+    pdf:   { thumbnailScale: 1.5, highResScale: 2.0, ocrScale: 3.0 },
     preview: { minZoom: 0.4, maxZoom: 4.0, zoomStep: 0.25 },
     toast: { duration: 3000 },
     tagColors: ['red','green','yellow','purple','pink','orange','maroon','teal','magenta','blue','coral','black'],
@@ -3726,6 +3731,96 @@ window.initDocumentsView = function() {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // v8.6.29 SURGICAL ADDITION: progressive thumb quality on panel resize.
+  //
+  // What this solves:
+  //   Justin reported quality degradation when dragging the docs panel
+  //   wider — past ~600px the CSS-stretched thumbnail data URL goes blurry.
+  //   Source data URL was 459px (thumbnailScale 0.75x) before this build.
+  //
+  // Two-part fix:
+  //   1. CONFIG.pdf.thumbnailScale bumped 0.75 → 1.5 above. Base thumbs
+  //      are now 918px wide. Sharp at panel widths up to ~900px with no
+  //      additional code path required.
+  //   2. When panel is dragged wider than the threshold, walk visible PDF
+  //      tiles and lazy-upgrade their <img>.src to highResData (1224px)
+  //      via the existing ensurePdfHighRes() function. No new render
+  //      logic — just calls the path that already powers preview/export.
+  //
+  // Conservative defaults to avoid the v8.6.27 crash regression:
+  //   - Only PDFs that are currently in the viewport (offsetParent !== null
+  //     AND visible bounding rect). Doesn't touch hidden categories.
+  //   - 250ms debounce so a single drag motion fires one upgrade pass,
+  //     not one per pixel of mouse movement.
+  //   - Hard cap of 12 PDF upgrades per pass. Past that, user can trigger
+  //     more by dragging again. Prevents memory blow-up on huge submissions.
+  //   - Threshold check: only fires when actual rendered tile width is
+  //     greater than the current source resolution. No-op past that.
+  //   - Wrapped in try/catch + Promise.allSettled so one failed render
+  //     doesn't kill the others. Failure logs to console; thumb stays
+  //     at base resolution (no UI degradation).
+  // ─────────────────────────────────────────────────────────────────────
+  let _thumbUpgradePending = false;
+  let _thumbUpgradeTimer = null;
+  function scheduleVisibleThumbUpgrade() {
+    if (_thumbUpgradeTimer) clearTimeout(_thumbUpgradeTimer);
+    _thumbUpgradeTimer = setTimeout(async () => {
+      _thumbUpgradeTimer = null;
+      if (_thumbUpgradePending) return;  // overlapping pass — skip
+      _thumbUpgradePending = true;
+      try {
+        await upgradeVisibleThumbs();
+      } catch (err) {
+        console.warn('Thumb upgrade pass failed:', err);
+      } finally {
+        _thumbUpgradePending = false;
+      }
+    }, 250);
+  }
+
+  async function upgradeVisibleThumbs() {
+    const root = document.getElementById('docs-view-root');
+    if (!root) return;
+    // Find all PDF doc tiles currently in the DOM. Filter to ones that
+    // are actually visible (have layout) and are PDFs that lack highResData.
+    const tiles = Array.from(root.querySelectorAll('.doc-item'));
+    const candidates = [];
+    for (const tile of tiles) {
+      if (candidates.length >= 12) break;  // cap
+      const docId = tile.dataset.docId;
+      if (!docId) continue;
+      const doc = state.docs.find(d => d.id === docId);
+      if (!doc || doc.type !== 'pdf') continue;
+      if (doc.highResData) continue;  // already upgraded
+      // Skip hidden tiles (display:none, no layout)
+      if (!tile.offsetParent) continue;
+      // Only upgrade tiles whose CURRENT rendered width exceeds the base
+      // thumbnail resolution. If the panel is narrow, base is sharp enough.
+      const tileRect = tile.getBoundingClientRect();
+      const renderedWidthCss = tileRect.width;
+      const dpr = window.devicePixelRatio || 1;
+      const renderedWidthPx = renderedWidthCss * dpr;
+      // Base thumb at 1.5x = ~918px wide for letter page. If tile renders
+      // smaller than that on screen, no upgrade benefit.
+      if (renderedWidthPx <= 900) continue;
+      candidates.push({ tile, doc });
+    }
+    if (candidates.length === 0) return;
+    // Run the upgrades in parallel (Promise.allSettled — one failure
+    // doesn't block siblings). Each call is ~300-400ms on modern hardware,
+    // capped at 12, so worst case ~5s wall time but most complete in 1-2s.
+    await Promise.allSettled(candidates.map(async ({ tile, doc }) => {
+      const ok = await ensurePdfHighRes(doc);
+      if (!ok || !doc.highResData) return;
+      // Swap the img source. Find the img inside this tile.
+      const img = tile.querySelector('.doc-thumb img');
+      if (img && img.isConnected) {
+        img.src = doc.highResData;
+      }
+    }));
+  }
+
   async function downloadPreview() {
     const doc = currentPreviewDoc();
     if (!doc) return;
@@ -3958,6 +4053,13 @@ window.initDocumentsView = function() {
           const key = isLeft ? CONFIG.storageKeys.docsPanelW : CONFIG.storageKeys.tagsPanelW;
           localStorage.setItem(key, String(clamped));
         } catch(e) {}
+        // v8.6.29: schedule visible-thumb upgrade. Debounced 250ms in the
+        // function itself, so the user can drag freely without spamming
+        // re-renders. Only PDF tiles that benefit from a higher source
+        // resolution will actually re-render (see upgradeVisibleThumbs).
+        if (typeof scheduleVisibleThumbUpgrade === 'function') {
+          scheduleVisibleThumbUpgrade();
+        }
       };
       const onUp = () => {
         el.classList.remove('active');
