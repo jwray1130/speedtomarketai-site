@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.24-onedrive-drag-fix-2026-05-05';
+window.STM_BUILD = 'v8.6.25-instant-upload-progress-hydrate-batch-2026-05-06';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1375,16 +1375,22 @@ loadEdits();
 // ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
-async function extractText(file, metadata) {
+async function extractText(file, metadata, onProgress) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
   // extraction stats (pageCount for PDFs, sheetCount for XLSX, etc.) that feed
   // the audit log without changing the primary return value shape.
   const meta = metadata || {};
+  const reportProgress = (payload) => {
+    if (typeof onProgress !== 'function') return;
+    try { onProgress(payload || {}); } catch (e) {}
+  };
 
   if (name.endsWith('.pdf')) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF parser not loaded');
+    reportProgress({ phase: 'reading', label: 'reading file…' });
     const buf = await file.arrayBuffer();
+    reportProgress({ phase: 'opening', label: 'opening PDF…' });
     let pdf;
     try {
       pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -1400,10 +1406,15 @@ async function extractText(file, metadata) {
       // reasonable on demo laptops and avoid PDF.js worker queue bloat.
       // The PDF.js worker is single-threaded internally, so larger chunks
       // don't actually parallelize more — they just queue more pages.
+      reportProgress({ phase: 'extracting', page: 0, totalPages: pdf.numPages, label: 'extracting PDF text…' });
       const pageNumbers = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
       const pageTexts = new Array(pdf.numPages);
       let totalItems = 0;
-      const chunkSize = 8;
+      // UI-first chunk size. PDF.js text extraction can still monopolize the
+      // renderer between awaits on large broker PDFs. Smaller chunks give the
+      // browser regular opportunities to repaint progress labels without
+      // materially slowing PDF.js's single worker.
+      const chunkSize = 4;
       for (let i = 0; i < pageNumbers.length; i += chunkSize) {
         const chunk = pageNumbers.slice(i, i + chunkSize);
         // Phase 3 (#6): use allSettled instead of all so a single failed
@@ -1440,6 +1451,18 @@ async function extractText(file, metadata) {
           totalItems += items.length;
           pageTexts[n - 1] = items.map(it => it.str).join(' ');
         }
+        const currentPage = Math.min(i + chunk.length, pdf.numPages);
+        reportProgress({
+          phase: 'extracting',
+          page: currentPage,
+          totalPages: pdf.numPages,
+          totalItems,
+          label: 'extracting PDF text ' + currentPage + '/' + pdf.numPages + '…'
+        });
+        // Yield after each chunk so the file rows and progress counter paint
+        // even if the next PDF page batch is CPU-heavy. This targets the
+        // no-network/no-DOM dead zone captured in the forensic upload audit.
+        await new Promise(r => setTimeout(r, 0));
       }
       const text = pageTexts.join('\n\n') + '\n\n';
       meta.kind = 'pdf';
@@ -1453,6 +1476,7 @@ async function extractText(file, metadata) {
       if (cleanedLength < 100 || avgCharsPerPage < 50) {
         throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
       }
+      reportProgress({ phase: 'done', page: pdf.numPages, totalPages: pdf.numPages, label: 'PDF text extracted', done: true });
       return text;
     } finally {
       // Always destroy the PDF.js document object so its internal caches
@@ -1789,6 +1813,23 @@ function setupDropzone() {
   // element itself.
   if (dz.dataset.wired === '1') return;
   dz.dataset.wired = '1';
+
+  // v8.6.25: make the hidden file input a native invisible overlay over the
+  // dashed dropzone. JS dragover/drop handlers still provide the wide safety
+  // net, but the exact box now also benefits from the browser's built-in
+  // file-input drop behavior. This is especially helpful for virtualized
+  // OneDrive/SharePoint/Outlook file drags that expose sparse DataTransfer
+  // metadata during dragover.
+  dz.style.position = dz.style.position || 'relative';
+  input.classList.add('dropzone-input');
+  input.style.display = 'block';
+  input.style.position = 'absolute';
+  input.style.inset = '0';
+  input.style.width = '100%';
+  input.style.height = '100%';
+  input.style.opacity = '0';
+  input.style.cursor = 'pointer';
+  input.style.zIndex = '3';
 
   // Helpers ──────────────────────────────────────────────────────────────
   // hasFiles: true when the drag carries actual files OR is a plausible
@@ -2236,7 +2277,19 @@ async function extractAndProcessFile(entry, file, hashText, isIncremental, newFi
 
   try {
     const meta = {};
-    entry.text = await extractText(file, meta);
+    let lastProgressRender = 0;
+    const reportExtractProgress = (p) => {
+      if (!isStillActive()) return;
+      entry.extractProgress = Object.assign({ phase: 'extracting' }, p || {});
+      const now = Date.now();
+      if (entry.extractProgress.done || now - lastProgressRender > 250) {
+        lastProgressRender = now;
+        renderFileList();
+      }
+    };
+    reportExtractProgress({ phase: 'queued', label: 'queued for extraction…' });
+    entry.text = await extractText(file, meta, reportExtractProgress);
+    entry.extractProgress = null;
 
     // Phase 3 (#4 + #5): bail out if user removed this file or started a new
     // submission while we were extracting. extractText() can take 5-30s for
@@ -2483,7 +2536,17 @@ function renderFileList() {
     let stateText = '';
     let extraBadge = '';
 
-    if (f.state === 'parsing') { stateClass = 'parsing'; stateText = 'parsing…'; }
+    if (f.state === 'parsing') {
+      stateClass = 'parsing';
+      if (f.extractProgress && f.extractProgress.totalPages) {
+        const page = Math.max(0, Math.min(f.extractProgress.page || 0, f.extractProgress.totalPages));
+        stateText = 'extracting PDF ' + page + '/' + f.extractProgress.totalPages;
+      } else if (f.extractProgress && f.extractProgress.label) {
+        stateText = f.extractProgress.label;
+      } else {
+        stateText = 'parsing…';
+      }
+    }
     else if (f.state === 'parsed') { stateClass = 'classified'; stateText = Math.round(f.text.length / 1024) + 'K chars · ready'; }
     else if (f.state === 'duplicate') {
       // PHASE 1 FIX (per GPT external audit round 3): duplicate is a real

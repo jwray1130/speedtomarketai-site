@@ -4492,13 +4492,30 @@ window.initDocumentsView = function() {
       dlog('[docs] thumbnail enrichment skipped — already running');
       return;
     }
-    if (typeof window.sbFetchDocumentPageThumbnail !== 'function') {
-      dlog('[docs] thumbnail enrichment skipped — sbFetchDocumentPageThumbnail unavailable');
+    if (typeof window.sbFetchDocumentPageThumbnail !== 'function' &&
+        typeof window.sbFetchDocumentPageThumbnails !== 'function') {
+      dlog('[docs] thumbnail enrichment skipped — thumbnail fetch helper unavailable');
       return;
     }
 
     _enrichmentInFlight = (async () => {
       await new Promise(r => setTimeout(r, 1200));
+
+      // v8.6.25: do not run the old-doc thumbnail backfill while the user is
+      // on the Submission intake screen or while files are still parsing.
+      // The forensic upload audit showed this timer firing immediately after
+      // the CPU-heavy extraction dead zone, issuing 60 sequential old-doc
+      // thumbnail GETs. That work is useful only when the Documents grid is
+      // visible, so defer it until docsViewActivated() below.
+      if (!_docsActive()) {
+        dlog('[docs] thumbnail enrichment deferred — docs view hidden', { submissionId });
+        return;
+      }
+      if (window.STATE && Array.isArray(window.STATE.files) &&
+          window.STATE.files.some(f => f && f.state === 'parsing')) {
+        dlog('[docs] thumbnail enrichment deferred — submission parsing in progress', { submissionId });
+        return;
+      }
 
       const candidates = state.docs.filter(d => {
         if (submissionId && d.submissionId !== submissionId) return false;
@@ -4518,24 +4535,50 @@ window.initDocumentsView = function() {
       });
 
       const MAX_TO_FETCH = 60;
+      const BATCH_SIZE = 20;
       const DELAY_MS = 75;
       let enriched = 0;
       let failed = 0;
+      const limited = candidates.slice(0, MAX_TO_FETCH);
 
-      for (const d of candidates.slice(0, MAX_TO_FETCH)) {
-        const doc = state.docs.find(x => x.id === d.id);
-        if (!doc || doc.thumbnailData) continue;
-        try {
-          const row = await window.sbFetchDocumentPageThumbnail(doc.id);
-          if (row && row.thumbnail_data_url && !doc.thumbnailData) {
-            doc.thumbnailData = row.thumbnail_data_url;
-            enriched++;
+      if (typeof window.sbFetchDocumentPageThumbnails === 'function') {
+        for (let i = 0; i < limited.length; i += BATCH_SIZE) {
+          const chunk = limited.slice(i, i + BATCH_SIZE);
+          const ids = chunk.map(d => d.id);
+          try {
+            const rows = await window.sbFetchDocumentPageThumbnails(ids);
+            const byId = new Map((rows || []).map(r => [String(r.id), r]));
+            for (const d of chunk) {
+              const doc = state.docs.find(x => x.id === d.id);
+              const row = byId.get(String(d.id));
+              if (doc && row && row.thumbnail_data_url && !doc.thumbnailData) {
+                doc.thumbnailData = row.thumbnail_data_url;
+                enriched++;
+              }
+            }
+          } catch (err) {
+            failed += chunk.length;
+            console.warn('[docs] thumbnail enrichment batch failed for ' + ids.length + ' ids:', err);
           }
-        } catch (err) {
-          failed++;
-          console.warn('[docs] thumbnail enrichment failed for ' + d.id + ':', err);
+          await new Promise(r => setTimeout(r, DELAY_MS));
         }
-        await new Promise(r => setTimeout(r, DELAY_MS));
+      } else {
+        // Compatibility fallback for older supabase-data.js builds.
+        for (const d of limited) {
+          const doc = state.docs.find(x => x.id === d.id);
+          if (!doc || doc.thumbnailData) continue;
+          try {
+            const row = await window.sbFetchDocumentPageThumbnail(doc.id);
+            if (row && row.thumbnail_data_url && !doc.thumbnailData) {
+              doc.thumbnailData = row.thumbnail_data_url;
+              enriched++;
+            }
+          } catch (err) {
+            failed++;
+            console.warn('[docs] thumbnail enrichment failed for ' + d.id + ':', err);
+          }
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
       }
 
       dlog('[docs] thumbnail enrichment complete', {
@@ -4543,6 +4586,7 @@ window.initDocumentsView = function() {
         failed,
         candidateCount: candidates.length,
         cappedAt: MAX_TO_FETCH,
+        batchSize: typeof window.sbFetchDocumentPageThumbnails === 'function' ? BATCH_SIZE : 1,
       });
 
       if (enriched && typeof renderDocsList === 'function') {
@@ -6197,5 +6241,12 @@ function startAnnoEngine() {
         if (thumb && docId) window.__docsAnno.ensureCanvas(thumb, docId);
       });
     }
+    // v8.6.25: thumbnail enrichment is now deferred while the docs view is
+    // hidden, so kick it when the user actually opens Documents. It is
+    // idempotent and self-guards if another enrichment run is active.
+    try {
+      const sid = state.submissionFilter !== 'all' ? state.submissionFilter : state.activeSubmissionId;
+      scheduleLazyEnrichment(sid || null);
+    } catch (e) {}
   };
 };

@@ -1563,6 +1563,26 @@ async function sbFetchDocumentPageThumbnail(docId) {
   return data || null;
 }
 
+// v8.6.25: batched lazy thumbnail loader. The single-row helper above is
+// kept for compatibility, but the docs view should prefer this helper for
+// enrichment so 60 thumbnails do not become 60 sequential PostgREST round-
+// trips. One chunk of 20 ids becomes one `id in (...)` request.
+async function sbFetchDocumentPageThumbnails(docIds) {
+  const u = await sbUser(); if (!u) return [];
+  const ids = Array.from(new Set((docIds || []).filter(Boolean)));
+  if (ids.length === 0) return [];
+  const { data, error } = await window.sb
+    .from(DOC_TABLE)
+    .select('id, thumbnail_data_url')
+    .eq('user_id', u.id)
+    .in('id', ids);
+  if (error) {
+    console.warn('sbFetchDocumentPageThumbnails failed for ' + ids.length + ' ids:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
 // Lazy-load the heavy fields for a single document on demand.
 // Used by: OCR re-run (needs extracted_text), search (needs extracted_text),
 // preview enlarge (needs html_content), annotation overlay (needs annotations).
@@ -1727,6 +1747,7 @@ window.sbDeleteDocumentPage             = sbDeleteDocumentPage;
 window.sbFetchDocumentPages             = sbFetchDocumentPages;
 window.sbFetchDocumentPageFull          = sbFetchDocumentPageFull;
 window.sbFetchDocumentPageThumbnail     = sbFetchDocumentPageThumbnail;
+window.sbFetchDocumentPageThumbnails    = sbFetchDocumentPageThumbnails;
 window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
 window.sbCollectDocumentStoragePathsForSubmission = sbCollectDocumentStoragePathsForSubmission;
