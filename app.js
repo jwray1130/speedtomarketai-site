@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.23-version-badge-2026-05-05';
+window.STM_BUILD = 'v8.6.24-onedrive-drag-fix-2026-05-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1791,11 +1791,81 @@ function setupDropzone() {
   dz.dataset.wired = '1';
 
   // Helpers ──────────────────────────────────────────────────────────────
-  // hasFiles: true ONLY when the drag carries actual files. Without this,
-  // every text/image drag inside the page would trigger our handlers.
-  const hasFiles = (e) => {
-    const types = e.dataTransfer && e.dataTransfer.types;
-    return !!types && (types.includes ? types.includes('Files') : Array.from(types).includes('Files'));
+  // hasFiles: true when the drag carries actual files OR is a plausible
+  // file drag whose metadata isn't fully resolved yet during dragover.
+  //
+  // PHASE 13 FIX (per real-user video on 2026-05-05): the original check
+  // was `types.includes('Files')` only. That works for normal Chrome file
+  // drags but FAILS for:
+  //   • OneDrive/cloud-virtualized files dragged from Windows Explorer
+  //     (the file isn't locally cached; Windows reports CFSTR_SHELLIDLIST
+  //     only and "Files" doesn't appear in dataTransfer.types until drop)
+  //   • Some Outlook/Mail clients on Windows that use FileGroupDescriptor
+  //   • Chromium on certain Linux distros that report 'application/x-moz-file'
+  //     during dragover
+  //   • SharePoint web-uploads that use 'DownloadURL'
+  //
+  // The video evidence: Justin had 6 OneDrive-synced PDFs in a Windows File
+  // Explorer window. Dragging them onto the dropzone showed the no-drop
+  // cursor because 'Files' wasn't in types during dragover (only at drop).
+  //
+  // The fix: in `loose` mode (dragover/dragenter only), accept any drag
+  // that carries ANY file-like type signature. The strict mode (drop)
+  // still requires real File objects in dataTransfer.files before
+  // calling handleFiles, so we never process invalid drops.
+  const hasFiles = (e, opts) => {
+    const dt = e && e.dataTransfer;
+    if (!dt) return false;
+    opts = opts || {};
+
+    // Fast path: standard Chrome/Firefox file drag advertises 'Files' type.
+    let types = [];
+    try {
+      if (dt.types) {
+        if (typeof dt.types.contains === 'function' && dt.types.contains('Files')) return true;
+        if (typeof dt.types.includes === 'function' && dt.types.includes('Files')) return true;
+        // DOMStringList / array-like — gather entries for inspection.
+        for (let i = 0; i < dt.types.length; i++) {
+          const v = dt.types[i] || (typeof dt.types.item === 'function' ? dt.types.item(i) : null);
+          if (v) types.push(String(v));
+        }
+      }
+    } catch (err) { /* defensive */ }
+
+    const lower = types.map(t => t.toLowerCase());
+
+    // Cross-platform/cross-source file-drag signatures.
+    if (lower.indexOf('files') !== -1) return true;
+    if (lower.indexOf('application/x-moz-file') !== -1) return true;  // Firefox / Chromium-Linux
+    if (lower.indexOf('public.file-url') !== -1) return true;           // Safari / macOS UTI
+    if (lower.indexOf('downloadurl') !== -1) return true;               // SharePoint / web drag
+    if (lower.some(t => t.indexOf('file') !== -1)) return true;         // catch-all "file" substring
+
+    // dataTransfer.items can carry kind='file' even when types[] is empty
+    // (this happens with some virtualized file sources on Windows).
+    try {
+      if (dt.items && dt.items.length > 0) {
+        for (let i = 0; i < dt.items.length; i++) {
+          if (dt.items[i] && dt.items[i].kind === 'file') return true;
+        }
+      }
+    } catch (err) { /* defensive */ }
+
+    // dataTransfer.files might already be populated even when types[] isn't
+    // (uncommon during dragover, but possible).
+    try {
+      if (dt.files && dt.files.length > 0) return true;
+    } catch (err) { /* defensive */ }
+
+    // LOOSE MODE: during dragover/dragenter ONLY, if we got this far without
+    // matching, assume it's a file drag whose metadata isn't fully resolved.
+    // The actual drop handler still requires real Files before processing,
+    // so we can't accidentally process a non-file drag.
+    if (opts.loose && (e.type === 'dragenter' || e.type === 'dragover')) {
+      return true;
+    }
+
+    return false;
   };
 
   // docsViewActive: when the user is on the Documents stage (full-width
@@ -1828,8 +1898,16 @@ function setupDropzone() {
   // allowDrop: prevent default + set 'copy' cursor. Browsers show the
   // red no-drop cursor unless BOTH preventDefault AND dropEffect='copy'
   // are set during dragover. This is the actual fix for the no-drop cursor.
+  // allowDrop / clearDrop / drop:
+  //   - allowDrop (dragenter, dragover) uses loose mode — we want to ACCEPT
+  //     ambiguous file drags during dragover so the user gets a copy cursor
+  //     instead of a no-drop circle. OneDrive-synced files don't expose
+  //     'Files' in types during dragover.
+  //   - clearDrop (dragleave) also uses loose mode — should mirror allowDrop.
+  //   - drop handler stays STRICT (no opts) so we never process a non-file
+  //     drop. dataTransfer.files at drop time IS reliable across all browsers.
   const allowDrop = (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e, { loose: true })) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
@@ -1837,7 +1915,7 @@ function setupDropzone() {
   };
 
   const clearDrop = (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e, { loose: true })) return;
     e.preventDefault();
     e.stopPropagation();
     dz.classList.remove('dragover');
@@ -1899,7 +1977,9 @@ function setupDropzone() {
   // The critical invariant: stopPropagation is ONLY called in branch 5,
   // when we're definitely the handler that should take the event.
   document.addEventListener('dragover', (e) => {
-    if (!hasFiles(e)) return;
+    // PHASE 13: loose mode — accept ambiguous file drags during dragover
+    // so OneDrive-virtualized files don't get the red no-drop cursor.
+    if (!hasFiles(e, { loose: true })) return;
     if (isGuidelineDrop(e)) return;
     if (docsViewActive()) return;  // let documents-view see this
     e.preventDefault();
@@ -1912,7 +1992,11 @@ function setupDropzone() {
   }, true);
 
   document.addEventListener('drop', (e) => {
-    if (!hasFiles(e)) return;
+    // PHASE 13: drop stays STRICT — at drop time, dataTransfer.files is
+    // populated reliably across all browsers and sources, so we don't need
+    // loose mode here. If files isn't populated, this isn't a file drop.
+    const hasRealFiles = hasFiles(e) || (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0);
+    if (!hasRealFiles) return;
     if (isGuidelineDrop(e)) return;
     if (docsViewActive()) return;  // let documents-view's bubble-phase handler fire
 
