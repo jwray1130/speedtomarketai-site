@@ -11,6 +11,40 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/lib/index.browser.js" onerror="window.__msgReaderFailed=true"></script>
+<script type="module">
+  // postal-mime is ESM-only; load via esm.sh and attach to window so the
+  // rest of app.js (non-module) can call window.PostalMime.parse(buf).
+  // Used by parseEml() in app.js to expand .eml drops into the email body
+  // + each attachment as separate file-queue entries (mirroring the .msg
+  // attachment unpack flow so the deterministic detector chain runs on
+  // every attachment independently).
+  //
+  // PHASE B FIX (per GPT external audit): fire-and-forget instead of
+  // top-level await. The previous version awaited the import at the top
+  // level of a module script, which BLOCKS DOMContentLoaded until the ESM
+  // CDN responds.
+  //
+  // PHASE 5 FIX (per GPT external audit round 4): store the promise on
+  // window.PostalMimeReady so extractText() can await it on fast .eml
+  // uploads. Without this, dropping an .eml within the first ~500ms of
+  // page load (before the ESM CDN responds) silently falls back to the
+  // legacy text-only parseEml path — which doesn't extract attachments.
+  // Carroll County and other .eml-with-attachments demos would lose every
+  // attached PDF. Race window is small but real, especially on slow
+  // corp networks. Keeping the import non-blocking (DOMContentLoaded
+  // still fires snappy) but exposing the promise so consumers can await
+  // briefly when they actually need the parser.
+  window.PostalMimeReady = import('https://esm.sh/postal-mime@2.2.7')
+    .then(mod => {
+      window.PostalMime = mod.default || mod.PostalMime || mod;
+      return window.PostalMime;
+    })
+    .catch(err => {
+      console.warn('postal-mime failed to load — .eml will fall back to text-only parsing', err);
+      window.__postalMimeFailed = true;
+      return null;
+    });
+</script>
 <script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
@@ -59,6 +93,14 @@
     </div>
   </div>
   <div class="topbar-right">
+    <!-- VERSION BADGE — always visible across all views. Populated at runtime
+         by app.js from window.STM_BUILD. Click to copy the full build string.
+         If this badge ever shows an unexpected version after a Vercel deploy,
+         you instantly know the deployment didn't pick up the new files. -->
+    <div class="version-badge" id="versionBadge" onclick="copyBuildString()" title="Click to copy full build string">
+      <span class="version-badge-label">BUILD</span>
+      <span class="version-badge-value" id="versionBadgeValue">loading…</span>
+    </div>
     <button class="api-pill demo" id="apiPill" onclick="openSettings()">
       <span class="dot"></span>
       <span id="apiPillText">SIGN IN REQUIRED</span>
@@ -240,8 +282,8 @@
 
         <div class="pipeline-empty" id="pipelineEmpty">
           <div class="pipeline-empty-icon">◢</div>
-          <h2>Pipeline ready</h2>
-          <p>7 documents classified and routed. Run the pipeline to fan out across 17 specialist modules — full summary in under a minute.</p>
+          <h2 id="pipelineEmptyHeading">Pipeline waiting</h2>
+          <p id="pipelineEmptyBody">Drop broker documents to begin. Files appear in the intake queue immediately, then the pipeline unlocks when parsing is complete.</p>
         </div>
 
         <div class="pipeline-flow" id="pipelineFlow" style="display: none;">

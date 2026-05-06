@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.12-2026-05-01';
+window.STM_BUILD = 'v8.6.23-version-badge-2026-05-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -425,6 +425,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const emailIn = document.getElementById('authEmail');
   if (emailIn) emailIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendMagicLink(); } });
   checkAuth();
+  // PHASE 12 FIX (per Justin request): populate the always-visible version
+  // badge in the topbar with the current build stamp. Means after every
+  // git push + Vercel deploy, Justin can verify the new code is live just
+  // by glancing at the page header — no DevTools, no console commands, no
+  // diagnostic pages. If the badge shows the wrong version, the deploy
+  // didn't take. Idempotent: safe to call multiple times.
+  populateVersionBadge();
   // Initialize the Documents view once the DOM is parsed. The view's markup
   // is already in the page (#docs-view-root) but hidden via CSS; this call
   // wires up event handlers, builds the category grid, and prepares state.
@@ -433,7 +440,94 @@ document.addEventListener('DOMContentLoaded', () => {
     try { window.initDocumentsView(); }
     catch (err) { console.error('initDocumentsView failed:', err); }
   }
+  // PHASE 11 FIX (per GPT external audit round 5): library preflight.
+  // The app loads PDF.js, Mammoth, XLSX, jsPDF, MsgReader, JSZip, and
+  // Supabase from CDNs (esm.sh / cdnjs / unpkg). On corp Wi-Fi or
+  // locked-down networks, one or more can silently fail to load — and
+  // the user only finds out when their first PDF / Excel / Word drop
+  // throws an opaque "X is not defined" error. Lightweight check at
+  // boot: enumerate critical libs, toast + audit any that are missing.
+  // Defers slightly so cdnjs <script> tags definitely had a chance to
+  // attach (DOMContentLoaded fires before async scripts finish parsing).
+  setTimeout(() => {
+    if (typeof verifyCriticalLibraries === 'function') {
+      try { verifyCriticalLibraries(); } catch (e) { console.warn('library preflight failed:', e); }
+    }
+  }, 1500);
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// VERSION BADGE — populates the topbar badge with the current build stamp
+// and exposes copyBuildString() for the click handler. The build string is
+// the single source of truth for "what version is actually running" — set
+// once at the top of app.js (window.STM_BUILD = '...'), read here, and
+// rendered into the DOM. After any GitHub push + Vercel deploy, the badge
+// updates automatically because the new app.js carries a new build string.
+// ───────────────────────────────────────────────────────────────────────
+function populateVersionBadge() {
+  const valueEl = document.getElementById('versionBadgeValue');
+  if (!valueEl) return;  // older builds may not have the badge HTML yet
+  const build = window.STM_BUILD || '(no build stamp)';
+  // Show only the short part — the version number portion. The full build
+  // string with descriptive suffix is too long for the topbar; click to
+  // copy reveals the whole thing.
+  // Examples:
+  //   'v8.6.23-...-2026-05-05'  →  'v8.6.23'
+  //   'v8.6.12-2026-05-01'      →  'v8.6.12'
+  const short = String(build).match(/^v[\d.]+/);
+  valueEl.textContent = short ? short[0] : build;
+}
+
+function copyBuildString() {
+  const build = window.STM_BUILD || '(no build stamp)';
+  const badge = document.getElementById('versionBadge');
+  // Try modern clipboard API first, fall back to textarea+execCommand for
+  // older browsers / restrictive contexts.
+  const fallbackCopy = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = build;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch (e) { return false; }
+  };
+  const onCopied = () => {
+    if (badge) {
+      badge.classList.add('copied');
+      setTimeout(() => badge.classList.remove('copied'), 1200);
+    }
+    if (typeof toast === 'function') toast('Build string copied: ' + build, 'success');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(build).then(onCopied).catch(() => {
+      if (fallbackCopy()) onCopied();
+    });
+  } else {
+    if (fallbackCopy()) onCopied();
+  }
+}
+
+function verifyCriticalLibraries() {
+  const missing = [];
+  if (typeof pdfjsLib === 'undefined') missing.push('PDF.js');
+  if (typeof mammoth === 'undefined') missing.push('Mammoth (Word docs)');
+  if (typeof XLSX === 'undefined') missing.push('XLSX (spreadsheets)');
+  if (!window.jspdf) missing.push('jsPDF (export)');
+  if (typeof JSZip === 'undefined') missing.push('JSZip');
+  if (missing.length === 0) return;
+  // Don't toast for postal-mime since the app handles its absence gracefully.
+  // PDF.js / Mammoth / XLSX / jsPDF are critical — their absence breaks
+  // the corresponding file types.
+  const list = missing.join(', ');
+  if (typeof toast === 'function') toast('Some document parsers failed to load: ' + list, 'error');
+  if (typeof logAudit === 'function') logAudit('Startup', 'Missing libraries: ' + list, 'error');
+  console.error('[STM] Critical libraries failed to load:', missing);
+}
 
 // ----- (was Block 2: lines 812-3110 of app.html — STATE, files, queue, feedback) -----
 // ============================================================================
@@ -1291,31 +1385,85 @@ async function extractText(file, metadata) {
   if (name.endsWith('.pdf')) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF parser not loaded');
     const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    let text = '';
-    let totalItems = 0;
-    // v8.5 Rule 9: also build pageTexts[] indexed 0-based, so the
-    // pipeline can slice text per-section for combined PDFs.
-    const pageTexts = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      totalItems += content.items.length;
-      const pageText = content.items.map(it => it.str).join(' ');
-      pageTexts.push(pageText);
-      text += pageText + '\n\n';
+    let pdf;
+    try {
+      pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      // Extract every page's text in parallel via Promise.all. PDF.js's worker
+      // (loaded in app.html line 29) decompresses page content streams off the
+      // main thread, so multiple page extractions can genuinely overlap. A
+      // 70-page ACORD that previously took ~30s sequential drops to ~5-8s
+      // because the per-page awaits run concurrently.
+      //
+      // chunkSize=8: ceiling on in-flight page extractions per file. With
+      // outer-loop file parallelism, total in-flight extractions is
+      // ~(num_files × 8). Set to 8 (not 16) to keep memory pressure
+      // reasonable on demo laptops and avoid PDF.js worker queue bloat.
+      // The PDF.js worker is single-threaded internally, so larger chunks
+      // don't actually parallelize more — they just queue more pages.
+      const pageNumbers = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+      const pageTexts = new Array(pdf.numPages);
+      let totalItems = 0;
+      const chunkSize = 8;
+      for (let i = 0; i < pageNumbers.length; i += chunkSize) {
+        const chunk = pageNumbers.slice(i, i + chunkSize);
+        // Phase 3 (#6): use allSettled instead of all so a single failed
+        // getTextContent() doesn't prematurely reject the chunk while
+        // sibling pages are still cleaning up. With Promise.all, the outer
+        // catch fires immediately on first reject, then the outer finally
+        // calls pdf.destroy() — which can race with sibling page promises
+        // still resolving inside their inner try/finally blocks. Edge case
+        // (page text extraction rarely fails) but the symptom would be
+        // noisy uncaught promise warnings in the console mid-demo.
+        //
+        // allSettled waits for every promise in the chunk to fully settle
+        // (including their finally blocks for page.cleanup), then we throw
+        // if any failed. Net behavior is the same — failure still propagates
+        // up — but cleanup ordering is guaranteed.
+        const settled = await Promise.allSettled(chunk.map(async (n) => {
+          const page = await pdf.getPage(n);
+          try {
+            const content = await page.getTextContent();
+            return { n, items: content.items };
+          } finally {
+            // Release page-level caches as soon as we're done with the page.
+            // Without this, PDF.js holds the rendered operator list, font
+            // glyphs, and content stream in memory until the parent document
+            // is destroyed. With parallel extraction across multiple files,
+            // this is the difference between ~50MB resident and ~500MB.
+            try { page.cleanup(); } catch (e) { /* ignore */ }
+          }
+        }));
+        const failed = settled.find(r => r.status === 'rejected');
+        if (failed) throw failed.reason;
+        for (const r of settled) {
+          const { n, items } = r.value;
+          totalItems += items.length;
+          pageTexts[n - 1] = items.map(it => it.str).join(' ');
+        }
+      }
+      const text = pageTexts.join('\n\n') + '\n\n';
+      meta.kind = 'pdf';
+      meta.pageCount = pdf.numPages;
+      meta.pageTexts = pageTexts;
+      // Scanned-PDF detection: empty or tiny text layer relative to page count.
+      // A real 5-page text PDF will have thousands of chars; a scanned image
+      // PDF has 0-50 chars of metadata.
+      const cleanedLength = text.replace(/\s+/g, '').length;
+      const avgCharsPerPage = cleanedLength / pdf.numPages;
+      if (cleanedLength < 100 || avgCharsPerPage < 50) {
+        throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
+      }
+      return text;
+    } finally {
+      // Always destroy the PDF.js document object so its internal caches
+      // (stream decoders, fonts, operator lists) get released. Without
+      // this, every uploaded PDF leaks a few hundred MB until the next GC
+      // cycle — fine for one upload, fatal across a long sales demo
+      // session with multiple submissions.
+      if (pdf) {
+        try { await pdf.destroy(); } catch (e) { /* ignore */ }
+      }
     }
-    meta.kind = 'pdf';
-    meta.pageCount = pdf.numPages;
-    meta.pageTexts = pageTexts;
-    // Scanned-PDF detection: empty or tiny text layer relative to page count.
-    // A real 5-page text PDF will have thousands of chars; a scanned image PDF has 0-50 chars of metadata.
-    const cleanedLength = text.replace(/\s+/g, '').length;
-    const avgCharsPerPage = cleanedLength / pdf.numPages;
-    if (cleanedLength < 100 || avgCharsPerPage < 50) {
-      throw new Error('__SCANNED_PDF__::' + pdf.numPages + ' page(s), ' + cleanedLength + ' text chars extracted — appears to be a scanned image PDF with no text layer. Use OCR, or paste the content manually.');
-    }
-    return text;
   }
 
   if (name.endsWith('.docx')) {
@@ -1408,6 +1556,79 @@ async function extractText(file, metadata) {
 
   if (name.endsWith('.eml')) {
     meta.kind = 'eml';
+    // PHASE 5 FIX (per GPT external audit round 4): if postal-mime is still
+    // loading (fast .eml drop within page-load grace window), wait briefly
+    // for it to finish before falling through. Without this wait, dropping
+    // an .eml within ~500ms of page load lost every attachment because
+    // window.PostalMime was still undefined at this check.
+    //
+    // Race against a 2-second timeout so a permanently-stuck ESM load
+    // doesn't hang the upload forever. If postal-mime fails to load in
+    // 2s, fall through to legacy parseEml which still extracts the body
+    // text (just no attachments). Skipping the wait when:
+    //   • postal-mime already loaded (window.PostalMime set)
+    //   • postal-mime confirmed failed (__postalMimeFailed)
+    //   • promise never set (some loader path skipped) — defensive
+    if (!window.PostalMime && window.PostalMimeReady && !window.__postalMimeFailed) {
+      await Promise.race([
+        window.PostalMimeReady,
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
+    }
+    // If postal-mime is available, use it for proper MIME parsing + attachment
+    // extraction. Falls back to the legacy text-only parseEml when the lib
+    // failed to load. The metadata layout (subject, body, attachments) matches
+    // the .msg path so handleFiles() can use the same unpack logic for both.
+    if (typeof window.PostalMime !== 'undefined' && window.PostalMime) {
+      try {
+        const buf = await file.arrayBuffer();
+        const parsed = await window.PostalMime.parse(buf);
+
+        // Populate meta in the same shape as the .msg parser. The .msg path
+        // (extractText for .msg files above) sets meta.kind='msg' and
+        // meta.attachments=[{name, content, contentLength, mimeType}]. We
+        // mirror that here so the existing attachment-unpack code in
+        // handleFiles works for .eml too without modification.
+        meta.subject = parsed.subject || '';
+        const fromAddr = (parsed.from && parsed.from.address) || '';
+        const fromName = (parsed.from && parsed.from.name) || '';
+        meta.from = fromName ? (fromName + ' <' + fromAddr + '>') : fromAddr;
+        meta.to = (parsed.to || []).map(t => t.address).join(', ');
+        meta.body = (parsed.text || '').trim();
+
+        // Filter inline images (logos, signatures) — they have disposition
+        // 'inline' and aren't real attachments. Same filter the explode
+        // function uses.
+        const realAttachments = (parsed.attachments || []).filter(a => a.disposition !== 'inline');
+        meta.attachments = realAttachments.map(a => ({
+          name: a.filename || ('attachment-' + Math.random().toString(36).slice(2, 6) + '.bin'),
+          content: a.content,                          // Uint8Array
+          contentLength: (a.content && a.content.byteLength) ? a.content.byteLength : 0,
+          mimeType: a.mimeType || 'application/octet-stream',
+        })).filter(a => a.content && a.contentLength > 0);
+
+        // Reconstruct a text representation for the email body. This is the
+        // "doc text" the email gets classified on — Stage 1.0 detector keys
+        // on the From:/To:/Subject: structure here.
+        let bodyText = '';
+        if (meta.from) bodyText += 'From: ' + meta.from + '\n';
+        if (meta.to) bodyText += 'To: ' + meta.to + '\n';
+        if (parsed.cc && parsed.cc.length) bodyText += 'Cc: ' + parsed.cc.map(t => t.address).join(', ') + '\n';
+        if (meta.subject) bodyText += 'Subject: ' + meta.subject + '\n';
+        if (parsed.date) bodyText += 'Date: ' + new Date(parsed.date).toString() + '\n';
+        bodyText += '\n' + (parsed.text || '');
+
+        return bodyText;
+      } catch (postalErr) {
+        // Postal-mime parse failed for some reason (malformed MIME, encrypted
+        // wrapper, etc). Fall back to legacy text-only parser so we at least
+        // get the body. No attachments will be extracted in this case, but
+        // the email itself still gets classified.
+        console.warn('postal-mime parse failed for ' + file.name + ', falling back to legacy parser:', postalErr);
+        return parseEml(await file.text());
+      }
+    }
+    // Legacy fallback when postal-mime unavailable
     return parseEml(await file.text());
   }
 
@@ -1560,27 +1781,180 @@ function setupDropzone() {
   const input = document.getElementById('fileInput');
   if (!dz || !input) return;
 
+  // PHASE B FIX (per GPT external audit): idempotency guard. setupDropzone
+  // can be called twice — once eagerly at script-eval time, once on
+  // DOMContentLoaded. Without this guard, every listener gets attached
+  // twice and a single drop fires handleFiles twice → duplicate uploads.
+  // The dataset flag survives across calls because it's stored on the DOM
+  // element itself.
+  if (dz.dataset.wired === '1') return;
+  dz.dataset.wired = '1';
+
+  // Helpers ──────────────────────────────────────────────────────────────
+  // hasFiles: true ONLY when the drag carries actual files. Without this,
+  // every text/image drag inside the page would trigger our handlers.
+  const hasFiles = (e) => {
+    const types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && (types.includes ? types.includes('Files') : Array.from(types).includes('Files'));
+  };
+
+  // docsViewActive: when the user is on the Documents stage (full-width
+  // docs grid), that view has its own drop wiring — we don't want our
+  // submission dropzone to intercept drops there.
+  const docsViewActive = () => document.body.classList.contains('docs-fullwidth');
+
+  // isGuidelineDrop: settings has its own #guidelineDropZone for uploading
+  // a carrier guideline. Drops there should NOT be intercepted by the
+  // submission dropzone — the guideline pane has inline ondrop handlers
+  // that route to handleGuidelineDrop().
+  const isGuidelineDrop = (e) =>
+    e.target && e.target.closest && e.target.closest('#guidelineDropZone');
+
+  // PHASE 2 FIX (per GPT external audit round 3): submissionViewActive
+  // gates the document-level safety net. Phase B added document-level
+  // drop handlers so drags slightly outside the dashed dropzone box still
+  // worked. But those handlers only checked docsViewActive() and
+  // isGuidelineDrop — NOT whether the active top-nav view was actually
+  // the Submission workbench. A user on Queue or Admin who happened to
+  // drag a file onto the page would silently corrupt the active
+  // submission's STATE.files. This helper checks the #view-submission
+  // element's .active class (the same class switchView toggles) so the
+  // safety net only fires where it makes sense.
+  const submissionViewActive = () => {
+    const v = document.getElementById('view-submission');
+    return !!v && v.classList.contains('active');
+  };
+
+  // allowDrop: prevent default + set 'copy' cursor. Browsers show the
+  // red no-drop cursor unless BOTH preventDefault AND dropEffect='copy'
+  // are set during dragover. This is the actual fix for the no-drop cursor.
+  const allowDrop = (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    dz.classList.add('dragover');
+  };
+
+  const clearDrop = (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dz.classList.remove('dragover');
+  };
+
+  // Click-to-pick + change handler ───────────────────────────────────────
   dz.addEventListener('click', (e) => {
     if (e.target === input) return;
     input.click();
   });
   input.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) handleFiles(Array.from(e.target.files));
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) handleFiles(files);
     input.value = '';
   });
-  ['dragenter', 'dragover'].forEach(ev => {
-    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); });
-  });
-  ['dragleave', 'drop'].forEach(ev => {
-    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); });
-  });
-  dz.addEventListener('drop', e => {
-    const files = Array.from(e.dataTransfer.files);
+
+  // Element-level drop handlers ──────────────────────────────────────────
+  // All four phases use capture-phase listeners (third arg true) so we
+  // intercept before any nested elements can interfere.
+  dz.addEventListener('dragenter', allowDrop, true);
+  dz.addEventListener('dragover',  allowDrop, true);
+  dz.addEventListener('dragleave', clearDrop, true);
+  dz.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dz.classList.remove('dragover');
+    const files = Array.from(e.dataTransfer.files || []);
     if (files.length > 0) handleFiles(files);
-  });
+  }, true);
+
+  // Document-level safety net ────────────────────────────────────────────
+  // The user dragging files SLIGHTLY outside the dashed dropzone box will
+  // hit the surrounding intake-pane area. Without these document-level
+  // listeners, the browser shows the red no-drop cursor across the rest
+  // of the page — looks broken in a sales demo.
+  //
+  // PHASE 7 FIX (per GPT external audit round 5): regression repair.
+  // Phase 5's "always preventDefault + stopPropagation" version blocked
+  // direct drops on #dropzone in capture phase. The browser fires
+  // capture-phase listeners from window → document → ... → target, so
+  // calling stopPropagation() at the document level halted the event
+  // before #dropzone's own handler ever saw it. Result in v8.6.20:
+  // dropping directly on the dashed box silently did nothing — even
+  // though the dragover highlight worked, suggesting it would.
+  //
+  // Same root cause silently broke documents-view's drop handler (which
+  // is bubble-phase; stopPropagation in capture halts bubble too).
+  //
+  // Correct ordering:
+  //   1. Not a file drag at all → ignore
+  //   2. Guideline drop → let guideline handler take it (don't intercept)
+  //   3. Documents stage active → let documents-view take it
+  //   4. Drop on #dropzone in submission view → let #dropzone take it
+  //   5. Otherwise: preventDefault to block browser nav, then either
+  //      route to handleFiles (submission view, drag outside dropzone)
+  //      or toast a "wrong view" warning (Queue/Admin/etc.)
+  //
+  // The critical invariant: stopPropagation is ONLY called in branch 5,
+  // when we're definitely the handler that should take the event.
+  document.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    if (isGuidelineDrop(e)) return;
+    if (docsViewActive()) return;  // let documents-view see this
+    e.preventDefault();
+    if (submissionViewActive()) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    } else {
+      // Queue/Admin/modal: block browser navigation but show no-drop cursor.
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+    }
+  }, true);
+
+  document.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    if (isGuidelineDrop(e)) return;
+    if (docsViewActive()) return;  // let documents-view's bubble-phase handler fire
+
+    // Drop on #dropzone in submission view → let #dropzone's own handler
+    // take it. Critically: do NOT stopPropagation before this check, or
+    // the dropzone's capture-phase handler is preempted by ours.
+    const onDropzone = e.target && e.target.closest && e.target.closest('#dropzone');
+    if (onDropzone && submissionViewActive()) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (!submissionViewActive()) {
+      // Block browser navigation. Tell the user where to drop.
+      toast('Open Submission to upload broker documents', 'warn');
+      return;
+    }
+    // Submission view, drop landed outside #dropzone — handle here.
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) handleFiles(files);
+  }, true);
 }
 
 async function handleFiles(fileList) {
+  // PHASE A FIX (per GPT external audit): DON'T bump _uploadToken here.
+  //
+  // The Phase 3 implementation bumped the token at the start of every
+  // handleFiles() call. That broke a real demo flow:
+  //   1. User drops batch A
+  //   2. Batch A starts extracting (captures token N)
+  //   3. User drops batch B mid-extraction (forgot a doc)
+  //   4. Token bumps to N+1 → batch A's isStillActive() checks fail
+  //   5. Batch A bails out, files stuck on "parsing…" forever
+  //
+  // The token's purpose is to invalidate stale work when SUBMISSION CONTEXT
+  // changes (New Submission, switch archived submission), NOT when the user
+  // adds more files to the same submission. We just READ the current token
+  // value here; bumping happens in startNewSubmission() and rehydrateSubmission().
+  STATE._uploadToken = STATE._uploadToken || 0;
+  const uploadToken = STATE._uploadToken;
+
   // Detect if this is an incremental addition — pipeline already completed,
   // new files should refresh only affected modules, not nuke the run.
   const isIncremental = STATE.pipelineDone;
@@ -1596,6 +1970,15 @@ async function handleFiles(fileList) {
     return 'h_' + (h >>> 0).toString(36) + '_' + s.length;
   };
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // PHASE 1: Create all file entries synchronously. Paint ALL rows in a
+  // single renderFileList() call BEFORE any extraction work begins, so the
+  // user sees every dropped file appear immediately. Without this split,
+  // the first PDF's text-extraction loop (sequential per-page awaits) blocks
+  // the JS thread for tens of seconds before subsequent rows can paint —
+  // looks like the app is frozen during a sales demo.
+  // ──────────────────────────────────────────────────────────────────────────
+  const entries = [];
   for (const file of fileList) {
     const id = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     const entry = {
@@ -1603,192 +1986,395 @@ async function handleFiles(fileList) {
       text: '', classification: null, confidence: 0, routedTo: null,
       state: 'parsing', error: null,
       isIncremental: isIncremental,
-      // Hold a reference to the raw File object so the pipeline can mirror
-      // the binary into the Document Library after classification (Step 1
-      // of the wire-up plan). Browsers keep File objects in memory as long
-      // as something references them; we drop this once the file finishes
-      // processing through the docs view to avoid retention. Not persisted
-      // in snapshot.files (lite snapshot drops `file` along with `text`).
       _rawFile: file,
     };
     STATE.files.push(entry);
     newFiles.push(entry);
-    renderFileList();
-    try {
-      const meta = {};
-      entry.text = await extractText(file, meta);
-      // v8.5 Rule 9: persist pageTexts on the file entry for the pipeline's
-      // per-section slicer. Only set when meta returned the array (PDFs).
-      if (meta.pageTexts && Array.isArray(meta.pageTexts)) {
-        entry.pageTexts = meta.pageTexts;
-      }
-      if (!entry.text || entry.text.length < 20) {
-        entry.state = 'error';
-        entry.error = 'Empty or too short';
-        entry._rawFile = null;  // drop binary ref — won't be processed further
-        logAudit('Extract', 'FAILED ' + file.name + ' · empty or too short (' + (entry.text?.length || 0) + ' chars)', 'error');
-      } else {
-        // Dedup check — if we already have a file with the same content hash, this is
-        // the same content. Mark as duplicate and don't classify / route / process again.
-        entry.contentHash = hashText(entry.text);
-        const existingDup = STATE.files.find(f => f !== entry && f.contentHash === entry.contentHash && f.state !== 'error');
-        if (existingDup) {
-          entry.state = 'duplicate';
-          entry.duplicateOf = existingDup.name;
-          // Drop the _rawFile reference now that we know this entry won't go
-          // through the pipeline. Keeping it would pin the binary in memory
-          // until the user clears submissions, even though no code path will
-          // ever read from it again.
-          entry._rawFile = null;
-          logAudit('Extract', 'DUPLICATE ' + file.name + ' · matches already-loaded ' + existingDup.name + ' (same content hash) · skipped', 'warn');
-          toast(file.name + ' is a duplicate of ' + existingDup.name + ' — skipped', 'warn');
-          renderFileList();
-          continue;
-        }
-        entry.state = 'parsed';
-        entry.extractMeta = meta;  // preserve for later reference
-        // Granular per-file audit — the UW can scroll the audit log to verify what
-        // got pulled from each document. Format varies by file type so the log
-        // shows meaningful coverage info (pages for PDF, sheets for XLSX, etc.).
-        const kbChars = Math.round(entry.text.length / 1024 * 10) / 10;
-        let coverageDetail = '';
-        if (meta.kind === 'pdf') {
-          coverageDetail = meta.pageCount + ' page' + (meta.pageCount === 1 ? '' : 's');
-        } else if (meta.kind === 'xlsx') {
-          coverageDetail = meta.sheetCount + ' sheet' + (meta.sheetCount === 1 ? '' : 's') + ' · tabs: ' + (meta.sheetNames || []).slice(0, 6).join(', ') + (meta.sheetNames?.length > 6 ? '…' : '');
-        } else if (meta.kind === 'csv' || meta.kind === 'tsv') {
-          coverageDetail = (meta.rowCount || '?') + ' rows';
-        } else if (meta.kind === 'msg') {
-          coverageDetail = 'email';
-          if (meta.subject) coverageDetail += ' · "' + meta.subject.slice(0, 50) + '"';
-          if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
-        } else if (meta.kind === 'eml') {
-          coverageDetail = 'email';
-        } else {
-          coverageDetail = (meta.kind || 'text') + ' file';
-        }
-        logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
-
-        // === EMAIL ATTACHMENT UNPACK ===
-        // If this is a .msg with attachments, synthesize File objects from each
-        // attachment and inject them back into newFiles so they flow through the
-        // normal parse + classify pipeline. We cap nesting at one level — if an
-        // attached .msg contains its own attachments, we leave those opaque.
-        if (meta.kind === 'msg' && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
-          const attachmentContext = buildAttachmentContext(meta);
-          for (const att of meta.attachments) {
-            try {
-              // Wrap the Uint8Array in a Blob + File so extractText can re-use existing logic
-              const blob = new Blob([att.content], { type: att.mimeType || 'application/octet-stream' });
-              const pseudoFile = new File([blob], att.name, { type: att.mimeType || 'application/octet-stream' });
-              const attachId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-              const attachEntry = {
-                id: attachId,
-                name: att.name,
-                size: att.contentLength,
-                type: att.mimeType || '',
-                text: '', classification: null, confidence: 0, routedTo: null,
-                state: 'parsing', error: null,
-                isIncremental: isIncremental,
-                parentEmailId: entry.id,                   // lineage marker
-                parentEmailName: entry.name,
-                emailContext: attachmentContext[att.name] || '',  // sentence near the attachment reference
-                emailSubject: meta.subject || '',
-                isNestedAttachment: true,                   // prevents further recursion
-                _rawFile: pseudoFile,                       // for pipeline → docs view ingestion
-              };
-              STATE.files.push(attachEntry);
-              newFiles.push(attachEntry);
-              renderFileList();
-              // Parse the attachment synchronously — same extractText path, same error handling
-              try {
-                const attMeta = {};
-                attachEntry.text = await extractText(pseudoFile, attMeta);
-                // v8.5 Rule 9: persist pageTexts on attachment entries too
-                if (attMeta.pageTexts && Array.isArray(attMeta.pageTexts)) {
-                  attachEntry.pageTexts = attMeta.pageTexts;
-                }
-                if (!attachEntry.text || attachEntry.text.length < 20) {
-                  attachEntry.state = 'error';
-                  attachEntry.error = 'Empty or too short';
-                } else {
-                  attachEntry.contentHash = hashText(attachEntry.text);
-                  const dup = STATE.files.find(f => f !== attachEntry && f.contentHash === attachEntry.contentHash && f.state !== 'error');
-                  if (dup) {
-                    attachEntry.state = 'duplicate';
-                    attachEntry.duplicateOf = dup.name;
-                    logAudit('Extract', 'DUPLICATE attachment ' + att.name + ' (from ' + entry.name + ') · matches ' + dup.name + ' · skipped', 'warn');
-                  } else {
-                    attachEntry.state = 'parsed';
-                    attachEntry.extractMeta = attMeta;
-                    const akb = Math.round(attachEntry.text.length / 1024 * 10) / 10;
-                    logAudit('Extract', 'ATTACHMENT ' + att.name + ' (from ' + entry.name + ') · ' + akb + 'K chars extracted', 'ok');
-                  }
-                }
-              } catch (attErr) {
-                if (attErr.message && attErr.message.startsWith('__SCANNED_PDF__::')) {
-                  attachEntry.state = 'needs_manual';
-                  attachEntry.needsReview = true;
-                  attachEntry.manualReason = 'scanned';
-                  attachEntry.warning = attErr.message.slice('__SCANNED_PDF__::'.length);
-                  logAudit('Classifier', 'Attachment ' + att.name + ' flagged as scanned PDF — manual entry required', 'warn');
-                } else if (attErr.message && attErr.message.startsWith('__UNREADABLE__::')) {
-                  attachEntry.state = 'needs_manual';
-                  attachEntry.needsReview = true;
-                  attachEntry.manualReason = 'unreadable';
-                  attachEntry.warning = attErr.message.slice('__UNREADABLE__::'.length);
-                  logAudit('Classifier', 'Attachment ' + att.name + ' flagged as unreadable format — manual entry required', 'warn');
-                } else {
-                  attachEntry.state = 'error';
-                  attachEntry.error = attErr.message;
-                  logAudit('Extract', 'FAILED attachment ' + att.name + ': ' + attErr.message, 'error');
-                }
-              }
-              renderFileList();
-            } catch (outerErr) {
-              logAudit('Extract', 'Could not unpack attachment ' + att.name + ' from ' + entry.name + ': ' + outerErr.message, 'error');
-            }
-          }
-        }
-      }
-    } catch (err) {
-      // Distinguish "tried and parser said no" from "truly broken"
-      // Sentinel prefix '__SCANNED_PDF__::' or '__UNREADABLE__::' indicates a file format
-      // the pipeline knows how to flag but can't extract. We mark it as needs_manual so the
-      // UW sees a clear affordance rather than a hard error in the audit log.
-      if (err.message && err.message.startsWith('__SCANNED_PDF__::')) {
-        entry.state = 'needs_manual';
-        entry.needsReview = true;
-        entry.manualReason = 'scanned';
-        entry.warning = err.message.slice('__SCANNED_PDF__::'.length);
-        logAudit('Classifier', 'Flagged ' + file.name + ' as scanned PDF — OCR or manual entry required', 'warn');
-      } else if (err.message && err.message.startsWith('__UNREADABLE__::')) {
-        entry.state = 'needs_manual';
-        entry.needsReview = true;
-        entry.manualReason = 'unreadable';
-        entry.warning = err.message.slice('__UNREADABLE__::'.length);
-        logAudit('Classifier', 'Flagged ' + file.name + ' as unreadable format — manual entry required', 'warn');
-      } else {
-        entry.state = 'error';
-        entry.error = err.message;
-        entry._rawFile = null;  // drop binary ref — extract failed, no pipeline path will use it
-        toast(file.name + ': ' + err.message, 'error');
-      }
-    }
-    renderFileList();
+    entries.push({ entry, file });
   }
+  renderFileList();  // paint ALL rows at once — user sees every file immediately
+  updateRunButton();  // immediately flip the button to "Parsing documents…" so the
+                     // user sees active progress in the CTA, not "Drop files to begin"
+  // Stronger paint yield: rAF + setTimeout(0). rAF guarantees the browser
+  // has had a chance to render before our extraction work resumes; the
+  // setTimeout(0) is belt-and-suspenders to flush any pending microtasks.
+  // Without this, the CPU-heavy extractText calls can start before paint
+  // happens, making the rows seem to appear after a delay.
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => setTimeout(r, 0));
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PHASE 2: Extract text from all files IN PARALLEL via Promise.all. PDF.js
+  // does its decompression off the main thread (the worker is loaded in
+  // app.html line 29), so multiple extractions can genuinely overlap. Total
+  // wall-clock time becomes ~max(file_extract_time) instead of ~sum().
+  //
+  // Per-file extraction is wrapped in extractAndProcessFile() which holds
+  // the same logic as the original sequential loop body — dedup check,
+  // state transitions, attachment unpack for emails, error handling.
+  // ──────────────────────────────────────────────────────────────────────────
+  // PHASE 10 FIX (per GPT external audit round 5): adaptive concurrency.
+  //
+  // Promise.all on entries.map() lets every file's extractAndProcessFile
+  // run in parallel. For a normal demo batch (5-7 files, ~30 MB total),
+  // that's the right call — total wall-clock is max(file_extract_time)
+  // instead of sum(). The original architecture decision was right.
+  //
+  // BUT: an abnormal batch — 20 PDFs dropped at once, or one massive
+  // 150 MB submission — can spike memory hard. Each PDF holds its
+  // arrayBuffer + PDF.js worker state + per-page render canvases
+  // simultaneously. On a Surface Laptop 7 with 32 GB this is fine; on
+  // older 8/16 GB machines, the tab can OOM-crash mid-extraction.
+  //
+  // Adaptive cap: if batch is "normal demo size" (≤8 files AND ≤75 MB
+  // total bytes), keep full parallelism. Above that, cap at min(4,
+  // hardwareConcurrency-1). Justin's typical demo (Carroll County is 5
+  // files / ~10 MB) stays full-parallel. A defensive cap kicks in only
+  // when needed, and it adapts to the user's machine.
+  //
+  // mapLimit pattern: spawn N workers, each pulls indices off a shared
+  // counter. When all items consumed, all workers complete, Promise.all
+  // resolves. Same semantics as Promise.all from caller perspective —
+  // returns a single promise that resolves after every item processes.
+  async function mapLimit(items, limit, fn) {
+    let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++;
+        await fn(items[idx], idx);
+      }
+    });
+    await Promise.all(workers);
+  }
+
+  const totalBytes = entries.reduce((sum, x) => sum + (x.file.size || 0), 0);
+  const MB = 1024 * 1024;
+  const normalDemoBatch = entries.length <= 8 && totalBytes <= 75 * MB;
+  const adaptiveLimit = normalDemoBatch
+    ? entries.length  // full parallel — preserves demo speed
+    : Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+
+  await mapLimit(entries, adaptiveLimit, ({ entry, file }) =>
+    extractAndProcessFile(entry, file, hashText, isIncremental, newFiles, uploadToken)
+  );
+
+  // Phase 3 (#5): if a New Submission click happened during the awaited
+  // work above, our captured token is now stale. Bail out before triggering
+  // any further state changes (incremental processing, run-button updates,
+  // etc.) — those would target the new submission's STATE which has nothing
+  // to do with these files.
+  if (uploadToken !== STATE._uploadToken) {
+    return;
+  }
+
   updateRunButton();
 
   // INCREMENTAL FLOW — if pipeline was already done, classify + route + re-run only affected modules
   if (isIncremental) {
-    const parsedNew = newFiles.filter(f => f.state === 'parsed');
+    // Phase 3 (#4): filter to entries still present in STATE.files. A user
+    // could have clicked ✕ on some entries during extraction; those should
+    // not flow into incrementalProcess. Cancelled entries also dropped here
+    // for safety even if they somehow remained in STATE.files.
+    const parsedNew = newFiles.filter(f =>
+      STATE.files.includes(f) && !f.cancelled && f.state === 'parsed'
+    );
     if (parsedNew.length > 0) {
-      await incrementalProcess(parsedNew);
+      // PHASE 9 FIX: route through the serialized queue so concurrent
+      // post-pipeline drops can't interleave their module reruns and
+      // archives. Falls back to direct call if queueIncrementalProcess
+      // isn't loaded yet (defensive — shouldn't happen in practice).
+      if (typeof queueIncrementalProcess === 'function') {
+        await queueIncrementalProcess(parsedNew);
+      } else {
+        await incrementalProcess(parsedNew);
+      }
     }
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Per-file extraction + bookkeeping. Lifted out of handleFiles' loop body so
+// it can be called via Promise.all for parallelism. Self-contained: takes
+// the entry (already in STATE.files with state='parsing'), the raw File,
+// the hash function, the incremental flag, and the newFiles array (for
+// attachment unpacking to push to). All state mutations happen in-place
+// on `entry`; renderFileList() is called after each major state change so
+// the user sees per-file progress in real time even while siblings are
+// still extracting.
+// ────────────────────────────────────────────────────────────────────────────
+async function extractAndProcessFile(entry, file, hashText, isIncremental, newFiles, uploadToken) {
+  // Phase 3 (#4 + #5): combined check — is this entry still relevant?
+  // Returns false if either the user clicked ✕ on this file (cancelled flag),
+  // the entry was removed from STATE.files some other way, or a New Submission
+  // click bumped the upload token so this whole batch is stale. We call this
+  // after every long await; if it returns false, bail out cleanly without
+  // mutating entry state, logging audit messages, or triggering renders that
+  // would resurrect ghost rows in the UI.
+  const isStillActive = () => {
+    if (entry.cancelled) return false;
+    if (!STATE.files.includes(entry)) return false;
+    if (uploadToken !== undefined && uploadToken !== STATE._uploadToken) return false;
+    return true;
+  };
+
+  // PHASE 1 FIX (per GPT external audit round 3): preflight stale-state
+  // check. handleFiles() yields with rAF + setTimeout(0) before kicking off
+  // Promise.all, and then the Promise.all itself takes a tick before each
+  // extractAndProcessFile body actually starts. In that window the user
+  // could already have clicked ✕ on this file or hit New Submission. A
+  // preflight check at function entry — BEFORE we touch arrayBuffer or
+  // schedule extractText — saves the work entirely on stale entries
+  // instead of letting them race through the body and bail at later
+  // checkpoints.
+  if (!isStillActive()) return;
+
+  // SAFETY (#7): file-size cap before arrayBuffer() loads the binary into
+  // memory. With parallel extraction across multiple files plus chunked
+  // PDF.js worker calls, an unbounded large file could spike memory and
+  // crash the tab during a sales demo. 100MB matches the documents-view
+  // cap (which fires later in the flow); duplicating it here catches
+  // oversized files before they ever touch arrayBuffer().
+  //
+  // Honest tradeoff: a legit 120MB underwriting submission is rare but
+  // possible. If it happens, the UW gets a clear error instead of a silent
+  // browser crash, and can split the doc to upload in pieces.
+  const MAX_INTAKE_FILE_BYTES = 100 * 1024 * 1024;  // 100 MB
+  if (file.size > MAX_INTAKE_FILE_BYTES) {
+    entry.state = 'error';
+    entry.error = 'File too large (' + (file.size / 1024 / 1024).toFixed(0) + ' MB · max 100 MB)';
+    entry._rawFile = null;
+    logAudit('Extract', 'REJECTED ' + file.name + ' · ' +
+      (file.size / 1024 / 1024).toFixed(0) + ' MB exceeds 100 MB intake limit', 'error');
+    toast(file.name + ' too large — max 100 MB per file', 'error');
+    renderFileList();
+    return;
+  }
+
+  try {
+    const meta = {};
+    entry.text = await extractText(file, meta);
+
+    // Phase 3 (#4 + #5): bail out if user removed this file or started a new
+    // submission while we were extracting. extractText() can take 5-30s for
+    // large PDFs — plenty of time for the user to lose patience and click ✕
+    // or change context. Without this check, we'd still mutate entry.text
+    // and renderFileList(), causing zombie state (a doc gets parsed/classified
+    // even though the user removed it from the queue).
+    if (!isStillActive()) return;
+
+    if (meta.pageTexts && Array.isArray(meta.pageTexts)) {
+      entry.pageTexts = meta.pageTexts;
+    }
+    if (!entry.text || entry.text.length < 20) {
+      entry.state = 'error';
+      entry.error = 'Empty or too short';
+      entry._rawFile = null;
+      logAudit('Extract', 'FAILED ' + file.name + ' · empty or too short (' + (entry.text?.length || 0) + ' chars)', 'error');
+      renderFileList();
+      return;
+    }
+
+    // Dedup check — must compare against ALL existing files, not just earlier
+    // entries in the same batch. With parallel extraction, two duplicates
+    // in the same batch can both finish extraction at nearly the same time;
+    // the contentHash comparison still resolves correctly because Promise.all
+    // serializes the comparison points (each promise's body runs to completion
+    // between awaits).
+    entry.contentHash = hashText(entry.text);
+    const existingDup = STATE.files.find(f => f !== entry && f.contentHash === entry.contentHash && f.state !== 'error');
+    if (existingDup) {
+      entry.state = 'duplicate';
+      entry.duplicateOf = existingDup.name;
+      entry._rawFile = null;
+      logAudit('Extract', 'DUPLICATE ' + file.name + ' · matches already-loaded ' + existingDup.name + ' (same content hash) · skipped', 'warn');
+      toast(file.name + ' is a duplicate of ' + existingDup.name + ' — skipped', 'warn');
+      renderFileList();
+      return;
+    }
+    entry.state = 'parsed';
+    entry.extractMeta = meta;
+
+    const kbChars = Math.round(entry.text.length / 1024 * 10) / 10;
+    let coverageDetail = '';
+    if (meta.kind === 'pdf') {
+      coverageDetail = meta.pageCount + ' page' + (meta.pageCount === 1 ? '' : 's');
+    } else if (meta.kind === 'xlsx') {
+      coverageDetail = meta.sheetCount + ' sheet' + (meta.sheetCount === 1 ? '' : 's') + ' · tabs: ' + (meta.sheetNames || []).slice(0, 6).join(', ') + (meta.sheetNames?.length > 6 ? '…' : '');
+    } else if (meta.kind === 'csv' || meta.kind === 'tsv') {
+      coverageDetail = (meta.rowCount || '?') + ' rows';
+    } else if (meta.kind === 'msg') {
+      coverageDetail = 'email';
+      if (meta.subject) coverageDetail += ' · "' + meta.subject.slice(0, 50) + '"';
+      if (meta.attachmentCount > 0) coverageDetail += ' · ' + meta.attachmentCount + ' attachment' + (meta.attachmentCount === 1 ? '' : 's');
+    } else if (meta.kind === 'eml') {
+      coverageDetail = 'email';
+    } else {
+      coverageDetail = (meta.kind || 'text') + ' file';
+    }
+    logAudit('Extract', file.name + ' · ' + coverageDetail + ' · ' + kbChars + 'K chars extracted', 'ok');
+
+    // === EMAIL ATTACHMENT UNPACK ===
+    // Same logic as before for .msg / .eml — but now the inner loop also
+    // runs attachments in parallel via Promise.all. For an email with 5 PDF
+    // attachments, this collapses 5×30s sequential extracts to ~30s wall
+    // clock (the slowest single PDF dominates).
+    if ((meta.kind === 'msg' || meta.kind === 'eml') && meta.attachments && meta.attachments.length > 0 && !entry.isNestedAttachment) {
+      const attachmentContext = buildAttachmentContext(meta);
+
+      // Phase 2a — synchronously create attachment entries and paint ALL
+      // their rows so the user sees every attachment appear immediately.
+      const attachmentTasks = [];
+      for (const att of meta.attachments) {
+        try {
+          const blob = new Blob([att.content], { type: att.mimeType || 'application/octet-stream' });
+          const pseudoFile = new File([blob], att.name, { type: att.mimeType || 'application/octet-stream' });
+          const attachId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          const attachEntry = {
+            id: attachId,
+            name: att.name,
+            size: att.contentLength,
+            type: att.mimeType || '',
+            text: '', classification: null, confidence: 0, routedTo: null,
+            state: 'parsing', error: null,
+            isIncremental: isIncremental,
+            parentEmailId: entry.id,
+            parentEmailName: entry.name,
+            emailContext: attachmentContext[att.name] || '',
+            emailSubject: meta.subject || '',
+            isNestedAttachment: true,
+            _rawFile: pseudoFile,
+          };
+          STATE.files.push(attachEntry);
+          newFiles.push(attachEntry);
+          attachmentTasks.push({ attachEntry, pseudoFile, parentName: entry.name, attName: att.name });
+        } catch (outerErr) {
+          logAudit('Extract', 'Could not prepare attachment ' + att.name + ' from ' + entry.name + ': ' + outerErr.message, 'error');
+        }
+      }
+      renderFileList();
+      // Yield (rAF + setTimeout 0) so attachment rows paint before
+      // extraction CPU work resumes. Same logic as the top-of-handleFiles
+      // yield — guarantees the browser actually renders the new rows.
+      await new Promise(r => requestAnimationFrame(r));
+      await new Promise(r => setTimeout(r, 0));
+
+      // Phase 2b — extract all attachments in parallel
+      await Promise.all(attachmentTasks.map(async ({ attachEntry, pseudoFile, parentName, attName }) => {
+        try {
+          const attMeta = {};
+          attachEntry.text = await extractText(pseudoFile, attMeta);
+
+          // Phase 3 (#4 + #5): same cancellation/staleness check as the
+          // outer extraction. Attachments inherit the parent's lifecycle —
+          // if user removed the parent email or started a new submission
+          // mid-attachment-extraction, abandon this attachment cleanly.
+          if (attachEntry.cancelled || !STATE.files.includes(attachEntry)) return;
+          if (uploadToken !== undefined && uploadToken !== STATE._uploadToken) return;
+
+          if (attMeta.pageTexts && Array.isArray(attMeta.pageTexts)) {
+            attachEntry.pageTexts = attMeta.pageTexts;
+          }
+          if (!attachEntry.text || attachEntry.text.length < 20) {
+            attachEntry.state = 'error';
+            attachEntry.error = 'Empty or too short';
+          } else {
+            attachEntry.contentHash = hashText(attachEntry.text);
+            const dup = STATE.files.find(f => f !== attachEntry && f.contentHash === attachEntry.contentHash && f.state !== 'error');
+            if (dup) {
+              attachEntry.state = 'duplicate';
+              attachEntry.duplicateOf = dup.name;
+              logAudit('Extract', 'DUPLICATE attachment ' + attName + ' (from ' + parentName + ') · matches ' + dup.name + ' · skipped', 'warn');
+            } else {
+              attachEntry.state = 'parsed';
+              attachEntry.extractMeta = attMeta;
+              const akb = Math.round(attachEntry.text.length / 1024 * 10) / 10;
+              logAudit('Extract', 'ATTACHMENT ' + attName + ' (from ' + parentName + ') · ' + akb + 'K chars extracted', 'ok');
+            }
+          }
+        } catch (attErr) {
+          // PHASE 1 FIX (per GPT external audit round 3): same stale-state
+          // guard as the outer catch — attachments inherit the parent's
+          // lifecycle and an attachment extraction can throw long after
+          // the user clicked ✕ on the parent email or hit New Submission.
+          // Without this guard, the stale attachment row gets resurrected
+          // as 'needs_manual' / 'error' in the new submission's queue.
+          if (attachEntry.cancelled || !STATE.files.includes(attachEntry)) return;
+          if (uploadToken !== undefined && uploadToken !== STATE._uploadToken) return;
+          if (attErr.message && attErr.message.startsWith('__SCANNED_PDF__::')) {
+            attachEntry.state = 'needs_manual';
+            attachEntry.needsReview = true;
+            attachEntry.manualReason = 'scanned';
+            attachEntry.warning = attErr.message.slice('__SCANNED_PDF__::'.length);
+            logAudit('Classifier', 'Attachment ' + attName + ' flagged as scanned PDF — manual entry required', 'warn');
+          } else if (attErr.message && attErr.message.startsWith('__UNREADABLE__::')) {
+            attachEntry.state = 'needs_manual';
+            attachEntry.needsReview = true;
+            attachEntry.manualReason = 'unreadable';
+            attachEntry.warning = attErr.message.slice('__UNREADABLE__::'.length);
+            logAudit('Classifier', 'Attachment ' + attName + ' flagged as unreadable format — manual entry required', 'warn');
+          } else {
+            attachEntry.state = 'error';
+            attachEntry.error = attErr.message;
+            logAudit('Extract', 'FAILED attachment ' + attName + ': ' + attErr.message, 'error');
+          }
+        }
+        // PHASE 1 FIX: gate render too — if attachment is stale, skip the
+        // repaint to avoid resurrecting it in the UI even though no state
+        // mutated. Same pattern as the outer catch block.
+        if (attachEntry.cancelled || !STATE.files.includes(attachEntry)) return;
+        if (uploadToken !== undefined && uploadToken !== STATE._uploadToken) return;
+        renderFileList();
+      }));
+    }
+  } catch (err) {
+    // PHASE 1 FIX (per GPT external audit round 3): the catch block
+    // previously mutated entry.state, logged audit events, and toasted
+    // even when the entry had been cancelled or the upload context had
+    // changed. extractText() can throw 5-30s into a large PDF parse —
+    // plenty of time for the user to click ✕ or New Submission. Without
+    // this guard, a long-running scanned-PDF detection would resurrect
+    // a removed entry as 'needs_manual' (with a paste modal that can't
+    // do anything useful) and emit toast notifications about a file the
+    // user thought they'd dismissed. Guarding here keeps the cancellation
+    // semantics consistent with the success path.
+    if (!isStillActive()) return;
+    if (err.message && err.message.startsWith('__SCANNED_PDF__::')) {
+      entry.state = 'needs_manual';
+      entry.needsReview = true;
+      entry.manualReason = 'scanned';
+      entry.warning = err.message.slice('__SCANNED_PDF__::'.length);
+      logAudit('Classifier', 'Flagged ' + file.name + ' as scanned PDF — OCR or manual entry required', 'warn');
+    } else if (err.message && err.message.startsWith('__UNREADABLE__::')) {
+      entry.state = 'needs_manual';
+      entry.needsReview = true;
+      entry.manualReason = 'unreadable';
+      entry.warning = err.message.slice('__UNREADABLE__::'.length);
+      logAudit('Classifier', 'Flagged ' + file.name + ' as unreadable format — manual entry required', 'warn');
+    } else {
+      entry.state = 'error';
+      entry.error = err.message;
+      entry._rawFile = null;
+      toast(file.name + ': ' + err.message, 'error');
+    }
+  }
+  // PHASE 1 FIX: guard the post-catch renderFileList too — without this,
+  // a stale entry that hit catch with isStillActive===false would skip
+  // mutation (correct) but still trigger a render (which is harmless but
+  // wasteful, and could repaint stale entries from a prior submission).
+  if (!isStillActive()) return;
+  renderFileList();
+}
+
 function removeFile(id) {
+  // Phase 3 (#4): mark cancelled BEFORE removing from STATE so any in-flight
+  // extractAndProcessFile call detects it on its next post-await check and
+  // bails out instead of mutating the now-removed entry. Without this, an
+  // extraction that was already running when the user clicked ✕ would still
+  // log "PARSED" and set state='parsed' on a phantom entry — the result is
+  // a cleared queue but stale lingering work that could trigger incremental
+  // processing on the removed file.
+  const f = STATE.files.find(x => x.id === id);
+  if (f) f.cancelled = true;
   STATE.files = STATE.files.filter(f => f.id !== id);
   renderFileList();
   updateRunButton();
@@ -1815,6 +2401,20 @@ function renderFileList() {
 
     if (f.state === 'parsing') { stateClass = 'parsing'; stateText = 'parsing…'; }
     else if (f.state === 'parsed') { stateClass = 'classified'; stateText = Math.round(f.text.length / 1024) + 'K chars · ready'; }
+    else if (f.state === 'duplicate') {
+      // PHASE 1 FIX (per GPT external audit round 3): duplicate is a real
+      // terminal state set by extractAndProcessFile when content hash matches
+      // an already-loaded file. Without this branch the row rendered with
+      // empty stateClass + stateText — looked like a parse glitch even though
+      // the audit log already explained "DUPLICATE skipped". The neutral
+      // 'unknown' stateClass gives it a muted amber border so it's visually
+      // distinct from real ready/error rows. Tooltip on the badge surfaces
+      // which file it duplicates so the UW can verify before clicking ✕.
+      stateClass = 'unknown';
+      stateText = 'duplicate · skipped';
+      const dupOf = f.duplicateOf ? ' of ' + f.duplicateOf : '';
+      extraBadge = '<span title="Duplicate' + escapeHtml(dupOf) + '" style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--line-warm); color: var(--text-2); padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">DUPLICATE</span>';
+    }
     else if (f.state === 'needs_manual') {
       // Scanned PDF or unreadable format — show amber warning badge + click-to-paste affordance.
       // The UW can paste the visible text into a modal to feed the pipeline the content it needs.
@@ -1862,14 +2462,14 @@ function renderFileList() {
 
     return `
       <div class="file-item ${stateClass}" ${f.state === 'needs_manual' ? `onclick="openManualPasteModal('${f.id}')" style="cursor: pointer;" title="Click to paste the document text manually"` : ''}>
-        <div class="file-icon">${icon}</div>
+        <div class="file-icon">${escapeHtml(icon)}</div>
         <div class="file-meta">
           <div class="file-name">${escapeHtml(f.name)}</div>
           <div class="file-class"><span class="tag">${escapeHtml(stateText)}</span>${extraBadge}</div>
           ${lineageHtml}
         </div>
         ${confBadge ? `<div class="file-conf">${confBadge}</div>` : ''}
-        <div class="file-remove" onclick="removeFile('${f.id}')" title="Remove">✕</div>
+        <div class="file-remove" onclick="event.stopPropagation(); removeFile('${f.id}')" title="Remove">✕</div>
       </div>
     `;
   }).join('');
@@ -1881,20 +2481,105 @@ function renderFileList() {
   document.getElementById('filesRoutingOk').innerHTML = errors > 0
     ? `<span style="color: var(--danger);">${errors} error${errors === 1 ? '' : 's'}</span>`
     : (parsed === STATE.files.length ? `<span class="ok">✓ ALL PARSED</span>` : '');
+
+  // PHASE A FIX: keep the Run button label in sync as each file finishes.
+  // Without this, the "Parsing documents… 3/6 ready" counter doesn't update
+  // until handleFiles awaits all files. Now every state change a file
+  // triggers (parsed / error / duplicate / needs_manual) flows through
+  // renderFileList → updateRunButton in the same DOM update.
+  if (typeof updateRunButton === 'function') updateRunButton();
 }
 
 function updateRunButton() {
   const btn = document.getElementById('btnRun');
   const label = document.getElementById('btnRunLabel');
+  if (!btn || !label) return;
+  const total = STATE.files.length;
   const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified').length;
-  if (ready > 0) {
+  const parsing = STATE.files.filter(f => f.state === 'parsing').length;
+  const needsManual = STATE.files.filter(f => f.state === 'needs_manual').length;
+  const errors = STATE.files.filter(f => f.state === 'error').length;
+  // PHASE 1 FIX (per GPT external audit round 3): track duplicates
+  // separately so they're visible in the Run button label. Duplicates
+  // aren't blockers — they're already-loaded content that was correctly
+  // skipped — but the UW deserves to see "5 ready · 2 duplicate skipped"
+  // so they understand why the file count doesn't match what they dropped.
+  const duplicates = STATE.files.filter(f => f.state === 'duplicate').length;
+
+  // PHASE A FIX (per GPT external audit): parsing must WIN over ready.
+  //
+  // The Phase 1 implementation checked `if (ready > 0)` first, which meant
+  // as soon as ONE file finished parsing the Run button enabled — even
+  // while 5 other files were still parsing. User clicks Run, pipeline runs
+  // on incomplete submission, missing files never get classified.
+  //
+  // PHASE 3 FIX (per GPT external audit round 3): STRICT gating. The
+  // previous order checked `ready > 0` BEFORE `needsManual > 0`, so 4
+  // ready + 1 scanned-PDF would enable the button. User runs pipeline,
+  // scanned doc gets skipped silently, important info missing from
+  // summary cards. Per Justin's "accuracy > speed" priority, the gate
+  // is now strict: ANY file in needs_manual or error blocks the run.
+  // Forces the UW to either paste the text or remove the bad file
+  // before proceeding. The label tells them exactly what's blocking.
+  //
+  // Branch order matters:
+  //   parsing      → button disabled, "Parsing documents…"
+  //   needs_manual → button disabled, "Paste text for N file(s)" (BLOCKS)
+  //   errors       → button disabled, "Remove or fix N error(s)" (BLOCKS)
+  //   ready > 0    → button enabled, "Run Pipeline · N files"
+  //   else         → button disabled, "Drop files to begin"
+  if (parsing > 0) {
+    btn.disabled = true;
+    label.textContent = 'Parsing documents… ' + ready + '/' + total + ' ready';
+  } else if (needsManual > 0) {
+    btn.disabled = true;
+    label.textContent = 'Paste text for ' + needsManual + ' file' + (needsManual === 1 ? '' : 's');
+  } else if (errors > 0) {
+    btn.disabled = true;
+    label.textContent = 'Remove or fix ' + errors + ' error' + (errors === 1 ? '' : 's');
+  } else if (ready > 0) {
     btn.disabled = false;
-    label.textContent = 'Run Pipeline · ' + ready + ' file' + (ready === 1 ? '' : 's');
+    label.textContent = 'Run Pipeline · ' + ready + ' file' + (ready === 1 ? '' : 's') +
+      (duplicates > 0 ? ' · ' + duplicates + ' duplicate skipped' : '');
   } else {
     btn.disabled = true;
     label.textContent = 'Drop files to begin';
   }
   updateQueueKpi();
+  updatePipelineEmptyState();
+}
+
+// PHASE C FIX (per GPT external audit): dynamic empty-state copy.
+//
+// app.html previously hardcoded "Pipeline ready / 7 documents classified
+// and routed" as the static empty-state. On a fresh demo session that says
+// "7 documents" while the queue clearly shows 0 files — looks broken.
+//
+// This function rewrites the heading + body based on actual queue state,
+// matching whatever updateRunButton just decided. Called from
+// updateRunButton (above), startNewSubmission, rehydrateSubmission via the
+// existing renderFileList chain. Idempotent and safe to call when the
+// pipeline is mid-run (the .pipeline-empty container is hidden anyway in
+// that mode — we'd just be writing to invisible elements).
+function updatePipelineEmptyState() {
+  const headingEl = document.getElementById('pipelineEmptyHeading');
+  const bodyEl = document.getElementById('pipelineEmptyBody');
+  if (!headingEl || !bodyEl) return;
+
+  const total = STATE.files.length;
+  const ready = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified').length;
+  const parsing = STATE.files.filter(f => f.state === 'parsing').length;
+
+  if (total === 0) {
+    headingEl.textContent = 'Pipeline waiting';
+    bodyEl.textContent = 'Drop broker documents to begin. Files appear in the intake queue immediately, then the pipeline unlocks when parsing is complete.';
+  } else if (parsing > 0) {
+    headingEl.textContent = 'Parsing documents';
+    bodyEl.textContent = ready + '/' + total + ' ready. The pipeline will unlock when parsing finishes.';
+  } else {
+    headingEl.textContent = 'Pipeline ready';
+    bodyEl.textContent = ready + ' document' + (ready === 1 ? '' : 's') + ' ready. Run the pipeline to fan out across specialist modules — full summary in under a minute.';
+  }
 }
 
 function updateQueueKpi() {
@@ -1927,7 +2612,18 @@ function updateQueueKpi() {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // PHASE 11 FIX (per GPT external audit round 5): null-safety on input
+  // (was throwing on undefined.replace), and escape single quotes for
+  // attribute-context safety. Defense-in-depth: most call sites are
+  // textContent contexts where ' is harmless, but the hygiene cost is
+  // zero and this prevents future regressions if escapeHtml output is
+  // pasted into an attribute value.
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ============================================================================
@@ -2143,7 +2839,16 @@ function deriveEffective() {
       if (m) return cleanDerived(m[1]);
     }
   }
-  const email = STATE.extractions.email;
+  // PHASE 5 FIX (per GPT external audit round 4): use email_intel first.
+  // The active broker-email-extraction module is `email_intel`. The bare
+  // `email` module name was the OLD module that has been dead for many
+  // builds — STATE.extractions.email is always undefined in production
+  // unless tests inject it. Without this fix, deriveEffective never finds
+  // an effective date from the broker email even when email_intel
+  // explicitly extracted "Effective: 5/1/2026". Queue/sidebar showed —.
+  // Falling back to .email keeps backward compatibility if some legacy
+  // path still populates it.
+  const email = STATE.extractions.email_intel || STATE.extractions.email;
   if (email && email.text) {
     const m = email.text.match(/Effective\s*:?\s*([^\n]+)/i);
     if (m) return cleanDerived(m[1]);
@@ -2153,7 +2858,12 @@ function deriveEffective() {
 
 function deriveRequested() {
   // Broker's ask. Usually named in supplemental or email.
-  const email = STATE.extractions.email;
+  // PHASE 5 FIX (per GPT external audit round 4): same email_intel fix
+  // as deriveEffective. The email_intel prompt explicitly extracts
+  // "Requested Coverage: Limit / Attachment" — without this fix the
+  // function never sees those structured values and falls back to less
+  // reliable supplemental/excess/tower regex.
+  const email = STATE.extractions.email_intel || STATE.extractions.email;
   if (email && email.text) {
     const m = email.text.match(/Excess Target\s*:?\s*([^\n]+)/i)
           || email.text.match(/Requested\s*:?\s*([^\n]+)/i);
@@ -2429,6 +3139,12 @@ async function rehydrateSubmission(submissionId) {
   // would let the first A fetch clobber the second A fetch's result.
   STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
   const myToken = STATE._rehydrateToken;
+  // PHASE A FIX (per GPT external audit): also bump _uploadToken here so
+  // any in-flight extractAndProcessFile from a prior submission detects the
+  // context change and bails out. Without this, swapping to a different
+  // archived submission while uploads from the previous one are still
+  // extracting could let stale text/classifications leak in.
+  STATE._uploadToken = (STATE._uploadToken || 0) + 1;
   // Different submission: save active submission's current state before swapping
   // so the UW doesn't lose any live edits made since archive.
   if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
@@ -2673,94 +3389,45 @@ async function deleteSubmission(submissionId, confirmAlready) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
+
   const label = displayAccount(rec);
-  // v8.5.6: tombstone. Any in-flight save (resyncActiveSnapshot,
-  // backfillMissingAccountNames, status change handler, pipeline
-  // completion handler, etc.) checks this set BEFORE upserting. Without
-  // this, a save firing AFTER delete recreates the row via upsert and
-  // the user sees the deleted submission reappear on next refresh.
-  if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
-  STATE._deletedSubmissionIds.add(submissionId);
-  STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
-  if (STATE.activeSubmissionId === submissionId) {
-    STATE.activeSubmissionId = null;
+  const deleteFn = window.sbDeleteSubmission;
+  if (typeof deleteFn !== 'function') {
+    const msg = 'window.sbDeleteSubmission not defined';
+    console.error('Cloud delete failed', submissionId, msg);
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg, 'error');
+    return;
   }
-  renderQueueTable();
-  updateQueueKpi();
-  logAudit('Submissions', 'Deleted ' + submissionId + ' · ' + label + ' (local)', '—');
-  toast('Deleted · ' + label);
-  // Phase 5 — cascade to documents. We MUST run this BEFORE deleting the
-  // submission row, because submissions FK has ON DELETE CASCADE on
-  // document_pages — if the submission goes first, the cascade nukes the
-  // rows before we can read their storage_paths, leaving orphan binaries
-  // in the bucket. Doing storage+rows first, then submission, is safe in
-  // either order from the user's perspective.
-  // If the local docs view has hydrated docs in memory for this
-  // submission, prune them so the user doesn't see stale rows. (Sync
-  // step — does not await any cloud work.)
-  if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
-    try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
-  }
-  // v8.6.9 (per Justin's diagnostic + GPT external audit): NEW deletion flow.
-  //
-  // Old approach (v8.5.7 - v8.6.8):
-  //   1. Explicit DELETE on document_pages (could time out, ~10s wait)
-  //   2. DELETE parent submission
-  // The 10-second wait blocked the parent delete from running quickly. If the
-  // user navigated/refreshed during that window, parent never ran, row stayed.
-  //
-  // New approach (v8.6.9):
-  //   1. SELECT storage_paths from document_pages (fast — index supports it)
-  //   2. DELETE parent submission → ON DELETE CASCADE handles document_pages
-  //      server-side as part of the parent transaction (faster than client-
-  //      issued DELETE per Justin's diagnostic)
-  //   3. Best-effort storage cleanup using collected paths
-  //
-  // Failure modes:
-  //   - SELECT fails: storage paths not collected, binaries become orphans
-  //     (cosmetic — rows still get cascade-deleted)
-  //   - Parent DELETE fails: error toast, row reappears on refresh, tombstone
-  //     cleared, hydrate re-syncs UI
-  //   - Storage remove fails: orphan binaries (cosmetic)
-  let storagePaths = [];
+
+  // v8.6.19: cloud-confirmed delete. Do NOT optimistically remove from the
+  // queue before the parent DELETE is confirmed. The previous flow removed the
+  // row locally first, which made failed/no-op deletes look successful until the
+  // next hydrate put the row back. Now a row only disappears after Supabase
+  // confirms that DELETE /rest/v1/submissions affected at least one row.
+  if (typeof toast === 'function') toast('Deleting · ' + label);
+  if (typeof logAudit === 'function') logAudit('Submissions', 'Delete requested · ' + submissionId + ' · ' + label, '—');
+
   try {
-    if (typeof sbCollectDocumentStoragePathsForSubmission === 'function') {
-      storagePaths = await sbCollectDocumentStoragePathsForSubmission(submissionId);
+    await deleteFn(submissionId);
+
+    if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
+    STATE._deletedSubmissionIds.add(submissionId);
+    STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
+    if (STATE.activeSubmissionId === submissionId) STATE.activeSubmissionId = null;
+    if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
+      try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
     }
-    if (typeof sbDeleteSubmission !== 'function') {
-      throw new Error('sbDeleteSubmission not defined');
-    }
-    await sbDeleteSubmission(submissionId);
+
+    renderQueueTable();
+    updateQueueKpi();
     if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
-    // Post-parent storage cleanup. Fire-and-forget — if it fails, binaries
-    // are orphans in the bucket (cosmetic only). Uses sbDeleteStoragePaths
-    // helper so app.js doesn't need direct access to STORAGE_BUCKET const.
-    if (storagePaths.length > 0 && typeof sbDeleteStoragePaths === 'function') {
-      sbDeleteStoragePaths(storagePaths)
-        .catch(e => console.warn('[delete] post-parent storage cleanup threw (non-fatal):', e.message));
-    }
+    if (typeof toast === 'function') toast('Deleted · ' + label, 'success');
   } catch (err) {
     console.error('Cloud delete failed', submissionId, err);
     const msg = (err && err.message) ? err.message : String(err);
-    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg + ' · row will reappear on refresh', 'error');
-    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 80) + ' · will reappear on refresh', 'error');
-    // v8.5.7: clear the tombstone so future legitimate saves can persist
-    // this submission. If we leave the tombstone in place, the row remains
-    // in the cloud database (delete failed) but the client refuses to save
-    // updates to it — confusing state.
+    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg, 'error');
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 120), 'error');
     if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
-    // Re-hydrate from cloud so the queue UI matches the actual database
-    // state. Without this, the user sees an empty row in the queue and
-    // thinks the delete worked when it didn't.
-    if (typeof sbHydrate === 'function') {
-      try {
-        await sbHydrate();
-        if (typeof renderQueueTable === 'function') renderQueueTable();
-        if (typeof updateQueueKpi === 'function') updateQueueKpi();
-      } catch (hydrateErr) {
-        console.warn('Re-hydrate after failed delete also failed:', hydrateErr);
-      }
-    }
   }
 }
 
@@ -2842,6 +3509,31 @@ function backfillMissingAccountNames() {
   }
 }
 
+function bindQueueTableClicks(tbody) {
+  if (!tbody || tbody.__queueClicksBound) return;
+  tbody.__queueClicksBound = true;
+  tbody.addEventListener('click', function(e) {
+    const delBtn = e.target.closest('.sub-delete');
+    if (delBtn && tbody.contains(delBtn)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      const id = delBtn.dataset.subId || (delBtn.closest('.sub-row') && delBtn.closest('.sub-row').dataset.subId);
+      if (id) deleteSubmission(id);
+      return;
+    }
+
+    // Keep status menu interactions local; they should not open/rehydrate rows.
+    if (e.target.closest('.status-wrap')) return;
+
+    const row = e.target.closest('.sub-row');
+    if (row && tbody.contains(row)) {
+      const id = row.dataset.subId;
+      if (id) rehydrateSubmission(id);
+    }
+  }, false);
+}
+
 function renderQueueTable() {
   // Auto-backfill missing names BEFORE building rows. One attempt per
   // submission per session (gated by _backfillAttempted). Cheap when there's
@@ -2849,6 +3541,7 @@ function renderQueueTable() {
   try { backfillMissingAccountNames(); } catch (e) { console.warn('Backfill pass threw:', e); }
   const tbody = document.getElementById('queueBody');
   if (!tbody) return;
+  bindQueueTableClicks(tbody);
   if (STATE.submissions.length === 0) {
     tbody.innerHTML = `
       <tr>
@@ -2901,9 +3594,9 @@ function renderQueueRow(rec) {
     </div>
   `;
   const runShort = (rec.pipelineRun || '').replace('PIPE-', '').slice(0, 10);
-  const deleteBtn = `<span class="sub-delete" onclick="event.stopPropagation(); deleteSubmission('${rec.id}')" title="Remove from queue">×</span>`;
+  const deleteBtn = `<button type="button" class="sub-delete" data-sub-id="${escapeHtml(rec.id)}" title="Remove from queue" aria-label="Delete submission">×</button>`;
   return `
-    <tr class="sub-row${isActive ? ' sub-active' : ''}" onclick="rehydrateSubmission('${rec.id}')">
+    <tr class="sub-row${isActive ? ' sub-active' : ''}" data-sub-id="${escapeHtml(rec.id)}">
       <td>
         <div class="acct-name">${account}${activeTag}${deleteBtn}</div>
         <div class="acct-sub">${runShort || '—'}</div>
@@ -3354,12 +4047,15 @@ loadFeedback();
 // ============================================================================
 
 
-// Initialize dropzone when DOM ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', setupDropzone);
-} else {
-  setupDropzone();
-}
+// PHASE B FIX (per GPT external audit): call setupDropzone eagerly AND on
+// DOMContentLoaded. The function is idempotent (dataset.wired guard at top)
+// so calling it twice is safe. The eager call wires the dropzone the
+// instant the dropzone markup is parsed; the DOMContentLoaded fallback
+// catches the case where this script runs before the dropzone element
+// exists. Belt-and-suspenders — the dropzone gets wired the moment it
+// CAN be wired, not only after the slow postal-mime ESM import resolves.
+setupDropzone();
+document.addEventListener('DOMContentLoaded', setupDropzone);
 
 // Placeholder toast function if not defined yet (real one comes later in script)
 if (typeof toast === 'undefined') {
@@ -4510,18 +5206,23 @@ function exportExcel() {
 // COPY REFERRAL EMAIL — copies the composed email to clipboard
 // ============================================================================
 async function copyReferralEmail() {
-  const emailExt = STATE.extractions.email;
+  // The extraction module is `email_intel` (formerly `email` in older builds).
+  // Older code paths still reference STATE.extractions.email which no module
+  // populates — dead reference. Pull from email_intel which is what runs today.
+  const emailExt = STATE.extractions.email_intel || STATE.extractions.email;
   if (!emailExt) { toast('No referral email — run pipeline first', 'warn'); return; }
-  // Use the edited text if present, falling back to the original extraction
-  let text = getEffectiveText('email');
+  // Use the edited text if present, falling back to the original extraction.
+  // getEffectiveText still keys on 'email_intel' below since edits map to module IDs.
+  let text = getEffectiveText('email_intel') || (emailExt.text || '');
   // Substitute placeholders with live values
   text = text
     .replace(/\[RUN_ID\]|\{RUN_ID\}/g, STATE.pipelineRun || 'unknown')
     .replace(/\[MODEL\]|\{MODEL\}/g, STATE.api.model);
   try {
     await navigator.clipboard.writeText(text);
-    logAudit('Export', 'Copied referral email to clipboard' + (STATE.edits.email ? ' (edited)' : ''), '—');
-    toast('Referral email copied' + (STATE.edits.email ? ' (edited version)' : ''));
+    const wasEdited = !!(STATE.edits && (STATE.edits.email_intel || STATE.edits.email));
+    logAudit('Export', 'Copied referral email to clipboard' + (wasEdited ? ' (edited)' : ''), '—');
+    toast('Referral email copied' + (wasEdited ? ' (edited version)' : ''));
   } catch (err) {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -5421,7 +6122,14 @@ function confirmManualPaste() {
 
   // If pipeline already completed, run incremental flow so the new content updates affected modules
   if (STATE.pipelineDone) {
-    incrementalProcess([entry]);
+    // PHASE 9 FIX: same serialized queue as handleFiles. Manual paste +
+    // a concurrent drop can land in incrementalProcess simultaneously
+    // and race on module reruns / archives.
+    if (typeof queueIncrementalProcess === 'function') {
+      queueIncrementalProcess([entry]).catch(err => console.error('Incremental queue failed:', err));
+    } else {
+      incrementalProcess([entry]);
+    }
   }
 }
 
@@ -5729,6 +6437,20 @@ function renderSubmissionSidebar() {
 // UI PLUMBING
 // ============================================================================
 function switchView(name) {
+  // PHASE 2 FIX (per GPT external audit round 3): remove the docs-fullwidth
+  // body class whenever we leave the Submission view. Without this, a user
+  // who lands on the Documents stage (showStage('docs') adds the class)
+  // and then clicks Queue or Admin in the top nav lands on a view that
+  // STILL has the docs overlay z-index/full-bleed treatment active. The
+  // class is added by showStage but only removed by showStage('pipe') or
+  // showStage('sum') — top-nav clicks bypass showStage entirely.
+  //
+  // Removing it for ANY non-submission view is correct because submission
+  // is the only view that uses the docs stage. If the user comes back to
+  // submission, showStage will set the class again as needed.
+  if (name !== 'submission') {
+    document.body.classList.remove('docs-fullwidth');
+  }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
   window.scrollTo(0, 0);
@@ -5752,6 +6474,13 @@ async function startNewSubmission() {
   // checks to bail. Without this bump, B's rehydrate could resume and
   // overwrite the wiped state we're about to set up.
   STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+
+  // Phase 3 (#5): also bump the upload token. If the user is in the middle
+  // of an upload (handleFiles still extracting some PDFs) and clicks New
+  // Submission, the in-flight extractAndProcessFile calls will detect the
+  // bumped token after their next await and bail out — preventing stale
+  // text/classifications from leaking into the new submission.
+  STATE._uploadToken = (STATE._uploadToken || 0) + 1;
 
   // Save any in-flight edits to the active submission before wiping
   if (STATE.activeSubmissionId && STATE.pipelineDone) {
