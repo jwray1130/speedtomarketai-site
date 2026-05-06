@@ -759,12 +759,17 @@ window.initDocumentsView = function() {
     }
 
     if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
+      // v8.6.28: restore full-card File Manager media fill WITHOUT the
+      // v8.6.27 auto high-quality PDF grid rendering that crashed Chrome.
+      // This is CSS-only fill/cover behavior; PDF high-res remains lazy and
+      // only renders for preview/export through ensurePdfHighRes().
+      thumb.classList.add('doc-thumb-media');
       const img = document.createElement('img');
-      // Prefer in-memory high-res if already cached (set during active session
-      // by upload, or by an earlier lazy-fetch from a preview/grid open).
-      // Otherwise fall back to the small persisted thumb as instant placeholder.
+      // Prefer in-memory high-res if already cached (set by preview/export),
+      // otherwise use the small persisted upload-time thumbnail.
       img.src = doc.highResData || doc.thumbnailData;
       img.loading = 'lazy';
+      img.decoding = 'async';
       img.alt = doc.displayName;
       thumb.appendChild(img);
 

@@ -3205,3 +3205,32 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   text-overflow: ellipsis;
   max-width: 200px;
 }
+
+
+/* v8.6.28 — SAFE File Manager media fill.
+   Restores full-card thumbnail fill using CSS only. Does NOT auto-render
+   high-quality PDF grid thumbnails, so it preserves the instant-upload build
+   and avoids Chrome renderer crashes from background canvas/data-URL churn. */
+#docs-view-root .doc-thumb.doc-thumb-media {
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+#docs-view-root .doc-thumb.doc-thumb-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  box-shadow: none;
+  border-radius: 0;
+  background: #fff;
+  image-rendering: auto;
+}
+
+#docs-view-root .docs-list[data-view="list"] .doc-thumb.doc-thumb-media {
+  padding: 0;
+}
