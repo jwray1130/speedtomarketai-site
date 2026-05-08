@@ -21,12 +21,12 @@
 
 :root {
   /* Brand signal — stays chartreuse in both modes */
-  --signal: #7B61FF;
-  --signal-hover: #9F8FFF;
-  --signal-dim: #5B47CC;
-  --signal-ink: #7B61FF;
-  --signal-pale: rgba(123, 97, 255, 0.10);
-  --signal-tint: rgba(123, 97, 255, 0.18);
+  --signal: #0570DE;
+  --signal-hover: #3B82F6;
+  --signal-dim: #0469C5;
+  --signal-ink: #0570DE;
+  --signal-pale: rgba(5, 112, 222, 0.10);
+  --signal-tint: rgba(5, 112, 222, 0.18);
   --amber: #00D4FF;
   --success: #7DD88A;
   --warning: #FBBF24;
@@ -60,9 +60,9 @@
 }
 
 html[data-theme="light"] {
-  --signal-ink: #4F3CC9;
-  --signal-pale: rgba(123, 97, 255, 0.22);
-  --signal-tint: rgba(123, 97, 255, 0.35);
+  --signal-ink: #0469C5;
+  --signal-pale: rgba(5, 112, 222, 0.22);
+  --signal-tint: rgba(5, 112, 222, 0.35);
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
@@ -234,7 +234,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   border: 1px solid;
 }
 .api-pill.demo { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
-.api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(123, 97, 255, 0.28); }
+.api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(5, 112, 222, 0.28); }
 .api-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .api-pill .dot {
   width: 6px; height: 6px;
@@ -904,7 +904,7 @@ table.queue {
   text-transform: uppercase;
   border: 1px solid transparent;
 }
-.badge.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(123, 97, 255, 0.28); }
+.badge.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(5, 112, 222, 0.28); }
 .badge.amber { background: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.28); }
 .badge.green { background: rgba(125, 216, 138, 0.1); color: var(--success); border-color: rgba(125, 216, 138, 0.28); }
 .badge.red { background: rgba(248, 113, 113, 0.1); color: var(--danger); border-color: rgba(248, 113, 113, 0.28); }
@@ -953,7 +953,7 @@ table.queue {
   text-transform: uppercase;
   border: 1px solid transparent;
 }
-.sub-pill.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(123, 97, 255, 0.28); }
+.sub-pill.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(5, 112, 222, 0.28); }
 .sub-pill.amber { background: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.28); }
 
 /* ============ 3-PANE SUBMISSION VIEW ============ */
@@ -1258,7 +1258,7 @@ table.queue {
   justify-content: center;
   gap: 8px;
   transition: all 0.15s;
-  box-shadow: 0 4px 16px -4px rgba(123, 97, 255, 0.35);
+  box-shadow: 0 4px 16px -4px rgba(5, 112, 222, 0.35);
 }
 .btn-run:hover:not(:disabled) { background: var(--signal-hover); transform: translateY(-1px); }
 .btn-run:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; background: var(--surface-3); color: var(--text-3); }
@@ -1552,7 +1552,7 @@ table.queue {
 .pipeline-done {
   padding: 18px 22px;
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border: 1px solid rgba(123, 97, 255, 0.35);
+  border: 1px solid rgba(5, 112, 222, 0.35);
   border-radius: var(--radius);
   margin-top: 20px;
   display: flex;
@@ -1732,7 +1732,7 @@ table.queue {
   letter-spacing: 0.12em;
   color: var(--signal-ink);
   background: var(--signal-pale);
-  border: 1px solid rgba(123, 97, 255, 0.3);
+  border: 1px solid rgba(5, 112, 222, 0.3);
   padding: 2px 7px;
   border-radius: 3px;
   font-weight: 600;
@@ -2217,13 +2217,13 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
   animation: updatedPulse 1.8s ease-out 1;
 }
 @keyframes updatedPulse {
-  0%   { box-shadow: 0 0 0 0 rgba(123, 97, 255, 0.6); transform: scale(1); }
-  40%  { box-shadow: 0 0 0 8px rgba(123, 97, 255, 0); transform: scale(1.06); }
-  100% { box-shadow: 0 0 0 0 rgba(123, 97, 255, 0); transform: scale(1); }
+  0%   { box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.6); transform: scale(1); }
+  40%  { box-shadow: 0 0 0 8px rgba(5, 112, 222, 0); transform: scale(1.06); }
+  100% { box-shadow: 0 0 0 0 rgba(5, 112, 222, 0); transform: scale(1); }
 }
 .sc-card.was-updated {
-  border-color: rgba(123, 97, 255, 0.35);
-  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.1);
+  border-color: rgba(5, 112, 222, 0.35);
+  box-shadow: 0 0 0 1px rgba(5, 112, 222, 0.1);
 }
 .incremental-banner {
   position: fixed;
@@ -2253,7 +2253,7 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
 .ib-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(123, 97, 255, 0.2);
+  border: 2px solid rgba(5, 112, 222, 0.2);
   border-top-color: var(--signal);
   border-radius: 50%;
   animation: ibspin 700ms linear infinite;
@@ -2279,8 +2279,8 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
   display: none;
   margin: 12px 16px;
   padding: 10px 14px;
-  background: rgba(123, 97, 255, 0.05);
-  border: 1px solid rgba(123, 97, 255, 0.25);
+  background: rgba(5, 112, 222, 0.05);
+  border: 1px solid rgba(5, 112, 222, 0.25);
   border-left: 3px solid var(--signal);
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -2353,7 +2353,7 @@ body.pipeline-complete-mode .intake-incremental-cue { display: block; }
 .sub-pill.handoff-pill.returned {
   background: var(--signal-pale);
   color: var(--signal-ink);
-  border-color: rgba(123, 97, 255, 0.3);
+  border-color: rgba(5, 112, 222, 0.3);
 }
 
 /* Handoff action buttons in Decision pane */
@@ -2411,8 +2411,8 @@ body.pipeline-complete-mode .intake-incremental-cue { display: block; }
   border-bottom: 1px solid rgba(251, 191, 36, 0.18);
 }
 .handoff-note-banner.from-assistant .hnb-head {
-  background: linear-gradient(180deg, rgba(123, 97, 255, 0.06) 0%, var(--surface-2) 100%);
-  border-bottom-color: rgba(123, 97, 255, 0.18);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.06) 0%, var(--surface-2) 100%);
+  border-bottom-color: rgba(5, 112, 222, 0.18);
 }
 .hnb-head-left {
   display: flex;
@@ -2579,12 +2579,12 @@ body.viewing-as-assistant .actions-pane {
 }
 .tower-layer.bound {
   background: var(--signal-pale);
-  border: 1px solid rgba(123, 97, 255, 0.28);
+  border: 1px solid rgba(5, 112, 222, 0.28);
   border-left: 3px solid var(--signal);
 }
 .tower-layer.bound:hover {
-  background: rgba(123, 97, 255, 0.09);
-  border-color: rgba(123, 97, 255, 0.42);
+  background: rgba(5, 112, 222, 0.09);
+  border-color: rgba(5, 112, 222, 0.42);
 }
 .tower-layer-row-1 {
   display: flex;
@@ -2650,7 +2650,7 @@ body.viewing-as-assistant .actions-pane {
   flex-shrink: 0;
 }
 .tower-layer.proposed .tower-layer-limits { color: var(--warning); background: rgba(251, 191, 36, 0.05); border-color: rgba(251, 191, 36, 0.25); }
-.tower-layer.bound .tower-layer-limits { color: var(--signal-ink); background: rgba(123, 97, 255, 0.05); border-color: rgba(123, 97, 255, 0.25); }
+.tower-layer.bound .tower-layer-limits { color: var(--signal-ink); background: rgba(5, 112, 222, 0.05); border-color: rgba(5, 112, 222, 0.25); }
 .tower-primaries-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3096,7 +3096,7 @@ table.loss {
   border-bottom: 1px solid var(--line);
 }
 .loss tbody tr:last-child td { border-bottom: none; }
-.loss tbody tr:nth-child(even) td { background: rgba(123, 97, 255, 0.03); }
+.loss tbody tr:nth-child(even) td { background: rgba(5, 112, 222, 0.03); }
 .loss td.num { font-family: var(--font-mono); text-align: right; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .loss td.yr { font-family: var(--font-mono); font-weight: 700; color: var(--signal-ink); }
 .loss tfoot td {
@@ -3145,7 +3145,7 @@ table.loss {
 .verdict-card {
   padding: 14px;
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border: 1px solid rgba(123, 97, 255, 0.32);
+  border: 1px solid rgba(5, 112, 222, 0.32);
   border-radius: var(--radius);
   margin-bottom: 14px;
 }
@@ -3344,10 +3344,10 @@ table.loss {
 }
 .queue tbody tr.sub-row:hover { background: var(--surface-2); }
 .queue tbody tr.sub-row.sub-active {
-  background: rgba(123, 97, 255, 0.04);
+  background: rgba(5, 112, 222, 0.04);
 }
 .queue tbody tr.sub-row.sub-active:hover {
-  background: rgba(123, 97, 255, 0.08);
+  background: rgba(5, 112, 222, 0.08);
 }
 .queue tbody tr.sub-row.sub-active td:first-child {
   border-left: 3px solid var(--signal);
@@ -3508,7 +3508,7 @@ table.loss {
 .status-pill.status-quoted {
   background: var(--signal-pale);
   color: var(--signal-ink);
-  border-color: rgba(123, 97, 255, 0.42);
+  border-color: rgba(5, 112, 222, 0.42);
 }
 .status-pill.status-declined {
   background: rgba(248, 113, 113, 0.10);

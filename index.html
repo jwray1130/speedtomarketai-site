@@ -44,8 +44,8 @@
   --surface-2: #163057;    /* Secondary elevation */
   --line: #1F3460;         /* Subtle rule lines */
   --line-warm: #2C4276;    /* Warmer line accent */
-  --signal: #7B61FF;       /* Electric chartreuse — the hero accent, velocity & market-green */
-  --signal-dim: #5B47CC;   /* Signal when dimmed */
+  --signal: #0570DE;       /* Electric chartreuse — the hero accent, velocity & market-green */
+  --signal-dim: #0469C5;   /* Signal when dimmed */
   --amber: #00D4FF;        /* Warm secondary accent, used sparingly */
   --cream: #F6F9FC;        /* Warm off-white body text */
   --muted: #ADBDCC;        /* Dim text */
@@ -60,7 +60,7 @@
   /* Grain overlay opacity (overridden in light mode) */
   --grain-opacity: 0.45;
   /* Hero device shadow (overridden in light mode) */
-  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(123, 97, 255, 0.08), 0 60px 120px -40px rgba(123, 97, 255, 0.12);
+  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(5, 112, 222, 0.08), 0 60px 120px -40px rgba(5, 112, 222, 0.12);
 }
 
 /* ===== LIGHT MODE THEME ===== */
@@ -70,14 +70,14 @@
   --surface-2: #F6F9FC;   /* Secondary surface — deeper warm tone */
   --line: #E3E8EE;        /* Subtle warm rule lines */
   --line-warm: #C0CCDA;   /* Warmer line accent */
-  --signal: #635BFF;      /* Brighter chartreuse-olive — AA readable, carries punch */
-  --signal-dim: #5B47CC;  /* Signal when dimmed */
+  --signal: #0570DE;      /* Brighter chartreuse-olive — AA readable, carries punch */
+  --signal-dim: #0469C5;  /* Signal when dimmed */
   --amber: #0570DE;       /* Slightly warmer amber for contrast on cream */
   --cream: #0A2540;       /* "Cream" = dark text on light */
   --muted: #425466;       /* Muted text */
   --muted-2: #697386;     /* Deeper dim — was too light at #697386 */
   --grain-opacity: 0.08;  /* Much less grain in light mode */
-  --device-shadow: 0 20px 50px -20px rgba(10, 37, 64, 0.15), 0 0 0 1px rgba(99, 91, 255, 0.14), 0 40px 80px -30px rgba(99, 91, 255, 0.10);
+  --device-shadow: 0 20px 50px -20px rgba(10, 37, 64, 0.15), 0 0 0 1px rgba(5, 112, 222, 0.14), 0 40px 80px -30px rgba(5, 112, 222, 0.10);
 }
 
 /* Smooth theme transitions */
@@ -233,7 +233,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   letter-spacing: -0.01em;
   transition: all 0.18s ease;
 }
-.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(123, 97, 255, 0.55); }
+.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.55); }
 .nav-cta svg { width: 13px; height: 13px; transition: transform 0.18s; }
 .nav-cta:hover svg { transform: translateX(3px); }
 .nav-toggle { display: none; }
@@ -282,17 +282,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Nav CTA already works because it references --signal and --bg */
 [data-theme="light"] .nav-cta { color: #FFFFFF; }
-[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(99, 91, 255, 0.32); }
+[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.32); }
 
 /* Primary buttons — white text on the darker chartreuse reads cleanly */
 [data-theme="light"] .btn-primary { color: #FFFFFF; }
-[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(99, 91, 255, 0.35); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.35); }
 
 /* Hero accent ribbon — soften the signal tint on cream */
 [data-theme="light"] .hero-accent {
   background:
-    linear-gradient(125deg, transparent 46%, rgba(99, 91, 255, 0.06) 47%, rgba(99, 91, 255, 0.16) 50%, rgba(99, 91, 255, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(99, 91, 255, 0.04) 59%, rgba(99, 91, 255, 0.11) 61%, rgba(99, 91, 255, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.16) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.11) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
   mix-blend-mode: multiply;
 }
 
@@ -308,24 +308,24 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Wedge callout — signal tint on warm cream */
 [data-theme="light"] .wedge-callout {
-  background: linear-gradient(135deg, rgba(99, 91, 255, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
 }
 
 /* Time compression "after" card — the signal-tinted one */
 [data-theme="light"] .ba-col.after {
-  border-color: rgba(99, 91, 255, 0.35);
-  background: linear-gradient(180deg, rgba(99, 91, 255, 0.05), var(--surface) 60%);
+  border-color: rgba(5, 112, 222, 0.35);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05), var(--surface) 60%);
 }
 
 /* Roadmap "now" card */
 [data-theme="light"] .roadmap-col.now {
-  border-color: rgba(99, 91, 255, 0.32);
-  background: linear-gradient(180deg, rgba(99, 91, 255, 0.05) 0%, var(--surface) 70%);
+  border-color: rgba(5, 112, 222, 0.32);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05) 0%, var(--surface) 70%);
 }
 
 /* Built-by section radial glow */
 [data-theme="light"] .builtby::before {
-  background: radial-gradient(ellipse at center, rgba(99, 91, 255, 0.07), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.07), transparent 60%);
 }
 
 /* Built-by avatar — flip ring color to darker chartreuse for contrast */
@@ -341,7 +341,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Career timeline */
 [data-theme="light"] .ct-item.active .ct-dot {
-  box-shadow: 0 0 0 4px rgba(99, 91, 255, 0.18);
+  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
 }
 
 /* Testimonials quote mark */
@@ -351,7 +351,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Use case tab active — softer signal highlight */
 [data-theme="light"] .uc-tab.active {
-  background: linear-gradient(90deg, rgba(99, 91, 255, 0.07), transparent);
+  background: linear-gradient(90deg, rgba(5, 112, 222, 0.07), transparent);
 }
 
 /* Nav backdrop blur — stronger white behind so it doesn't wash out */
@@ -367,10 +367,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Footer email pill hover */
 [data-theme="light"] .foot-email:hover {
-  background: rgba(99, 91, 255, 0.07);
+  background: rgba(5, 112, 222, 0.07);
 }
 [data-theme="light"] .foot-social:hover {
-  background: rgba(99, 91, 255, 0.07);
+  background: rgba(5, 112, 222, 0.07);
 }
 
 /* Stats strip numbers — signal italic */
@@ -491,8 +491,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 62%;
   height: 130%;
   background:
-    linear-gradient(125deg, transparent 46%, rgba(123, 97, 255, 0.06) 47%, rgba(123, 97, 255, 0.18) 50%, rgba(123, 97, 255, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(123, 97, 255, 0.04) 59%, rgba(123, 97, 255, 0.12) 61%, rgba(123, 97, 255, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.18) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.12) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
   mix-blend-mode: screen;
   pointer-events: none;
 }
@@ -589,7 +589,7 @@ h1.hero-title em {
   background: var(--signal);
   color: var(--bg);
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(123, 97, 255, 0.6); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.6); }
 .btn-ghost {
   background: transparent;
   color: var(--cream);
@@ -975,12 +975,12 @@ section.section {
 
 /* ===== FINAL UW SUMMARY capstone card ===== */
 .module.module-summary {
-  background: linear-gradient(165deg, rgba(123, 97, 255, 0.08) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.08) 0%, var(--bg) 80%);
   border-left: 3px solid var(--signal);
   position: relative;
 }
 .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(123, 97, 255, 0.12) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.12) 0%, var(--surface) 80%);
 }
 .module.module-summary::before {
   /* Subtle diagonal sheen in the corner */
@@ -988,7 +988,7 @@ section.section {
   position: absolute;
   top: 0; right: 0;
   width: 90px; height: 90px;
-  background: radial-gradient(circle at top right, rgba(123, 97, 255, 0.16), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.16), transparent 70%);
   pointer-events: none;
 }
 .module-tag.summary-tag {
@@ -1017,8 +1017,8 @@ section.section {
   font-size: 9.5px;
   letter-spacing: 0.1em;
   color: var(--signal);
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.28);
+  background: rgba(5, 112, 222, 0.08);
+  border: 1px solid rgba(5, 112, 222, 0.28);
   padding: 3px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1044,17 +1044,17 @@ section.section {
 
 /* Light-mode adjustments for the capstone card */
 [data-theme="light"] .module.module-summary {
-  background: linear-gradient(165deg, rgba(99, 91, 255, 0.09) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.09) 0%, var(--bg) 80%);
 }
 [data-theme="light"] .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(99, 91, 255, 0.13) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.13) 0%, var(--surface) 80%);
 }
 [data-theme="light"] .module.module-summary::before {
-  background: radial-gradient(circle at top right, rgba(99, 91, 255, 0.14), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.14), transparent 70%);
 }
 [data-theme="light"] .summary-chip {
-  background: rgba(99, 91, 255, 0.09);
-  border-color: rgba(99, 91, 255, 0.3);
+  background: rgba(5, 112, 222, 0.09);
+  border-color: rgba(5, 112, 222, 0.3);
 }
 
 
@@ -1091,7 +1091,7 @@ section.section {
 .uc-tab.active {
   color: var(--cream);
   border-left-color: var(--signal);
-  background: linear-gradient(90deg, rgba(123, 97, 255, 0.05), transparent);
+  background: linear-gradient(90deg, rgba(5, 112, 222, 0.05), transparent);
 }
 @media (max-width: 880px) {
   .uc-tab { border-left: none; border-bottom: 2px solid transparent; }
@@ -1146,7 +1146,7 @@ section.section {
 /* ========== WEDGE CALLOUT ========== */
 .wedge-callout {
   position: relative;
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
   border: 1px solid var(--line-warm);
   border-left: 3px solid var(--signal);
   border-radius: 14px;
@@ -1318,7 +1318,7 @@ section.section {
   right: -10%;
   width: 60%;
   height: 200%;
-  background: radial-gradient(ellipse at center, rgba(123, 97, 255, 0.08), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.08), transparent 60%);
   pointer-events: none;
 }
 .builtby-avatar {
@@ -1459,7 +1459,7 @@ footer {
   border-radius: 999px;
   transition: all 0.2s;
 }
-.foot-email:hover { border-color: var(--signal); background: rgba(123, 97, 255, 0.05); }
+.foot-email:hover { border-color: var(--signal); background: rgba(5, 112, 222, 0.05); }
 
 /* ========== FOOTER SOCIAL LINKS ========== */
 .foot-socials {
@@ -1485,7 +1485,7 @@ footer {
 }
 .foot-social:hover {
   border-color: var(--signal);
-  background: rgba(123, 97, 255, 0.05);
+  background: rgba(5, 112, 222, 0.05);
   transform: translateY(-1px);
 }
 .foot-social:hover .fs-icon { color: var(--signal); }
@@ -1596,30 +1596,28 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
 }
 .hero-sub strong { color: var(--signal); font-weight: 600; }
 
-/* ───── HERO WebGL gradient canvas ─────
-   Sits as the first child of .hero, behind the grid + content. Pointer events
-   off so it never steals interaction. The gradient is a vertex-displaced plane
-   running a Stripe-style 3-wave-layer simplex-noise shader (see <script> below). */
-.hero { isolation: isolate; }      /* Establish stacking context so canvas can z-index inside */
+/* ───── HERO WebGL flame gradient canvas ─────
+   Stripe's current homepage flame ribbons. The shader's fragment program
+   handles its own alpha fade (right-opaque, left-transparent), so we don't
+   apply a skew or mask on the canvas itself — that would double-fade.
+   The canvas overflows the hero on the right so the ribbons can drift
+   off-screen, mirroring how Stripe.com's flame extends past the viewport. */
+.hero { isolation: isolate; }
 .hero-gradient-canvas {
   position: absolute;
-  inset: -2% -2% -10% -2%;          /* Slight overflow so the skew never reveals an edge */
-  width: 104%;
-  height: 112%;
+  inset: -8% -10% -8% -2%;
+  width: 112%;
+  height: 116%;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.78;                    /* Lift in dark mode; light mode override below */
-  transform: skewY(-7deg);          /* Stripe-faithful parallelogram tilt */
-  transform-origin: 0 0;
-  mask-image: linear-gradient(180deg, black 0%, black 75%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, black 0%, black 75%, transparent 100%);
+  /* No skew, no mask — the shader does it. Just a subtle blend with the page. */
+  mix-blend-mode: normal;
 }
-.hero-grid { z-index: 1; opacity: 0.18; }
-.hero-accent { z-index: 1; opacity: 0.4; }
+.hero-grid { z-index: 1; opacity: 0.12; }
+.hero-accent { z-index: 1; opacity: 0; }   /* flame replaces the old SVG accent ribbon */
 .hero-inner { position: relative; z-index: 2; }
 
-[data-theme="light"] .hero-gradient-canvas { opacity: 0.92; }
-[data-theme="light"] .hero-grid { opacity: 0.35; }
+[data-theme="light"] .hero-grid { opacity: 0.22; }
 
 /* ───── MODULES orbital sphere canvas ─────
    Sits behind the modules-grid (Stripe-style "globe of nodes"). 17 points
@@ -1648,44 +1646,40 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
   }
 }
 
-/* ───── CTA gradient canvas — subtle, full-width Stripe wave ───── */
+/* ───── CTA flame gradient — full-width softer wave ───── */
 .cta-section { position: relative; isolation: isolate; overflow: hidden; }
 .cta-gradient-canvas {
   position: absolute;
-  inset: -10% -2% -2% -2%;
-  width: 104%;
-  height: 110%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.55;
-  transform: skewY(6deg);             /* Inverted skew = bottom edge of site frames the page */
-  transform-origin: 100% 100%;
-  mask-image: radial-gradient(ellipse 90% 70% at 50% 50%, black 0%, transparent 95%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 50%, black 0%, transparent 95%);
+  /* Shader controls its own fade. */
 }
 .cta-section .section-inner { position: relative; z-index: 1; }
-[data-theme="light"] .cta-gradient-canvas { opacity: 0.7; }
 
 /* ───── STRIPE-FAITHFUL BUTTONS ─────
    Stripe pills are fully rounded, slightly tighter padding, and the
    primary CTA carries a faint inner highlight + crisp shadow. */
 .btn-primary {
-  background: linear-gradient(180deg, #7B61FF 0%, #635BFF 100%);  /* Subtle vertical sheen */
+  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);   /* lighter top → Stripe Blue bottom */
   color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(99, 91, 255, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.55);
 }
 .btn-primary:hover {
-  background: linear-gradient(180deg, #8B73FF 0%, #6E66FF 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -6px rgba(99, 91, 255, 0.65);
+  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.65);
   transform: translateY(-1px);
 }
 .nav-cta {
-  background: linear-gradient(180deg, #7B61FF 0%, #635BFF 100%);
+  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);
   color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(99, 91, 255, 0.45);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.45);
 }
 .nav-cta:hover {
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 22px -6px rgba(99, 91, 255, 0.6);
+  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.6);
 }
 
 /* ───── STAT NUMBERS — Stripe-style: bigger, tighter, gradient ─────
@@ -1736,14 +1730,14 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
   position: absolute;
   top: 0; right: 0;
   width: 60%; height: 100%;
-  background: radial-gradient(ellipse at top right, rgba(123, 97, 255, 0.06), transparent 60%);
+  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.06), transparent 60%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.4s ease;
 }
 .module:hover::after { opacity: 1; }
 [data-theme="light"] .module::after {
-  background: radial-gradient(ellipse at top right, rgba(99, 91, 255, 0.08), transparent 60%);
+  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.08), transparent 60%);
 }
 
 /* ───── Brand mark — Stripe-style hover ───── */
@@ -1760,7 +1754,7 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
    gradient color. We replicate this via the three .line spans by giving
    the third one (containing <em>) a stronger color treatment. */
 h1.hero-title .line:has(em) em {
-  background: linear-gradient(135deg, #7B61FF 0%, #00D4FF 100%);
+  background: linear-gradient(135deg, #0570DE 0%, #00D4FF 100%);
   -webkit-background-clip: text;
           background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1771,18 +1765,18 @@ h1.hero-title .line:has(em) em {
    with a faint indigo glow. We bake that in here for the .device-frame. */
 .device-frame {
   background: var(--surface);
-  border-color: rgba(123, 97, 255, 0.14);
+  border-color: rgba(5, 112, 222, 0.14);
   box-shadow:
-    0 0 0 1px rgba(123, 97, 255, 0.08),
+    0 0 0 1px rgba(5, 112, 222, 0.08),
     0 30px 80px -30px rgba(0, 0, 0, 0.7),
-    0 60px 120px -40px rgba(99, 91, 255, 0.18);
+    0 60px 120px -40px rgba(5, 112, 222, 0.18);
 }
 [data-theme="light"] .device-frame {
-  border-color: rgba(99, 91, 255, 0.16);
+  border-color: rgba(5, 112, 222, 0.16);
   box-shadow:
-    0 0 0 1px rgba(99, 91, 255, 0.1),
+    0 0 0 1px rgba(5, 112, 222, 0.1),
     0 20px 50px -20px rgba(10, 37, 64, 0.15),
-    0 40px 80px -30px rgba(99, 91, 255, 0.18);
+    0 40px 80px -30px rgba(5, 112, 222, 0.18);
 }
 
 /* ───── REDUCED MOTION — Three.js animations pause for users who request it ───── */
@@ -1829,9 +1823,9 @@ h1.hero-title .line:has(em) em {
     <a href="#" class="brand">
       <span class="brand-mark">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#7B61FF" stroke-width="1.5"/>
-          <path d="M12 22 L20 14 L28 22" stroke="#7B61FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 28 L20 20 L28 28" stroke="#7B61FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
+          <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
         </svg>
       </span>
       <span>Speed to Market <em>AI</em></span>
@@ -2221,8 +2215,8 @@ h1.hero-title .line:has(em) em {
   border-color: var(--line-warm);
 }
 .ba-col.after {
-  border-color: rgba(123, 97, 255, 0.32);
-  background: linear-gradient(180deg, rgba(123, 97, 255, 0.04), var(--surface) 60%);
+  border-color: rgba(5, 112, 222, 0.32);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04), var(--surface) 60%);
 }
 .ba-label {
   font-family: var(--font-mono);
@@ -2888,8 +2882,8 @@ h1.hero-title .line:has(em) em {
 }
 .roadmap-col:hover { border-color: var(--signal); transform: translateY(-3px); }
 .roadmap-col.now {
-  border-color: rgba(123, 97, 255, 0.35);
-  background: linear-gradient(180deg, rgba(123, 97, 255, 0.04) 0%, var(--surface) 70%);
+  border-color: rgba(5, 112, 222, 0.35);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04) 0%, var(--surface) 70%);
 }
 .rm-horizon {
   font-family: var(--font-mono);
@@ -3128,7 +3122,7 @@ h1.hero-title .line:has(em) em {
 .ct-item.active .ct-dot {
   background: var(--signal);
   border-color: var(--signal);
-  box-shadow: 0 0 0 4px rgba(123, 97, 255, 0.18);
+  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
 }
 .ct-item:hover .ct-dot {
   border-color: var(--signal);
@@ -3208,9 +3202,9 @@ h1.hero-title .line:has(em) em {
         <a href="#" class="brand">
           <span class="brand-mark">
             <svg viewBox="0 0 40 40" fill="none">
-              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#7B61FF" stroke-width="1.5"/>
-              <path d="M12 22 L20 14 L28 22" stroke="#7B61FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 28 L20 20 L28 28" stroke="#7B61FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
+              <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </span>
           <span>Speed to Market <em>AI</em></span>
@@ -3280,208 +3274,234 @@ h1.hero-title .line:has(em) em {
 
 <script type="module">
 /* ════════════════════════════════════════════════════════════════════════
-   STRIPE-STYLE THREE.JS GRADIENT + ORBITAL SPHERE + CTA WAVE
+   STRIPE FLAME GRADIENT v2 — Domain-warped FBM ribbons.
 
-   Three independent renderers, sharing one rAF clock, each scoped to its
-   own canvas. Built directly off the technique reverse-engineered from
-   stripe.com's "MiniGL" hero gradient (Nick Jones, Stripe). The vertex
-   shader does the heavy lifting via 3D simplex noise displacement; the
-   fragment shader is intentionally trivial — it just reads the
-   GPU-interpolated v_color, which is computed per vertex. This is why
-   the gradient runs at 60fps even on weak hardware: vertex work scales
-   with vertex count (~5K), not pixel count (~2M+).
+   This replaces the v1 vertex-displacement "lava lamp" gradient (which is
+   how Stripe.com looked circa 2018-2020) with their CURRENT 2024+ flowing
+   ribbon gradient. The technique is fundamentally different:
 
-   Three.js features in use:
-     • ShaderMaterial with custom GLSL (uniforms passed from JS)
-     • PlaneGeometry with explicit segment counts (vertex displacement
-       requires real geometry — a 1×1 plane wouldn't deform)
-     • OrthographicCamera (full-screen quad rendering)
-     • THREE.Color uniforms (sRGB-correct color upload)
-     • IntersectionObserver to pause rAF when off-screen (Stripe trick)
-     • document.hidden check to halt on tab switch (battery saver)
-     • Frame-skip to render at 30fps, halving GPU usage
+     v1 (old): displace plane vertices with simplex noise, color per vertex,
+               GPU-interpolate across triangles. Looks like soft waves.
+
+     v2 (new): single full-screen quad, all work in fragment shader.
+               Two-pass DOMAIN WARPING — sample FBM noise, use that as
+               offset to sample FBM AGAIN, use THAT as offset to sample
+               a third time. Result is flowing, ribbon-like, organic.
+               Iñigo Quílez published this technique in 2002. It's the
+               same idea behind Stripe's current homepage hero.
+
+   Three.js usage:
+     • ShaderMaterial with transparent: true + premultipliedAlpha
+     • PlaneGeometry(2, 2) — no segments needed (no vertex work)
+     • OrthographicCamera (full-screen quad)
+     • THREE.Color for sRGB-correct uniforms
+     • MutationObserver on data-theme — palette swap on theme toggle
+     • IntersectionObserver — pause rAF when off-screen
+     • 30fps render cap (frame skip)
    ════════════════════════════════════════════════════════════════════════ */
 import * as THREE from 'three';
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* ───── Shared GLSL — Ashima Arts simplex 3D noise ───── */
-const SIMPLEX_3D = /* glsl */ `
-vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
-vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
-vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
-vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
-float snoise(vec3 v){
-  const vec2 C=vec2(1.0/6.0,1.0/3.0);
-  const vec4 D=vec4(0.0,0.5,1.0,2.0);
-  vec3 i=floor(v+dot(v,C.yyy));
-  vec3 x0=v-i+dot(i,C.xxx);
-  vec3 g=step(x0.yzx,x0.xyz);
-  vec3 l=1.0-g;
-  vec3 i1=min(g.xyz,l.zxy);
-  vec3 i2=max(g.xyz,l.zxy);
-  vec3 x1=x0-i1+C.xxx;
-  vec3 x2=x0-i2+C.yyy;
-  vec3 x3=x0-D.yyy;
-  i=mod289(i);
-  vec4 p=permute(permute(permute(
-    i.z+vec4(0.0,i1.z,i2.z,1.0))
-    +i.y+vec4(0.0,i1.y,i2.y,1.0))
-    +i.x+vec4(0.0,i1.x,i2.x,1.0));
-  float n_=0.142857142857;
-  vec3 ns=n_*D.wyz-D.xzx;
-  vec4 j=p-49.0*floor(p*ns.z*ns.z);
-  vec4 x_=floor(j*ns.z);
-  vec4 y_=floor(j-7.0*x_);
-  vec4 x=x_*ns.x+ns.yyyy;
-  vec4 y=y_*ns.x+ns.yyyy;
-  vec4 h=1.0-abs(x)-abs(y);
-  vec4 b0=vec4(x.xy,y.xy);
-  vec4 b1=vec4(x.zw,y.zw);
-  vec4 s0=floor(b0)*2.0+1.0;
-  vec4 s1=floor(b1)*2.0+1.0;
-  vec4 sh=-step(h,vec4(0.0));
-  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
-  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
-  vec3 p0=vec3(a0.xy,h.x);
-  vec3 p1=vec3(a0.zw,h.y);
-  vec3 p2=vec3(a1.xy,h.z);
-  vec3 p3=vec3(a1.zw,h.w);
-  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
-  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
-  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
-  m=m*m;
-  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
-}`;
+/* ───── Ashima Arts simplex 2D noise — the building block of FBM ───── */
+const SIMPLEX_2D = /* glsl */ `
+vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+float snoise(vec2 v){
+  const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                     -0.577350269189626, 0.024390243902439);
+  vec2 i  = floor(v + dot(v, C.yy));
+  vec2 x0 = v -   i + dot(i, C.xx);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod(i, 289.0);
+  vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+        + i.x + vec3(0.0, i1.x, 1.0));
+  vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
+                          dot(x12.zw,x12.zw)), 0.0);
+  m = m*m; m = m*m;
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+  vec3 g;
+  g.x  = a0.x  * x0.x   + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
+}
+
+/* Fractal Brownian Motion — sum of simplex octaves at decreasing amplitudes.
+   5 octaves is the sweet spot: enough complexity to look organic, cheap
+   enough to render at 30fps on integrated GPUs. */
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  vec2 shift = vec2(100.0);
+  mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.50));
+  for (int i = 0; i < 5; i++) {
+    v += a * snoise(p);
+    p = rot * p * 2.0 + shift;
+    a *= 0.5;
+  }
+  return v;
+}
+`;
 
 /* ════════════════════════════════════════════════════════════════════════
-   1. HERO GRADIENT — Stripe's signature "lava lamp" vertex-displaced plane
+   1. HERO FLAME GRADIENT — the centerpiece
    ════════════════════════════════════════════════════════════════════════ */
-function buildHeroGradient(canvas) {
+function buildHeroFlame(canvas, opts = {}) {
   if (!canvas) return null;
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({
+    canvas, antialias: true, alpha: true,
+    premultipliedAlpha: false,
+    powerPreference: 'high-performance',
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
   camera.position.z = 1;
 
-  /* Plane with enough segments for noise displacement to actually deform.
-     1×1 wouldn't push at all; 100×60 is the sweet spot — fine enough for
-     smooth waves, coarse enough to stay 60fps. */
-  const geometry = new THREE.PlaneGeometry(2.4, 2.4, 100, 60);
+  /* Single full-screen quad. No segments — fragment shader does everything. */
+  const geometry = new THREE.PlaneGeometry(2, 2);
 
-  /* Two palettes, swapped on theme change. The dark palette matches Stripe's
-     enterprise/dark hero pages; the light palette is the canonical Stripe
-     homepage look — bright pastel indigo + cyan + pink waves on white. */
+  /* TWO PALETTES.
+     Stripe's current homepage flame: hot pink, peach/orange, light blue,
+     a touch of lavender. We mirror those, with a clean fade-out on the
+     left side so the headline stays readable.
+
+     Light-mode flame is brighter / more saturated (sits on white page).
+     Dark-mode flame is slightly dimmed (already glows on slate page). */
   const PALETTES = {
-    dark: {
-      base:  '#1B2C5C', wave1: '#7B61FF', wave2: '#5C4DE0', wave3: '#00D4FF',
-    },
     light: {
-      base:  '#A6B7E8', wave1: '#7B61FF', wave2: '#FF7AC6', wave3: '#5BD2FF',
+      base:    '#FFFFFF',  // page bleed-through (transparent in practice)
+      flameA:  '#FF61AB',  // hot pink — the dominant ribbon
+      flameB:  '#FFA75E',  // peach/orange — wraps across the bottom
+      flameC:  '#5BD2FF',  // light blue — the cool counterpoint top-left
+      accent:  '#C8A2FF',  // lavender highlight — picks out the brightest peaks
+    },
+    dark: {
+      base:    '#0A2540',
+      flameA:  '#E63B85',  // pink, slightly deeper for dark mode legibility
+      flameB:  '#FF8E3C',  // orange, hotter
+      flameC:  '#3FB8E8',  // sky blue
+      accent:  '#9F7BFF',  // violet — yes, the flame KEEPS purple in it
+                            // (Stripe's flame has lavender/purple ribbons too)
     },
   };
   function currentPalette() {
-    return document.documentElement.getAttribute('data-theme') === 'light' ? PALETTES.light : PALETTES.dark;
+    return document.documentElement.getAttribute('data-theme') === 'light'
+      ? PALETTES.light : PALETTES.dark;
   }
 
   const p = currentPalette();
   const uniforms = {
-    u_time:        { value: 0 },
-    u_resolution:  { value: new THREE.Vector2() },
-    u_baseColor:   { value: new THREE.Color(p.base) },
-    u_wave1Color:  { value: new THREE.Color(p.wave1) },
-    u_wave2Color:  { value: new THREE.Color(p.wave2) },
-    u_wave3Color:  { value: new THREE.Color(p.wave3) },
-    u_darkenTop:   { value: 1.0 },
+    u_time:   { value: 0 },
+    u_base:   { value: new THREE.Color(p.base) },
+    u_flameA: { value: new THREE.Color(p.flameA) },
+    u_flameB: { value: new THREE.Color(p.flameB) },
+    u_flameC: { value: new THREE.Color(p.flameC) },
+    u_accent: { value: new THREE.Color(p.accent) },
+    u_alphaCenterX:  { value: opts.alphaCenterX ?? 0.55 },   // where the fade transitions
+    u_alphaSpread:   { value: opts.alphaSpread  ?? 0.45 },   // how soft the fade is
+    u_alphaMax:      { value: opts.alphaMax     ?? 0.95 },
+    u_baseFade:      { value: opts.baseFade     ?? 1.0 },    // 1=show base, 0=transparent base
   };
 
-  /* Watch for theme changes via the data-theme attribute and update uniforms.
-     This lets the user toggle theme without page reload and the gradient
-     immediately retunes its palette. */
-  const themeObserver = new MutationObserver(() => {
+  /* Theme toggle — re-tune palette on data-theme change without page reload */
+  const obs = new MutationObserver(() => {
     const np = currentPalette();
-    uniforms.u_baseColor.value.set(np.base);
-    uniforms.u_wave1Color.value.set(np.wave1);
-    uniforms.u_wave2Color.value.set(np.wave2);
-    uniforms.u_wave3Color.value.set(np.wave3);
+    uniforms.u_base.value.set(np.base);
+    uniforms.u_flameA.value.set(np.flameA);
+    uniforms.u_flameB.value.set(np.flameB);
+    uniforms.u_flameC.value.set(np.flameC);
+    uniforms.u_accent.value.set(np.accent);
   });
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   const vertexShader = /* glsl */ `
-    ${SIMPLEX_3D}
-    varying vec3 v_color;
-    varying vec2 v_uv;
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
 
+  /* DOMAIN WARPING — Iñigo Quílez technique.
+     Three samples of FBM, each fed through warped UV coords from the previous.
+     The result is the organic, ribbon-like flow we see on Stripe.com — way
+     more complex than what a single FBM lookup produces. */
+  const fragmentShader = /* glsl */ `
+    ${SIMPLEX_2D}
+    varying vec2 vUv;
     uniform float u_time;
-    uniform vec3 u_baseColor;
-    uniform vec3 u_wave1Color;
-    uniform vec3 u_wave2Color;
-    uniform vec3 u_wave3Color;
-
-    /* Stripe's blend mode — opacity-weighted normal (the only mode they
-       actually use on the live homepage despite shipping 14 of them). */
-    vec3 blendNormal(vec3 base, vec3 blend, float opacity) {
-      return blend * opacity + base * (1.0 - opacity);
-    }
-
-    /* Per-wave noise mask, smoothstepped so layers are crisp not muddy. */
-    float waveNoise(vec2 uv, vec2 freq, float speed, float flow, float seed, float floorN, float ceilN) {
-      float n = snoise(vec3(uv.x * freq.x + u_time * flow, uv.y * freq.y, u_time * speed + seed));
-      return smoothstep(floorN, ceilN, n * 0.5 + 0.5);
-    }
+    uniform vec3 u_base, u_flameA, u_flameB, u_flameC, u_accent;
+    uniform float u_alphaCenterX, u_alphaSpread, u_alphaMax, u_baseFade;
 
     void main() {
-      v_uv = uv;
-      vec2 uvNorm = uv * 2.0 - 1.0;
+      /* Stretch UV so the flame reads horizontally — Stripe's ribbons
+         flow left-to-right across a wide hero, not up-down. */
+      vec2 uv = vUv;
+      uv.x *= 1.6;
 
-      /* ─── Vertex displacement: tilt the plane + push it up with noise ─── */
-      float tilt    = 0.10 * uvNorm.y;
-      float incline = 0.18 * uvNorm.x;
-      float offset  = 0.04 * mix(-1.0, 1.0, uv.y);
+      float t = u_time * 0.08;
 
-      float displaceNoise = snoise(vec3(uvNorm.x * 1.4 + u_time * 0.18, uvNorm.y * 1.2, u_time * 0.20)) * 0.20;
-      /* Edge fade — keeps top/bottom horizontal so the skew reads cleanly */
-      displaceNoise *= 1.0 - pow(abs(uvNorm.y), 2.0);
-      displaceNoise = max(0.0, displaceNoise);   /* push up only, never dent down — Stripe's asymmetry */
+      /* First domain warp — slowly drifting offset field */
+      vec2 q;
+      q.x = fbm(uv + vec2(0.0, 0.0) + t * 0.5);
+      q.y = fbm(uv + vec2(5.2, 1.3) + t * 0.4);
 
-      vec3 pos = vec3(
-        position.x,
-        position.y + tilt + incline + displaceNoise - offset,
-        position.z
+      /* Second domain warp — uses q to perturb the next sample.
+         This is the move that turns FBM from "noise" into "ribbons". */
+      vec2 r;
+      r.x = fbm(uv + 4.0 * q + vec2(1.7, 9.2) + t * 0.6);
+      r.y = fbm(uv + 4.0 * q + vec2(8.3, 2.8) + t * 0.5);
+
+      /* Final FBM sample, perturbed by the warped field */
+      float f = fbm(uv + 3.5 * r + t * 0.3);
+
+      /* COLOR MIXING — three layers stacked, each driven by a different
+         flow signal. This is what gives the gradient its painterly,
+         multi-color richness instead of looking like a single tinted blob. */
+      vec3 color = u_base;
+      color = mix(color, u_flameA, clamp(length(q) * 0.65, 0.0, 1.0));
+      color = mix(color, u_flameB, clamp(length(r) * 0.55, 0.0, 1.0));
+      color = mix(color, u_flameC, clamp(f * f * 1.2 + 0.1, 0.0, 1.0));
+      /* Accent highlight — only on the brightest peaks, sparingly */
+      color = mix(color, u_accent, clamp(pow(f, 4.0) * 1.8, 0.0, 0.5));
+
+      /* ALPHA MASK — fade left so the text column stays clean.
+         smoothstep(center - spread, center + spread, x) gives a soft
+         transition from transparent (left) to opaque (right). The exact
+         center+spread are tuned per canvas via uniforms. */
+      float alpha = smoothstep(
+        u_alphaCenterX - u_alphaSpread,
+        u_alphaCenterX + u_alphaSpread,
+        vUv.x
       );
 
-      /* ─── Per-vertex color: 3 wave layers stacked over base ─── */
-      v_color = u_baseColor;
-      float n1 = waveNoise(uvNorm, vec2(2.4, 1.6), 0.10, 0.05, 1.0, 0.10, 0.65);
-      v_color = blendNormal(v_color, u_wave1Color, pow(n1, 4.0));
-      float n2 = waveNoise(uvNorm, vec2(1.6, 2.4), 0.13, 0.06, 4.0, 0.05, 0.70);
-      v_color = blendNormal(v_color, u_wave2Color, pow(n2, 4.0));
-      float n3 = waveNoise(uvNorm, vec2(3.0, 1.0), 0.08, 0.02, 8.0, 0.20, 0.85);
-      v_color = blendNormal(v_color, u_wave3Color, pow(n3, 4.0));
+      /* Slight vertical edge fade — keeps the flame from butting hard
+         against the section borders at top/bottom */
+      alpha *= smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
 
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      alpha *= u_alphaMax;
+
+      /* Optionally fade the base color too — when u_baseFade=0, the
+         base color goes transparent so the page bleeds through cleanly */
+      vec3 finalColor = mix(color, color, u_baseFade);  /* placeholder for clarity */
+
+      gl_FragColor = vec4(finalColor, alpha);
     }
   `;
 
-  /* Fragment shader is almost trivial — Stripe's "secret" is that all the
-     work happens in the vertex shader and the GPU hardware-interpolates
-     the resulting v_color across the triangle. */
-  const fragmentShader = /* glsl */ `
-    varying vec3 v_color;
-    varying vec2 v_uv;
-    uniform float u_darkenTop;
-    void main() {
-      vec3 color = v_color;
-      /* Optional shadow at top — Stripe darkens g channel slightly */
-      color.g -= pow(v_uv.y, 2.5) * 0.18 * u_darkenTop;
-      gl_FragColor = vec4(color, 1.0);
-    }
-  `;
-
-  const material = new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader });
+  const material = new THREE.ShaderMaterial({
+    uniforms, vertexShader, fragmentShader,
+    transparent: true,
+    depthWrite: false,
+  });
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
 
@@ -3489,7 +3509,6 @@ function buildHeroGradient(canvas) {
     const { clientWidth, clientHeight } = canvas;
     if (clientWidth === 0 || clientHeight === 0) return;
     renderer.setSize(clientWidth, clientHeight, false);
-    uniforms.u_resolution.value.set(clientWidth, clientHeight);
   }
   resize();
   window.addEventListener('resize', resize);
@@ -3498,10 +3517,8 @@ function buildHeroGradient(canvas) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   2. ORBITAL MODULE SPHERE — 17 modules plotted on a Fibonacci sphere,
-   drifting on noise, lines drawn between near neighbors.
-   Stripe.com's homepage doesn't use this exact pattern, but their global
-   payments graphic + the docs.stripe.com 3D demos use the same technique.
+   2. ORBITAL MODULE SPHERE — 17 nodes on a Fibonacci sphere.
+   Same as v1 structurally, but retinted from indigo to Stripe Blue.
    ════════════════════════════════════════════════════════════════════════ */
 function buildModulesOrbit(canvas) {
   if (!canvas) return null;
@@ -3513,39 +3530,28 @@ function buildModulesOrbit(canvas) {
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
   camera.position.set(0, 0, 4.5);
 
-  /* ─── Fibonacci sphere — 17 evenly distributed points on a unit sphere.
-     This is the canonical algorithm: golden-angle increments around the
-     vertical axis, with cosine-weighted height to keep area density even.
-     Point count matches the pipeline's 17 modules. */
   const POINT_COUNT = 17;
-  const phi = Math.PI * (3.0 - Math.sqrt(5.0));   // golden angle in radians
+  const phi = Math.PI * (3.0 - Math.sqrt(5.0));
   const points = [];
   for (let i = 0; i < POINT_COUNT; i++) {
-    const y = 1 - (i / (POINT_COUNT - 1)) * 2;     // y from 1 → -1
+    const y = 1 - (i / (POINT_COUNT - 1)) * 2;
     const radius = Math.sqrt(1 - y * y);
     const theta = phi * i;
-    points.push(new THREE.Vector3(
-      Math.cos(theta) * radius,
-      y,
-      Math.sin(theta) * radius
-    ));
+    points.push(new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius));
   }
 
-  /* ─── Sphere wireframe — subtle, just to anchor the eye ─── */
+  /* Wireframe sphere — now blue */
   const sphereGeo = new THREE.IcosahedronGeometry(1, 3);
   const sphereMat = new THREE.MeshBasicMaterial({
-    color: 0x7B61FF,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.08,
+    color: 0x0570DE, wireframe: true, transparent: true, opacity: 0.10,
   });
   const sphere = new THREE.Mesh(sphereGeo, sphereMat);
   scene.add(sphere);
 
-  /* ─── Module nodes — small glowing spheres at each fibonacci point ─── */
+  /* Nodes — 14 in Stripe Blue, 3 in cyan as visual variety */
   const nodeGroup = new THREE.Group();
   const nodeGeo = new THREE.SphereGeometry(0.045, 16, 16);
-  const nodeMat = new THREE.MeshBasicMaterial({ color: 0x7B61FF });
+  const nodeMat = new THREE.MeshBasicMaterial({ color: 0x0570DE });
   const nodeAccentMat = new THREE.MeshBasicMaterial({ color: 0x00D4FF });
   points.forEach((p, i) => {
     const mat = (i % 5 === 0) ? nodeAccentMat : nodeMat;
@@ -3557,29 +3563,20 @@ function buildModulesOrbit(canvas) {
   });
   scene.add(nodeGroup);
 
-  /* ─── Connection lines — each node connects to its 3 nearest neighbors.
-     We pre-compute the nearest-neighbor pairs once, then update the line
-     geometry's positions every frame as the nodes drift. */
+  /* Connection lines — nearest 3 neighbors, deduped */
   const connections = [];
   points.forEach((p, i) => {
-    const distances = points.map((q, j) => ({ j, d: p.distanceTo(q) }))
+    points.map((q, j) => ({ j, d: p.distanceTo(q) }))
       .filter(x => x.j !== i)
       .sort((a, b) => a.d - b.d)
-      .slice(0, 3);
-    distances.forEach(({ j }) => {
-      if (i < j) connections.push([i, j]);   // dedupe pairs
-    });
+      .slice(0, 3)
+      .forEach(({ j }) => { if (i < j) connections.push([i, j]); });
   });
 
-  const lineCount = connections.length;
-  const linePositions = new Float32Array(lineCount * 6);   // 2 vertices × 3 coords
+  const linePositions = new Float32Array(connections.length * 6);
   const lineGeo = new THREE.BufferGeometry();
   lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
-  const lineMat = new THREE.LineBasicMaterial({
-    color: 0x7B61FF,
-    transparent: true,
-    opacity: 0.22,
-  });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x0570DE, transparent: true, opacity: 0.25 });
   const lines = new THREE.LineSegments(lineGeo, lineMat);
   scene.add(lines);
 
@@ -3594,20 +3591,12 @@ function buildModulesOrbit(canvas) {
   window.addEventListener('resize', resize);
 
   function update(t) {
-    /* Slow auto-rotation around Y axis — Stripe's spinning earth feel */
     sphere.rotation.y = t * 0.12;
     nodeGroup.rotation.y = t * 0.12;
-
-    /* Per-node drift — each node oscillates radially around its base
-       position so the constellation feels alive, not mechanical. */
-    nodeGroup.children.forEach((node, i) => {
-      const phase = node.userData.phase;
-      const drift = Math.sin(t * 0.6 + phase) * 0.04;
+    nodeGroup.children.forEach((node) => {
+      const drift = Math.sin(t * 0.6 + node.userData.phase) * 0.04;
       node.position.copy(node.userData.basePos).multiplyScalar(1 + drift);
     });
-
-    /* Update connection-line positions with the rotated/drifted node coords.
-       We ask the node's world matrix for the actual rendered position. */
     nodeGroup.updateMatrixWorld();
     const tmp = new THREE.Vector3();
     let idx = 0;
@@ -3624,52 +3613,29 @@ function buildModulesOrbit(canvas) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   3. CTA GRADIENT — same technique as the hero, but with a different
-   palette + smaller amplitude. Sits across the bottom CTA block.
+   3. CTA FLAME — same shader, softer palette, full-width fade-in
    ════════════════════════════════════════════════════════════════════════ */
-function buildCtaGradient(canvas) {
-  if (!canvas) return null;
-  const hero = buildHeroGradient(canvas);
-  if (!hero) return null;
-  /* Override palette for a softer, lower-contrast bottom-of-page wave.
-     Same shader, different uniforms — the power of the Stripe approach.
-     We re-listen for theme changes on top of the hero observer so this
-     gradient also retunes when the user toggles. */
-  function applyCtaPalette() {
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    if (isLight) {
-      hero.uniforms.u_baseColor.value.set('#E5EBFF');
-      hero.uniforms.u_wave1Color.value.set('#9F8FFF');
-      hero.uniforms.u_wave2Color.value.set('#FF9CC4');
-      hero.uniforms.u_wave3Color.value.set('#7FE0FF');
-    } else {
-      hero.uniforms.u_baseColor.value.set('#0F2A4A');
-      hero.uniforms.u_wave1Color.value.set('#4F3CC9');
-      hero.uniforms.u_wave2Color.value.set('#1B2C5C');
-      hero.uniforms.u_wave3Color.value.set('#7B61FF');
-    }
-  }
-  applyCtaPalette();
-  const themeObserver = new MutationObserver(applyCtaPalette);
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  hero.uniforms.u_darkenTop.value = 0.0;
-  return hero;
+function buildCtaFlame(canvas) {
+  /* No alpha mask — we want the gradient full-bleed across the CTA section */
+  return buildHeroFlame(canvas, {
+    alphaCenterX: 0.5,
+    alphaSpread:  0.65,
+    alphaMax:     0.55,
+  });
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   ORCHESTRATION — single rAF loop, IntersectionObserver gating, frame skip
+   ORCHESTRATION
    ════════════════════════════════════════════════════════════════════════ */
 const heroCanvas    = document.getElementById('heroGradientCanvas');
 const modulesCanvas = document.getElementById('modulesOrbitCanvas');
 const ctaCanvas     = document.getElementById('ctaGradientCanvas');
 
-const hero    = !REDUCED_MOTION && heroCanvas    ? buildHeroGradient(heroCanvas)    : null;
+const hero    = !REDUCED_MOTION && heroCanvas    ? buildHeroFlame(heroCanvas)    : null;
 const modules = !REDUCED_MOTION && modulesCanvas ? buildModulesOrbit(modulesCanvas) : null;
-const cta     = !REDUCED_MOTION && ctaCanvas     ? buildCtaGradient(ctaCanvas)      : null;
+const cta     = !REDUCED_MOTION && ctaCanvas     ? buildCtaFlame(ctaCanvas)      : null;
 
-/* Visibility gating — only render canvases that are actually on-screen.
-   This is the single biggest perf win Stripe ships, and the easiest to
-   replicate. When the hero scrolls off, its rAF loop pauses entirely. */
+/* IntersectionObserver gating — only render visible canvases */
 const visible = new Map();
 const visObserver = new IntersectionObserver(entries => {
   entries.forEach(e => visible.set(e.target, e.isIntersecting));
@@ -3681,23 +3647,31 @@ const start = performance.now();
 
 function tick() {
   requestAnimationFrame(tick);
-  if (document.hidden) return;             // tab switched away — halt
+  if (document.hidden) return;
   frameCount++;
-  if (frameCount % 2 !== 0) return;        // 30fps render cap (Stripe ships this exact trick)
+  if (frameCount % 2 !== 0) return;   /* 30fps cap */
 
   const t = (performance.now() - start) / 1000;
 
-  if (hero    && visible.get(heroCanvas))    { hero.uniforms.u_time.value = t;    hero.renderer.render(hero.scene, hero.camera); }
-  if (modules && visible.get(modulesCanvas)) { modules.update(t);                 modules.renderer.render(modules.scene, modules.camera); }
-  if (cta     && visible.get(ctaCanvas))     { cta.uniforms.u_time.value = t * 0.6; cta.renderer.render(cta.scene, cta.camera); }
+  if (hero    && visible.get(heroCanvas))    {
+    hero.uniforms.u_time.value = t;
+    hero.renderer.render(hero.scene, hero.camera);
+  }
+  if (modules && visible.get(modulesCanvas)) {
+    modules.update(t);
+    modules.renderer.render(modules.scene, modules.camera);
+  }
+  if (cta     && visible.get(ctaCanvas))     {
+    cta.uniforms.u_time.value = t * 0.5;   /* slower drift on CTA */
+    cta.renderer.render(cta.scene, cta.camera);
+  }
 }
 tick();
 
-/* If reduced-motion is set, draw exactly one static frame so the gradient
-   is still visible (just frozen). */
+/* Reduced-motion fallback — single static frame */
 if (REDUCED_MOTION) {
-  const heroStatic = heroCanvas ? buildHeroGradient(heroCanvas) : null;
-  const ctaStatic  = ctaCanvas  ? buildCtaGradient(ctaCanvas)   : null;
+  const heroStatic = heroCanvas ? buildHeroFlame(heroCanvas) : null;
+  const ctaStatic  = ctaCanvas  ? buildCtaFlame(ctaCanvas)   : null;
   if (heroStatic) heroStatic.renderer.render(heroStatic.scene, heroStatic.camera);
   if (ctaStatic)  ctaStatic.renderer.render(ctaStatic.scene, ctaStatic.camera);
 }

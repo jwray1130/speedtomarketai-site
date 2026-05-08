@@ -52,12 +52,12 @@ body.docs-fullwidth {
 
 #docs-view-root {
   /* SIGNAL (chartreuse across both modes for bg/border) */
-  --signal: #7B61FF;
-  --signal-hover: #9F8FFF;
-  --signal-dim: #5B47CC;
-  --signal-pale: rgba(123, 97, 255, 0.10);
-  --signal-tint: rgba(123, 97, 255, 0.18);
-  --signal-ink: #7B61FF;
+  --signal: #0570DE;
+  --signal-hover: #3B82F6;
+  --signal-dim: #0469C5;
+  --signal-pale: rgba(5, 112, 222, 0.10);
+  --signal-tint: rgba(5, 112, 222, 0.18);
+  --signal-ink: #0570DE;
   --amber: #00D4FF;
 
   /* STATUS */
@@ -134,9 +134,9 @@ body.docs-fullwidth {
 }
 
 html[data-theme="light"] #docs-view-root {
-  --signal-ink: #4F3CC9;
-  --signal-pale: rgba(123, 97, 255, 0.22);
-  --signal-tint: rgba(123, 97, 255, 0.35);
+  --signal-ink: #0469C5;
+  --signal-pale: rgba(5, 112, 222, 0.22);
+  --signal-tint: rgba(5, 112, 222, 0.35);
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
