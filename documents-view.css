@@ -28,7 +28,7 @@
   z-index: 9999;
   /* Reset host page inheritance — we set our own font/color/bg via the
      namespaced :root rules below. */
-  font-family: 'Geist', -apple-system, sans-serif;
+  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -52,13 +52,13 @@ body.docs-fullwidth {
 
 #docs-view-root {
   /* SIGNAL (chartreuse across both modes for bg/border) */
-  --signal: #C6F432;
-  --signal-hover: #DBFF5C;
-  --signal-dim: #96BA25;
-  --signal-pale: rgba(198, 244, 50, 0.10);
-  --signal-tint: rgba(198, 244, 50, 0.18);
-  --signal-ink: #C6F432;
-  --amber: #FF9448;
+  --signal: #7B61FF;
+  --signal-hover: #9F8FFF;
+  --signal-dim: #5B47CC;
+  --signal-pale: rgba(123, 97, 255, 0.10);
+  --signal-tint: rgba(123, 97, 255, 0.18);
+  --signal-ink: #7B61FF;
+  --amber: #00D4FF;
 
   /* STATUS */
   --success: #7DD88A;
@@ -97,27 +97,27 @@ body.docs-fullwidth {
   --tag-coral-rgb: 251, 113, 133;
 
   /* SURFACES (dark default) */
-  --bg: #0A0E1A;
-  --surface: #111724;
-  --surface-alt: #1A2236;
-  --surface-raised: #212A3F;
-  --border: #1F2636;
-  --border-strong: #2A3449;
+  --bg: #0A2540;
+  --surface: #0F2A4A;
+  --surface-alt: #163057;
+  --surface-raised: #1B3964;
+  --border: #1F3460;
+  --border-strong: #2C4276;
 
   /* TYPE */
-  --text: #F1ECE2;
-  --text-secondary: #8B95A8;
-  --text-tertiary: #5A6478;
+  --text: #F6F9FC;
+  --text-secondary: #ADBDCC;
+  --text-tertiary: #708099;
 
   /* CHROME */
-  --sidebar-bg: #070A14;
-  --sidebar-text: #B6C2D8;
-  --topbar-bg: rgba(17, 23, 36, 0.85);
-  --backdrop-bg: rgba(10, 14, 26, 0.75);
+  --sidebar-bg: #06192F;
+  --sidebar-text: #A3B8D1;
+  --topbar-bg: rgba(15, 42, 74, 0.85);
+  --backdrop-bg: rgba(10, 37, 64, 0.75);
 
   /* FONTS */
-  --font-display: 'Fraunces', Georgia, serif;
-  --font-sans: 'Geist', -apple-system, sans-serif;
+  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
 
   /* GEOMETRY */
@@ -134,32 +134,32 @@ body.docs-fullwidth {
 }
 
 html[data-theme="light"] #docs-view-root {
-  --signal-ink: #4A6815;
-  --signal-pale: rgba(198, 244, 50, 0.22);
-  --signal-tint: rgba(198, 244, 50, 0.35);
+  --signal-ink: #4F3CC9;
+  --signal-pale: rgba(123, 97, 255, 0.22);
+  --signal-tint: rgba(123, 97, 255, 0.35);
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
   --info: #2563EB;
   /* Tag colors intentionally NOT overridden here — they stay the same across themes
      so tagged docs keep the same visual identity when the user toggles modes. */
-  --bg: #F7F5F0;
+  --bg: #FFFFFF;
   --surface: #FFFFFF;
-  --surface-alt: #F0ECE2;
-  --surface-raised: #E8E3D4;
-  --border: #E4DECE;
-  --border-strong: #C9C1AC;
-  --text: #1A1F2E;
-  --text-secondary: #5A6478;
-  --text-tertiary: #8A94A6;
+  --surface-alt: #EBF0F5;
+  --surface-raised: #DDE5EE;
+  --border: #E3E8EE;
+  --border-strong: #C0CCDA;
+  --text: #0A2540;
+  --text-secondary: #708099;
+  --text-tertiary: #697386;
   --sidebar-bg: #FFFFFF;
-  --sidebar-text: #5A6478;
+  --sidebar-text: #708099;
   --topbar-bg: rgba(255, 255, 255, 0.85);
-  --backdrop-bg: rgba(247, 245, 240, 0.72);
-  --shadow-sm: 0 1px 2px rgba(26, 31, 46, 0.04);
-  --shadow: 0 2px 8px rgba(26, 31, 46, 0.06), 0 1px 3px rgba(26, 31, 46, 0.08);
-  --shadow-lg: 0 8px 24px rgba(26, 31, 46, 0.10);
-  --shadow-xl: 0 20px 60px rgba(26, 31, 46, 0.18);
+  --backdrop-bg: rgba(255, 255, 255, 0.72);
+  --shadow-sm: 0 1px 2px rgba(10, 37, 64, 0.04);
+  --shadow: 0 2px 8px rgba(10, 37, 64, 0.06), 0 1px 3px rgba(10, 37, 64, 0.08);
+  --shadow-lg: 0 8px 24px rgba(10, 37, 64, 0.10);
+  --shadow-xl: 0 20px 60px rgba(10, 37, 64, 0.18);
 }
 
 #docs-view-root * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -233,7 +233,7 @@ html.no-transitions #docs-view-root *, html.no-transitions #docs-view-root *::be
   width: 26px; height: 26px;
   border-radius: 6px;
   background: var(--signal);
-  color: #0A0E1A;
+  color: #0A2540;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
   font-family: var(--font-display);
@@ -635,11 +635,11 @@ html[data-theme="light"] #docs-view-root mark.search-hl {
 
 #docs-view-root .btn:hover { background: var(--surface-raised); border-color: var(--border-strong); }
 
-#docs-view-root .btn-primary { background: var(--signal); color: #0A0E1A; border-color: var(--signal); font-weight: 600; }
+#docs-view-root .btn-primary { background: var(--signal); color: #0A2540; border-color: var(--signal); font-weight: 600; }
 
 #docs-view-root .btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); }
 
-html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
+html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 
 #docs-view-root .btn-icon {
   width: 32px; height: 32px; padding: 0;
@@ -754,7 +754,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   display: flex; align-items: center; justify-content: center;
 }
 
-#docs-view-root .view-toggle button.active { background: var(--signal); color: #0A0E1A; }
+#docs-view-root .view-toggle button.active { background: var(--signal); color: #0A2540; }
 
 #docs-view-root .view-toggle button svg { width: 13px; height: 13px; }
 
@@ -860,7 +860,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .bulk-bar {
   background: var(--signal);
-  color: #0A0E1A;
+  color: #0A2540;
   padding: 7px 12px;
   display: none;
   align-items: center;
@@ -877,15 +877,15 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .bulk-btn {
   width: 26px; height: 26px;
-  background: rgba(10, 14, 26, 0.12);
+  background: rgba(10, 37, 64, 0.12);
   border: none;
-  color: #0A0E1A;
+  color: #0A2540;
   border-radius: 4px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 
-#docs-view-root .bulk-btn:hover { background: rgba(10, 14, 26, 0.22); }
+#docs-view-root .bulk-btn:hover { background: rgba(10, 37, 64, 0.22); }
 
 #docs-view-root .bulk-btn.danger:hover { background: var(--danger); color: white; }
 
@@ -1268,11 +1268,11 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   transform: scale(0.343);
 }
 
-#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: #0a0e1a; }
+#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: #0A2540; }
 
-#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: #0a0e1a; }
+#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: #0A2540; }
 
-#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: #0a0e1a; }
+#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: #0A2540; }
 
 #docs-view-root .doc-thumb-word-page h4 { font-size: 15px; font-weight: 600; margin: 14px 0 6px 0; }
 
@@ -1298,7 +1298,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   position: absolute;
   top: 8px; right: 8px;
   padding: 2px 6px;
-  background: rgba(10, 14, 26, 0.75);
+  background: rgba(10, 37, 64, 0.75);
   color: white;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1313,7 +1313,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   position: absolute;
   bottom: 8px; left: 8px;
   padding: 2px 6px;
-  background: rgba(10, 14, 26, 0.75);
+  background: rgba(10, 37, 64, 0.75);
   color: white;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1327,7 +1327,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   width: 20px; height: 20px;
   border-radius: 50%;
   background: var(--signal);
-  color: #0A0E1A;
+  color: #0A2540;
   display: flex; align-items: center; justify-content: center;
   z-index: 4;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1604,7 +1604,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
   text-align: center;
 }
 
-#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: #0A0E1A; }
+#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: #0A2540; }
 
 #docs-view-root .tags-panel {
   display: grid;
@@ -1965,7 +1965,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .anno-btn.active {
   background: var(--signal);
-  color: #0A0E1A;
+  color: #0A2540;
   border-color: var(--signal);
 }
 
@@ -2582,7 +2582,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   z-index: 2000;
   display: none;
   flex-direction: column;
-  background: rgba(10, 14, 26, 0.96);
+  background: rgba(10, 37, 64, 0.96);
   backdrop-filter: blur(12px);
 }
 
@@ -2654,7 +2654,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .preview-btn:hover { background: var(--surface-alt); color: var(--text); border-color: var(--border-strong); }
 
-#docs-view-root .preview-btn.active { background: var(--signal); color: #0A0E1A; border-color: var(--signal); }
+#docs-view-root .preview-btn.active { background: var(--signal); color: #0A2540; border-color: var(--signal); }
 
 #docs-view-root .preview-btn svg { width: 12px; height: 12px; }
 
@@ -2822,7 +2822,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 #docs-view-root .preview-excel table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
 #docs-view-root .preview-excel th {
-  background: #F3F4F6; color: #1A1F2E;
+  background: #F3F4F6; color: #0A2540;
   padding: 6px 10px;
   border: 1px solid #E5E7EB;
   font-size: 10px;
@@ -3186,7 +3186,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #0A0E1A;
+  color: #0A2540;
   background: var(--signal);
   border-radius: 3px;
   z-index: 4;
