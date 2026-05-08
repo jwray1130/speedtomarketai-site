@@ -1787,6 +1787,392 @@ h1.hero-title .line:has(em) em {
   /* The Three.js loop checks the same media query and stops the rAF chain. */
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 1 — "THE LIVE PIPELINE"
+   The hero device frame becomes a living object: 3D mouse-tilt parallax,
+   auto-cycling active chunk with proximity-based dimming, scan-line WebGL
+   sweep, magnetic float tags, and a typewriter caption. All driven by
+   the Session 1 script block at the end of <body>.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* The visual side of the hero needs perspective + 3D context for the tilt
+   transform to actually render in 3D rather than as a 2D matrix. */
+.hero-visual {
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+}
+.device-frame {
+  /* The JS rotates --tx, --ty (radians, clamped). Default to 0 so the frame
+     sits flat until the cursor is over the hero. transition smooths the
+     return-to-rest when the cursor leaves. */
+  --tx: 0deg;
+  --ty: 0deg;
+  --tz: 0px;
+  transform-style: preserve-3d;
+  transform: perspective(1400px) rotateX(var(--ty)) rotateY(var(--tx)) translateZ(var(--tz));
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform;
+}
+.hero-visual.is-tilting .device-frame {
+  /* When mouse is moving inside the hero, drop the transition so the tilt
+     follows the cursor in real time. The transition kicks back in only on
+     mouseleave (when .is-tilting is removed). */
+  transition: transform 0.08s linear;
+}
+/* Float tags get the same perspective context so their magnetic pull also
+   reads as a slight 3D shift, not just a flat translate. */
+.float-tag {
+  --mx: 0px;
+  --my: 0px;
+  transform: translate(var(--mx), var(--my));
+  transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform;
+}
+.hero-visual.is-magnetizing .float-tag {
+  /* Real-time follow when cursor is in proximity */
+  transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ───── ACTIVE CHUNK CYCLING ─────
+   Chunks pass through three states as the cycle advances:
+     .chunk--active : the focused row, brighter, slightly enlarged, glowing
+     .chunk--near   : within ±1 of active, lifted slightly
+     .chunk--far    : everything else, dimmed
+   The cycle starts ~3.5s after page load (after entry stagger finishes)
+   and pauses while the cursor is over the device frame so the user can
+   read normally. */
+.chunk {
+  transition:
+    transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 0.55s ease,
+    border-left-color 0.55s ease,
+    box-shadow 0.55s ease,
+    opacity 0.55s ease;
+  position: relative;
+  /* Keep chunks above the scanline canvas */
+  z-index: 2;
+}
+.chunk--active {
+  transform: translateX(0) scale(1.015);
+  background-color: rgba(5, 112, 222, 0.10);
+  border-left-color: var(--signal);
+  box-shadow:
+    0 0 0 1px rgba(5, 112, 222, 0.20),
+    0 6px 18px -8px rgba(5, 112, 222, 0.55),
+    inset 2px 0 0 var(--signal);
+  z-index: 3;
+}
+.chunk--active .label {
+  color: var(--signal);
+}
+.chunk--near {
+  opacity: 0.94;
+}
+.chunk--far {
+  opacity: 0.62;
+}
+/* Alert chunks already have their own border color — preserve that even
+   when active (just intensify the glow). */
+.chunk.alert.chunk--active {
+  background-color: rgba(0, 212, 255, 0.10);
+  border-left-color: var(--amber);
+  box-shadow:
+    0 0 0 1px rgba(0, 212, 255, 0.22),
+    0 6px 18px -8px rgba(0, 212, 255, 0.55),
+    inset 2px 0 0 var(--amber);
+}
+.chunk.alert.chunk--active .label {
+  color: var(--amber);
+}
+[data-theme="light"] .chunk--active {
+  background-color: rgba(5, 112, 222, 0.06);
+  box-shadow:
+    0 0 0 1px rgba(5, 112, 222, 0.18),
+    0 6px 18px -8px rgba(5, 112, 222, 0.40),
+    inset 2px 0 0 var(--signal);
+}
+
+/* ───── SCAN-LINE CANVAS ─────
+   Sits inside .device-body, absolutely positioned, paints a thin moving
+   horizontal sweep with an indigo halo following the active chunk's Y
+   position. mix-blend-mode: screen lightens whatever's beneath it, so
+   the sweep visibly passes through the chunks. */
+.device-scanline-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;            /* below chunks (z-index: 2), above device-body bg */
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+[data-theme="light"] .device-scanline-canvas {
+  mix-blend-mode: multiply;
+  opacity: 0.45;
+}
+
+/* ───── TYPEWRITER CAPTION ─────
+   The .device-caption-typer span is initially emptied by JS, then filled
+   character-by-character. The blinking caret appears via ::after only
+   while the typer has [data-typing="true"]. */
+.device-caption-typer {
+  position: relative;
+}
+.device-caption-typer[data-typing="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--signal);
+  vertical-align: text-bottom;
+  animation: typerCaret 0.7s steps(1) infinite;
+}
+@keyframes typerCaret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 4 — BENTO MICRO-ANIMATIONS
+   One canvas per .module card. CSS pins it to fill the card, sits BEHIND
+   the existing text content. Default opacity 0.55, lifts to 0.92 on hover
+   so animations "wake up" when the user engages.
+   ════════════════════════════════════════════════════════════════════════ */
+.module-anim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+  transition: opacity 0.45s ease;
+  /* Slight bottom-fade so the animations don't compete with the
+     module-arrow icon in the bottom-right corner */
+  -webkit-mask-image: linear-gradient(180deg, black 0%, black 70%, rgba(0,0,0,0.85) 100%);
+          mask-image: linear-gradient(180deg, black 0%, black 70%, rgba(0,0,0,0.85) 100%);
+}
+.module:hover .module-anim,
+.module--linked .module-anim {
+  opacity: 0.92;
+}
+[data-theme="light"] .module-anim {
+  opacity: 0.45;
+  /* Light-mode is harder for the soft palette to show against white,
+     so we use multiply blend to darken instead of lighten. */
+  mix-blend-mode: multiply;
+}
+[data-theme="light"] .module:hover .module-anim,
+[data-theme="light"] .module--linked .module-anim {
+  opacity: 0.85;
+}
+
+/* The .module text content needs to sit above the canvas — push the
+   immediate-child <div> containing the tag/name/desc to z-index 1. */
+.module > div:not(.module-arrow):not(.module-anim) {
+  position: relative;
+  z-index: 1;
+}
+.module-arrow {
+  position: relative;
+  z-index: 1;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 5 — POLISH CLOSER
+   View-transition radial reveal, custom cursor, click ripple, and
+   universal theme transitions for the slow color-flow effect.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ───── VIEW TRANSITION — radial reveal from the toggle button ─────
+   The browser captures pre/post snapshots of the page when document.
+   startViewTransition() runs, then composites them via these pseudos.
+   We keep the OLD snapshot underneath, animated, and clip-path the NEW
+   snapshot from a 0% circle at the toggle button to a 150% circle that
+   covers the full viewport. Result: the new theme literally radiates
+   out from the click point. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;             /* override default crossfade */
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 0;
+}
+::view-transition-new(root) {
+  z-index: 1;
+  clip-path: circle(0% at var(--vt-cx, 50%) var(--vt-cy, 50%));
+  animation: vt-reveal 700ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes vt-reveal {
+  to { clip-path: circle(160% at var(--vt-cx, 50%) var(--vt-cy, 50%)); }
+}
+
+/* Universal theme transitions — for browsers without View Transitions API,
+   this keeps the old/new states crossfading harmoniously across all
+   themed properties. The few properties listed cover ~95% of theme
+   changes; anything not listed snaps instantly, which is fine. */
+body, .topbar, .nav-links a, .module, .device-frame, .device-body,
+.chunk, .ba-col, .roadmap-col, .stats-strip, .mc-stat, .uc-pane,
+.foot-bottom, .builtby, .ct-content, .ct-dot, .float-tag, .announce {
+  transition:
+    background-color 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color     600ms cubic-bezier(0.4, 0, 0.2, 1),
+    color            450ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ───── CUSTOM CURSOR ───── */
+.custom-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  margin-top: -4px;
+  background: var(--signal);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99998;
+  opacity: 0;
+  transition:
+    width 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    height 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    margin 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.22s ease,
+    border 0.22s ease,
+    opacity 0.18s ease;
+  /* The element follows the cursor via JS-applied transform; we don't
+     want CSS transitions on transform itself or the lerp would compound. */
+  will-change: transform;
+}
+.custom-cursor.cursor--visible { opacity: 0.85; }
+.custom-cursor.cursor--hover {
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  background: transparent;
+  border: 1.5px solid var(--signal);
+  opacity: 0.7;
+}
+/* Hide on touch devices — the @media query in JS already gates creation,
+   but defense in depth in case the JS race-condition-creates one. */
+@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .custom-cursor { display: none !important; }
+}
+
+/* ───── CLICK RIPPLE ─────
+   White expanding circle from click point, scales 0 → 1 over 600ms with
+   the standard cubic-bezier curve. Pill buttons clip via overflow:hidden
+   (set by JS at runtime if not already on the element). */
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  transform: scale(0);
+  opacity: 1;
+  animation: rippleExpand 600ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes rippleExpand {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+/* Light-mode buttons are blue with white text — white ripple looks great.
+   Light-mode .btn-secondary is white-ish though, so the ripple needs a
+   darker tint there. */
+[data-theme="light"] .btn-secondary .ripple {
+  background: rgba(5, 112, 222, 0.20);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 3 — BIDIRECTIONAL BINDING (sphere ↔ bento)
+   The orbital sphere is now a navigation device.
+   .module--linked    : applied when the sphere node hover matches this card
+   .module--target-pulse : brief flash after a sphere-click scrolls to it
+   ════════════════════════════════════════════════════════════════════════ */
+.module--linked {
+  /* Distinct from the default .module:hover state (which has the indigo
+     radial corner glow). The "linked from sphere" treatment is a Stripe
+     Blue ring + a slight lift, so the user can tell which interaction
+     triggered which highlight. */
+  border-color: var(--signal) !important;
+  box-shadow:
+    0 0 0 2px rgba(5, 112, 222, 0.32),
+    0 12px 28px -10px rgba(5, 112, 222, 0.40);
+  transform: translateY(-2px);
+  z-index: 2;
+}
+.module--linked .module-tag,
+.module--linked .module-name {
+  color: var(--signal);
+}
+[data-theme="light"] .module--linked {
+  box-shadow:
+    0 0 0 2px rgba(5, 112, 222, 0.28),
+    0 12px 28px -10px rgba(5, 112, 222, 0.30);
+}
+
+/* Scroll-target pulse — fires after a sphere-node click smooth-scrolls to
+   the matching card. Two-stage: bright halo → fade. The class is auto-
+   removed after the animation duration so the card returns to baseline. */
+.module--target-pulse {
+  animation: modulePulse 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes modulePulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(5, 112, 222, 0.85),
+      0 0 0 8px rgba(5, 112, 222, 0.0);
+  }
+  20% {
+    box-shadow:
+      0 0 0 8px rgba(5, 112, 222, 0.0),
+      0 0 0 0 rgba(5, 112, 222, 0.85);
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(5, 112, 222, 0.0),
+      0 0 0 0 rgba(5, 112, 222, 0.0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Light-mode variant of the pulse — same shape, lower max alpha so it
+   doesn't overpower the white background */
+[data-theme="light"] .module--target-pulse {
+  animation: modulePulseLight 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes modulePulseLight {
+  0% {
+    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.50);
+  }
+  20% {
+    box-shadow: 0 0 0 12px rgba(5, 112, 222, 0.0);
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* The .module element already has a transition for hover via the existing
+   ::after psuedo. Make sure transform + box-shadow + border-color have
+   transitions too so .module--linked feels smooth, not snappy. */
+.module {
+  transition:
+    transform 0.32s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.32s cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 0.32s ease;
+}
+
 /* ───── LIGHT-MODE HERO TEXT LEGIBILITY ─────
    In light mode the WebGL gradient sits on a white page and lifts to a
    pastel indigo / pink wash. The hero text needs a tiny boost so it stays
@@ -1893,6 +2279,7 @@ h1.hero-title .line:has(em) em {
           <span></span><span></span><span></span>
         </div>
         <div class="device-body">
+          <canvas class="device-scanline-canvas" id="deviceScanline" aria-hidden="true"></canvas>
           <div class="chunk">
             <div class="label">A1 &middot; WEBSITE INTEL</div>
             <div class="content">meridianstructural.com &middot; <span class="mono-data">Scope aligns w/ app &middot; no red flags</span></div>
@@ -1958,7 +2345,7 @@ h1.hero-title .line:has(em) em {
             <div class="content">NY Labor Law &sect;240/241 exposure &middot; <span class="mono-data">Senior UW referral</span></div>
           </div>
         </div>
-        <div class="device-caption">Generated in 47 seconds &middot; all 17 modules &middot; source-cited</div>
+        <div class="device-caption"><span class="device-caption-typer" data-final="Generated in 47 seconds &middot; all 17 modules &middot; source-cited">Generated in 47 seconds &middot; all 17 modules &middot; source-cited</span></div>
       </div>
       <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK &middot; &#10003; 17/17</div>
     </div>
@@ -3409,6 +3796,15 @@ function buildHeroFlame(canvas, opts = {}) {
     u_alphaSpread:   { value: opts.alphaSpread  ?? 0.45 },   // how soft the fade is
     u_alphaMax:      { value: opts.alphaMax     ?? 0.95 },
     u_baseFade:      { value: opts.baseFade     ?? 1.0 },    // 1=show base, 0=transparent base
+    /* SESSION 2 — interactive uniforms.
+       u_mouse  : normalized cursor position over the hero, 0..1 each axis.
+                  Defaults to (0.5, 0.5) so the gradient looks centered when
+                  the cursor isn't tracked yet.
+       u_scrollProgress : 0 when hero is at the top of viewport, 1 when the
+                  hero has been fully scrolled past. Used to dim the flame
+                  as the user reads further down the page. */
+    u_mouse:           { value: new THREE.Vector2(0.5, 0.5) },
+    u_scrollProgress:  { value: 0 },
   };
 
   /* Theme toggle — re-tune palette on data-theme change without page reload */
@@ -3440,12 +3836,22 @@ function buildHeroFlame(canvas, opts = {}) {
     uniform float u_time;
     uniform vec3 u_base, u_flameA, u_flameB, u_flameC, u_accent;
     uniform float u_alphaCenterX, u_alphaSpread, u_alphaMax, u_baseFade;
+    uniform vec2 u_mouse;             /* Session 2 — cursor pos, 0..1 */
+    uniform float u_scrollProgress;   /* Session 2 — 0=hero in view, 1=past */
 
     void main() {
       /* Stretch UV so the flame reads horizontally — Stripe's ribbons
          flow left-to-right across a wide hero, not up-down. */
       vec2 uv = vUv;
       uv.x *= 1.6;
+
+      /* SESSION 2: cursor warp.
+         Add a small offset to the uv based on cursor position. Mouse is
+         centered at (0.5, 0.5), so we shift by (mouse - 0.5) * strength.
+         The ribbons appear to bend toward the cursor without being so
+         strong that the gradient feels "stuck to" the pointer. */
+      vec2 mouseOffset = (u_mouse - 0.5) * 0.15;
+      uv += mouseOffset;
 
       float t = u_time * 0.08;
 
@@ -3460,8 +3866,11 @@ function buildHeroFlame(canvas, opts = {}) {
       r.x = fbm(uv + 4.0 * q + vec2(1.7, 9.2) + t * 0.6);
       r.y = fbm(uv + 4.0 * q + vec2(8.3, 2.8) + t * 0.5);
 
-      /* Final FBM sample, perturbed by the warped field */
-      float f = fbm(uv + 3.5 * r + t * 0.3);
+      /* Final FBM sample, perturbed by the warped field.
+         SESSION 2: cursor proximity adds subtle additional warp via
+         u_mouse — the flame intensifies slightly toward the cursor. */
+      float mouseHeat = 1.0 - smoothstep(0.0, 0.6, length((vUv - u_mouse) * vec2(1.4, 1.0)));
+      float f = fbm(uv + 3.5 * r + t * 0.3) + mouseHeat * 0.18;
 
       /* COLOR MIXING — three layers stacked, each driven by a different
          flow signal. This is what gives the gradient its painterly,
@@ -3488,6 +3897,11 @@ function buildHeroFlame(canvas, opts = {}) {
       alpha *= smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
 
       alpha *= u_alphaMax;
+
+      /* SESSION 2: scroll-driven dim. As the user reads further down,
+         the hero flame slowly recedes — drops to ~50% intensity by the
+         time it's fully scrolled past. Subtle but pervasive. */
+      alpha *= mix(1.0, 0.5, u_scrollProgress);
 
       /* Optionally fade the base color too — when u_baseFade=0, the
          base color goes transparent so the page bleeds through cleanly */
@@ -3596,6 +4010,14 @@ function buildModulesOrbit(canvas) {
     nodeGroup.children.forEach((node) => {
       const drift = Math.sin(t * 0.6 + node.userData.phase) * 0.04;
       node.position.copy(node.userData.basePos).multiplyScalar(1 + drift);
+
+      /* Session 3 — animate scale toward target. When a node is highlighted
+         (.userData.highlighted = true), it lerps to scale 1.6; otherwise
+         lerps back to 1.0. Same trick as the smoothed mouse uniforms above. */
+      const targetScale = node.userData.highlighted ? 1.6 : 1.0;
+      const cur = node.scale.x;
+      const next = cur + (targetScale - cur) * 0.18;
+      node.scale.setScalar(next);
     });
     nodeGroup.updateMatrixWorld();
     const tmp = new THREE.Vector3();
@@ -3609,7 +4031,50 @@ function buildModulesOrbit(canvas) {
     lineGeo.attributes.position.needsUpdate = true;
   }
 
-  return { renderer, scene, camera, update, resize };
+  /* ─────────────────────────────────────────────────────────────────
+     Session 3 — bidirectional binding API.
+     The orbital sphere becomes interactive: hover a node → light up the
+     corresponding bento card; hover a card → light up the corresponding
+     node. Click either side → smooth-scroll to the matching module.
+     ───────────────────────────────────────────────────────────────── */
+  const raycaster = new THREE.Raycaster();
+  /* Generous threshold on the line-test distance for sphere meshes —
+     the nodes are small (radius 0.045) and we want a hit zone slightly
+     larger than the visual so it doesn't feel finicky. */
+  raycaster.params.Mesh = { threshold: 0.05 };
+
+  function setHighlight(idx) {
+    nodeGroup.children.forEach((node, i) => {
+      node.userData.highlighted = (i === idx);
+      /* Highlighted nodes adopt the cyan accent material so they stand
+         out from their indigo siblings even when not currently scaled. */
+      if (i === idx) node.material = nodeAccentMat;
+      else node.material = (i % 5 === 0) ? nodeAccentMat : nodeMat;
+    });
+  }
+  function clearHighlight() { setHighlight(-1); }
+
+  /* Hit-test: given clientX/Y screen coords, return the index of the
+     hovered node, or -1 if none. The mouse coords are converted to NDC
+     against the canvas's bounding rect. */
+  function getHoveredIdx(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    /* Bail early if the cursor isn't inside the canvas rect — saves a
+       raycast on every page-wide mousemove. */
+    if (clientX < rect.left || clientX > rect.right ||
+        clientY < rect.top  || clientY > rect.bottom) return -1;
+    const x = ((clientX - rect.left) / rect.width)  * 2 - 1;
+    const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera({ x, y }, camera);
+    const hits = raycaster.intersectObjects(nodeGroup.children, false);
+    return hits.length > 0 ? nodeGroup.children.indexOf(hits[0].object) : -1;
+  }
+
+  return {
+    renderer, scene, camera, update, resize,
+    setHighlight, clearHighlight, getHoveredIdx,
+    nodes: nodeGroup.children,
+  };
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -3642,6 +4107,57 @@ const visObserver = new IntersectionObserver(entries => {
 }, { threshold: 0 });
 [heroCanvas, modulesCanvas, ctaCanvas].forEach(c => { if (c) visObserver.observe(c); });
 
+/* ───────────────────────────────────────────────────────────────────────
+   SESSION 2 — interactive shader drivers.
+
+   Mouse: track cursor position relative to the .hero element. Smoothed
+   with linear interpolation toward the target so the flame doesn't snap
+   on every pixel of cursor movement — feels like the gradient has weight.
+
+   Scroll: compute hero bounding-rect against viewport. progress=0 when
+   the hero top is at the top of viewport, progress=1 when the hero has
+   been fully scrolled past. Used by the hero shader's u_scrollProgress
+   uniform to taper the flame's alpha as the user reads further down.
+   ─────────────────────────────────────────────────────────────────────── */
+const heroEl = document.querySelector('.hero');
+const mouseTarget = { x: 0.5, y: 0.5 };   /* what we want u_mouse to be */
+const mouseSmoothed = { x: 0.5, y: 0.5 }; /* what we actually pass to GPU */
+let scrollProgressTarget = 0;
+let scrollProgressSmoothed = 0;
+
+if (heroEl) {
+  /* mousemove on the hero only — outside the hero, the cursor is irrelevant.
+     We use clientX/Y because the hero is in normal document flow with no
+     transforms between body and hero. */
+  heroEl.addEventListener('mousemove', e => {
+    const r = heroEl.getBoundingClientRect();
+    mouseTarget.x = (e.clientX - r.left) / r.width;
+    /* Y is inverted because GLSL UV has 0 at bottom; we want 0=top in JS */
+    mouseTarget.y = 1 - (e.clientY - r.top) / r.height;
+  });
+  heroEl.addEventListener('mouseleave', () => {
+    mouseTarget.x = 0.5;
+    mouseTarget.y = 0.5;
+  });
+
+  /* scroll progress — recompute on scroll AND on resize */
+  function updateScrollProgress() {
+    const r = heroEl.getBoundingClientRect();
+    /* progress 0 when r.top >= 0 (hero at or below viewport top)
+       progress 1 when r.bottom <= 0 (hero fully above viewport)  */
+    if (r.bottom <= 0) {
+      scrollProgressTarget = 1;
+    } else if (r.top >= 0) {
+      scrollProgressTarget = 0;
+    } else {
+      scrollProgressTarget = -r.top / r.height;
+    }
+  }
+  window.addEventListener('scroll', updateScrollProgress, { passive: true });
+  window.addEventListener('resize', updateScrollProgress);
+  updateScrollProgress();
+}
+
 let frameCount = 0;
 const start = performance.now();
 
@@ -3653,8 +4169,17 @@ function tick() {
 
   const t = (performance.now() - start) / 1000;
 
+  /* Smooth cursor + scroll values toward their targets.
+     Lerp factor ~0.12 = critically damped feel at 30fps — fast enough
+     to follow casual movement, slow enough to dampen jitter. */
+  mouseSmoothed.x += (mouseTarget.x - mouseSmoothed.x) * 0.12;
+  mouseSmoothed.y += (mouseTarget.y - mouseSmoothed.y) * 0.12;
+  scrollProgressSmoothed += (scrollProgressTarget - scrollProgressSmoothed) * 0.15;
+
   if (hero    && visible.get(heroCanvas))    {
     hero.uniforms.u_time.value = t;
+    hero.uniforms.u_mouse.value.set(mouseSmoothed.x, mouseSmoothed.y);
+    hero.uniforms.u_scrollProgress.value = scrollProgressSmoothed;
     hero.renderer.render(hero.scene, hero.camera);
   }
   if (modules && visible.get(modulesCanvas)) {
@@ -3668,6 +4193,109 @@ function tick() {
 }
 tick();
 
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 3 — BIDIRECTIONAL BINDING (sphere ↔ bento)
+
+   The orbital sphere becomes a navigation device, not just decoration.
+     • Hover a sphere node      → corresponding module card glows + scales
+     • Hover a module card      → corresponding sphere node enlarges + cyans
+     • Click a sphere node      → smooth-scroll to that module + pulse it
+     • Click a module card      → already there, native behavior preserved
+
+   Sphere has 17 nodes; the grid has 16 visible cards (15 + 1 summary).
+   We bind nodes 0–15 to cards 0–15. Node 16 stays decorative.
+
+   The canvas keeps `pointer-events: none` so it never steals events from
+   the bento grid below it. We listen on the #modules section instead and
+   dispatch hits through the orbit's getHoveredIdx() raycaster.
+   ════════════════════════════════════════════════════════════════════════ */
+if (modules) {
+  const modulesSection = document.getElementById('modules');
+  /* Match the order in the DOM — each .module corresponds to a sphere node
+     by index. The "summary" card is the last one, so it'll bind to node 15. */
+  const moduleCards = Array.from(modulesSection.querySelectorAll('.module'));
+
+  let lastHovered = -1;       /* avoid re-applying class every mousemove frame */
+
+  function setLinkedCard(idx) {
+    if (idx === lastHovered) return;
+    lastHovered = idx;
+    moduleCards.forEach((card, i) => {
+      card.classList.toggle('module--linked', i === idx);
+    });
+    if (modules.setHighlight) modules.setHighlight(idx);
+  }
+
+  if (modulesSection) {
+    /* Cursor moves anywhere in the modules section → raycast against the
+       sphere. Throttle to one hit-test every other frame using a flag set
+       in rAF — keeps the CPU cool during fast cursor traversal. */
+    let rafScheduled = false;
+    let lastEv = null;
+    modulesSection.addEventListener('mousemove', e => {
+      lastEv = e;
+      if (rafScheduled) return;
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        rafScheduled = false;
+        if (!lastEv) return;
+        const idx = modules.getHoveredIdx(lastEv.clientX, lastEv.clientY);
+        if (idx >= 0 && idx < moduleCards.length) {
+          setLinkedCard(idx);
+          modulesSection.style.cursor = 'pointer';
+        } else {
+          /* Cursor isn't on a node. Only clear the link if it's also not
+             over any card — otherwise the card's own mouseenter is already
+             handling the highlight. */
+          const overCard = moduleCards.some(c => {
+            const r = c.getBoundingClientRect();
+            return lastEv.clientX >= r.left && lastEv.clientX <= r.right &&
+                   lastEv.clientY >= r.top  && lastEv.clientY <= r.bottom;
+          });
+          if (!overCard && lastHovered !== -1) {
+            setLinkedCard(-1);
+          }
+          modulesSection.style.cursor = '';
+        }
+      });
+    });
+    modulesSection.addEventListener('mouseleave', () => {
+      setLinkedCard(-1);
+      modulesSection.style.cursor = '';
+    });
+
+    /* Click on the sphere → scroll to + pulse the card.
+       Card-side click is left alone — the user already sees the card. */
+    modulesSection.addEventListener('click', e => {
+      const idx = modules.getHoveredIdx(e.clientX, e.clientY);
+      if (idx < 0 || idx >= moduleCards.length) return;
+      const card = moduleCards[idx];
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      /* Brief "scrolled-to" flash so the user can spot the target card after
+         the scroll completes. Class auto-removes after the CSS animation. */
+      card.classList.add('module--target-pulse');
+      setTimeout(() => card.classList.remove('module--target-pulse'), 1200);
+    });
+  }
+
+  /* Reverse direction — hovering a card lights up its sphere node */
+  moduleCards.forEach((card, idx) => {
+    card.addEventListener('mouseenter', () => {
+      if (modules.setHighlight) modules.setHighlight(idx);
+      lastHovered = idx;
+    });
+    card.addEventListener('mouseleave', () => {
+      /* Tiny delay so cursor moving between adjacent cards doesn't flicker */
+      setTimeout(() => {
+        if (lastHovered === idx) {
+          modules.clearHighlight();
+          lastHovered = -1;
+        }
+      }, 30);
+    });
+  });
+}
+
 /* Reduced-motion fallback — single static frame */
 if (REDUCED_MOTION) {
   const heroStatic = heroCanvas ? buildHeroFlame(heroCanvas) : null;
@@ -3675,6 +4303,1199 @@ if (REDUCED_MOTION) {
   if (heroStatic) heroStatic.renderer.render(heroStatic.scene, heroStatic.camera);
   if (ctaStatic)  ctaStatic.renderer.render(ctaStatic.scene, ctaStatic.camera);
 }
+</script>
+
+<script type="module">
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 1 — "THE LIVE PIPELINE"
+
+   The hero device frame is the centerpiece of the page and was sitting
+   inert. Five interactions to make it feel alive:
+
+     1. Mouse-tilt 3D parallax on .device-frame  — cursor position over
+        the hero translates to rotateX/rotateY, capped at ±6deg. CSS vars
+        --tx, --ty drive the transform. Resets smoothly on mouseleave.
+
+     2. Auto-cycling active chunk — every 1500ms a new chunk takes focus.
+        Active chunk gets a glow + 1.015× scale + indigo accent rule.
+        Chunks within ±1 stay near full opacity; everything else dims to
+        62%. Pauses on device-frame hover so the user can read.
+
+     3. WebGL scan-line canvas — a Three.js plane shader paints a thin
+        horizontal sweep traveling top→bottom on a 4s cycle, plus an
+        indigo halo whose Y position is set from JS to track the active
+        chunk. mix-blend-mode: screen so it visibly passes through chunks.
+
+     4. Magnetic float tags — the two .float-tag chips bend toward the
+        cursor when within 220px. Slack-rope behavior: pull strength
+        falls off with distance squared, max displacement 14px.
+
+     5. Typewriter caption — when the device frame enters viewport, the
+        caption is wiped and re-typed character-by-character at ~30 chars/s
+        with a blinking caret. Fires once per page load.
+
+   All five effects respect prefers-reduced-motion. None of them touch
+   the chunks' content, the float-tag text, or the caption text — just
+   how they animate.
+   ════════════════════════════════════════════════════════════════════════ */
+import * as THREE from 'three';
+
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+if (!REDUCED) {
+  const heroVisual  = document.querySelector('.hero-visual');
+  const deviceFrame = document.querySelector('.device-frame');
+  const deviceBody  = document.querySelector('.device-body');
+  const chunks      = Array.from(document.querySelectorAll('.device-body .chunk'));
+  const floatTags   = Array.from(document.querySelectorAll('.float-tag'));
+  const scanCanvas  = document.getElementById('deviceScanline');
+  const captionEl   = document.querySelector('.device-caption-typer');
+
+  /* ─────────────────────────────────────────────────────────────────
+     1. MOUSE-TILT 3D PARALLAX
+     We track mouse position relative to the hero-visual element and
+     map it to a rotation. The transform is applied via CSS custom
+     properties so the original transform syntax (perspective + rotate)
+     stays in the stylesheet where it belongs.
+     ───────────────────────────────────────────────────────────────── */
+  if (heroVisual && deviceFrame) {
+    const TILT_MAX = 6;       /* degrees, peak-to-peak each axis */
+    const TILT_LIFT = 8;      /* px translateZ on hover, gives it a "lift" */
+
+    function onTilt(e) {
+      const rect = heroVisual.getBoundingClientRect();
+      /* Normalize cursor pos to -1..1 within the visual region */
+      const nx = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      const ny = ((e.clientY - rect.top)  / rect.height) * 2 - 1;
+      /* Y rotates around X (up/down tilts), X rotates around Y (left/right) */
+      const rx = -ny * TILT_MAX;
+      const ry =  nx * TILT_MAX;
+      deviceFrame.style.setProperty('--tx', ry.toFixed(2) + 'deg');
+      deviceFrame.style.setProperty('--ty', rx.toFixed(2) + 'deg');
+      deviceFrame.style.setProperty('--tz', TILT_LIFT + 'px');
+      heroVisual.classList.add('is-tilting');
+    }
+    function onTiltEnd() {
+      deviceFrame.style.setProperty('--tx', '0deg');
+      deviceFrame.style.setProperty('--ty', '0deg');
+      deviceFrame.style.setProperty('--tz', '0px');
+      heroVisual.classList.remove('is-tilting');
+    }
+    heroVisual.addEventListener('mousemove', onTilt);
+    heroVisual.addEventListener('mouseleave', onTiltEnd);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     2. AUTO-CYCLING ACTIVE CHUNK
+     Walks through the 16 chunks every 1500ms. State is tracked in a
+     single integer. Pauses while the device frame is hovered.
+     The active chunk's Y center (relative to the device-body) is also
+     written to a shared `state` object so the WebGL scan-line shader
+     can drop a halo at that position.
+     ───────────────────────────────────────────────────────────────── */
+  const state = {
+    activeIdx: 0,
+    haloY: 0.5,           /* normalized 0..1, top→bottom */
+    paused: false,
+  };
+
+  function applyActive(idx) {
+    state.activeIdx = idx;
+    chunks.forEach((chunk, i) => {
+      chunk.classList.remove('chunk--active', 'chunk--near', 'chunk--far');
+      const dist = Math.abs(i - idx);
+      if (dist === 0) chunk.classList.add('chunk--active');
+      else if (dist === 1) chunk.classList.add('chunk--near');
+      else chunk.classList.add('chunk--far');
+    });
+    /* Compute halo Y (normalized) for the scan shader */
+    if (deviceBody && chunks[idx]) {
+      const bodyRect = deviceBody.getBoundingClientRect();
+      const chunkRect = chunks[idx].getBoundingClientRect();
+      state.haloY = (chunkRect.top + chunkRect.height / 2 - bodyRect.top) / bodyRect.height;
+      state.haloY = Math.max(0, Math.min(1, state.haloY));
+    }
+  }
+
+  if (chunks.length) {
+    /* Wait for the chunk-entry stagger animation to finish before starting
+       the cycle. Last chunk has animation-delay 3.05s + 0.55s duration. */
+    const CYCLE_START_DELAY = 3700;
+    const CYCLE_INTERVAL    = 1500;
+
+    setTimeout(() => {
+      applyActive(0);
+      setInterval(() => {
+        if (state.paused) return;
+        const next = (state.activeIdx + 1) % chunks.length;
+        applyActive(next);
+      }, CYCLE_INTERVAL);
+    }, CYCLE_START_DELAY);
+
+    /* Pause cycling on hover so users can read */
+    if (deviceFrame) {
+      deviceFrame.addEventListener('mouseenter', () => { state.paused = true; });
+      deviceFrame.addEventListener('mouseleave', () => { state.paused = false; });
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     3. WEBGL SCAN-LINE CANVAS
+     A single full-body shader plane that paints:
+       (a) a thin moving horizontal line, top→bottom on a 4s loop, and
+       (b) a soft indigo halo at u_haloY (set from the active chunk).
+     Both composite via mix-blend-mode: screen on the parent canvas
+     element, so they only LIGHTEN whatever is underneath.
+     ───────────────────────────────────────────────────────────────── */
+  if (scanCanvas) {
+    const renderer = new THREE.WebGLRenderer({
+      canvas: scanCanvas, antialias: true, alpha: true,
+      premultipliedAlpha: false,
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+    const geometry = new THREE.PlaneGeometry(2, 2);
+
+    const uniforms = {
+      u_time:     { value: 0 },
+      u_haloY:    { value: 0.5 },
+      u_scanColor: { value: new THREE.Color('#5BD2FF') },   /* sky blue scan */
+      u_haloColor: { value: new THREE.Color('#0570DE') },   /* Stripe blue halo */
+    };
+
+    const vertexShader = `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    /* Two effects, both alpha-blended over transparent.
+       Scan line: a narrow horizontal band whose Y moves with time,
+       wrapped via mod() so it loops top-to-bottom seamlessly.
+       Halo: a soft Gaussian-ish radial falloff centered on (0.5, u_haloY). */
+    const fragmentShader = `
+      varying vec2 vUv;
+      uniform float u_time;
+      uniform float u_haloY;
+      uniform vec3 u_scanColor;
+      uniform vec3 u_haloColor;
+
+      void main() {
+        /* vUv.y is 0 at bottom, 1 at top in WebGL. We invert so y=0 = top. */
+        float y = 1.0 - vUv.y;
+        float scanY = mod(u_time * 0.18, 1.05) - 0.025;     /* loops 0→1 every ~5.5s */
+
+        /* Scan line — sharp band ~3% of body height with feathered edges */
+        float scanDist = abs(y - scanY);
+        float scanIntensity = smoothstep(0.06, 0.0, scanDist) * 0.65;
+
+        /* Halo — softer, broader glow tracking the active chunk */
+        float haloDist = abs(y - u_haloY);
+        float haloIntensity = smoothstep(0.18, 0.0, haloDist) * 0.30;
+
+        /* Edge fade left/right so the effects don't butt against the
+           device frame border with a hard line */
+        float edgeFade = smoothstep(0.0, 0.05, vUv.x) *
+                         smoothstep(1.0, 0.95, vUv.x);
+
+        vec3 color = u_scanColor * scanIntensity + u_haloColor * haloIntensity;
+        float alpha = (scanIntensity + haloIntensity) * edgeFade;
+
+        gl_FragColor = vec4(color, alpha);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      transparent: true,
+      depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(geometry, material));
+
+    function resize() {
+      const { clientWidth, clientHeight } = scanCanvas;
+      if (clientWidth === 0 || clientHeight === 0) return;
+      renderer.setSize(clientWidth, clientHeight, false);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+    /* Re-measure when chunks animate in or the layout shifts */
+    if ('ResizeObserver' in window && deviceBody) {
+      const ro = new ResizeObserver(resize);
+      ro.observe(deviceBody);
+    }
+
+    const start = performance.now();
+    let frame = 0;
+    function tick() {
+      requestAnimationFrame(tick);
+      if (document.hidden) return;
+      frame++;
+      if (frame % 2 !== 0) return;       /* 30fps cap */
+      uniforms.u_time.value = (performance.now() - start) / 1000;
+      uniforms.u_haloY.value = state.haloY;
+      renderer.render(scene, camera);
+    }
+    tick();
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     4. MAGNETIC FLOAT TAGS
+     For each tag, on every mousemove inside the hero we compute the
+     distance from the cursor to the tag center. Within MAG_RADIUS the
+     tag pulls toward the cursor by an amount that falls off with
+     distance squared (slack-rope feel). At MAG_RADIUS exactly, pull = 0.
+     ───────────────────────────────────────────────────────────────── */
+  if (floatTags.length && heroVisual) {
+    const MAG_RADIUS = 220;     /* px */
+    const MAG_PULL_MAX = 14;    /* px max displacement */
+
+    function onMagMove(e) {
+      let anyClose = false;
+      floatTags.forEach(tag => {
+        const r = tag.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top  + r.height / 2;
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist < MAG_RADIUS) {
+          /* Falloff: 1 at dist=0, 0 at dist=MAG_RADIUS, quadratic */
+          const t = 1 - dist / MAG_RADIUS;
+          const pull = t * t * MAG_PULL_MAX;
+          /* Direction unit vector */
+          const ux = dist > 0 ? dx / dist : 0;
+          const uy = dist > 0 ? dy / dist : 0;
+          tag.style.setProperty('--mx', (ux * pull).toFixed(2) + 'px');
+          tag.style.setProperty('--my', (uy * pull).toFixed(2) + 'px');
+          anyClose = true;
+        } else {
+          tag.style.setProperty('--mx', '0px');
+          tag.style.setProperty('--my', '0px');
+        }
+      });
+      heroVisual.classList.toggle('is-magnetizing', anyClose);
+    }
+    function onMagLeave() {
+      floatTags.forEach(tag => {
+        tag.style.setProperty('--mx', '0px');
+        tag.style.setProperty('--my', '0px');
+      });
+      heroVisual.classList.remove('is-magnetizing');
+    }
+    heroVisual.addEventListener('mousemove', onMagMove);
+    heroVisual.addEventListener('mouseleave', onMagLeave);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     5. TYPEWRITER CAPTION
+     The caption text is read from data-final, the visible text is
+     wiped, then characters are appended one at a time. We use HTML
+     entities (&middot;) which need to be respected — so we set
+     innerHTML and walk the *decoded* string character-by-character.
+     The blinking caret is CSS-driven via [data-typing="true"]::after.
+     ───────────────────────────────────────────────────────────────── */
+  if (captionEl) {
+    const decoder = document.createElement('textarea');
+    decoder.innerHTML = captionEl.dataset.final || captionEl.innerHTML;
+    const fullText = decoder.value;
+    const TYPE_SPEED = 28;       /* ms per character */
+    let typed = false;
+
+    function startTyping() {
+      if (typed) return;
+      typed = true;
+      captionEl.textContent = '';
+      captionEl.dataset.typing = 'true';
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i >= fullText.length) {
+          clearInterval(interval);
+          /* Leave the caret blinking for ~1.2s after typing completes,
+             then remove it. Stripe does this on their auto-typing demos. */
+          setTimeout(() => { captionEl.dataset.typing = 'false'; }, 1200);
+          return;
+        }
+        captionEl.textContent += fullText[i++];
+      }, TYPE_SPEED);
+    }
+
+    /* Trigger once when the caption (and its parent device frame) first
+       enters the viewport. We watch the device frame, not the caption,
+       so the typewriter fires while the caption is still off-screen at
+       the bottom of the frame, giving the user something to read by the
+       time they scan down. */
+    if ('IntersectionObserver' in window && deviceFrame) {
+      const captionIO = new IntersectionObserver((entries, obs) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            /* Delay slightly so it doesn't fire during the chunk stagger */
+            setTimeout(startTyping, 1800);
+            obs.disconnect();
+          }
+        });
+      }, { threshold: 0.3 });
+      captionIO.observe(deviceFrame);
+    } else {
+      /* No IntersectionObserver — just type immediately */
+      setTimeout(startTyping, 1800);
+    }
+  }
+}
+</script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 2 — STAT COUNT-UP ANIMATIONS
+
+   Every "big number" on the page (4 market-context stats, 4 stats-strip
+   stats, 2 before/after time blocks) animates from 0 to its target value
+   when it enters the viewport. Cubic-out easing, 1400ms per number,
+   triggers exactly once per element (IntersectionObserver disconnect
+   after first intersect).
+
+   The number string can have:
+     • prefix:   $       e.g. "$502B"
+     • value:    integer or decimal, optionally a range "1-2" or "10–15"
+     • suffix:   T/B/K/%/x/+/hrs/min — kept literal, never animated
+   Format detection regex captures all four parts. Decimals preserve the
+   target's decimal places during animation (so $1.05T counts as 0.00 →
+   1.05, not 0 → 1).
+
+   .ba-stat is special: the number is a text node directly inside the
+   parent (followed by a <span> for unit), so we walk childNodes to find
+   the right text node rather than touching textContent of the whole div.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (REDUCED) return;   /* leave numbers at their final values */
+
+  /* Find the text node inside an element that holds our number — for
+     <em> targets it's the only text node. For .ba-stat it's the first
+     text-node child (skipping element children like <span>hrs</span>). */
+  function getTextNode(el) {
+    return Array.from(el.childNodes).find(n =>
+      n.nodeType === Node.TEXT_NODE && n.nodeValue.trim().length > 0
+    );
+  }
+
+  /* Parse a number string into its components.
+       "$1.05T"  → { prefix: "$",  a: 1.05, b: null,  suffix: "T",   decimals: 2 }
+       "$502B"   → { prefix: "$",  a: 502,  b: null,  suffix: "B",   decimals: 0 }
+       "1-2+"    → { prefix: "",   a: 1,    b: 2,     suffix: "+",   decimals: 0 }
+       "10–15"   → { prefix: "",   a: 10,   b: 15,    suffix: "",    decimals: 0 }
+       "100%"    → { prefix: "",   a: 100,  b: null,  suffix: "%",   decimals: 0 }
+       "3-5x"    → { prefix: "",   a: 3,    b: 5,     suffix: "x",   decimals: 0 }
+     The regex tolerates both ASCII hyphen "-" and en-dash "–" as range
+     separators (the original markup uses &ndash; in some places). */
+  function parseNumber(str) {
+    /* Decode HTML entities (e.g., &ndash; → –) by going through textarea */
+    const decoder = document.createElement('textarea');
+    decoder.innerHTML = str;
+    str = decoder.value.trim();
+
+    const m = str.match(/^([^\d.-]*)([\d.]+)(?:[\-–]([\d.]+))?(.*)$/);
+    if (!m) return null;
+    const a = parseFloat(m[2]);
+    const b = m[3] ? parseFloat(m[3]) : null;
+    /* Determine decimal precision from the original string */
+    const decimals = (m[2].split('.')[1] || '').length;
+    return { prefix: m[1] || '', a, b, suffix: (m[4] || '').trim(), decimals };
+  }
+
+  /* Format a number to the same precision as the parsed original.
+     Pads with trailing zeros if needed (so 1.0 displays as "1.0" not "1"
+     when the target is "1.05" — keeps the visual width steady). */
+  function fmt(value, decimals) {
+    return value.toFixed(decimals);
+  }
+
+  /* Cubic-out easing — fast start, gentle finish. Stripe-feel.
+     1 - (1 - t)^3 */
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  /* Animate a single counter from 0 (or first value if range) to target.
+     Returns immediately; uses rAF internally, total wall time = duration. */
+  function animateCounter(textNode, parsed, duration = 1400) {
+    const { prefix, a, b, suffix, decimals } = parsed;
+
+    /* For ranges we animate both numbers in lockstep. Starting values:
+         — single number  : start at 0
+         — range           : start at 0 → a, AND 0 → b (so 1-2 counts up
+                             from 0-0 through 1-1 to the final 1-2). This
+                             feels more dramatic than just animating "a"
+                             while keeping "b" frozen at its target. */
+    const t0 = performance.now();
+    /* The original text contains an en-dash for &ndash;, regular dash for
+       "-" — we preserve whichever was in the original by checking the
+       node value before clearing it. */
+    const sep = (textNode.nodeValue.includes('–')) ? '–' : '-';
+
+    function frame() {
+      const t = Math.min(1, (performance.now() - t0) / duration);
+      const e = easeOutCubic(t);
+      const av = a * e;
+      let str = prefix + fmt(av, decimals);
+      if (b !== null) {
+        const bv = b * e;
+        str += sep + fmt(bv, decimals);
+      }
+      if (suffix) str += suffix;
+      /* For .ba-stat the trailing space before the unit-span is part of
+         the original text node — preserve it. */
+      if (textNode.nodeValue.endsWith(' ')) str += ' ';
+      textNode.nodeValue = str;
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* Find every counter target. Three selectors cover all 10 stat numbers:
+       .mc-num em      — market context (4 of them)
+       .stat-num em    — stats strip (4 of them)
+       .ba-stat        — before/after time (2 of them, text inside the div)
+     For .ba-stat we target the parent and operate on its first text node;
+     the others are simple <em> elements. */
+  const targets = [];
+  document.querySelectorAll('.mc-num em, .stat-num em').forEach(el => {
+    targets.push({ el, textNode: el.firstChild, original: el.textContent });
+  });
+  document.querySelectorAll('.ba-stat').forEach(el => {
+    const textNode = getTextNode(el);
+    if (textNode) targets.push({ el, textNode, original: textNode.nodeValue });
+  });
+
+  /* Wire each up: parse the original, hide the displayed value (set to
+     "0" or "0-0"), then trigger animation when the element enters view. */
+  targets.forEach(target => {
+    const parsed = parseNumber(target.original);
+    if (!parsed) return;
+    /* Set initial display to zero — same format as the target so the
+       layout doesn't jump when the animation starts. */
+    let zeroStr = parsed.prefix + fmt(0, parsed.decimals);
+    if (parsed.b !== null) {
+      const sep = target.original.includes('–') ? '–' : '-';
+      zeroStr += sep + fmt(0, parsed.decimals);
+    }
+    if (parsed.suffix) zeroStr += parsed.suffix;
+    if (target.textNode.nodeValue.endsWith(' ')) zeroStr += ' ';
+    target.textNode.nodeValue = zeroStr;
+    target.parsed = parsed;
+  });
+
+  /* Single shared IntersectionObserver. threshold 0.5 means the counter
+     fires only when at least half the element is on-screen — avoids
+     firing when the user has just barely scrolled the bottom edge into
+     view. Each target disconnects after its first intersect. */
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries, obs) => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        const target = targets.find(t => t.el === e.target);
+        if (target && target.parsed) {
+          animateCounter(target.textNode, target.parsed);
+        }
+        obs.unobserve(e.target);
+      });
+    }, { threshold: 0.5 });
+    targets.forEach(t => io.observe(t.el));
+  } else {
+    /* Fallback — no IntersectionObserver. Just play them all on load. */
+    targets.forEach(t => {
+      if (t.parsed) animateCounter(t.textNode, t.parsed);
+    });
+  }
+})();
+</script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 4 — BENTO MICRO-ANIMATIONS
+
+   Each of the 15 module cards gets its own subtle 2D-canvas animation
+   tied to what that module DOES. Stripe's homepage bento cells share
+   this pattern: a chart drawing itself for the Payments card, a globe
+   spinning for the Connect card, code typing for the Atlas card.
+
+   Architecture:
+     • One `<canvas class="module-anim">` injected as the first child
+       of each .module card. CSS pins it to fill the card; z-index keeps
+       it BEHIND the existing text content. Default opacity 0.5, lifts
+       to 0.92 on hover so animations "wake up" when the user engages.
+
+     • One shared rAF loop (30fps cap) walks all 15 canvases. Each is
+       gated by an IntersectionObserver — invisible cards skip drawing
+       entirely. ~5 cards visible at once during normal scroll, so the
+       per-frame work stays cheap.
+
+     • Each card maps to a draw function via array index (binding by
+       DOM order). 14 plain modules + 1 summary card = 15 functions:
+         0 Website Intelligence    8  Exposure to Loss
+         1 Supplemental Extractor  9  Account Strengths
+         2 Subcontractor Agreement 10 Loss History
+         3 Vendor Agreement        11 Primary GL Quote
+         4 Safety Manual           12 Primary AL Quote
+         5 Summary of Operations   13 Excess Policy
+         6 Class Code Expert       14 Final UW Summary (capstone)
+         7 Guideline Cross-Ref
+
+   Why 2D canvas, not Three.js? Each animation is small, simple, and
+   2D — drawing a sparkline or a fleet cluster doesn't need a vertex
+   pipeline. 2D canvas is the right tool here; Three.js is reserved for
+   the hero flame, the orbital sphere, and the device scanline.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (REDUCED) return;
+
+  /* Color helper — the brand palette as RGBA strings.
+     Use as: rgba(C.blue, 0.6)  →  "rgba(5, 112, 222, 0.6)" */
+  const C = {
+    blue:   '5, 112, 222',
+    cyan:   '0, 212, 255',
+    sky:    '91, 210, 255',
+    pink:   '230, 59, 133',
+    orange: '255, 142, 60',
+    lav:    '159, 123, 255',
+    white:  '255, 255, 255',
+    slate:  '160, 180, 210',
+  };
+  const rgba = (c, a) => `rgba(${c}, ${a})`;
+
+  /* Easing helpers — used by several animations to give the in/out
+     phases of a loop a more graceful feel than linear motion. */
+  const easeOut  = t => 1 - Math.pow(1 - t, 3);
+  const easeIO   = t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+  const TAU      = Math.PI * 2;
+
+  /* ────────────────────────────────────────────────────────────────
+     THE 15 ANIMATIONS
+     Each function: (ctx, t, w, h) where t = elapsed seconds, w/h = the
+     card's CSS pixel dimensions. ctx is pre-cleared by the orchestrator;
+     each draws fresh every frame.
+     Common pattern: pick a cycle length, derive a 0..1 progress within
+     it, and animate one main motion. Keep it minimal — Stripe's bento
+     animations are restrained, not busy.
+     ──────────────────────────────────────────────────────────────── */
+
+  /* 0. Website Intelligence — packets travel along edges of a small
+     network of nodes. Implies "crawling pages and following links". */
+  const NET_NODES = [
+    [0.20, 0.30], [0.55, 0.20], [0.80, 0.35],
+    [0.30, 0.65], [0.65, 0.55], [0.85, 0.75],
+    [0.45, 0.80],
+  ];
+  const NET_EDGES = [[0,1],[1,2],[0,3],[1,4],[2,5],[3,4],[4,5],[3,6],[4,6]];
+  function animWebsiteIntel(ctx, t, w, h) {
+    /* faint edges */
+    ctx.strokeStyle = rgba(C.blue, 0.18);
+    ctx.lineWidth = 1;
+    NET_EDGES.forEach(([a, b]) => {
+      ctx.beginPath();
+      ctx.moveTo(NET_NODES[a][0]*w, NET_NODES[a][1]*h);
+      ctx.lineTo(NET_NODES[b][0]*w, NET_NODES[b][1]*h);
+      ctx.stroke();
+    });
+    /* nodes */
+    NET_NODES.forEach(([x, y]) => {
+      ctx.fillStyle = rgba(C.blue, 0.55);
+      ctx.beginPath();
+      ctx.arc(x*w, y*h, 2.5, 0, TAU);
+      ctx.fill();
+    });
+    /* crawler — travels one edge per 2s, jumps to next */
+    const edgeIdx = Math.floor(t / 1.6) % NET_EDGES.length;
+    const u = (t % 1.6) / 1.6;
+    const e = NET_EDGES[edgeIdx];
+    const a = NET_NODES[e[0]], b = NET_NODES[e[1]];
+    const px = (a[0] + (b[0]-a[0]) * u) * w;
+    const py = (a[1] + (b[1]-a[1]) * u) * h;
+    ctx.fillStyle = rgba(C.cyan, 0.95);
+    ctx.shadowColor = rgba(C.cyan, 1);
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(px, py, 3.5, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  /* 1. Supplemental Extractor — form-field rows fill in left-to-right.
+     Implies "extracting fields from the supplemental application". */
+  function animFormExtract(ctx, t, w, h) {
+    const rows = 5;
+    const rowH = h * 0.10;
+    const labelW = w * 0.22;
+    const fillStart = w * 0.28;
+    const fillMaxW = w * 0.62;
+    const startY = h * 0.22;
+    const cycle = 4.0;
+
+    for (let i = 0; i < rows; i++) {
+      const y = startY + i * (rowH + h * 0.04);
+      /* label bar — static placeholder */
+      ctx.fillStyle = rgba(C.slate, 0.22);
+      ctx.fillRect(w * 0.06, y + rowH * 0.30, labelW, rowH * 0.30);
+      /* field outline */
+      ctx.strokeStyle = rgba(C.blue, 0.20);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(fillStart, y, fillMaxW, rowH * 0.85);
+      /* fill animation — each row starts staggered, fills then waits */
+      const rowDelay = i * 0.45;
+      const localT = ((t - rowDelay) % cycle + cycle) % cycle;
+      const fillT = Math.max(0, Math.min(1, localT / 1.2));
+      ctx.fillStyle = rgba(C.blue, 0.52);
+      ctx.fillRect(fillStart + 1, y + 1, (fillMaxW - 2) * easeOut(fillT), rowH * 0.85 - 2);
+    }
+  }
+
+  /* 2. Subcontractor Agreement — checklist items tick on in sequence.
+     Risk-transfer provisions: AI status, COI, indemnification, etc. */
+  function animSubcontractor(ctx, t, w, h) {
+    const items = 5;
+    const startY = h * 0.18;
+    const itemH = h * 0.13;
+    const cycle = 5.0;
+    const cT = (t % cycle) / cycle;
+    const checked = Math.floor(cT * (items + 0.5));
+
+    for (let i = 0; i < items; i++) {
+      const y = startY + i * itemH;
+      const cx = w * 0.12;
+      const cy = y + itemH * 0.4;
+      const isChecked = i < checked;
+
+      /* checkbox */
+      ctx.strokeStyle = isChecked ? rgba(C.blue, 0.85) : rgba(C.slate, 0.30);
+      ctx.lineWidth = 1.3;
+      ctx.strokeRect(cx - 5, cy - 5, 10, 10);
+      if (isChecked) {
+        ctx.fillStyle = rgba(C.blue, 0.18);
+        ctx.fillRect(cx - 5, cy - 5, 10, 10);
+        /* check mark */
+        ctx.strokeStyle = rgba(C.cyan, 1);
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3, cy);
+        ctx.lineTo(cx - 1, cy + 2.5);
+        ctx.lineTo(cx + 4, cy - 3);
+        ctx.stroke();
+      }
+      /* label bar */
+      ctx.fillStyle = isChecked ? rgba(C.blue, 0.55) : rgba(C.slate, 0.22);
+      const barW = w * (0.42 + (i % 2) * 0.18);
+      ctx.fillRect(cx + 12, cy - 2.5, barW, 5);
+    }
+  }
+
+  /* 3. Vendor Agreement — highlighter sweeps across document lines.
+     Implies "scanning equipment lessor / vendor contracts for clauses". */
+  function animVendor(ctx, t, w, h) {
+    const lines = 7;
+    const startY = h * 0.18;
+    const lineH = h * 0.085;
+    const cycle = 4.5;
+    const sweepT = (t % cycle) / cycle;
+    const sweepLine = Math.floor(sweepT * lines);
+    const sweepWithin = (sweepT * lines) - sweepLine;
+
+    for (let i = 0; i < lines; i++) {
+      const y = startY + i * lineH;
+      const lineW = w * (0.55 + (i % 3) * 0.10);
+      /* base line */
+      ctx.fillStyle = rgba(C.slate, 0.20);
+      ctx.fillRect(w * 0.10, y + lineH * 0.35, lineW, lineH * 0.28);
+      /* permanent highlight on already-passed lines */
+      if (i < sweepLine) {
+        ctx.fillStyle = rgba(C.cyan, 0.18);
+        ctx.fillRect(w * 0.10, y + lineH * 0.20, lineW, lineH * 0.55);
+      }
+      /* moving sweep on current line */
+      if (i === sweepLine) {
+        const sweepX = w * 0.10 + lineW * sweepWithin;
+        const grad = ctx.createLinearGradient(sweepX - 30, 0, sweepX + 30, 0);
+        grad.addColorStop(0, rgba(C.cyan, 0));
+        grad.addColorStop(0.5, rgba(C.cyan, 0.55));
+        grad.addColorStop(1, rgba(C.cyan, 0));
+        ctx.fillStyle = grad;
+        ctx.fillRect(w * 0.10, y + lineH * 0.18, lineW, lineH * 0.58);
+      }
+    }
+  }
+
+  /* 4. Safety Manual — bar chart growing then steady. Three benchmarks
+     side-by-side: EMR, TRIR, DART (the three core safety metrics). */
+  function animSafety(ctx, t, w, h) {
+    const labels = ['EMR', 'TRIR', 'DART'];
+    const targets = [0.65, 0.42, 0.78];     /* heights as fraction */
+    const baseY = h * 0.78;
+    const maxBarH = h * 0.55;
+    const barW = w * 0.16;
+    const startX = w * 0.20;
+    const gap = w * 0.10;
+
+    /* Cycle: grow up over 1.6s, hold for 1s, shrink over 0.8s, hold for 0.6s */
+    const cycle = 4.0;
+    const cT = (t % cycle) / cycle;
+    let progress;
+    if (cT < 0.40) progress = easeOut(cT / 0.40);
+    else if (cT < 0.65) progress = 1.0;
+    else if (cT < 0.85) progress = 1.0 - easeOut((cT - 0.65) / 0.20);
+    else progress = 0;
+
+    /* Reference axis */
+    ctx.strokeStyle = rgba(C.slate, 0.20);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(startX - 8, baseY);
+    ctx.lineTo(startX + 3 * (barW + gap), baseY);
+    ctx.stroke();
+
+    targets.forEach((target, i) => {
+      const x = startX + i * (barW + gap);
+      const barH = maxBarH * target * progress;
+      /* bar */
+      const grad = ctx.createLinearGradient(0, baseY - barH, 0, baseY);
+      grad.addColorStop(0, rgba(C.blue, 0.85));
+      grad.addColorStop(1, rgba(C.blue, 0.35));
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, baseY - barH, barW, barH);
+    });
+  }
+
+  /* 5. Summary of Operations — text-line silhouettes write themselves
+     line by line. Implies "writing the structured account summary". */
+  function animSummaryOps(ctx, t, w, h) {
+    const lines = 6;
+    const startY = h * 0.18;
+    const lineH = h * 0.10;
+    const cycle = 5.5;
+    const cT = (t % cycle) / cycle;
+
+    for (let i = 0; i < lines; i++) {
+      const y = startY + i * lineH;
+      const fullW = w * (0.62 + (i * 7 % 3) * 0.08);
+      /* per-line stagger: each line takes 0.6s to write, starting 0.5s after the previous */
+      const lineStart = i * 0.5 / cycle;
+      const lineEnd = lineStart + 0.7 / cycle;
+      let progress = 0;
+      if (cT >= lineStart) {
+        progress = Math.min(1, (cT - lineStart) / (lineEnd - lineStart));
+      }
+      const drawnW = fullW * progress;
+      /* bar */
+      ctx.fillStyle = i === 0 ? rgba(C.blue, 0.55) : rgba(C.slate, 0.32);
+      ctx.fillRect(w * 0.10, y + lineH * 0.30, drawnW, lineH * 0.34);
+      /* caret on actively-writing line */
+      if (progress > 0 && progress < 1) {
+        ctx.fillStyle = rgba(C.cyan, 0.7 + 0.3 * Math.sin(t * 8));
+        ctx.fillRect(w * 0.10 + drawnW + 1, y + lineH * 0.20, 2, lineH * 0.55);
+      }
+    }
+  }
+
+  /* 6. Class Code Expert — branching tree with code numbers at leaves.
+     Implies "matching operations to ISO GL class codes". */
+  function animClassCode(ctx, t, w, h) {
+    const root = [w * 0.18, h * 0.50];
+    const branches = [
+      { p: [w * 0.50, h * 0.22], code: '91585' },
+      { p: [w * 0.55, h * 0.50], code: '94569' },
+      { p: [w * 0.50, h * 0.78], code: '97449' },
+    ];
+    const cycle = 3.5;
+    const cT = (t % cycle) / cycle;
+    const drawProgress = Math.min(1, cT / 0.55);   /* lines draw in first 55% */
+    const activeIdx = Math.floor(cT * 3) % 3;
+
+    /* tree lines drawing in */
+    branches.forEach((br, i) => {
+      const dx = (br.p[0] - root[0]) * drawProgress;
+      const dy = (br.p[1] - root[1]) * drawProgress;
+      ctx.strokeStyle = rgba(C.blue, 0.40);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(root[0], root[1]);
+      ctx.lineTo(root[0] + dx, root[1] + dy);
+      ctx.stroke();
+    });
+    /* root */
+    ctx.fillStyle = rgba(C.blue, 0.7);
+    ctx.beginPath();
+    ctx.arc(root[0], root[1], 4, 0, TAU);
+    ctx.fill();
+    /* leaves with codes */
+    branches.forEach((br, i) => {
+      if (drawProgress < 0.95) return;
+      const isActive = i === activeIdx;
+      ctx.fillStyle = isActive ? rgba(C.cyan, 0.95) : rgba(C.blue, 0.5);
+      ctx.beginPath();
+      ctx.arc(br.p[0], br.p[1], isActive ? 5 : 3.5, 0, TAU);
+      ctx.fill();
+      /* code label */
+      ctx.fillStyle = isActive ? rgba(C.cyan, 1) : rgba(C.slate, 0.6);
+      ctx.font = '500 9px ui-monospace, monospace';
+      ctx.fillText(br.code, br.p[0] + 9, br.p[1] + 3);
+    });
+  }
+
+  /* 7. Guideline Cross-Reference — grid of cells, some flag green
+     (in-appetite), some flag amber (referral), some flag red (out).
+     Implies "checking operations against guideline matrix". */
+  function animGuideline(ctx, t, w, h) {
+    const cols = 6, rows = 4;
+    const startX = w * 0.10, startY = h * 0.20;
+    const cellW = (w * 0.80) / cols;
+    const cellH = (h * 0.62) / rows;
+    const cycle = 6.0;
+    const cT = (t % cycle) / cycle;
+    const flippedCount = Math.floor(cT * (cols * rows + 4));
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const x = startX + c * cellW + 1;
+        const y = startY + r * cellH + 1;
+        /* base cell */
+        ctx.fillStyle = rgba(C.slate, 0.10);
+        ctx.fillRect(x, y, cellW - 2, cellH - 2);
+        if (idx < flippedCount) {
+          /* deterministic but varied color per cell */
+          const colorPick = (idx * 7 + 3) % 9;
+          let color;
+          if (colorPick < 6) color = rgba(C.blue, 0.60);     /* in-appetite */
+          else if (colorPick < 8) color = rgba(C.orange, 0.55); /* referral */
+          else color = rgba(C.pink, 0.55);                    /* out */
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y, cellW - 2, cellH - 2);
+        }
+      }
+    }
+  }
+
+  /* 8. Exposure to Loss — stacked vertical bars, severity escalating
+     left to right. Implies "severity stack, where can losses penetrate". */
+  function animExposure(ctx, t, w, h) {
+    const bars = 5;
+    const heights = [0.30, 0.45, 0.65, 0.80, 1.0];   /* increasing severity */
+    const baseY = h * 0.82;
+    const maxBarH = h * 0.62;
+    const barW = w * 0.10;
+    const startX = w * 0.18;
+    const gap = w * 0.06;
+
+    /* Continuous wave: bars rise on a rolling cycle so they're never all
+       at peak at once — feels like exposures coming in and out */
+    for (let i = 0; i < bars; i++) {
+      const x = startX + i * (barW + gap);
+      const phase = t * 0.6 - i * 0.35;
+      const wave = (Math.sin(phase) + 1) / 2;          /* 0..1 */
+      const barH = maxBarH * heights[i] * (0.4 + 0.6 * wave);
+      const isHigh = wave > 0.7;
+      ctx.fillStyle = isHigh && i >= 3 ? rgba(C.pink, 0.65) : rgba(C.blue, 0.55);
+      ctx.fillRect(x, baseY - barH, barW, barH);
+      /* attach line at $2M+ marker — matches "anything that could penetrate $2M+" */
+      if (i === 0) {
+        ctx.strokeStyle = rgba(C.cyan, 0.40);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(startX - 4, baseY - maxBarH * 0.55);
+        ctx.lineTo(startX + 5 * (barW + gap) - gap + 4, baseY - maxBarH * 0.55);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  /* 9. Account Strengths — radial starburst, dots radiating from center.
+     Implies "extracting compelling positives from many dimensions". */
+  function animStrengths(ctx, t, w, h) {
+    const cx = w * 0.50, cy = h * 0.50;
+    const rays = 12;
+    const cycle = 3.0;
+    const cT = (t % cycle) / cycle;
+
+    for (let i = 0; i < rays; i++) {
+      const angle = (i / rays) * TAU;
+      /* each ray pulses on its own offset */
+      const phase = (cT + i / rays) % 1;
+      const r = h * 0.10 + h * 0.30 * easeIO(phase);
+      const dotAlpha = 1 - phase;
+      const dx = cx + Math.cos(angle) * r;
+      const dy = cy + Math.sin(angle) * r;
+      ctx.fillStyle = rgba(C.blue, 0.55 * dotAlpha);
+      ctx.beginPath();
+      ctx.arc(dx, dy, 2.5, 0, TAU);
+      ctx.fill();
+    }
+    /* center hub */
+    ctx.fillStyle = rgba(C.cyan, 0.9);
+    ctx.shadowColor = rgba(C.cyan, 1);
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  /* 10. Loss History — sparkline drawing itself across the card.
+     Implies "claims history with development trends". */
+  const SPARK_VALS = [0.60, 0.55, 0.45, 0.50, 0.42, 0.38, 0.40, 0.32, 0.28, 0.22];
+  function animLossHistory(ctx, t, w, h) {
+    const cycle = 5.0;
+    const cT = (t % cycle) / cycle;
+    const drawT = Math.min(1, cT / 0.7);
+    const baseY = h * 0.82;
+    const topY = h * 0.22;
+    const startX = w * 0.10, endX = w * 0.90;
+    const points = SPARK_VALS.length;
+
+    /* Compute the visible portion of the line */
+    const visiblePoints = drawT * (points - 1);
+    const filledIdx = Math.floor(visiblePoints);
+    const partial = visiblePoints - filledIdx;
+
+    /* Area fill below the line */
+    ctx.beginPath();
+    ctx.moveTo(startX, baseY);
+    for (let i = 0; i <= filledIdx; i++) {
+      const x = startX + (endX - startX) * (i / (points - 1));
+      const y = topY + (baseY - topY) * (1 - SPARK_VALS[i]);
+      ctx.lineTo(x, y);
+    }
+    if (filledIdx < points - 1 && partial > 0) {
+      const x1 = startX + (endX - startX) * (filledIdx / (points - 1));
+      const x2 = startX + (endX - startX) * ((filledIdx + 1) / (points - 1));
+      const y1 = topY + (baseY - topY) * (1 - SPARK_VALS[filledIdx]);
+      const y2 = topY + (baseY - topY) * (1 - SPARK_VALS[filledIdx + 1]);
+      ctx.lineTo(x1 + (x2 - x1) * partial, y1 + (y2 - y1) * partial);
+    }
+    ctx.lineTo(startX + (endX - startX) * (Math.min(visiblePoints, points - 1) / (points - 1)), baseY);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, topY, 0, baseY);
+    grad.addColorStop(0, rgba(C.blue, 0.30));
+    grad.addColorStop(1, rgba(C.blue, 0.02));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    /* Line on top of fill */
+    ctx.beginPath();
+    ctx.moveTo(startX, topY + (baseY - topY) * (1 - SPARK_VALS[0]));
+    for (let i = 1; i <= filledIdx; i++) {
+      const x = startX + (endX - startX) * (i / (points - 1));
+      const y = topY + (baseY - topY) * (1 - SPARK_VALS[i]);
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = rgba(C.blue, 0.85);
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
+
+  /* 11. Primary GL Quote — stacked horizontal layers labeled as policy
+     components. Implies "carrier, form, limits, endorsements stack". */
+  function animGLQuote(ctx, t, w, h) {
+    const layers = 5;
+    const cycle = 4.5;
+    const cT = (t % cycle) / cycle;
+    const built = Math.min(layers, Math.floor(cT * (layers + 0.8)));
+
+    const startY = h * 0.78;
+    const layerH = h * 0.12;
+    for (let i = 0; i < layers; i++) {
+      if (i >= built) continue;
+      const y = startY - i * layerH;
+      const layerW = w * (0.72 - i * 0.08);
+      const x = w * 0.10;
+      ctx.fillStyle = rgba(C.blue, 0.20 + i * 0.10);
+      ctx.fillRect(x, y, layerW, layerH * 0.85);
+      /* tiny label tick */
+      ctx.fillStyle = rgba(C.cyan, 0.7);
+      ctx.fillRect(x - 4, y + layerH * 0.30, 2, layerH * 0.25);
+    }
+  }
+
+  /* 12. Primary AL Quote — fleet vehicle dots clustering, labeled by
+     class. Implies "fleet composition by class, garaging, radius". */
+  function animALQuote(ctx, t, w, h) {
+    const cols = 8;
+    const rows = 4;
+    const startX = w * 0.12, startY = h * 0.25;
+    const dotGap = Math.min((w * 0.76) / cols, (h * 0.55) / rows);
+    const total = cols * rows;
+    const cycle = 4.0;
+    const cT = (t % cycle) / cycle;
+    const lit = Math.floor(cT * total);
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const x = startX + c * dotGap;
+        const y = startY + r * dotGap;
+        const isLit = idx < lit;
+        const isAccent = isLit && (idx === Math.floor(cT * total) - 1);
+        ctx.fillStyle = isAccent ? rgba(C.cyan, 0.95) :
+                        isLit    ? rgba(C.blue, 0.55) :
+                                   rgba(C.slate, 0.18);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* 13. Excess Policy — vertical tower of layers stacking up.
+     Implies "excess tower, attachment points, layer analysis". */
+  function animExcess(ctx, t, w, h) {
+    const layers = 6;
+    const cycle = 4.5;
+    const cT = (t % cycle) / cycle;
+    const built = Math.min(layers, Math.floor(cT * (layers + 1.5)));
+
+    const baseY = h * 0.85;
+    const layerH = h * 0.10;
+    const cx = w * 0.50;
+    for (let i = 0; i < layers; i++) {
+      if (i >= built) continue;
+      const y = baseY - i * layerH;
+      /* layers narrow as they go up — represents higher attachments */
+      const layerW = w * (0.55 - i * 0.05);
+      const layerAlpha = 0.20 + i * 0.13;
+      ctx.fillStyle = rgba(C.blue, layerAlpha);
+      ctx.fillRect(cx - layerW / 2, y - layerH * 0.85, layerW, layerH * 0.75);
+      /* attach point line on right */
+      if (i > 0) {
+        ctx.strokeStyle = rgba(C.cyan, 0.5);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx + layerW / 2 + 4, y - layerH * 0.475);
+        ctx.lineTo(cx + layerW / 2 + 14, y - layerH * 0.475);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* 14. Final UW Summary (capstone) — all dots converge to center,
+     symbolizing "all 17 modules consolidated into one brief". */
+  function animFinalSummary(ctx, t, w, h) {
+    const cx = w * 0.50, cy = h * 0.50;
+    const cycle = 5.0;
+
+    for (let i = 0; i < 17; i++) {
+      /* each dot starts on a circle at the edge, drifts inward, then
+         reappears at the edge — staggered per dot */
+      const phase = ((t + i * 0.32) % cycle) / cycle;
+      const angle = (i / 17) * TAU + t * 0.08;
+      const startR = Math.min(w, h) * 0.45;
+      const r = startR * (1 - easeIO(phase));
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      const alpha = 0.2 + 0.7 * (1 - phase);
+      ctx.fillStyle = i % 5 === 0 ? rgba(C.cyan, alpha) : rgba(C.blue, alpha);
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, TAU);
+      ctx.fill();
+    }
+    /* glowing center — the "consolidated brief" */
+    ctx.fillStyle = rgba(C.cyan, 0.9);
+    ctx.shadowColor = rgba(C.cyan, 1);
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  /* The 15 functions in DOM order */
+  const ANIMS = [
+    animWebsiteIntel,    // 0
+    animFormExtract,     // 1
+    animSubcontractor,   // 2
+    animVendor,          // 3
+    animSafety,          // 4
+    animSummaryOps,      // 5
+    animClassCode,       // 6
+    animGuideline,       // 7
+    animExposure,        // 8
+    animStrengths,       // 9
+    animLossHistory,     // 10
+    animGLQuote,         // 11
+    animALQuote,         // 12
+    animExcess,          // 13
+    animFinalSummary,    // 14 — capstone
+  ];
+
+  /* ────────────────────────────────────────────────────────────────
+     ATTACHMENT — inject one canvas per .module card and wire up the
+     IntersectionObserver gate + shared rAF orchestrator.
+     ──────────────────────────────────────────────────────────────── */
+  const cards = Array.from(document.querySelectorAll('#modules .module'));
+  if (!cards.length) return;
+
+  const items = cards.map((card, i) => {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'module-anim';
+    canvas.setAttribute('aria-hidden', 'true');
+    /* Insert as first child so subsequent CSS rules can target it via
+       :first-child without selector contortion. */
+    card.insertBefore(canvas, card.firstChild);
+    return {
+      card, canvas,
+      animFn: ANIMS[i] || null,
+      visible: false,
+      t0: performance.now() + i * 80,   /* slight per-card phase offset */
+      w: 0, h: 0, dpr: 1,
+    };
+  }).filter(it => it.animFn !== null);
+
+  function resize(it) {
+    const r = it.card.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    it.canvas.width = Math.round(r.width * dpr);
+    it.canvas.height = Math.round(r.height * dpr);
+    it.dpr = dpr;
+    it.w = r.width;
+    it.h = r.height;
+  }
+  items.forEach(resize);
+  window.addEventListener('resize', () => items.forEach(resize));
+
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        const it = items.find(i => i.card === e.target);
+        if (it) it.visible = e.isIntersecting;
+      });
+    }, { threshold: 0.05 });
+    items.forEach(it => io.observe(it.card));
+  } else {
+    items.forEach(it => it.visible = true);
+  }
+
+  let frame = 0;
+  function tick() {
+    requestAnimationFrame(tick);
+    if (document.hidden) return;
+    frame++;
+    if (frame % 2 !== 0) return;       /* 30fps cap, same as everything else */
+    items.forEach(it => {
+      if (!it.visible || it.w === 0) return;
+      const ctx = it.canvas.getContext('2d');
+      ctx.setTransform(it.dpr, 0, 0, it.dpr, 0, 0);
+      ctx.clearRect(0, 0, it.w, it.h);
+      const t = (performance.now() - it.t0) / 1000;
+      it.animFn(ctx, t, it.w, it.h);
+    });
+  }
+  tick();
+})();
 </script>
 
 <script>
@@ -3704,6 +5525,163 @@ document.querySelectorAll('.nav-links a').forEach(a => {
   a.addEventListener('click', () => document.getElementById('navLinks').classList.remove('open'));
 });
 
+/* ════════════════════════════════════════════════════════════════════════
+   SESSION 5 — POLISH CLOSER
+
+   Three small interactions that, taken together, push the site from
+   "well-built" to "expensive". None of them are flashy on their own —
+   they're all about reducing the ambient roughness of the page.
+
+     1. Custom cursor — a small Stripe Blue dot follows the cursor with
+        lerp smoothing. Grows + outlines on interactive elements. Hides
+        on touch devices and when prefers-reduced-motion is on. Doesn't
+        replace the native cursor; sits alongside it.
+
+     2. Magnetic buttons — primary CTAs, nav CTA, and use-case tabs
+        drift toward the cursor when it's hovering them. Capped at 8px
+        of displacement. Composes with existing :hover translateY by
+        applying inline transform (which CSS rules cleanly take back
+        over on mouseleave when we clear the inline style).
+
+     3. Click ripple — Material-style expanding circle from click point,
+        clipped to the button's pill shape via overflow:hidden. White at
+        50% opacity, fades and scales over 600ms, then DOM-removed.
+
+   All three respect prefers-reduced-motion. All three are pointer-aware
+   (skipped on touch-only devices). All three were the smallest possible
+   amount of code that lands the polish — no animation libraries, no
+   GSAP, all native APIs.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const HAS_HOVER = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (REDUCED || !HAS_HOVER) return;
+
+  /* ─────────────────────────────────────────────────────────────────
+     1. CUSTOM CURSOR
+     A single fixed-position element that lerps toward the actual cursor.
+     The lerp factor (0.22) is tuned so motion feels weighted but not
+     laggy — too low and it drags, too high and it just sticks to the
+     pointer like a regular cursor. Pointer-events: none so it never
+     blocks clicks. mix-blend-mode: difference on light backgrounds
+     would invert prettily but interacts badly with the WebGL flame, so
+     we use a simple Stripe Blue fill with a subtle outline ring instead.
+     ───────────────────────────────────────────────────────────────── */
+  const cursor = document.createElement('div');
+  cursor.className = 'custom-cursor';
+  cursor.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(cursor);
+
+  let cx = -100, cy = -100;     /* current rendered position */
+  let tx = -100, ty = -100;     /* target position from mouse */
+  let cursorVisible = false;
+
+  document.addEventListener('mousemove', e => {
+    tx = e.clientX;
+    ty = e.clientY;
+    if (!cursorVisible) {
+      /* First mousemove — snap to position to avoid a fly-in from origin */
+      cx = tx; cy = ty;
+      cursor.classList.add('cursor--visible');
+      cursorVisible = true;
+    }
+  });
+  document.addEventListener('mouseleave', () => {
+    cursor.classList.remove('cursor--visible');
+    cursorVisible = false;
+  });
+
+  /* Single rAF loop just for the cursor — separate from the bento and
+     three.js loops because cursor smoothness matters at 60fps, not 30. */
+  function tickCursor() {
+    requestAnimationFrame(tickCursor);
+    cx += (tx - cx) * 0.22;
+    cy += (ty - cy) * 0.22;
+    cursor.style.transform = `translate(${cx}px, ${cy}px)`;
+  }
+  tickCursor();
+
+  /* Hover-state targets — the cursor enlarges + becomes ring-only when
+     over interactive elements. Selectors picked to cover everything that
+     would otherwise show a pointer cursor. */
+  const interactiveSelector = 'a, button, .module, .uc-tab, .ct-item, [role="button"], .float-tag';
+  function setHover(on) { cursor.classList.toggle('cursor--hover', on); }
+  document.querySelectorAll(interactiveSelector).forEach(el => {
+    el.addEventListener('mouseenter', () => setHover(true));
+    el.addEventListener('mouseleave', () => setHover(false));
+  });
+
+  /* ─────────────────────────────────────────────────────────────────
+     2. MAGNETIC BUTTONS
+     On mousemove inside a magnetic button, translate the button toward
+     the cursor by 25% of the cursor-to-center offset, capped at 8px.
+     Composes with the existing :hover translateY(-1px) by including
+     the -1 directly in the inline transform.
+
+     We also pull the cursor itself toward the button's center by 30%
+     — gives the satisfying "snap" feeling that good Linear/Apple sites
+     have. Cursor pull lives here, not in the cursor block, because we
+     only know the snap target inside this hover lifecycle.
+     ───────────────────────────────────────────────────────────────── */
+  const MAG_STRENGTH = 0.25;       /* fraction of cursor offset applied */
+  const MAG_CAP = 8;               /* px max displacement */
+  const CURSOR_SNAP = 0.30;        /* how much the cursor pulls toward center */
+
+  document.querySelectorAll('.btn-primary, .btn-secondary, .nav-cta, .uc-tab').forEach(el => {
+    let active = false;
+    el.addEventListener('mouseenter', () => { active = true; });
+    el.addEventListener('mousemove', e => {
+      if (!active) return;
+      const r = el.getBoundingClientRect();
+      const ccx = r.left + r.width  / 2;
+      const ccy = r.top  + r.height / 2;
+      let dx = (e.clientX - ccx) * MAG_STRENGTH;
+      let dy = (e.clientY - ccy) * MAG_STRENGTH;
+      /* Cap at MAG_CAP px each axis */
+      if (Math.abs(dx) > MAG_CAP) dx = Math.sign(dx) * MAG_CAP;
+      if (Math.abs(dy) > MAG_CAP) dy = Math.sign(dy) * MAG_CAP;
+      /* Compose with existing hover lift (-1px on Y) */
+      el.style.transform = `translate(${dx.toFixed(1)}px, ${(dy - 1).toFixed(1)}px)`;
+      /* Cursor snap — pull cursor target toward button center */
+      tx = e.clientX - (e.clientX - ccx) * CURSOR_SNAP;
+      ty = e.clientY - (e.clientY - ccy) * CURSOR_SNAP;
+    });
+    el.addEventListener('mouseleave', () => {
+      active = false;
+      /* Clear inline transform — CSS :hover and base rules take back over */
+      el.style.transform = '';
+    });
+  });
+
+  /* ─────────────────────────────────────────────────────────────────
+     3. CLICK RIPPLE
+     On click, append a span sized 2× the larger button dimension,
+     positioned so its center is at the click point. CSS keyframe
+     scales it from 0 to 1 and fades it out over 600ms, then we DOM-
+     remove the element. Pill buttons (border-radius: 999px) clip the
+     ripple to the pill via overflow:hidden in the .ripple CSS rule.
+     ───────────────────────────────────────────────────────────────── */
+  document.querySelectorAll('.btn-primary, .btn-secondary, .nav-cta').forEach(el => {
+    /* Make sure button can host an absolute child with overflow clipping */
+    const cs = getComputedStyle(el);
+    if (cs.position === 'static') el.style.position = 'relative';
+    if (cs.overflow === 'visible') el.style.overflow = 'hidden';
+
+    el.addEventListener('click', e => {
+      const ripple = document.createElement('span');
+      ripple.className = 'ripple';
+      const r = el.getBoundingClientRect();
+      const size = Math.max(r.width, r.height) * 2.2;
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = (e.clientX - r.left - size / 2) + 'px';
+      ripple.style.top  = (e.clientY - r.top  - size / 2) + 'px';
+      el.appendChild(ripple);
+      /* Self-clean after the animation duration. Match the CSS keyframe. */
+      setTimeout(() => ripple.remove(), 650);
+    });
+  });
+})();
+
 // ===== THEME TOGGLE =====
 function applyTheme(theme) {
   if (theme === 'light') {
@@ -3718,7 +5696,35 @@ function applyTheme(theme) {
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme');
   const next = current === 'light' ? 'dark' : 'light';
-  applyTheme(next);
+
+  /* SESSION 5 — radial reveal via View Transitions API.
+     On Chrome / Edge / newer Safari, document.startViewTransition() captures
+     a pre-state snapshot, runs our state mutation synchronously, then
+     animates between the old and new snapshots using the CSS pseudo-elements
+     ::view-transition-old(root) and ::view-transition-new(root).
+
+     We store the toggle button's center as CSS vars (--vt-cx, --vt-cy) so
+     the keyframe in the stylesheet can clip-path circle() expand from that
+     exact point — the new theme literally radiates out from the button you
+     just clicked, instead of all colors snapping at once.
+
+     If the API isn't available, we fall back to applyTheme() directly and
+     the universal --theme-transition CSS rules handle a coordinated 600ms
+     crossfade across all themed properties — still smoother than the old
+     stagger-cut, just without the radial reveal. */
+  if (typeof document.startViewTransition === 'function' &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const btn = document.querySelector('.theme-toggle');
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      document.documentElement.style.setProperty('--vt-cx', (r.left + r.width / 2) + 'px');
+      document.documentElement.style.setProperty('--vt-cy', (r.top + r.height / 2) + 'px');
+    }
+    document.startViewTransition(() => applyTheme(next));
+  } else {
+    applyTheme(next);
+  }
+
   try { localStorage.setItem('stm-theme', next); } catch (e) {}
 }
 
