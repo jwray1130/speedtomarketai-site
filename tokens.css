@@ -1,0 +1,350 @@
+/* ============================================================================
+ * tokens.css — Speed to Market AI · Z1 design system
+ * ----------------------------------------------------------------------------
+ * Session 1 of 10 in the Z1 re-skin / carrier-neutral migration.
+ *
+ * SCOPE
+ *   The single source of truth for every color, font, dimension, shadow, and
+ *   transition in the new Altitude. Drops in as the head of app.css and as
+ *   the tokens block in documents-view.css (the latter scoped under
+ *   #docs-view-root so the prototype's namespacing stays intact).
+ *
+ * THEME MODEL
+ *   Light is now the default (matches Z1 reference). Dark is opt-in via
+ *   `html[data-theme="dark"]`. This is inverted from the prior Altitude
+ *   convention where dark was default and light was the toggle. The
+ *   localStorage key (`stm-theme`) is preserved; only the value semantics
+ *   change. See session 8 for the matching app.js toggleTheme rewrite.
+ *
+ * FIDELITY ANCHORS
+ *   - Royal blue   #0e46a3   (Z1 reference --blue)
+ *   - Deep blue    #072d6a   (Z1 reference --blue-dk, used for topbar)
+ *   - Amber yellow #ffd100   (Z1 reference --accent)
+ *   - Light bg     #f7f9fc   (Z1 reference --bg)
+ *   - Border       #d7e0f3   (Z1 reference --border)
+ *   - Card radius  0.7rem    (Z1 reference --radius)
+ *   - Soft shadow  0 6px 18px rgba(0, 0, 0, .055)  (Z1 reference --shadow)
+ *   - Font stack   Inter / Geist Mono
+ *   - Body size    14.5px / 1.42 line height
+ *
+ * CARRIER NEUTRALITY
+ *   No carrier-specific colors. No "Zurich blue" or any other tenant identity
+ *   baked into the palette. The royal blue is generic-corporate, the amber
+ *   accent is generic-utility — both work for any underwriting carrier and
+ *   match the Z1 reference's neutral-but-confident voice.
+ * ========================================================================= */
+
+
+/* ─── LIGHT MODE (default) ──────────────────────────────────────────── */
+
+:root {
+  /* ── Primary signal: royal blue ──────────────────────────────────── */
+  /* Used for active states, focus rings, brand-mark accents, signal pills,
+     and any "this is the action" emphasis. The deeper Z1 blue (vs the
+     Stripe blue Altitude was using) reads as "underwriting professional"
+     rather than "consumer fintech". */
+  --signal:           #0e46a3;
+  --signal-hover:     #1a5cc7;
+  --signal-dim:       #072d6a;
+  --signal-ink:       #0e46a3;
+  --signal-pale:      rgba(14, 70, 163, 0.10);
+  --signal-tint:      rgba(14, 70, 163, 0.18);
+
+  /* ── Accent: amber yellow ────────────────────────────────────────── */
+  /* Used for primary action buttons, active-tab underlines, hover glows,
+     and the version badge. Z1's signature element — the one moment of
+     warmth in an otherwise blue/grey palette. Contrast ratio against
+     #253044 text is 12.4:1 (AAA on text, AA-large on UI). */
+  --accent:           #ffd100;
+  --accent-hover:     #ffdb33;
+  --accent-dim:       #e6bc00;
+  --accent-pale:      rgba(255, 209, 0, 0.14);
+  --accent-tint:      rgba(255, 209, 0, 0.28);
+
+  /* ── Status colors ───────────────────────────────────────────────── */
+  /* Tuned for legibility against the white card / light-grey body
+     surfaces. Saturation pulled down vs the prior Altitude palette so
+     they read as quiet signals, not alarms. */
+  --success:          #2e8f48;
+  --success-pale:     rgba(46, 143, 72, 0.10);
+  --warning:          #b8700e;
+  --warning-pale:     rgba(184, 112, 14, 0.10);
+  --danger:           #c13737;
+  --danger-pale:      rgba(193, 55, 55, 0.10);
+  --info:             #2563eb;
+  --info-pale:        rgba(37, 99, 235, 0.10);
+
+  /* ── Surfaces ────────────────────────────────────────────────────── */
+  --bg:               #f7f9fc;   /* page background */
+  --surface:          #ffffff;   /* cards, modals, primary content */
+  --surface-2:        #eef2fa;   /* subnav, hover states, secondary panels */
+  --surface-3:        #e3e8ee;   /* inset code blocks, deep wells */
+  --surface-raised:   #ffffff;   /* dropdowns, popovers — same as surface
+                                    in light mode (shadow does the lift) */
+  --line:             #d7e0f3;   /* default borders, dividers */
+  --line-warm:        #c0ccda;   /* stronger borders, focus-adjacent */
+
+  /* ── Typography colors ───────────────────────────────────────────── */
+  --text:             #253044;   /* primary body text — Z1 reference */
+  --text-2:           #4a5670;   /* secondary text, labels */
+  --text-3:           #708099;   /* tertiary, hints, eyebrows */
+  --text-on-signal:   #ffffff;   /* text drawn on top of --signal fill */
+  --text-on-accent:   #253044;   /* text on yellow — dark for legibility */
+
+  /* ── Chrome ──────────────────────────────────────────────────────── */
+  --backdrop:         rgba(255, 255, 255, 0.78);   /* sticky topbar blur */
+  --topbar-grad-from: #0e46a3;
+  --topbar-grad-to:   #072d6a;
+  --topbar-text:      #ffffff;
+  --topbar-text-dim:  rgba(255, 255, 255, 0.83);
+
+  /* ── Glass sidebar (Z1 reference ".sidebar.glass") ────────────────── */
+  /* The Z1 design uses a translucent blue glass sidebar that floats over
+     the body. Tokens here so any glass surface can opt in. */
+  --glass-bg:         rgba(14, 70, 163, 0.85);
+  --glass-border:     rgba(255, 255, 255, 0.15);
+  --glass-text:       #ffffff;
+  --glass-text-dim:   rgba(255, 255, 255, 0.85);
+  --glass-input-bg:   rgba(255, 255, 255, 0.14);
+
+  /* ── Decorative grain overlay ────────────────────────────────────── */
+  /* Altitude's signature subtle film grain. Lightly preserved here so the
+     transition retains some texture, but tuned far below the original
+     dark-mode intensity since Z1's clean light surfaces don't need it. */
+  --grain-opacity:    0.06;
+  --grain-blend:      multiply;
+
+  /* ── Fonts ───────────────────────────────────────────────────────── */
+  --font-display:     'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:        'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:        'Geist Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ── Geometry ────────────────────────────────────────────────────── */
+  --radius-sm:        0.3rem;    /* small chips, buttons inside dense rows */
+  --radius:           0.45rem;   /* default — inputs, dropdowns, small cards */
+  --radius-md:        0.7rem;    /* large cards, modals — Z1 reference --radius */
+  --radius-lg:        1rem;      /* hero panels, full-width banners */
+  --radius-pill:      999px;     /* pills, tabs, status indicators */
+
+  /* ── Shadows ─────────────────────────────────────────────────────── */
+  --shadow-sm:        0 1px 2px rgba(10, 37, 64, 0.04);
+  --shadow:           0 6px 18px rgba(0, 0, 0, 0.055);   /* Z1 reference */
+  --shadow-md:        0 10px 30px rgba(10, 37, 64, 0.10);
+  --shadow-lg:        0 20px 60px rgba(10, 37, 64, 0.14);
+
+  /* ── Motion ──────────────────────────────────────────────────────── */
+  --ease-snap:        cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-glide:       cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:         120ms;
+  --dur:              160ms;
+  --dur-slow:         240ms;
+
+  /* ── Z-index scale ───────────────────────────────────────────────── */
+  --z-base:           0;
+  --z-raised:         10;
+  --z-sticky:         50;
+  --z-dropdown:       100;
+  --z-modal:          1000;
+  --z-toast:          5000;
+  --z-overlay:        9999;
+  --z-auth:           99999;
+}
+
+
+/* ─── DARK MODE (opt-in via html[data-theme="dark"]) ────────────────── */
+
+html[data-theme="dark"] {
+  --signal:           #2563eb;
+  --signal-hover:     #3b82f6;
+  --signal-dim:       #1d4ed8;
+  --signal-ink:       #5b8def;
+  --signal-pale:      rgba(91, 141, 239, 0.12);
+  --signal-tint:      rgba(91, 141, 239, 0.22);
+
+  --accent:           #ffd100;
+  --accent-hover:     #ffdb33;
+  --accent-dim:       #cc9d00;
+  --accent-pale:      rgba(255, 209, 0, 0.10);
+  --accent-tint:      rgba(255, 209, 0, 0.20);
+
+  --success:          #7dd88a;
+  --success-pale:     rgba(125, 216, 138, 0.10);
+  --warning:          #fbbf24;
+  --warning-pale:     rgba(251, 191, 36, 0.10);
+  --danger:           #f87171;
+  --danger-pale:      rgba(248, 113, 113, 0.10);
+  --info:             #60a5fa;
+  --info-pale:        rgba(96, 165, 250, 0.10);
+
+  --bg:               #0a1a33;
+  --surface:          #0e2240;
+  --surface-2:        #142b4f;
+  --surface-3:        #1b3964;
+  --surface-raised:   #163057;
+  --line:             #1f3460;
+  --line-warm:        #2c4276;
+
+  --text:             #f6f9fc;
+  --text-2:           #adbdcc;
+  --text-3:           #708099;
+  --text-on-signal:   #ffffff;
+  --text-on-accent:   #0a1a33;
+
+  --backdrop:         rgba(10, 26, 51, 0.78);
+  --topbar-grad-from: #0a1a33;
+  --topbar-grad-to:   #06122a;
+  --topbar-text:      #f6f9fc;
+  --topbar-text-dim:  rgba(246, 249, 252, 0.78);
+
+  --glass-bg:         rgba(14, 34, 64, 0.78);
+  --glass-border:     rgba(91, 141, 239, 0.25);
+  --glass-text:       #f6f9fc;
+  --glass-text-dim:   rgba(246, 249, 252, 0.85);
+  --glass-input-bg:   rgba(255, 255, 255, 0.08);
+
+  --grain-opacity:    0.32;
+  --grain-blend:      overlay;
+
+  --shadow-sm:        0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow:           0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-md:        0 10px 30px rgba(0, 0, 0, 0.5);
+  --shadow-lg:        0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+
+/* ─── BASE RESET + GLOBAL TYPOGRAPHY ────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14.5px;        /* Z1 reference */
+  line-height: 1.42;        /* Z1 reference */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Subtle film grain — preserved from Altitude but tuned way back so it
+   doesn't fight Z1's clean white surfaces. In dark mode it bumps back up
+   to give the navy depth. Pure decoration, pointer-events: none. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.92 0 0 0 0 0.88 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  pointer-events: none;
+  z-index: var(--z-overlay);
+}
+
+/* Selection — yellow accent against deep blue ink */
+::selection {
+  background: var(--accent);
+  color: var(--signal-dim);
+}
+
+/* Native form reset — every input, button, select, textarea inherits the
+   root font and is stripped of browser-default chrome so app.css part 1
+   can build them up cleanly. */
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="url"],
+input[type="search"],
+input[type="tel"],
+input[type="password"],
+textarea {
+  cursor: text;
+}
+
+/* Hide native number-input spinners (Altitude convention — clean
+   currency-input experience) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Smooth theme transitions across every interactive surface. Property
+   list scoped to color/border/shadow only — never `all` (would animate
+   layout properties and stutter on resize). */
+*,
+*::before,
+*::after {
+  transition:
+    background-color var(--dur) var(--ease-snap),
+    border-color     var(--dur) var(--ease-snap),
+    color            var(--dur) var(--ease-snap),
+    fill             var(--dur) var(--ease-snap),
+    stroke           var(--dur) var(--ease-snap),
+    box-shadow       var(--dur) var(--ease-snap),
+    opacity          var(--dur) var(--ease-snap);
+}
+
+/* Disable all transitions during initial paint and during programmatic
+   theme swap — prevents the "everything fades through grey" flash that
+   happens when `data-theme` is toggled while inputs have focus rings. */
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after {
+  transition-duration: 0ms !important;
+}
+
+/* Default scrollbar — subtle, matches surface */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 2px solid var(--bg);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-warm);
+}
+
+/* Reduced motion — honor OS preference. Animations become instant
+   transitions; the visual outcome is identical, just without the glide. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

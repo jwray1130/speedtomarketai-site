@@ -1,12 +1,15 @@
 // ============================================================================
 // app.js — Altitude / Speed to Market AI
 // ============================================================================
-// v8.6 BUILD STAMP — visible in console on every page load, queryable via
+// v9.0 BUILD STAMP — visible in console on every page load, queryable via
 // window.debugBuildInfo(). Without this, it's impossible to tell from the
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.29-progressive-thumb-quality-2026-05-06';
+//
+// v9.0.0 introduces the Z1 aesthetic re-skin and carrier-neutral content
+// rewrite. See CHANGELOG.md, INTEGRATION.md, PRODUCTION.md for details.
+window.STM_BUILD = 'v9.0.0-z1-aesthetic-carrier-neutral-2026-05-08';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -534,212 +537,120 @@ function verifyCriticalLibraries() {
 // GLOBAL STATE
 // ============================================================================
 // ============================================================================
-// CARRIER UNDERWRITING GUIDELINE — real excerpt from Zurich E&S Excess Casualty
-// Full 114-page guideline loaded as a condensed excerpt (~9.5KB) covering
-// Construction, Work-from-Heights, NY operations, Attachment Points, and
-// Chapter 1 prohibitions/empowerment levels. Carriers can override this by
-// pasting their own full guideline in Settings → "Carrier Guideline".
+// DEFAULT_GUIDELINE — neutral starter template (Z1 re-skin · session 8)
+// Generic placeholder. The user is expected to replace this with their
+// carrier's actual underwriting guideline via Settings → Carrier Guideline.
+// Until then, the cross-reference module renders meaningful structure but
+// makes no carrier-specific claims. Stored in Supabase under the user's
+// settings record (ACTIVE_GUIDELINE in this file).
 // ============================================================================
-const DEFAULT_GUIDELINE = `ZURICH E&S EXCESS CASUALTY UNDERWRITING GUIDELINE — RELEVANT EXCERPT
-(Full guideline: 114 pages. This excerpt covers rules relevant to construction, heights, NY operations, and attachment point strategy.)
+const DEFAULT_GUIDELINE = `STARTER UNDERWRITING GUIDELINE TEMPLATE
+(Replace this with your carrier's actual underwriting guideline via Settings → Carrier Guideline. Until then, the guideline cross-reference module produces structurally valid output but cannot make carrier-specific claims. The structure below mirrors the typical excess casualty guideline format and is meant only as a placeholder.)
 
 ========================================================================
-CHAPTER 1 — GENERAL UW PRINCIPLES
+HOW TO USE THIS TEMPLATE
 ========================================================================
 
-PROHIBITED COVERAGES, EXPOSURES, AND PROCESSES (Chapter 1):
-- Accident and Health Insurance and Medical
-- Artificial Intelligence - mfg, selling/distribution of software, service providers, users (except for incidental use)
-- Asbestos
-- Certificate of Insurance - issuing or certifying
-- Contractors' Pollution Policy
-- Data Breach, Cyber Security, BIPA, Privacy Liability
-- Employee Practice Liability
-- Fidelity
-- Foreign Policies where there is no US Master policy
-- Health insurance companies
-- Installment Plans
-- Intellectual Property
-- Manufacturers and distributors of controlled substances
-- Nuclear, Radiologic and Low-Level Radioactive Waste (LLRW)
-- Patent Infringement
-- Professional Liability (other than incidental)
-- Railroad Protective Liability
-- Social Media Platforms and technology vendors supporting Social Media Platform activity
-- Stand-alone coverages other than GL or AL
+1. Open Settings → Carrier Guideline.
+2. Drop your carrier's full PDF/DOCX, or paste the relevant chapters into the textarea.
+3. Save. The classifier + guideline cross-reference modules will use your guideline on the next pipeline run.
 
-REQUIRES ZURICH E&S HEAD OF UNDERWRITING EMPOWERMENT:
-- Delivery Network Companies or DNC's (i.e., Door Dash & Grubhub)
-- Environmental Liability or other stand-alone pollution coverage
-- Risk Purchasing Groups (RPGs) or Risk Retention Groups (RRGs) as the named insured
-- Shared and Gig Economy Risk
-- Special Acceptance: any request for a treaty Special Acceptance
-- Transportation Operations: operation of transportation such as railways, metros, bus companies, cable cars, trams, ski lifts and operators of highways
-- Treaty Exclusion: Any intention to write a risk that would otherwise be excluded from an applicable treaty
+This starter template is intentionally generic. It will let the pipeline produce shaped output (cross-references, conflict flags, attachment-point checks) but the specific values, prohibitions, and empowerment thresholds below are illustrative only — they do NOT reflect any real carrier's appetite.
 
-REQUIRES LEVEL 5 EMPOWERMENT:
-- Charters' Liability
-- Corridor Buy Backs
-- Credit Risk Collateral Programs
-- Cut-Through Agreements
-- Lead
-- Manuscript Endorsements (not applicable to fill-in wording of existing forms)
-- Marine Protection & Indemnity aka Brown Water (Commercial Hull)
-- Multi-Year Rate Guarantee (Long-Term Agreements)
-- Municipalities or Government Owned Entities
-- Ship Repairer's
-- Silica
-- Trailing SIRs
-- U.S. Territories: any risk domiciled (or predominant exposure) in a US Territory
-- Warehouse Legal Liability
+========================================================================
+CHAPTER 1 — GENERAL UNDERWRITING PRINCIPLES (sample structure)
+========================================================================
 
-REQUIRES LEVEL 4 EMPOWERMENT:
-- Admitted paper
-- Anti-Stacking of Limits (removal of the endorsement)
-- Auditable Policies (Premium Computation Amendatory Endorsement)
-- Corridor Deductibles
-- Maritime Employers Liability
-- Minimum Earned Premium <25% (does not apply to admitted policies in FL or NY)
-- Multiple Layer / Ventilated Policy
-- Punitive Damages Coverage (remaining silent or granting coverage on a policy with a limit greater than $10m)
-- Quota Share placements with unequal participation unless Zurich E&S has the lower percentage
-- Temporary Staffing Firms
-- USL&H and Jones Act
+PROHIBITED COVERAGES, EXPOSURES, AND PROCESSES (illustrative — replace):
+- [Your carrier's prohibited classes — e.g., asbestos, nuclear, lead, etc.]
+- [Your carrier's prohibited coverages — e.g., professional liability, fidelity, etc.]
+- [Your carrier's prohibited operations — e.g., aviation, marine, mining, etc.]
 
-SECTION 1.5 — ATTACHMENT POINT STRATEGY (GL Occurrence Limit by Hazard Grade × Size):
+REQUIRES SENIOR UNDERWRITING EMPOWERMENT (illustrative):
+- Specialty risks outside your carrier's standard appetite
+- Treaty exclusion deviations
+- Coverage extensions beyond standard form
 
-By Total Cost of Work:
+REQUIRES LEVEL 5 EMPOWERMENT (illustrative):
+- Lead-position quotes outside your carrier's primary appetite
+- Manuscript endorsements
+- Multi-year rate guarantees
+- Risks domiciled in territories outside your carrier's licensed footprint
+
+REQUIRES LEVEL 4 EMPOWERMENT (illustrative):
+- Admitted-paper requests
+- Anti-stacking endorsement removals
+- Multi-layer / ventilated policy structures
+- Quota-share placements with non-standard participation
+
+SECTION 1.5 — ATTACHMENT POINT STRATEGY (sample table — replace with your carrier's actual table):
+
+By Total Cost of Work (illustrative):
 - 0-100m:   HG1-HG4 = $1M,  HG5-HG6 = $2M
 - 100-250m: HG1-HG2 = $1M,  HG3-HG4 = $2M,  HG5-HG6 = $2M
 - 250-500m: HG1-HG3 = $2M,  HG4-HG6 = $5M
 - >500m:    HG1-HG3 = $5M,  HG4-HG6 = $10M
 
-By Payroll:
+By Payroll (illustrative):
 - 0-25m:    HG1-HG4 = $1M,  HG5-HG6 = $2M
 - 25-100m:  HG1-HG2 = $1M,  HG3-HG4 = $2M,  HG5-HG6 = $2M
 - 100-250m: HG1-HG3 = $2M,  HG4-HG6 = $5M
 - >250m:    HG1-HG3 = $5M,  HG4-HG6 = $10M
 
-Regardless of risk size, a $5M Minimum Attachment Point is required when there is exposure in:
-- Concrete Mix-In-Transit
-- Waste Haulers
-
-GENERAL POLICY LEVEL REFERRAL TRIGGERS BY EMPOWERMENT LEVEL:
-- Policy Term: 18 months max for Levels 1-5
-- Policy Limits: Level 1-4 up to $10M (L4 up to $12.5M if 50% QS excess of $10m ground up)
-- Aggregate Caps: L1-L3 up to 2x policy limit
-- Single Loss Threshold: L1-L2 up to $5M, L3 up to $7.5M, L4 up to $10M in prior 5 years
-- Risk with total incurred in any single year >75% of ground up attachment point in past 5 yrs: requires L3+
-- % Assisted Living/Non-Market Rate/Student Housing: L1-L2 <25%; L3 <25% lead layer or up to 50% when attaching $5m+; L4-L5 up to 100%
+GENERAL POLICY-LEVEL REFERRAL TRIGGERS (illustrative):
+- Policy term: maximum 18 months
+- Policy limits: levels 1-4 up to $10M
+- Aggregate caps: levels 1-3 up to 2x policy limit
+- Single-loss threshold: levels 1-2 up to $5M, level 3 up to $7.5M, level 4 up to $10M (prior 5 years)
 
 ========================================================================
-CHAPTER 6 — CONSTRUCTION UNDERWRITING GUIDELINES
+CHAPTER 6 — CONSTRUCTION UNDERWRITING (sample structure)
 ========================================================================
 
-PROHIBITED COVERAGES, EXPOSURES, AND PROCESSES (Construction):
-- Asbestos handling
-- Blasting or Explosives Operators
-- Building Structure - raising or moving
-- Business classified as homebuilders (SIC 1521) with more than 35 single family home projects in any 12-month period
-- Dam or Reservoir Construction
-- Dike, Levee or Revetment Construction
-- Diving - marine
-- Dredging (all types including gold-endless-bucket, gold-floating-dragline, drilling other than water)
-- Energy related risks or any risk that conflicts with Zurich's sustainability efforts
-- Freight Forwarders or Handlers packing, handling or shipping explosives or ammunition under contract
-- Gas Companies
-- Gunsmiths
-- Hazardous Material Contractors
-- Jetty or Breakwater Construction
-- Marine Appraisers or Surveyors
-- Mass Timber or Tract Home Construction
-- Mining (does not include quarries)
-- Oil and Gas Wells - Instrument
-- Offshore exposures (any/all)
-- Operation of water treatment facilities by a construction or engineering company
-- Pipelines - operation - gas
-- Pipelines - operation - oil
-- Railroads - urban transit and commuter rail systems
-- Ship Building
-- Ship Ceiling or Scaling
-- Sinking
-- Stables - boarding, livery or racing
-- Stevedoring - handling explosives or ammunition - under contract
-- Subway Construction
-- Tunneling through the use of tunnel boring machines with diameters of 5 meters or greater
+PROHIBITED CONSTRUCTION OPERATIONS (illustrative — replace with your carrier's list):
+- [Operations your carrier does not write — e.g., bridge, tunnel, dam, marine]
+- [Specialty construction your carrier prohibits — e.g., demolition, mining, ship building]
 
-REQUIRES ZURICH E&S HEAD OF UW EMPOWERMENT:
-- Construction contract value / revenue greater than $1 billion USD on any account or project
-- Pipeline Construction - oil
-- Pipeline Construction - gas
-- Pipeline Construction - slurry - nonflammable mixtures
+REQUIRES SENIOR EMPOWERMENT (illustrative):
+- Contract value or revenue greater than $1B USD on any account or project
+- Pipeline construction (oil, gas, slurry of flammable mixtures)
+- Major infrastructure projects
 
-REQUIRES LEVEL 5 EMPOWERMENT:
-- Bridge Construction (>15% over navigable waters requires BU Head of UW Empowerment)
+REQUIRES LEVEL 5 EMPOWERMENT (illustrative):
+- Bridge construction
+- Operations involving navigable waters
 
-REQUIRES LEVEL 4 EMPOWERMENT:
-- Professional Means & Methods coverage
+REQUIRES LEVEL 4 EMPOWERMENT (illustrative):
+- Professional means & methods coverage
+- Design-build with professional liability extension
 
-SNOW AND ICE REMOVAL CONTRACTORS: minimum $5m attachment. Exceptions require Level 5 Empowerment. Less than 10% snow and ice removal operations is considered incidental.
+----- HIGH-RISK GEOGRAPHIC OPERATIONS (illustrative) -----
 
------ NEW YORK CONTRACTING OPERATIONS -----
+Some carriers maintain dedicated rules for operations in specific high-severity jurisdictions (commonly New York City, certain Florida counties, Houston, Chicago, etc.). Replace with your carrier's actual list and thresholds. A typical pattern:
 
-"$5,000,000 minimum attachment point for any contractor operating in the 5 boroughs of New York City"
+"$5,000,000 minimum attachment point for any contractor operating in [high-severity jurisdictions listed by your carrier]."
 
-"$5,000,000 maximum limit for any contractor operating in New York State"
-- Maximum limit of $7,500,000 as part of a quota share attaching at $10,000,000 or higher
-- Exceptions require Head of Zurich E&S empowerment
+"$5,000,000 maximum limit for any contractor operating in [state(s)/regions listed by your carrier]."
 
-"For contractors domiciled outside New York, the underwriter must attach a mandatory Designated Operations Exclusion removing any 5 boroughs exposure, or if the account has exposure in the 5 boroughs of New York, follow the attachment point and capacity restrictions for New York Construction identified above."
+For contractors domiciled outside the high-severity jurisdiction, the underwriter typically attaches a Designated Operations Exclusion removing the relevant exposure, OR (if the account has exposure in the high-severity jurisdiction) follows the attachment-point and capacity restrictions identified above. Exceptions usually require Level 5 Empowerment.
 
-Exceptions to provide completed operations coverage require Level 5 Empowerment.
+----- WORK-FROM-HEIGHTS OPERATIONS (illustrative) -----
 
------ CRANE, SCAFFOLDING, WINDOW WASHERS, GLAZIERS & MASONS (Work from Heights) -----
+Activity performed at height (cranes, scaffolding, window washers, glaziers, masons) typically carries dedicated requirements. Replace with your carrier's specific values:
 
-"Given the inherent nature of the risk, Zurich E&S looks to ensure that we manage losses from activity performed at heights. Any deviations to the rules in this guideline require Level 5 Empowerment."
+- Minimum ground-up attachment point: [your carrier's value, e.g., $5M]
+- Maximum capacity: [your carrier's value, e.g., $5M]
+- Geographic restrictions: [list any prohibited states]
+- Industry experience minimum: [years]
+- Minimum policy premium: [amount]
 
-Requirements:
-- Minimum $5m ground up attachment point
-- Maximum capacity of $5m
-- No operations in New York State
-- Five or more years of industry experience
-- $25,000 minimum policy premium
-
-Cranes: Crane erection, inspection, service & repair or rental, including overhead cranes with/without operator are acceptable subject to: "No tower cranes"
-
-Scaffolding: Scaffolding Erection & Dismantling is acceptable subject to: "Ten stories or less"
-
-Window Washers: Four stories or less in Metropolitan areas
-
-Glaziers: Exterior work 10 stories or less
-
------ STRUCTURAL STEEL/IRON ERECTION -----
-
-Bridge Contractor Underwriting Guideline — applicable classifications for Bridge Contractor classification:
-- Bridge or Elevated Highway Construction - Concrete
-- Bridge or Elevated Highway Construction - Iron or Steel (GL Class 91266, SIC 1622)
-- Iron or Steel - Erection - Frame Structures (GL Class 91265, SIC 1622)
-
-All bridge contractors require a minimum $5m attachment point.
-
------ RESIDENTIAL CONSTRUCTION STATE APPETITE GRID -----
-(A = Most appetite, B = Moderate, C = Restricted)
-
-A-states: AL, CO, CT, DE, GA, ID, IL, IN, IA, KS, KY, ME, MD, MA, MI, MN, MT, NE, NV, NH, NJ, NM, NC, ND, OH, OK, OR, PA, RI, SD, TN, UT, VT, VA, WI, WY
-B-states: AR, MS, MO, WV
-C-states: AZ, CA, FL, HI, LA, NY, SC, TX, WA
-
-RESIDENTIAL EXCLUSION FORMS:
-- U-UMB-433: Multi-Unit Residential Construction Exclusion
-- U-UMB-616 / U-EXS-346: Designated Operations Exclusion - Residential
-- U-UMB-617 / U-EXS-347: Designated Operations Exclusion - Residential Operations with Apartments
-- U-UMB-618 / U-EXS-348: Designated Work Exclusion - Residential with Apartments Solely as Rental Units
-- U-UMB-619 / U-SXS-110 / U-EXS-349: Designated Operations Exclusion - Residential with Senior Living Facilities
+(Specialty subcategories such as cranes, scaffolding, glaziers, masons typically have additional sub-rules — e.g., "no tower cranes," "ten stories or less" — replace with your carrier's specific limits.)
 
 ========================================================================
-END OF RELEVANT EXCERPT
+END OF STARTER TEMPLATE
 ========================================================================
-`;
+
+This template is intentionally non-prescriptive. To get useful underwriting cross-references, paste your carrier's full guideline in Settings → Carrier Guideline.`;
 
 // Guideline used at runtime. Phase 4: persisted per-user in Supabase
 // user_settings.carrier_guideline so it follows the UW across devices.
@@ -773,7 +684,7 @@ async function saveGuidelineOverride(text) {
   }
   logAudit('Admin', 'Carrier guideline updated · ' + (text ? text.length.toLocaleString() + ' chars' : 'reset to default'), 'user');
   if (cloudOk) {
-    toast('Guideline ' + (text ? 'updated' : 'reset to Zurich default'));
+    toast('Guideline ' + (text ? 'updated' : 'reset to default'));
   }
 }
 
@@ -1220,7 +1131,7 @@ async function saveSettings() {
 }
 
 async function resetGuidelineToDefault() {
-  if (!confirm('Reset the carrier guideline back to the default Zurich E&S excerpt? Any custom guideline you pasted will be cleared.')) return;
+  if (!confirm('Reset the carrier guideline back to the default starter template? Any custom guideline you pasted will be cleared.')) return;
   document.getElementById('carrierGuideline').value = '';
   document.getElementById('guidelineStatus').textContent = 'DEFAULT · ' + DEFAULT_GUIDELINE.length.toLocaleString() + ' CHARS';
   document.getElementById('guidelineStatus').style.color = 'var(--text-3)';
@@ -1230,7 +1141,7 @@ async function resetGuidelineToDefault() {
 function showDefaultGuideline() {
   const ta = document.getElementById('carrierGuideline');
   if (!ta) return;
-  if (ta.value.length > 0 && !confirm('Replace the current textarea content with the default Zurich E&S guideline excerpt? Any unsaved changes will be lost.')) return;
+  if (ta.value.length > 0 && !confirm('Replace the current textarea content with the default starter template? Any unsaved changes will be lost.')) return;
   ta.value = DEFAULT_GUIDELINE;
   document.getElementById('guidelineStatus').textContent = 'VIEWING DEFAULT (unsaved)';
   document.getElementById('guidelineStatus').style.color = 'var(--warning)';
@@ -4636,11 +4547,11 @@ Note: No existing underlying excess layers — this is the lead excess placement
 
   <div class="tower-layer proposed">
     <div class="tower-layer-row-1">
-      <span class="tower-layer-badge proposed-badge">★ ZURICH</span>
+      <span class="tower-layer-badge proposed-badge">★ PROPOSED</span>
       <span class="tower-layer-carrier">Proposed Quote — Lead Excess</span>
       <span class="tower-layer-limits">$5M xs Primary</span>
     </div>
-    <div class="tower-layer-row-2">Follow-form GL+AL · Premium est $85K · AM Best A XV · Attaches at $2M combined primary exhaustion · Compliant with Zurich capacity and attachment guidelines for this class.</div>
+    <div class="tower-layer-row-2">Follow-form GL+AL · Premium est $85K · AM Best A XV · Attaches at $2M combined primary exhaustion · Compliant with carrier capacity and attachment guidelines for this class.</div>
   </div>
 
   <div class="tower-primaries-row">
@@ -4665,9 +4576,9 @@ Note: No existing underlying excess layers — this is the lead excess placement
 </div>
 
 <div class="tower-notes">
-  <p><strong>Ask vs Offer.</strong> Broker requested <strong>$5M xs Primary</strong> lead excess from Zurich — a single-layer placement attaching at the $2M combined primary exhaustion. Request is within Zurich E&S Excess Casualty capacity ($5M per layer) and within empowerment thresholds for this class. Compliant Zurich quote: <strong>$5M xs Primary · $85K est premium · Follow-form GL+AL with Additional Insured and Waiver of Subrogation endorsements</strong>.</p>
-  <p><strong>Tower Completion.</strong> Tower is <strong>complete at $7M</strong> total ($2M primary + $5M Zurich excess). No additional layers requested by broker. No open capacity to market. If Meridian subsequently needs a higher tower, Zurich is not capacity-capped on upper layers — could support $5M xs $7M or further excess placements at incremental premium.</p>
-  <p><strong>Primary Adequacy.</strong> Primary GL ($1M/$2M Starr, A XV) and Primary AL ($1M CSL Great American, A+ XV) both meet Zurich minimums. Combined primary exhaustion at $2M is standard for construction at this revenue band and aligns cleanly with Zurich's lead excess attachment. Verify Employers Liability limit at $500K minimum (not $1M — NOT operating in WV). Per-project aggregate on GL (CG 25 03) coordinates cleanly with excess layer. No corridor gap between primary layers.</p>
+  <p><strong>Ask vs Offer.</strong> Broker requested <strong>$5M xs Primary</strong> lead excess — a single-layer placement attaching at the $2M combined primary exhaustion. Request is within carrier E&S Excess Casualty capacity ($5M per layer) and within empowerment thresholds for this class. Compliant quote: <strong>$5M xs Primary · $85K est premium · Follow-form GL+AL with Additional Insured and Waiver of Subrogation endorsements</strong>.</p>
+  <p><strong>Tower Completion.</strong> Tower is <strong>complete at $7M</strong> total ($2M primary + $5M proposed excess). No additional layers requested by broker. No open capacity to market. If Meridian subsequently needs a higher tower, the carrier is not capacity-capped on upper layers — could support $5M xs $7M or further excess placements at incremental premium.</p>
+  <p><strong>Primary Adequacy.</strong> Primary GL ($1M/$2M Starr, A XV) and Primary AL ($1M CSL Great American, A+ XV) both meet carrier minimums. Combined primary exhaustion at $2M is standard for construction at this revenue band and aligns cleanly with the proposed lead excess attachment. Verify Employers Liability limit at $500K minimum (not $1M — NOT operating in WV). Per-project aggregate on GL (CG 25 03) coordinates cleanly with excess layer. No corridor gap between primary layers.</p>
 </div>
 
 </div>`,
@@ -4750,7 +4661,7 @@ Revenue-based allocation is acceptable for multi-class rating per most ISO filin
 
 **Underwriting Notes:**
 
-- **Height exposure:** 97655 does not explicitly cap height. At 62 ft, this triggers the Zurich Work-from-Heights guideline (Ch.6) — $5M minimum attachment, $5M max capacity, no NY operations, Level 5 Empowerment for deviation.
+- **Height exposure:** 97655 does not explicitly cap height. At 62 ft, this triggers the carrier's Work-from-Heights guideline (Ch.6) — $5M minimum attachment, $5M max capacity, no NY operations, Level 5 Empowerment for deviation.
 - **NY exposure:** 1% Albany operations triggers NY Contracting rules (Ch.6) — $5M min attachment in 5 boroughs, $5M max limit statewide.
 - **Class 97655 in appetite** per Chapter 6 (no prohibition), but structural steel erection at height is a severity-driven class with nuclear-verdict exposure in TX, FL, GA, and NY.
 - **Bridge Contractor classification** (NCCI 1622 SIC) would apply IF Meridian does bridge work — their description does not indicate bridge work, so standard structural steel applies.
@@ -4858,7 +4769,7 @@ Both deviations require LEVEL 5 EMPOWERMENT. Referral to Tiffany Fann (Chapter 6
 
 **Operational Detail:** Operations in New York State (1% — Albany warehouse)
 **State:** New York
-**Guideline Conflict:** "New York Contracting Operations — $5,000,000 minimum attachment point for any contractor operating in the 5 boroughs of New York City. $5,000,000 maximum limit for any contractor operating in New York State. Maximum limit of $7,500,000 as part of a quota share attaching at $10,000,000 or higher. Exceptions require Head of Zurich E&S empowerment."
+**Guideline Conflict:** "New York Contracting Operations — $5,000,000 minimum attachment point for any contractor operating in the 5 boroughs of New York City. $5,000,000 maximum limit for any contractor operating in New York State. Maximum limit of $7,500,000 as part of a quota share attaching at $10,000,000 or higher. Exceptions require Head of E&S empowerment."
 **Explanation of Conflict:** Even at 1% of operations, ANY exposure in New York State triggers the NY Contracting rules. Requested $5M lead excess at $2M attachment meets the $5M NY State maximum limit cleanly. Remaining concern: (1) $2M attachment below $5M NY minimum if any 5-boroughs exposure exists. For non-5-boroughs NY exposure (Albany), Designated Operations Exclusion U-EXS-345-B CW may be attached to remove the conflict — but must be explicit. Verify whether Albany warehouse involves any construction/installation/repair or is pure storage.
 
 ---
@@ -6860,20 +6771,63 @@ function toast() {
   setTimeout(() => t.remove(), lingerMs + 400);
 }
 
+// Theme toggle · Z1 re-skin · session 8
+//   Light is the new default; dark is opt-in.
+//   data-theme="dark" on <html> is the override; absence means light.
+//   localStorage key 'stm-theme' is preserved so existing saved preferences
+//   carry over — only the value semantics flip (a saved 'dark' now means
+//   "force dark" instead of "fall back to dark default").
 function toggleTheme() {
   const el = document.documentElement;
-  const cur = el.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  const next = cur === 'dark' ? 'light' : 'dark';
-  if (next === 'light') el.setAttribute('data-theme', 'light');
+  const cur = el.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const next = cur === 'light' ? 'dark' : 'light';
+  if (next === 'dark') el.setAttribute('data-theme', 'dark');
   else el.removeAttribute('data-theme');
   try { localStorage.setItem('stm-theme', next); } catch(e) {}
 }
 (function initTheme() {
   try {
     const stored = localStorage.getItem('stm-theme');
-    if (stored === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (stored === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   } catch(e) {}
 })();
+
+// ============================================================================
+// CARRIER NAME RESOLUTION · Z1 re-skin · session 8
+// ============================================================================
+// `prompts.js` uses the placeholder {{CARRIER_NAME}} in templates that need
+// the carrier's display name. The host (this file) resolves the placeholder
+// before the prompt is sent to the LLM.
+//
+// Resolution order:
+//   1. STATE.api.carrierName — the user-set carrier name from Settings
+//   2. localStorage 'stm-carrier-name' — fallback for early-boot state
+//   3. 'Our Carrier' — generic fallback so the LLM never sees an unresolved
+//      placeholder
+//
+// `interpolateCarrierName` does a global string replace on the prompt text.
+// pipeline.js's callLLM() applies it to the system prompt before dispatch —
+// see that file's session-9 changes for the call site.
+// ============================================================================
+
+function getCarrierName() {
+  if (STATE && STATE.api && typeof STATE.api.carrierName === 'string' && STATE.api.carrierName.trim()) {
+    return STATE.api.carrierName.trim();
+  }
+  try {
+    const stored = localStorage.getItem('stm-carrier-name');
+    if (stored && stored.trim()) return stored.trim();
+  } catch (e) { /* localStorage unavailable */ }
+  return 'Our Carrier';
+}
+
+function interpolateCarrierName(promptText) {
+  if (typeof promptText !== 'string') return promptText;
+  return promptText.replace(/\{\{CARRIER_NAME\}\}/g, getCarrierName());
+}
+
+window.getCarrierName = getCarrierName;
+window.interpolateCarrierName = interpolateCarrierName;
 
 // ============================================================================
 // Phase 8 step 7: explicit window-exports for cross-file references and

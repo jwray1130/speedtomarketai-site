@@ -60,18 +60,23 @@
 </head>
 <body>
 
-<!-- ============ AUTH OVERLAY (magic link) ============ -->
-<div id="authOverlay" style="position:fixed;inset:0;background:#0A2540;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;">
-  <canvas id="authBackdropCanvas" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:0.55;pointer-events:none;"></canvas>
-  <div style="position:relative;z-index:1;background:rgba(15,42,74,0.85);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);padding:38px 34px;border-radius:14px;width:380px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7),0 0 0 1px rgba(123,97,255,0.18);border:1px solid rgba(123,97,255,0.25);text-align:center;">
-    <div style="font-family:'Inter Variable','Inter',sans-serif;font-size:28px;color:#F6F9FC;font-weight:600;letter-spacing:-0.025em;margin-bottom:8px;">Speed to Market <em style="font-style:normal;color:#0570DE;font-weight:600;">AI</em></div>
-    <div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#ADBDCC;text-transform:uppercase;margin-bottom:24px;">Sign in with a magic link</div>
+<!-- ============ AUTH OVERLAY (magic link) ============
+     Z1 RE-SKIN · session 6
+     Dark backdrop with a Z1 royal-blue gradient (Three.js below). The card
+     is a frosted blue panel with a yellow-accent "Send magic link" CTA —
+     same color hierarchy as the in-app primary actions.
+     ============================================================== -->
+<div id="authOverlay" style="position:fixed;inset:0;background:#072d6a;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:'Inter',-apple-system,'Segoe UI',Roboto,sans-serif;overflow:hidden;">
+  <canvas id="authBackdropCanvas" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:0.65;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;background:rgba(255,255,255,0.08);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);padding:38px 34px;border-radius:14px;width:380px;max-width:90%;box-shadow:0 30px 80px -20px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);text-align:center;">
+    <div style="font-family:'Inter',sans-serif;font-size:28px;color:#ffffff;font-weight:600;letter-spacing:-0.025em;margin-bottom:8px;">Speed to Market <em style="font-style:italic;color:#ffd100;font-weight:500;">AI</em></div>
+    <div style="font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:0.14em;color:rgba(255,255,255,0.65);text-transform:uppercase;margin-bottom:24px;">Sign in with a magic link</div>
     <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email"
-      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #2C4276;background:#163057;color:#F6F9FC;font-size:14px;margin-bottom:10px;outline:none;" />
+      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.20);background:rgba(255,255,255,0.06);color:#ffffff;font-size:14px;margin-bottom:10px;outline:none;" />
     <button id="authSendBtn"
-      style="width:100%;padding:12px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#1E7BE6 0%,#0570DE 100%);color:#FFFFFF;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:-0.01em;box-shadow:0 1px 0 rgba(255,255,255,0.15) inset, 0 4px 14px -4px rgba(5,112,222,0.55);">Send magic link</button>
-    <div id="authError" style="color:#DF1B41;font-size:12px;margin-top:12px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
-    <div id="authSuccess" style="color:#0570DE;font-size:12px;margin-top:4px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
+      style="width:100%;padding:12px 18px;border-radius:999px;border:1px solid #e6bc00;background:#ffd100;color:#1a1a1a;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:-0.01em;box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 18px -6px rgba(230,188,0,0.6);">Send magic link</button>
+    <div id="authError" style="color:#ff8b94;font-size:12px;margin-top:12px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
+    <div id="authSuccess" style="color:#ffd100;font-size:12px;margin-top:4px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
   </div>
 </div>
 
@@ -80,7 +85,7 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 <script type="module">
-  /* Mini Stripe-style gradient behind the auth overlay. Same vertex-displaced
+  /* Z1 royal-blue gradient behind the auth overlay. Same vertex-displaced
      plane technique as index.html, just smaller and more compact. Pauses
      once the overlay is hidden so it doesn't waste GPU on the workbench. */
   import * as THREE from 'three';
@@ -93,10 +98,10 @@
     const geo = new THREE.PlaneGeometry(2.4, 2.4, 60, 40);
     const u = {
       u_time: { value: 0 },
-      u_c0: { value: new THREE.Color('#0A2540') },
-      u_c1: { value: new THREE.Color('#E63B85') },   /* hot pink */
-      u_c2: { value: new THREE.Color('#FF8E3C') },   /* orange */
-      u_c3: { value: new THREE.Color('#3FB8E8') },   /* sky blue */
+      u_c0: { value: new THREE.Color('#072d6a') },   /* signal-dim · deepest blue (base) */
+      u_c1: { value: new THREE.Color('#0e46a3') },   /* signal · royal blue */
+      u_c2: { value: new THREE.Color('#1a55b8') },   /* signal-hover · brighter blue */
+      u_c3: { value: new THREE.Color('#ffd100') },   /* accent · amber spark */
     };
     const vs = `varying vec3 v_color; uniform float u_time; uniform vec3 u_c0,u_c1,u_c2,u_c3;
       ${`vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}float snoise(vec3 v){const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;i=mod289(i);vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));float n_=0.142857142857;vec3 ns=n_*D.wyz-D.xzx;vec4 j=p-49.0*floor(p*ns.z*ns.z);vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.0-abs(x)-abs(y);vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;vec4 sh=-step(h,vec4(0.0));vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);m=m*m;return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));}`}
@@ -744,7 +749,7 @@
               <button class="anno-swatch" data-color="#00D4FF" style="background:#00D4FF" title="Orange"></button>
               <button class="anno-swatch" data-color="#A78BFA" style="background:#A78BFA" title="Purple"></button>
               <button class="anno-swatch" data-color="#F472B6" style="background:#F472B6" title="Pink"></button>
-              <button class="anno-swatch" data-color="#0A2540" style="background:#0A2540" title="Black"></button>
+              <button class="anno-swatch" data-color="#0a1a3a" style="background:#0a1a3a" title="Black"></button>
               <button class="anno-swatch" data-color="#FFFFFF" style="background:#FFFFFF; border-color:#C0CCDA" title="White"></button>
             </div>
 
@@ -1104,11 +1109,11 @@
 
       <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line);">
         <h3 style="font-family: var(--font-display); font-size: 16px; font-weight: 500; margin: 0 0 4px; color: var(--text);">Carrier Underwriting Guideline</h3>
-        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Drop a PDF or Word doc, or paste the full guideline below. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
+        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Drop a PDF or Word doc, or paste the full guideline below. The classifier + guideline cross-reference module will use this instead of the default carrier guideline excerpt. Stored in your account settings — syncs across devices.</p>
 
         <!-- Guideline drop zone (Round 5 Fix #3) -->
         <div id="guidelineDropZone" style="border: 2px dashed var(--line-warm); border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.18s; background: var(--surface-2); margin-bottom: 14px;"
-             ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='rgba(127,168,32,0.05)';"
+             ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='var(--signal-pale)';"
              ondragleave="event.preventDefault(); this.style.borderColor=''; this.style.background='';"
              ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; handleGuidelineDrop(event);"
              onclick="document.getElementById('guidelineFileInput').click()">
@@ -1120,7 +1125,7 @@
         <div class="form-group">
           <label>Guideline text <span id="guidelineStatus" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.04em; float: right;"></span></label>
           <textarea id="carrierGuideline" rows="8" placeholder="...or paste the full underwriting guideline here. The drop zone above is the easier path for PDFs and Word docs." style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
-          <div class="form-hint">Leave empty to use the default embedded Zurich E&amp;S excerpt (~9.5K chars, 114-page guideline condensed).</div>
+          <div class="form-hint">Leave empty to use the default carrier guideline excerpt (~9.5K chars, 114-page guideline condensed).</div>
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn" onclick="resetGuidelineToDefault()" style="font-size: 10.5px;">Reset to Default</button>

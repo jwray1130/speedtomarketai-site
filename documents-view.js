@@ -269,10 +269,13 @@ window.initDocumentsView = function() {
   }
 
   // ══════ THEME ══════
+  // Z1 re-skin · session 9: light is now the default; dark is opt-in.
+  // The data-theme="dark" attribute on <html> is the override; absence
+  // means light. Aligns with app.js's flipped toggleTheme (session 8).
   function applyTheme(theme) {
     const root = document.documentElement;
     root.classList.add('no-transitions');
-    if (theme === 'light') root.setAttribute('data-theme', 'light');
+    if (theme === 'dark') root.setAttribute('data-theme', 'dark');
     else root.removeAttribute('data-theme');
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transitions')));
   }
@@ -284,10 +287,11 @@ window.initDocumentsView = function() {
       return;
     }
     // Fallback: local toggle (only happens if Altitude's toggle isn't
-    // exposed yet, e.g. very early in boot).
-    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-    const next = current === 'dark' ? 'light' : 'dark';
-    if (next === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    // exposed yet, e.g. very early in boot). Light-default convention
+    // matches app.js session-8 toggleTheme.
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'light' ? 'dark' : 'light';
+    if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
   }
 
@@ -5233,7 +5237,7 @@ window.initDocumentsView = function() {
       console.warn('[docs] initial hydrate failed:', err);
     });
     console.log('%c✓ Speed to Market · Document Workspace ready (v8.5)',
-      'color: #0570DE; font-weight: bold; font-size: 12px;');
+      'color: #0e46a3; font-weight: bold; font-size: 12px;');
   }
 
   // v8.5: debug helper. Lets Justin or anyone reload docs from the
@@ -5344,7 +5348,7 @@ window.initDocumentsView = function() {
     const dot = $id('toolsBtnActive');
     if (!btn || !dot) return;
     const tool = state.annotations?.tool;
-    const color = state.annotations?.color || '#0570DE';
+    const color = state.annotations?.color || '#0e46a3';
     if (tool && tool !== 'pointer') {
       btn.classList.add('tool-active');
       dot.style.color = color;
@@ -6323,7 +6327,7 @@ function startAnnoEngine() {
     });
 
     console.log('%c✓ Annotation engine ready',
-      'color: #0570DE; font-weight: bold; font-size: 11px;');
+      'color: #0e46a3; font-weight: bold; font-size: 11px;');
   }
 
   startAnnoEngine();
