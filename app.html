@@ -6,7 +6,7 @@
 <title>Speed to Market AI · Product</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght,ital@14..32,100..900,0..1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -61,18 +61,78 @@
 <body>
 
 <!-- ============ AUTH OVERLAY (magic link) ============ -->
-<div id="authOverlay" style="position:fixed;inset:0;background:#0A0E1A;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
-  <div style="background:#111724;padding:38px 34px;border-radius:14px;width:380px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7);border:1px solid #2A3449;text-align:center;">
-    <div style="font-family:Georgia,serif;font-size:28px;color:#F1ECE2;font-weight:400;letter-spacing:-0.015em;margin-bottom:8px;">Speed to Market <em style="font-style:italic;color:#C6F432;font-weight:300;">AI</em></div>
-    <div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#8B95A8;text-transform:uppercase;margin-bottom:24px;">Sign in with a magic link</div>
+<div id="authOverlay" style="position:fixed;inset:0;background:#0A2540;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;">
+  <canvas id="authBackdropCanvas" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:0.55;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;background:rgba(15,42,74,0.85);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);padding:38px 34px;border-radius:14px;width:380px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.7),0 0 0 1px rgba(123,97,255,0.18);border:1px solid rgba(123,97,255,0.25);text-align:center;">
+    <div style="font-family:'Inter Variable','Inter',sans-serif;font-size:28px;color:#F6F9FC;font-weight:600;letter-spacing:-0.025em;margin-bottom:8px;">Speed to Market <em style="font-style:normal;color:#0570DE;font-weight:600;">AI</em></div>
+    <div style="font-family:monospace;font-size:10.5px;letter-spacing:0.14em;color:#ADBDCC;text-transform:uppercase;margin-bottom:24px;">Sign in with a magic link</div>
     <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email"
-      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #2A3449;background:#1A2236;color:#F1ECE2;font-size:14px;margin-bottom:10px;outline:none;" />
+      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #2C4276;background:#163057;color:#F6F9FC;font-size:14px;margin-bottom:10px;outline:none;" />
     <button id="authSendBtn"
-      style="width:100%;padding:12px 18px;border-radius:999px;border:0;background:#C6F432;color:#0A0E1A;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:-0.01em;">Send magic link</button>
-    <div id="authError" style="color:#FF9448;font-size:12px;margin-top:12px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
-    <div id="authSuccess" style="color:#C6F432;font-size:12px;margin-top:4px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
+      style="width:100%;padding:12px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#1E7BE6 0%,#0570DE 100%);color:#FFFFFF;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:-0.01em;box-shadow:0 1px 0 rgba(255,255,255,0.15) inset, 0 4px 14px -4px rgba(5,112,222,0.55);">Send magic link</button>
+    <div id="authError" style="color:#DF1B41;font-size:12px;margin-top:12px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
+    <div id="authSuccess" style="color:#0570DE;font-size:12px;margin-top:4px;min-height:14px;font-family:monospace;letter-spacing:0.04em;"></div>
   </div>
 </div>
+
+<!-- ===== Three.js WebGL gradient behind the auth card ===== -->
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+  /* Mini Stripe-style gradient behind the auth overlay. Same vertex-displaced
+     plane technique as index.html, just smaller and more compact. Pauses
+     once the overlay is hidden so it doesn't waste GPU on the workbench. */
+  import * as THREE from 'three';
+  const canvas = document.getElementById('authBackdropCanvas');
+  if (canvas && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const scene = new THREE.Scene();
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); cam.position.z = 1;
+    const geo = new THREE.PlaneGeometry(2.4, 2.4, 60, 40);
+    const u = {
+      u_time: { value: 0 },
+      u_c0: { value: new THREE.Color('#0A2540') },
+      u_c1: { value: new THREE.Color('#E63B85') },   /* hot pink */
+      u_c2: { value: new THREE.Color('#FF8E3C') },   /* orange */
+      u_c3: { value: new THREE.Color('#3FB8E8') },   /* sky blue */
+    };
+    const vs = `varying vec3 v_color; uniform float u_time; uniform vec3 u_c0,u_c1,u_c2,u_c3;
+      ${`vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}float snoise(vec3 v){const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;i=mod289(i);vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));float n_=0.142857142857;vec3 ns=n_*D.wyz-D.xzx;vec4 j=p-49.0*floor(p*ns.z*ns.z);vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.0-abs(x)-abs(y);vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;vec4 sh=-step(h,vec4(0.0));vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);m=m*m;return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));}`}
+      void main(){
+        vec2 un=uv*2.0-1.0;
+        float n=snoise(vec3(un*1.4+u_time*0.15,u_time*0.18))*0.18;
+        n*=1.0-pow(abs(un.y),2.0); n=max(0.0,n);
+        vec3 pos=vec3(position.x,position.y+0.10*un.y+0.16*un.x+n,position.z);
+        v_color=u_c0;
+        float a=smoothstep(0.05,0.65,snoise(vec3(un*2.4+u_time*0.05,u_time*0.10))*0.5+0.5);
+        v_color=mix(v_color,u_c1,pow(a,4.0));
+        float b=smoothstep(0.05,0.7,snoise(vec3(un*1.6+u_time*0.06,u_time*0.13+4.0))*0.5+0.5);
+        v_color=mix(v_color,u_c2,pow(b,4.0));
+        float c=smoothstep(0.2,0.85,snoise(vec3(un*3.0+u_time*0.02,u_time*0.08+8.0))*0.5+0.5);
+        v_color=mix(v_color,u_c3,pow(c,4.0));
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.0);
+      }`;
+    const fs = `varying vec3 v_color; void main(){gl_FragColor=vec4(v_color,1.0);}`;
+    const m = new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs });
+    scene.add(new THREE.Mesh(geo, m));
+    function fit() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (w && h) r.setSize(w, h, false);
+    }
+    fit(); window.addEventListener('resize', fit);
+    let f = 0; const t0 = performance.now();
+    (function loop() {
+      requestAnimationFrame(loop);
+      const overlay = document.getElementById('authOverlay');
+      if (!overlay || overlay.style.display === 'none' || document.hidden) return;
+      f++; if (f % 2) return;
+      u.u_time.value = (performance.now() - t0) / 1000;
+      r.render(scene, cam);
+    })();
+  }
+</script>
 
 <!-- ============ TOP BAR ============ -->
 <div class="topbar">
@@ -681,11 +741,11 @@
               <button class="anno-swatch" data-color="#60A5FA" style="background:#60A5FA" title="Blue"></button>
               <button class="anno-swatch" data-color="#7DD88A" style="background:#7DD88A" title="Green"></button>
               <button class="anno-swatch" data-color="#FBBF24" style="background:#FBBF24" title="Yellow"></button>
-              <button class="anno-swatch" data-color="#FF9448" style="background:#FF9448" title="Orange"></button>
+              <button class="anno-swatch" data-color="#00D4FF" style="background:#00D4FF" title="Orange"></button>
               <button class="anno-swatch" data-color="#A78BFA" style="background:#A78BFA" title="Purple"></button>
               <button class="anno-swatch" data-color="#F472B6" style="background:#F472B6" title="Pink"></button>
-              <button class="anno-swatch" data-color="#1A1F2E" style="background:#1A1F2E" title="Black"></button>
-              <button class="anno-swatch" data-color="#FFFFFF" style="background:#FFFFFF; border-color:#C9C1AC" title="White"></button>
+              <button class="anno-swatch" data-color="#0A2540" style="background:#0A2540" title="Black"></button>
+              <button class="anno-swatch" data-color="#FFFFFF" style="background:#FFFFFF; border-color:#C0CCDA" title="White"></button>
             </div>
 
             <div class="anno-divider"></div>
@@ -971,7 +1031,7 @@
       <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
       <div id="feedbackAdminList" style="display: none;"></div>
       <div style="margin-top: 12px; display: flex; gap: 6px;">
-        <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #0A0E1A; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
+        <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
         <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
       </div>
     </div>
@@ -990,7 +1050,7 @@
       <div class="admin-card-desc">Token usage and cost across every Claude call from Altitude. Hourly and daily rate limits are enforced server-side at the Edge Function. Aggregate spend and per-model breakdown live in the Anthropic Console — per-call persistence in Supabase is a planned follow-up.</div>
       <div class="admin-card-status" id="llmSpendStatus">LIMITS: 120/HR · 1000/DAY · 3 MODELS</div>
       <div style="margin-top: 12px; display: flex; gap: 6px;">
-        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #0A0E1A; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
+        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
       </div>
     </div>
   </div>

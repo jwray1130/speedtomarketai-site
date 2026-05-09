@@ -2568,10 +2568,10 @@ function renderFileList() {
       stateClass = 'unknown';
       if (f.manualReason === 'scanned') {
         stateText = 'SCANNED PDF';
-        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">PASTE TEXT</span>';
+        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A2540; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">PASTE TEXT</span>';
       } else {
         stateText = 'NOT READABLE';
-        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">PASTE TEXT</span>';
+        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A2540; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">PASTE TEXT</span>';
       }
     }
     else if (f.state === 'classified') {
@@ -2587,13 +2587,13 @@ function renderFileList() {
       // Show combined-doc info
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
         stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
-        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
+        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A2540; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
         stateText = prettyType(f.classification);
       }
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border
-        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A0E1A; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
+        extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A2540; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">REVIEW</span>';
       }
     }
     else if (f.state === 'error') { stateClass = 'error'; stateText = 'error: ' + (f.error || 'unknown'); }
