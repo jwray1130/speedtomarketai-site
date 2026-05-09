@@ -5233,7 +5233,7 @@ window.initDocumentsView = function() {
       console.warn('[docs] initial hydrate failed:', err);
     });
     console.log('%c✓ Speed to Market · Document Workspace ready (v8.5)',
-      'color: #0570DE; font-weight: bold; font-size: 12px;');
+      'color: #C6F432; font-weight: bold; font-size: 12px;');
   }
 
   // v8.5: debug helper. Lets Justin or anyone reload docs from the
@@ -5344,7 +5344,7 @@ window.initDocumentsView = function() {
     const dot = $id('toolsBtnActive');
     if (!btn || !dot) return;
     const tool = state.annotations?.tool;
-    const color = state.annotations?.color || '#0570DE';
+    const color = state.annotations?.color || '#C6F432';
     if (tool && tool !== 'pointer') {
       btn.classList.add('tool-active');
       dot.style.color = color;
@@ -6323,7 +6323,7 @@ function startAnnoEngine() {
     });
 
     console.log('%c✓ Annotation engine ready',
-      'color: #0570DE; font-weight: bold; font-size: 11px;');
+      'color: #C6F432; font-weight: bold; font-size: 11px;');
   }
 
   startAnnoEngine();
