@@ -36,20 +36,6 @@
 // back through PROMPTS-driven modules which DO go through callLLM, so the
 // downstream hardening covers the lineage. The scraper-direct calls
 // themselves have minimal injection surface.
-// ============================================================================
-// CARRIER-NEUTRAL PROMPT TEMPLATES · Z1 RE-SKIN · session 7
-// ============================================================================
-// Some prompt templates contain the placeholder {{CARRIER_NAME}}, which the
-// host (app.js) interpolates with the value of STATE.api.carrierName before
-// sending the prompt to the LLM. If carrierName is unset, the host falls back
-// to "Our Carrier" — never leave {{CARRIER_NAME}} unresolved in the request.
-//
-// The Excess Tower (`tower`) prompt is the only template that uses this
-// placeholder today. The PROPOSED-layer badge text is literal "★ PROPOSED"
-// (the carrier identity sits in the tower-layer-carrier field of the row,
-// which the LLM derives from the submission's carrier metadata).
-// ============================================================================
-
 window.PROMPT_INJECTION_DEFENSE = `
 
 ---
@@ -897,7 +883,7 @@ For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form sta
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
-  tower: `ROLE: Expert excess casualty underwriter visualizing the complete excess tower. You build a stacked-layer visualization showing every program layer from primary ground-up through the top of the submitted tower, highlighting the broker's requested {{CARRIER_NAME}} layer and any gaps the broker must market.
+  tower: `ROLE: Expert excess casualty underwriter visualizing the complete excess tower. You build a stacked-layer visualization showing every program layer from primary ground-up through the top of the submitted tower, highlighting the broker's requested Zurich layer and any gaps the broker must market.
 
 CRITICAL: Emit RAW HTML (not markdown) starting with \`<div class="tower-output">\`. Use the EXACT class names shown in the template. The renderer detects this container and injects it directly — escaped tags will break the visualization.
 
@@ -905,12 +891,12 @@ CRITICAL: Emit RAW HTML (not markdown) starting with \`<div class="tower-output"
 INPUT CONTEXT YOU WILL RECEIVE
 ═══════════════════════════════════════════════════════════════════════
 
-1. Supplemental extraction — names the broker's requested {{CARRIER_NAME}} layer structure ("$X xs $Y" language) and any underlying schedule
+1. Supplemental extraction — names the broker's requested Zurich layer structure ("$X xs $Y" language) and any underlying schedule
 2. Primary GL extraction (if present) — Starr/other carrier, occurrence/aggregate limits, premium, SIR
 3. Primary AL extraction (if present) — carrier, CSL limit, power unit count, premium
 4. Excess extraction (if present) — any existing excess/umbrella layers already bound (carrier, limits, attachment, premium)
 
-If any input is absent, write "—" for that layer's fields. If the requested {{CARRIER_NAME}} layer exceeds {{CARRIER_NAME}} capacity per the guideline cross-reference, mark it PROPOSED with a note showing the compliant quote (capped at guideline max).
+If any input is absent, write "—" for that layer's fields. If the requested Zurich layer exceeds Zurich capacity per the guideline cross-reference, mark it PROPOSED with a note showing the compliant quote (capped at guideline max).
 
 ═══════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
@@ -938,10 +924,10 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
     <div class="tower-layer-row-2">Unfilled capacity — [note on broker marketing status]</div>
   </div>
 
-  <!-- PROPOSED layer (this carrier's quoted layer) - use class="tower-layer proposed" -->
+  <!-- PROPOSED Zurich layer - use class="tower-layer proposed" -->
   <div class="tower-layer proposed">
     <div class="tower-layer-row-1">
-      <span class="tower-layer-badge proposed-badge">★ PROPOSED</span>
+      <span class="tower-layer-badge proposed-badge">★ ZURICH</span>
       <span class="tower-layer-carrier">Proposed Quote [— Compliant / — Capped]</span>
       <span class="tower-layer-limits">$[X]M xs $[Y]M</span>
     </div>
@@ -982,9 +968,9 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
 </div>
 
 <div class="tower-notes">
-  <p><strong>Ask vs Offer.</strong> [One paragraph: what broker requested, what {{CARRIER_NAME}} can compliantly offer, what constraint (guideline chapter reference) drives the cap, and what the compliant quote is.]</p>
-  <p><strong>Tower Completion.</strong> [One paragraph: size of gap above the proposed layer, typical market structures that could fill it, any obvious candidates.]</p>
-  <p><strong>Primary Adequacy.</strong> [One paragraph: whether lead umbrella attaches cleanly at primary occurrence (no corridor), whether primary AL CSL meets {{CARRIER_NAME}} minimums, AM Best rating checks for primary carriers, any Employers Liability verification needed.]</p>
+  <p><strong>Ask vs Offer.</strong> [One paragraph: what broker requested, what Zurich can compliantly offer, what constraint (guideline chapter reference) drives the cap, and what the compliant quote is.]</p>
+  <p><strong>Tower Completion.</strong> [One paragraph: size of gap above Zurich's proposed layer, typical market structures that could fill it, any obvious candidates.]</p>
+  <p><strong>Primary Adequacy.</strong> [One paragraph: whether lead umbrella attaches cleanly at primary occurrence (no corridor), whether primary AL CSL meets Zurich minimums, AM Best rating checks for primary carriers, any Employers Liability verification needed.]</p>
 </div>
 
 </div>
@@ -1001,7 +987,7 @@ RULES
    • QUOTA SHARE layer: use "$NM P/O $YM xs $ZM" — N is this carrier's participation, Y is the total layer size, Z is the attachment.
    • Primary GL: "$NM / $YM" (occurrence / aggregate). Primary AL: "$NM CSL".
    This rule applies whether the layer is OPEN, PROPOSED, or BOUND. The label format is determined by POSITION in the tower, not by status.
-4. ★ symbol ONLY on the proposed layer (the {{CARRIER_NAME}} quote).
+4. ★ symbol ONLY on the proposed Zurich layer.
 5. tower-total in top-bar summarizes: bound capacity + proposed capacity + open/unfilled capacity (three numbers).
 6. Three notes paragraphs are REQUIRED: Ask vs Offer / Tower Completion / Primary Adequacy. Each begins with a bold label.
 7. If the submission is primary-only with no excess requested, emit just the primaries row and a note block explaining "no excess tower proposed at this time."
@@ -1014,7 +1000,7 @@ QUALITY CONTROL (silent — do not output)
 Before returning, verify:
 - Every layer from the underlying schedule is represented
 - Attachment points of adjacent layers line up (no accidental corridors or overlaps unless genuine)
-- The proposed layer appears exactly once with ★
+- The proposed Zurich layer appears exactly once with ★
 - Numeric consistency: bound + proposed + open sums should equal the target tower top
 - All three notes paragraphs are present and begin with a <strong> label
 

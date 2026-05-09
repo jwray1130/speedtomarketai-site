@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="Speed to Market AI — commercial underwriting prep, compressed. What used to take 1-2 hours per submission now takes 10-15 minutes. AI agents deliver a decision-ready brief before the day starts. Every output source-cited, audit-logged, QC-verified.">
-<meta name="theme-color" content="#0a1828">
+<meta name="theme-color" content="#0A2540">
 <meta property="og:title" content="Speed to Market AI · Commercial Underwriting, 10x Faster">
 <meta property="og:description" content="From 2 hours to 15 minutes per submission. 17 AI modules. 10+ document formats. 3-5x underwriter throughput. Every output cited, audit-logged.">
 <meta property="og:type" content="website">
@@ -38,46 +38,46 @@
 
 <style>
 :root {
-  /* Z1 PALETTE — royal blue + amber. Dark default. */
-  --bg: #0a1828;           /* Deep navy near-black, slight cool cast */
-  --surface: #102236;      /* Elevated surface */
-  --surface-2: #173049;    /* Secondary elevation */
-  --line: #1e3556;         /* Subtle rule lines */
-  --line-warm: #2c4276;    /* Warmer line accent */
-  --signal: #0e46a3;       /* Royal blue — the hero accent */
-  --signal-dim: #072d6a;   /* Signal when dimmed (deepest blue) */
-  --amber: #ffd100;        /* Real amber-yellow accent — used sparingly for primary CTAs */
-  --cream: #f6f9fc;        /* Off-white body text */
-  --muted: #adbdcc;        /* Dim text */
+  /* Palette — deliberate, not derivative */
+  --bg: #0A2540;           /* Deep charcoal, slight cool cast — NOT pure black */
+  --surface: #0F2A4A;      /* Elevated surface */
+  --surface-2: #163057;    /* Secondary elevation */
+  --line: #1F3460;         /* Subtle rule lines */
+  --line-warm: #2C4276;    /* Warmer line accent */
+  --signal: #0570DE;       /* Electric chartreuse — the hero accent, velocity & market-green */
+  --signal-dim: #0469C5;   /* Signal when dimmed */
+  --amber: #00D4FF;        /* Warm secondary accent, used sparingly */
+  --cream: #F6F9FC;        /* Warm off-white body text */
+  --muted: #ADBDCC;        /* Dim text */
   --muted-2: #708099;      /* Deeper dim */
   /* Type */
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
   /* Rhythm */
   --gutter: clamp(20px, 4vw, 48px);
   --max-w: 1320px;
   /* Grain overlay opacity (overridden in light mode) */
-  --grain-opacity: 0.32;
+  --grain-opacity: 0.45;
   /* Hero device shadow (overridden in light mode) */
-  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(14, 70, 163, 0.10), 0 60px 120px -40px rgba(14, 70, 163, 0.14);
+  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(5, 112, 222, 0.08), 0 60px 120px -40px rgba(5, 112, 222, 0.12);
 }
 
 /* ===== LIGHT MODE THEME ===== */
 :root[data-theme="light"] {
-  --bg: #f7f9fc;          /* Warm off-white background */
-  --surface: #ffffff;     /* Elevated surfaces are pure white */
-  --surface-2: #ebf0f5;   /* Secondary surface */
-  --line: #d7e0f3;        /* Soft warm rule lines */
-  --line-warm: #b9c6e0;   /* Warmer line accent */
-  --signal: #0e46a3;      /* Royal blue — same hue both themes for brand cohesion */
-  --signal-dim: #072d6a;  /* Signal when dimmed */
-  --amber: #ffd100;       /* Amber-yellow primary CTA */
-  --cream: #0a1a3a;       /* "Cream" = dark text on light */
+  --bg: #FFFFFF;          /* Warm cream background — NOT pure white */
+  --surface: #FFFFFF;     /* Elevated surfaces are pure white */
+  --surface-2: #F6F9FC;   /* Secondary surface — deeper warm tone */
+  --line: #E3E8EE;        /* Subtle warm rule lines */
+  --line-warm: #C0CCDA;   /* Warmer line accent */
+  --signal: #0570DE;      /* Brighter chartreuse-olive — AA readable, carries punch */
+  --signal-dim: #0469C5;  /* Signal when dimmed */
+  --amber: #0570DE;       /* Slightly warmer amber for contrast on cream */
+  --cream: #0A2540;       /* "Cream" = dark text on light */
   --muted: #425466;       /* Muted text */
-  --muted-2: #697386;     /* Deeper dim */
-  --grain-opacity: 0.06;  /* Much less grain in light mode */
-  --device-shadow: 0 20px 50px -20px rgba(7, 22, 56, 0.12), 0 0 0 1px rgba(14, 70, 163, 0.16), 0 40px 80px -30px rgba(14, 70, 163, 0.12);
+  --muted-2: #697386;     /* Deeper dim — was too light at #697386 */
+  --grain-opacity: 0.08;  /* Much less grain in light mode */
+  --device-shadow: 0 20px 50px -20px rgba(10, 37, 64, 0.15), 0 0 0 1px rgba(5, 112, 222, 0.14), 0 40px 80px -30px rgba(5, 112, 222, 0.10);
 }
 
 /* Smooth theme transitions */
@@ -233,7 +233,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   letter-spacing: -0.01em;
   transition: all 0.18s ease;
 }
-.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(14, 70, 163, 0.55); }
+.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.55); }
 .nav-cta svg { width: 13px; height: 13px; transition: transform 0.18s; }
 .nav-cta:hover svg { transform: translateX(3px); }
 .nav-toggle { display: none; }
@@ -282,17 +282,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Nav CTA already works because it references --signal and --bg */
 [data-theme="light"] .nav-cta { color: #FFFFFF; }
-[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(14, 70, 163, 0.32); }
+[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.32); }
 
 /* Primary buttons — white text on the darker chartreuse reads cleanly */
 [data-theme="light"] .btn-primary { color: #FFFFFF; }
-[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(14, 70, 163, 0.35); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.35); }
 
 /* Hero accent ribbon — soften the signal tint on cream */
 [data-theme="light"] .hero-accent {
   background:
-    linear-gradient(125deg, transparent 46%, rgba(14, 70, 163, 0.06) 47%, rgba(14, 70, 163, 0.16) 50%, rgba(14, 70, 163, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(14, 70, 163, 0.04) 59%, rgba(14, 70, 163, 0.11) 61%, rgba(14, 70, 163, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.16) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.11) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
   mix-blend-mode: multiply;
 }
 
@@ -303,29 +303,29 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Device chunk styles — amber alert and signal tints */
 [data-theme="light"] .chunk.alert {
-  background: rgba(14, 70, 163, 0.08);
+  background: rgba(5, 112, 222, 0.08);
 }
 
 /* Wedge callout — signal tint on warm cream */
 [data-theme="light"] .wedge-callout {
-  background: linear-gradient(135deg, rgba(14, 70, 163, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
 }
 
 /* Time compression "after" card — the signal-tinted one */
 [data-theme="light"] .ba-col.after {
-  border-color: rgba(14, 70, 163, 0.35);
-  background: linear-gradient(180deg, rgba(14, 70, 163, 0.05), var(--surface) 60%);
+  border-color: rgba(5, 112, 222, 0.35);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05), var(--surface) 60%);
 }
 
 /* Roadmap "now" card */
 [data-theme="light"] .roadmap-col.now {
-  border-color: rgba(14, 70, 163, 0.32);
-  background: linear-gradient(180deg, rgba(14, 70, 163, 0.05) 0%, var(--surface) 70%);
+  border-color: rgba(5, 112, 222, 0.32);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05) 0%, var(--surface) 70%);
 }
 
 /* Built-by section radial glow */
 [data-theme="light"] .builtby::before {
-  background: radial-gradient(ellipse at center, rgba(14, 70, 163, 0.07), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.07), transparent 60%);
 }
 
 /* Built-by avatar — flip ring color to darker chartreuse for contrast */
@@ -341,7 +341,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Career timeline */
 [data-theme="light"] .ct-item.active .ct-dot {
-  box-shadow: 0 0 0 4px rgba(14, 70, 163, 0.18);
+  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
 }
 
 /* Testimonials quote mark */
@@ -351,7 +351,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Use case tab active — softer signal highlight */
 [data-theme="light"] .uc-tab.active {
-  background: linear-gradient(90deg, rgba(14, 70, 163, 0.07), transparent);
+  background: linear-gradient(90deg, rgba(5, 112, 222, 0.07), transparent);
 }
 
 /* Nav backdrop blur — stronger white behind so it doesn't wash out */
@@ -367,10 +367,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Footer email pill hover */
 [data-theme="light"] .foot-email:hover {
-  background: rgba(14, 70, 163, 0.07);
+  background: rgba(5, 112, 222, 0.07);
 }
 [data-theme="light"] .foot-social:hover {
-  background: rgba(14, 70, 163, 0.07);
+  background: rgba(5, 112, 222, 0.07);
 }
 
 /* Stats strip numbers — signal italic */
@@ -491,8 +491,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 62%;
   height: 130%;
   background:
-    linear-gradient(125deg, transparent 46%, rgba(14, 70, 163, 0.06) 47%, rgba(14, 70, 163, 0.18) 50%, rgba(14, 70, 163, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(14, 70, 163, 0.04) 59%, rgba(14, 70, 163, 0.12) 61%, rgba(14, 70, 163, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.18) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.12) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
   mix-blend-mode: screen;
   pointer-events: none;
 }
@@ -589,7 +589,7 @@ h1.hero-title em {
   background: var(--signal);
   color: var(--bg);
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(14, 70, 163, 0.6); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.6); }
 .btn-ghost {
   background: transparent;
   color: var(--cream);
@@ -975,12 +975,12 @@ section.section {
 
 /* ===== FINAL UW SUMMARY capstone card ===== */
 .module.module-summary {
-  background: linear-gradient(165deg, rgba(14, 70, 163, 0.08) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.08) 0%, var(--bg) 80%);
   border-left: 3px solid var(--signal);
   position: relative;
 }
 .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(14, 70, 163, 0.12) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.12) 0%, var(--surface) 80%);
 }
 .module.module-summary::before {
   /* Subtle diagonal sheen in the corner */
@@ -988,7 +988,7 @@ section.section {
   position: absolute;
   top: 0; right: 0;
   width: 90px; height: 90px;
-  background: radial-gradient(circle at top right, rgba(14, 70, 163, 0.16), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.16), transparent 70%);
   pointer-events: none;
 }
 .module-tag.summary-tag {
@@ -1017,8 +1017,8 @@ section.section {
   font-size: 9.5px;
   letter-spacing: 0.1em;
   color: var(--signal);
-  background: rgba(14, 70, 163, 0.08);
-  border: 1px solid rgba(14, 70, 163, 0.28);
+  background: rgba(5, 112, 222, 0.08);
+  border: 1px solid rgba(5, 112, 222, 0.28);
   padding: 3px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1044,17 +1044,17 @@ section.section {
 
 /* Light-mode adjustments for the capstone card */
 [data-theme="light"] .module.module-summary {
-  background: linear-gradient(165deg, rgba(14, 70, 163, 0.09) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.09) 0%, var(--bg) 80%);
 }
 [data-theme="light"] .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(14, 70, 163, 0.13) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(5, 112, 222, 0.13) 0%, var(--surface) 80%);
 }
 [data-theme="light"] .module.module-summary::before {
-  background: radial-gradient(circle at top right, rgba(14, 70, 163, 0.14), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.14), transparent 70%);
 }
 [data-theme="light"] .summary-chip {
-  background: rgba(14, 70, 163, 0.09);
-  border-color: rgba(14, 70, 163, 0.3);
+  background: rgba(5, 112, 222, 0.09);
+  border-color: rgba(5, 112, 222, 0.3);
 }
 
 
@@ -1091,7 +1091,7 @@ section.section {
 .uc-tab.active {
   color: var(--cream);
   border-left-color: var(--signal);
-  background: linear-gradient(90deg, rgba(14, 70, 163, 0.05), transparent);
+  background: linear-gradient(90deg, rgba(5, 112, 222, 0.05), transparent);
 }
 @media (max-width: 880px) {
   .uc-tab { border-left: none; border-bottom: 2px solid transparent; }
@@ -1146,7 +1146,7 @@ section.section {
 /* ========== WEDGE CALLOUT ========== */
 .wedge-callout {
   position: relative;
-  background: linear-gradient(135deg, rgba(14, 70, 163, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
   border: 1px solid var(--line-warm);
   border-left: 3px solid var(--signal);
   border-radius: 14px;
@@ -1318,7 +1318,7 @@ section.section {
   right: -10%;
   width: 60%;
   height: 200%;
-  background: radial-gradient(ellipse at center, rgba(14, 70, 163, 0.08), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.08), transparent 60%);
   pointer-events: none;
 }
 .builtby-avatar {
@@ -1459,7 +1459,7 @@ footer {
   border-radius: 999px;
   transition: all 0.2s;
 }
-.foot-email:hover { border-color: var(--signal); background: rgba(14, 70, 163, 0.05); }
+.foot-email:hover { border-color: var(--signal); background: rgba(5, 112, 222, 0.05); }
 
 /* ========== FOOTER SOCIAL LINKS ========== */
 .foot-socials {
@@ -1485,7 +1485,7 @@ footer {
 }
 .foot-social:hover {
   border-color: var(--signal);
-  background: rgba(14, 70, 163, 0.05);
+  background: rgba(5, 112, 222, 0.05);
   transform: translateY(-1px);
 }
 .foot-social:hover .fs-icon { color: var(--signal); }
@@ -1663,23 +1663,23 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
    Stripe pills are fully rounded, slightly tighter padding, and the
    primary CTA carries a faint inner highlight + crisp shadow. */
 .btn-primary {
-  background: linear-gradient(180deg, #1a55b8 0%, #0e46a3 100%);   /* lighter top → Stripe Blue bottom */
+  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);   /* lighter top → Stripe Blue bottom */
   color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(14, 70, 163, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.55);
 }
 .btn-primary:hover {
-  background: linear-gradient(180deg, #5b8def 0%, #0e46a3 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -6px rgba(14, 70, 163, 0.65);
+  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.65);
   transform: translateY(-1px);
 }
 .nav-cta {
-  background: linear-gradient(180deg, #1a55b8 0%, #0e46a3 100%);
+  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);
   color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(14, 70, 163, 0.45);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.45);
 }
 .nav-cta:hover {
-  background: linear-gradient(180deg, #5b8def 0%, #0e46a3 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 22px -6px rgba(14, 70, 163, 0.6);
+  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.6);
 }
 
 /* ───── STAT NUMBERS — Stripe-style: bigger, tighter, gradient ─────
@@ -1730,14 +1730,14 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
   position: absolute;
   top: 0; right: 0;
   width: 60%; height: 100%;
-  background: radial-gradient(ellipse at top right, rgba(14, 70, 163, 0.06), transparent 60%);
+  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.06), transparent 60%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.4s ease;
 }
 .module:hover::after { opacity: 1; }
 [data-theme="light"] .module::after {
-  background: radial-gradient(ellipse at top right, rgba(14, 70, 163, 0.08), transparent 60%);
+  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.08), transparent 60%);
 }
 
 /* ───── Brand mark — Stripe-style hover ───── */
@@ -1754,7 +1754,7 @@ h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line e
    gradient color. We replicate this via the three .line spans by giving
    the third one (containing <em>) a stronger color treatment. */
 h1.hero-title .line:has(em) em {
-  background: linear-gradient(135deg, #0e46a3 0%, #ffd100 100%);
+  background: linear-gradient(135deg, #0570DE 0%, #00D4FF 100%);
   -webkit-background-clip: text;
           background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1765,18 +1765,18 @@ h1.hero-title .line:has(em) em {
    with a faint indigo glow. We bake that in here for the .device-frame. */
 .device-frame {
   background: var(--surface);
-  border-color: rgba(14, 70, 163, 0.14);
+  border-color: rgba(5, 112, 222, 0.14);
   box-shadow:
-    0 0 0 1px rgba(14, 70, 163, 0.08),
+    0 0 0 1px rgba(5, 112, 222, 0.08),
     0 30px 80px -30px rgba(0, 0, 0, 0.7),
-    0 60px 120px -40px rgba(14, 70, 163, 0.18);
+    0 60px 120px -40px rgba(5, 112, 222, 0.18);
 }
 [data-theme="light"] .device-frame {
-  border-color: rgba(14, 70, 163, 0.16);
+  border-color: rgba(5, 112, 222, 0.16);
   box-shadow:
-    0 0 0 1px rgba(14, 70, 163, 0.1),
+    0 0 0 1px rgba(5, 112, 222, 0.1),
     0 20px 50px -20px rgba(10, 37, 64, 0.15),
-    0 40px 80px -30px rgba(14, 70, 163, 0.18);
+    0 40px 80px -30px rgba(5, 112, 222, 0.18);
 }
 
 /* ───── REDUCED MOTION — Three.js animations pause for users who request it ───── */
@@ -1854,11 +1854,11 @@ h1.hero-title .line:has(em) em {
 }
 .chunk--active {
   transform: translateX(0) scale(1.015);
-  background-color: rgba(14, 70, 163, 0.10);
+  background-color: rgba(5, 112, 222, 0.10);
   border-left-color: var(--signal);
   box-shadow:
-    0 0 0 1px rgba(14, 70, 163, 0.20),
-    0 6px 18px -8px rgba(14, 70, 163, 0.55),
+    0 0 0 1px rgba(5, 112, 222, 0.20),
+    0 6px 18px -8px rgba(5, 112, 222, 0.55),
     inset 2px 0 0 var(--signal);
   z-index: 3;
 }
@@ -1885,10 +1885,10 @@ h1.hero-title .line:has(em) em {
   color: var(--amber);
 }
 [data-theme="light"] .chunk--active {
-  background-color: rgba(14, 70, 163, 0.06);
+  background-color: rgba(5, 112, 222, 0.06);
   box-shadow:
-    0 0 0 1px rgba(14, 70, 163, 0.18),
-    0 6px 18px -8px rgba(14, 70, 163, 0.40),
+    0 0 0 1px rgba(5, 112, 222, 0.18),
+    0 6px 18px -8px rgba(5, 112, 222, 0.40),
     inset 2px 0 0 var(--signal);
 }
 
@@ -2041,7 +2041,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
    Light-mode .btn-secondary is white-ish though, so the ripple needs a
    darker tint there. */
 [data-theme="light"] .btn-secondary .ripple {
-  background: rgba(14, 70, 163, 0.20);
+  background: rgba(5, 112, 222, 0.20);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2057,8 +2057,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
      triggered which highlight. */
   border-color: var(--signal) !important;
   box-shadow:
-    0 0 0 2px rgba(14, 70, 163, 0.32),
-    0 12px 28px -10px rgba(14, 70, 163, 0.40);
+    0 0 0 2px rgba(5, 112, 222, 0.32),
+    0 12px 28px -10px rgba(5, 112, 222, 0.40);
   transform: translateY(-2px);
   z-index: 2;
 }
@@ -2068,8 +2068,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 [data-theme="light"] .module--linked {
   box-shadow:
-    0 0 0 2px rgba(14, 70, 163, 0.28),
-    0 12px 28px -10px rgba(14, 70, 163, 0.30);
+    0 0 0 2px rgba(5, 112, 222, 0.28),
+    0 12px 28px -10px rgba(5, 112, 222, 0.30);
 }
 
 /* Scroll-target pulse — fires after a sphere-node click smooth-scrolls to
@@ -2081,19 +2081,19 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 @keyframes modulePulse {
   0% {
     box-shadow:
-      0 0 0 0 rgba(14, 70, 163, 0.85),
-      0 0 0 8px rgba(14, 70, 163, 0.0);
+      0 0 0 0 rgba(5, 112, 222, 0.85),
+      0 0 0 8px rgba(5, 112, 222, 0.0);
   }
   20% {
     box-shadow:
-      0 0 0 8px rgba(14, 70, 163, 0.0),
-      0 0 0 0 rgba(14, 70, 163, 0.85);
+      0 0 0 8px rgba(5, 112, 222, 0.0),
+      0 0 0 0 rgba(5, 112, 222, 0.85);
     transform: translateY(-3px) scale(1.015);
   }
   100% {
     box-shadow:
-      0 0 0 0 rgba(14, 70, 163, 0.0),
-      0 0 0 0 rgba(14, 70, 163, 0.0);
+      0 0 0 0 rgba(5, 112, 222, 0.0),
+      0 0 0 0 rgba(5, 112, 222, 0.0);
     transform: translateY(0) scale(1);
   }
 }
@@ -2105,14 +2105,14 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 @keyframes modulePulseLight {
   0% {
-    box-shadow: 0 0 0 0 rgba(14, 70, 163, 0.50);
+    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.50);
   }
   20% {
-    box-shadow: 0 0 0 12px rgba(14, 70, 163, 0.0);
+    box-shadow: 0 0 0 12px rgba(5, 112, 222, 0.0);
     transform: translateY(-3px) scale(1.015);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(14, 70, 163, 0.0);
+    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.0);
     transform: translateY(0) scale(1);
   }
 }
@@ -2138,7 +2138,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 [data-theme="light"] .hero-sub {
   color: #2D3B52;     /* darker than --muted so it sits cleanly on the pastel gradient */
 }
-[data-theme="light"] .hero-sub strong { color: #0a1a3a; }
+[data-theme="light"] .hero-sub strong { color: #0A2540; }
 
 /* ───── CTA SECTION — text legibility on the bottom gradient ───── */
 [data-theme="light"] .cta-huge {
@@ -2163,9 +2163,9 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
     <a href="#" class="brand">
       <span class="brand-mark">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0e46a3" stroke-width="1.5"/>
-          <path d="M12 22 L20 14 L28 22" stroke="#0e46a3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 28 L20 20 L28 28" stroke="#0e46a3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
+          <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
         </svg>
       </span>
       <span>Speed to Market <em>AI</em></span>
@@ -2479,8 +2479,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   border-color: var(--line-warm);
 }
 .ba-col.after {
-  border-color: rgba(14, 70, 163, 0.32);
-  background: linear-gradient(180deg, rgba(14, 70, 163, 0.04), var(--surface) 60%);
+  border-color: rgba(5, 112, 222, 0.32);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04), var(--surface) 60%);
 }
 .ba-label {
   font-family: var(--font-mono);
@@ -3146,8 +3146,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 .roadmap-col:hover { border-color: var(--signal); transform: translateY(-3px); }
 .roadmap-col.now {
-  border-color: rgba(14, 70, 163, 0.35);
-  background: linear-gradient(180deg, rgba(14, 70, 163, 0.04) 0%, var(--surface) 70%);
+  border-color: rgba(5, 112, 222, 0.35);
+  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04) 0%, var(--surface) 70%);
 }
 .rm-horizon {
   font-family: var(--font-mono);
@@ -3386,7 +3386,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 .ct-item.active .ct-dot {
   background: var(--signal);
   border-color: var(--signal);
-  box-shadow: 0 0 0 4px rgba(14, 70, 163, 0.18);
+  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
 }
 .ct-item:hover .ct-dot {
   border-color: var(--signal);
@@ -3466,9 +3466,9 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
         <a href="#" class="brand">
           <span class="brand-mark">
             <svg viewBox="0 0 40 40" fill="none">
-              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0e46a3" stroke-width="1.5"/>
-              <path d="M12 22 L20 14 L28 22" stroke="#0e46a3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 28 L20 20 L28 28" stroke="#0e46a3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
+              <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </span>
           <span>Speed to Market <em>AI</em></span>
@@ -3632,32 +3632,28 @@ function buildHeroFlame(canvas, opts = {}) {
   /* Single full-screen quad. No segments — fragment shader does everything. */
   const geometry = new THREE.PlaneGeometry(2, 2);
 
-  /* TWO PALETTES — Z1 royal-blue gradient.
-     Single-hue flame: deepest blue → royal blue → bright blue, with a single
-     amber spark for the hottest peaks. The hue stays consistent between
-     light and dark modes; only the base (bleed-through) color changes.
-     Light-mode flame is brighter (sits on white page); dark-mode flame's
-     base is signal-dim (#072d6a) so it blends into the page bg.
-     Replaces the prior Stripe-style multi-color flame
-     (pink/orange/sky-blue/lavender) — see git history if curious. */
+  /* TWO PALETTES.
+     Stripe's current homepage flame: hot pink, peach/orange, light blue,
+     a touch of lavender. We mirror those, with a clean fade-out on the
+     left side so the headline stays readable.
+
+     Light-mode flame is brighter / more saturated (sits on white page).
+     Dark-mode flame is slightly dimmed (already glows on slate page). */
   const PALETTES = {
-    /* Z1 ROYAL BLUE FLAME · session 6 re-skin
-       Single-hue gradient (deep blue → royal → bright blue) with a single
-       amber spark for the hottest peaks. Replaces the original Stripe-style
-       multi-color (pink/orange/sky-blue/lavender) flame. */
     light: {
-      base:    '#FFFFFF',  // page bleed-through
-      flameA:  '#0e46a3',  // royal blue — the dominant ribbon
-      flameB:  '#1a55b8',  // brighter blue — wraps across the bottom
-      flameC:  '#5b8def',  // lightest blue — counterpoint top-left
-      accent:  '#ffd100',  // amber spark — picks out the brightest peaks
+      base:    '#FFFFFF',  // page bleed-through (transparent in practice)
+      flameA:  '#FF61AB',  // hot pink — the dominant ribbon
+      flameB:  '#FFA75E',  // peach/orange — wraps across the bottom
+      flameC:  '#5BD2FF',  // light blue — the cool counterpoint top-left
+      accent:  '#C8A2FF',  // lavender highlight — picks out the brightest peaks
     },
     dark: {
-      base:    '#072d6a',  // signal-dim · deepest blue, blends into page bg
-      flameA:  '#0e46a3',  // royal blue — primary ribbon
-      flameB:  '#1a55b8',  // brighter blue
-      flameC:  '#5b8def',  // light sky blue
-      accent:  '#ffd100',  // amber — single warm spark in the cool flame
+      base:    '#0A2540',
+      flameA:  '#E63B85',  // pink, slightly deeper for dark mode legibility
+      flameB:  '#FF8E3C',  // orange, hotter
+      flameC:  '#3FB8E8',  // sky blue
+      accent:  '#9F7BFF',  // violet — yes, the flame KEEPS purple in it
+                            // (Stripe's flame has lavender/purple ribbons too)
     },
   };
   function currentPalette() {
@@ -4343,8 +4339,8 @@ if (!REDUCED) {
     const uniforms = {
       u_time:     { value: 0 },
       u_haloY:    { value: 0.5 },
-      u_scanColor: { value: new THREE.Color('#5b8def') },   /* light blue scan (Z1 palette) */
-      u_haloColor: { value: new THREE.Color('#0e46a3') },   /* royal blue halo */
+      u_scanColor: { value: new THREE.Color('#5BD2FF') },   /* sky blue scan */
+      u_haloColor: { value: new THREE.Color('#0570DE') },   /* Stripe blue halo */
     };
 
     const vertexShader = `
@@ -4887,7 +4883,7 @@ function applyTheme(theme) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FFFFFF');
   } else {
     document.documentElement.removeAttribute('data-theme');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0a1828');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A2540');
   }
 }
 

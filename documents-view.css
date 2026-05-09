@@ -1,33 +1,23 @@
 /* ════════════════════════════════════════════════════════════════════════
-   SPEED FILE MANAGER · Documents view (native overlay inside the app)
-   ════════════════════════════════════════════════════════════════════════
-   Z1 RE-SKIN · session 5
-   Re-skinned from the dark-default prototype to the light-default Z1
-   aesthetic: royal blue (#0e46a3) signal, amber-yellow (#ffd100) accent,
-   Inter typography, 14.5px base scale, soft white surfaces.
+   SPEED FILE MANAGER · Documents view (native port into Altitude)
 
    This stylesheet is loaded once at app boot. The view itself is hidden
    by default (display:none) — showStage('docs') sets display:flex, which
    is the only thing that activates the styling.
 
    All selectors below are scoped under #docs-view-root so the prototype
-   styles cannot leak into Altitude's pipe/sum/admin views, and Altitude
-   styles do not leak in. The CSS variables declared inside the namespace
-   override anything inherited from app.css.
+   styles cannot leak into Altitude's pipe/sum/admin views. Likewise,
+   Altitude styles do not leak in — the prototype's CSS variables
+   (--bg, --surface, --text, etc.) are scoped to #docs-view-root and
+   override anything inherited.
 
-   Theme is driven by Altitude's own html[data-theme="dark"] attribute
-   (note: light is the new default, dark is opt-in). Toggling Altitude's
-   theme automatically retheme the docs view too.
-
-   KEYFRAMES are prefixed with `dv-` to prevent collision with app.css's
-   `stm-` keyframes — both stylesheets co-exist on the page when the
-   docs view is mounted.
+   Theme is driven by Altitude's own html[data-theme="..."] attribute,
+   so toggling Altitude's theme automatically retheme the docs view too.
    ════════════════════════════════════════════════════════════════════════ */
 
-
-/* ─── OVERLAY POSITIONING ────────────────────────────────────────────────
+/* ──── OVERLAY POSITIONING ────
    When showStage('docs') runs, body gets the .docs-fullwidth class and
-   the root container's display flips to grid. The container is a
+   the root container's display flips to flex. The container is a
    fixed-position full-viewport overlay above all Altitude chrome. */
 #docs-view-root {
   display: none;             /* shown by JS via .docs-fullwidth on body */
@@ -36,162 +26,145 @@
   width: 100vw;
   height: 100vh;
   z-index: 9999;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Reset host page inheritance — we set our own font/color/bg via the
+     namespaced :root rules below. */
+  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+  overflow: hidden;          /* prototype expects no scroll on its container */
 }
 body.docs-fullwidth #docs-view-root {
-  display: grid;             /* prototype's .app uses display:grid */
+  display: grid;             /* prototype's .app uses display:grid layout */
 }
 body.docs-fullwidth {
-  overflow: hidden;          /* prevent background scroll while overlay is up */
+  /* Hide Altitude's chrome behind the overlay — strictly belt-and-braces
+     since z-index 9999 already covers everything. Also prevents background
+     scroll while the docs view is active. */
+  overflow: hidden;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Speed File Manager (Documents view) — namespaced CSS
+   Auto-generated. All selectors scoped under #docs-view-root so the
+   prototype styles cannot leak into the rest of Altitude.
+   ════════════════════════════════════════════════════════════════════════ */
 
-/* ─── TOKEN SYSTEM (light-default, Z1-aligned) ──────────────────────────
-   Default values target the new Altitude light surface. The dark-mode
-   block below overrides selected tokens. Tag colors are theme-stable —
-   they identify document types and must look the same regardless of
-   the host theme. */
 #docs-view-root {
-  /* SIGNAL · royal blue */
-  --signal: #0e46a3;
-  --signal-hover: #1a55b8;
-  --signal-dim: #072d6a;
-  --signal-pale: rgba(14, 70, 163, 0.10);
-  --signal-tint: rgba(14, 70, 163, 0.22);
-  --signal-ink: #0e46a3;
+  /* SIGNAL (chartreuse across both modes for bg/border) */
+  --signal: #0570DE;
+  --signal-hover: #3B82F6;
+  --signal-dim: #0469C5;
+  --signal-pale: rgba(5, 112, 222, 0.10);
+  --signal-tint: rgba(5, 112, 222, 0.18);
+  --signal-ink: #0570DE;
+  --amber: #00D4FF;
 
-  /* ACCENT · amber-yellow */
-  --accent: #ffd100;
-  --accent-hover: #ffdc33;
-  --accent-dim: #e6bc00;
-  --accent-pale: rgba(255, 209, 0, 0.12);
-  --text-on-signal: #ffffff;
-  --text-on-accent: #1a1a1a;
+  /* STATUS */
+  --success: #7DD88A;
+  --warning: #FBBF24;
+  --danger: #F87171;
+  --info: #60A5FA;
 
-  /* STATUS — kept distinct from app.css's tokens for in-view status pills */
-  --success: #2e8f48;
-  --warning: #b8700e;
-  --danger:  #c13737;
-  --info:    var(--signal);
+  /* TAG COLORS — identical in both themes so tags look the same when you toggle.
+     Chosen to be visible on both dark navy and cream backgrounds; the glow effect
+     on tagged items boosts visibility where needed. */
+  --tag-red: #DC2626;
+  --tag-maroon: #7F1D1D;
+  --tag-blue: #2563EB;
+  --tag-green: #16A34A;
+  --tag-yellow: #EAB308;
+  --tag-purple: #7C3AED;
+  --tag-orange: #EA580C;
+  --tag-pink: #F472B6;
+  --tag-black: #6B7280;
+  --tag-teal: #0D9488;       /* Quotes & Indications (manual) */
+  --tag-magenta: #DB2777;    /* Cancellations (manual) */
+  --tag-coral: #FB7185;      /* Subjectivity (manual) */
 
-  /* TAG COLORS — semantic identification, theme-stable.
-     12 named colors used to categorize document types (ACORD = blue,
-     Loss Run = green, Sup App = yellow, etc.). Each tag color also has
-     an RGB-triplet variant used for box-shadow glow effects on tagged
-     items, which would otherwise need rgba() with a hex parser at
-     runtime. */
-  --tag-red:     #dc2626;
-  --tag-maroon:  #7f1d1d;
-  --tag-blue:    #2563eb;
-  --tag-green:   #16a34a;
-  --tag-yellow:  #eab308;
-  --tag-purple:  #7c3aed;
-  --tag-orange:  #ea580c;
-  --tag-pink:    #f472b6;
-  --tag-black:   #6b7280;
-  --tag-teal:    #0d9488;       /* Quotes & Indications (manual) */
-  --tag-magenta: #db2777;       /* Cancellations (manual) */
-  --tag-coral:   #fb7185;       /* Subjectivity (manual) */
-
-  --tag-red-rgb:     220, 38, 38;
-  --tag-maroon-rgb:  127, 29, 29;
-  --tag-blue-rgb:    37, 99, 235;
-  --tag-green-rgb:   22, 163, 74;
-  --tag-yellow-rgb:  234, 179, 8;
-  --tag-purple-rgb:  124, 58, 237;
-  --tag-orange-rgb:  234, 88, 12;
-  --tag-pink-rgb:    244, 114, 182;
-  --tag-black-rgb:   107, 114, 128;
-  --tag-teal-rgb:    13, 148, 136;
+  /* RGB variants for rgba() — used for glow + gradient tints */
+  --tag-red-rgb: 220, 38, 38;
+  --tag-maroon-rgb: 127, 29, 29;
+  --tag-blue-rgb: 37, 99, 235;
+  --tag-green-rgb: 22, 163, 74;
+  --tag-yellow-rgb: 234, 179, 8;
+  --tag-purple-rgb: 124, 58, 237;
+  --tag-orange-rgb: 234, 88, 12;
+  --tag-pink-rgb: 244, 114, 182;
+  --tag-black-rgb: 107, 114, 128;
+  --tag-teal-rgb: 13, 148, 136;
   --tag-magenta-rgb: 219, 39, 119;
-  --tag-coral-rgb:   251, 113, 133;
+  --tag-coral-rgb: 251, 113, 133;
 
-  /* SURFACES (light default) */
-  --bg:             #f7f9fc;
-  --surface:        #ffffff;
-  --surface-alt:    #ebf0f5;
-  --surface-raised: #dde5ee;
-  --border:         #d7e0f3;
-  --border-strong:  #b9c6e0;
-
-  /* TEXT */
-  --text:           #0a1a3a;
-  --text-secondary: #4a5878;
-  --text-tertiary:  #6c7a99;
-
-  /* CHROME — sidebar uses Z1's signature glass-effect blue panel */
-  --sidebar-bg:    rgba(14, 70, 163, 0.96);
-  --sidebar-text:  rgba(255, 255, 255, 0.78);
-  --topbar-bg:     rgba(255, 255, 255, 0.88);
-  --backdrop-bg:   rgba(255, 255, 255, 0.74);
+  /* SURFACES (dark default) */
+  --bg: #0A2540;
+  --surface: #0F2A4A;
+  --surface-alt: #163057;
+  --surface-raised: #1B3964;
+  --border: #1F3460;
+  --border-strong: #2C4276;
 
   /* TYPE */
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-sans:    'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono:    'Geist Mono', 'SF Mono', Menlo, monospace;
+  --text: #F6F9FC;
+  --text-secondary: #ADBDCC;
+  --text-tertiary: #708099;
+
+  /* CHROME */
+  --sidebar-bg: #06192F;
+  --sidebar-text: #A3B8D1;
+  --topbar-bg: rgba(15, 42, 74, 0.85);
+  --backdrop-bg: rgba(10, 37, 64, 0.75);
+
+  /* FONTS */
+  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
 
   /* GEOMETRY */
-  --radius:    8px;
-  --radius-lg: 12px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.7);
 
-  /* SHADOWS — softer in light mode */
-  --shadow-sm: 0 1px 2px rgba(7, 22, 56, 0.06);
-  --shadow:    0 2px 8px rgba(7, 22, 56, 0.08), 0 1px 3px rgba(7, 22, 56, 0.06);
-  --shadow-lg: 0 8px 24px rgba(7, 22, 56, 0.12);
-  --shadow-xl: 0 20px 60px rgba(7, 22, 56, 0.20);
-
-  /* LAYOUT */
-  --topbar-h:     52px;
+  --topbar-h: 52px;
   --docs-panel-w: 300px;
   --tags-panel-w: 280px;
 }
 
-/* ─── DARK THEME OVERRIDES ──────────────────────────────────────────────
-   When html[data-theme="dark"] is set on Altitude, the docs view follows.
-   Tag colors intentionally NOT overridden — they stay theme-stable so a
-   "blue Loss Run" tagged document looks the same in both modes. */
-html[data-theme="dark"] #docs-view-root {
-  --signal-pale: rgba(14, 70, 163, 0.18);
-  --signal-tint: rgba(14, 70, 163, 0.32);
-  --success: #5fbf6e;
-  --warning: #fbbf24;
-  --danger:  #f87171;
-  --info:    #60a5fa;
-
-  --bg:             #0a1828;
-  --surface:        #102236;
-  --surface-alt:    #173049;
-  --surface-raised: #1f3d5c;
-  --border:         #1e3556;
-  --border-strong:  #2c4276;
-
-  --text:           #e8eef7;
-  --text-secondary: #a8b6cc;
-  --text-tertiary:  #708099;
-
-  --sidebar-bg:    rgba(7, 22, 56, 0.95);
-  --sidebar-text:  rgba(220, 230, 245, 0.78);
-  --topbar-bg:     rgba(16, 34, 54, 0.85);
-  --backdrop-bg:   rgba(10, 24, 40, 0.78);
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40);
-  --shadow:    0 2px 8px rgba(0, 0, 0, 0.32), 0 1px 3px rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.50);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.70);
+html[data-theme="light"] #docs-view-root {
+  --signal-ink: #0469C5;
+  --signal-pale: rgba(5, 112, 222, 0.22);
+  --signal-tint: rgba(5, 112, 222, 0.35);
+  --success: #2E8F48;
+  --warning: #B8700E;
+  --danger: #C13737;
+  --info: #2563EB;
+  /* Tag colors intentionally NOT overridden here — they stay the same across themes
+     so tagged docs keep the same visual identity when the user toggles modes. */
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-alt: #EBF0F5;
+  --surface-raised: #DDE5EE;
+  --border: #E3E8EE;
+  --border-strong: #C0CCDA;
+  --text: #0A2540;
+  --text-secondary: #708099;
+  --text-tertiary: #697386;
+  --sidebar-bg: #FFFFFF;
+  --sidebar-text: #708099;
+  --topbar-bg: rgba(255, 255, 255, 0.85);
+  --backdrop-bg: rgba(255, 255, 255, 0.72);
+  --shadow-sm: 0 1px 2px rgba(10, 37, 64, 0.04);
+  --shadow: 0 2px 8px rgba(10, 37, 64, 0.06), 0 1px 3px rgba(10, 37, 64, 0.08);
+  --shadow-lg: 0 8px 24px rgba(10, 37, 64, 0.10);
+  --shadow-xl: 0 20px 60px rgba(10, 37, 64, 0.18);
 }
 
-/* ─── BASE RESET (within namespace) ─────────────────────────────────── */
-#docs-view-root * {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+#docs-view-root * { box-sizing: border-box; margin: 0; padding: 0; }
 
-#docs-view-root {
+#docs-view-root, #docs-view-root {
   height: 100%;
   font-family: var(--font-sans);
   color: var(--text);
@@ -203,38 +176,31 @@ html[data-theme="dark"] #docs-view-root {
 }
 
 #docs-view-root button { font-family: inherit; }
-#docs-view-root input,
-#docs-view-root textarea { font-family: inherit; }
+
+#docs-view-root input, #docs-view-root textarea { font-family: inherit; }
 
 #docs-view-root .svg-sm { width: 13px; height: 13px; }
+
 #docs-view-root .svg-xs { width: 11px; height: 11px; }
 
-/* Default transitions on every descendant. Easy to disable globally via
-   html.no-transitions for performance during bulk DOM updates. */
-#docs-view-root *,
-#docs-view-root *::before,
-#docs-view-root *::after {
+#docs-view-root *, #docs-view-root *::before, #docs-view-root *::after {
   transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity;
   transition-duration: 160ms;
   transition-timing-function: ease;
 }
-html.no-transitions #docs-view-root *,
-html.no-transitions #docs-view-root *::before,
-html.no-transitions #docs-view-root *::after {
+
+html.no-transitions #docs-view-root *, html.no-transitions #docs-view-root *::before, html.no-transitions #docs-view-root *::after {
   transition-duration: 0ms !important;
 }
 
-/* Scrollbars (WebKit) */
-#docs-view-root ::-webkit-scrollbar         { width: 10px; height: 10px; }
-#docs-view-root ::-webkit-scrollbar-track   { background: transparent; }
-#docs-view-root ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border: 2px solid var(--bg);
-  border-radius: 5px;
-}
-#docs-view-root ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
-}
+#docs-view-root ::-webkit-scrollbar { width: 10px; height: 10px; }
+
+#docs-view-root ::-webkit-scrollbar-track { background: transparent; }
+
+#docs-view-root ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--bg); }
+
+#docs-view-root ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
 #docs-view-root .app {
   display: grid;
   grid-template-rows: var(--topbar-h) 1fr;
@@ -267,7 +233,7 @@ html.no-transitions #docs-view-root *::after {
   width: 26px; height: 26px;
   border-radius: 6px;
   background: var(--signal);
-  color: var(--text-on-signal);
+  color: #0A2540;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
   font-family: var(--font-display);
@@ -526,10 +492,10 @@ html[data-theme="light"] #docs-view-root mark.search-hl {
 #docs-view-root .doc-item.search-focused {
   border-color: #EAB308 !important;
   box-shadow: 0 0 0 2px #EAB308, 0 0 24px 0 rgba(234, 179, 8, 0.7) !important;
-  animation: dv-search-pulse 1.2s ease-in-out;
+  animation: search-pulse 1.2s ease-in-out;
 }
 
-@keyframes dv-search-pulse {
+@keyframes search-pulse {
   0%   { box-shadow: 0 0 0 2px #EAB308, 0 0 0 0 rgba(234, 179, 8, 0.9); }
   50%  { box-shadow: 0 0 0 2px #EAB308, 0 0 30px 4px rgba(234, 179, 8, 0.7); }
   100% { box-shadow: 0 0 0 2px #EAB308, 0 0 24px 0 rgba(234, 179, 8, 0.5); }
@@ -669,11 +635,11 @@ html[data-theme="light"] #docs-view-root mark.search-hl {
 
 #docs-view-root .btn:hover { background: var(--surface-raised); border-color: var(--border-strong); }
 
-#docs-view-root .btn-primary { background: var(--signal); color: var(--text-on-signal); border-color: var(--signal); font-weight: 600; }
+#docs-view-root .btn-primary { background: var(--signal); color: #0A2540; border-color: var(--signal); font-weight: 600; }
 
 #docs-view-root .btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); }
 
-html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-signal); }
+html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 
 #docs-view-root .btn-icon {
   width: 32px; height: 32px; padding: 0;
@@ -788,7 +754,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
   display: flex; align-items: center; justify-content: center;
 }
 
-#docs-view-root .view-toggle button.active { background: var(--signal); color: var(--text-on-signal); }
+#docs-view-root .view-toggle button.active { background: var(--signal); color: #0A2540; }
 
 #docs-view-root .view-toggle button svg { width: 13px; height: 13px; }
 
@@ -894,7 +860,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
 
 #docs-view-root .bulk-bar {
   background: var(--signal);
-  color: var(--text-on-signal);
+  color: #0A2540;
   padding: 7px 12px;
   display: none;
   align-items: center;
@@ -913,7 +879,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
   width: 26px; height: 26px;
   background: rgba(10, 37, 64, 0.12);
   border: none;
-  color: var(--text-on-signal);
+  color: #0A2540;
   border-radius: 4px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -1302,11 +1268,11 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
   transform: scale(0.343);
 }
 
-#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: var(--text); }
+#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: #0A2540; }
 
-#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: var(--text); }
+#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: #0A2540; }
 
-#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: var(--text); }
+#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: #0A2540; }
 
 #docs-view-root .doc-thumb-word-page h4 { font-size: 15px; font-weight: 600; margin: 14px 0 6px 0; }
 
@@ -1361,7 +1327,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
   width: 20px; height: 20px;
   border-radius: 50%;
   background: var(--signal);
-  color: var(--text-on-signal);
+  color: #0A2540;
   display: flex; align-items: center; justify-content: center;
   z-index: 4;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1638,7 +1604,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: var(--text-on-sig
   text-align: center;
 }
 
-#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: var(--text-on-signal); }
+#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: #0A2540; }
 
 #docs-view-root .tags-panel {
   display: grid;
@@ -1999,7 +1965,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .anno-btn.active {
   background: var(--signal);
-  color: var(--text-on-signal);
+  color: #0A2540;
   border-color: var(--signal);
 }
 
@@ -2428,10 +2394,10 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   width: 560px;
   max-width: 92vw;
   box-shadow: var(--shadow-xl);
-  animation: dv-modal-in 0.2s ease;
+  animation: modalIn 0.2s ease;
 }
 
-@keyframes dv-modal-in {
+@keyframes modalIn {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
@@ -2688,7 +2654,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .preview-btn:hover { background: var(--surface-alt); color: var(--text); border-color: var(--border-strong); }
 
-#docs-view-root .preview-btn.active { background: var(--signal); color: var(--text-on-signal); border-color: var(--signal); }
+#docs-view-root .preview-btn.active { background: var(--signal); color: #0A2540; border-color: var(--signal); }
 
 #docs-view-root .preview-btn svg { width: 12px; height: 12px; }
 
@@ -2856,7 +2822,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 #docs-view-root .preview-excel table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
 #docs-view-root .preview-excel th {
-  background: var(--surface-alt); color: var(--text);
+  background: #F3F4F6; color: #0A2540;
   padding: 6px 10px;
   border: 1px solid #E5E7EB;
   font-size: 10px;
@@ -2974,10 +2940,10 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   min-width: 260px;
   max-width: 400px;
   pointer-events: auto;
-  animation: dv-toast-in 0.2s ease;
+  animation: toastIn 0.2s ease;
 }
 
-@keyframes dv-toast-in {
+@keyframes toastIn {
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
 }
@@ -3052,10 +3018,10 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   border-top-color: var(--signal);
   border-radius: 50%;
   margin: 0 auto 14px;
-  animation: dv-spin 0.8s linear infinite;
+  animation: spin 0.8s linear infinite;
 }
 
-@keyframes dv-spin { to { transform: rotate(360deg); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 #docs-view-root .loading-title {
   font-family: var(--font-display);
@@ -3083,11 +3049,11 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   height: 100%;
   background: linear-gradient(90deg, var(--signal), var(--signal-hover), var(--signal));
   background-size: 200% 100%;
-  animation: dv-progress-grad 2s linear infinite;
+  animation: progressGrad 2s linear infinite;
   transition: width 0.3s ease;
 }
 
-@keyframes dv-progress-grad {
+@keyframes progressGrad {
   from { background-position: 0% 50%; }
   to { background-position: 200% 50%; }
 }
@@ -3220,7 +3186,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-on-signal);
+  color: #0A2540;
   background: var(--signal);
   border-radius: 3px;
   z-index: 4;
