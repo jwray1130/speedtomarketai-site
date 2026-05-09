@@ -1,0 +1,3791 @@
+/* ============================================================================
+   tokens.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   Design tokens — single source of truth for color, typography, geometry,
+   shadow, motion. Every other stylesheet should reference these tokens
+   rather than hardcode literal values.
+
+   Conventions
+   -----------
+   • Light is the DEFAULT. Dark is opt-in via <html data-theme="dark">.
+   • localStorage key 'stm-theme' stores the preference ('light' or 'dark').
+   • Color tokens use semantic names (--signal, --accent, --text) rather
+     than literal hue names so dark-mode overrides flip cleanly.
+   • Status colors map to the 6-state RQBI lifecycle:
+        Submission → Cleared → Inquired → Quoted → Bound → Issued
+     plus the off-track Cancelled state. Each has a token pair (bg + ink).
+   • Numeric tokens (radius, gutter, shadow) use --radius-md/--shadow-md
+     scales — pick the closest size, don't invent intermediate values.
+
+   Dependencies
+   ------------
+   None. This file loads first; everything else cascades after.
+   ============================================================================ */
+
+/* ─── Web fonts ────────────────────────────────────────────────────────────
+   Loaded via <link> in HTML head for proper preconnect; declared here only
+   for local development without HTML head access (e.g., CodePen CSS pane).
+   Production HTML should preconnect to fonts.gstatic.com and load the
+   stylesheet directly — see PRODUCTION.md.                                 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght,ital@14..32,100..900,0..1&family=Geist+Mono:wght@400;500;600&display=swap');
+
+/* ─── ROOT TOKENS — light theme (default) ───────────────────────────────── */
+:root {
+  /* ── Brand · royal blue (signal) ─────────────────────────────────────── */
+  --signal:        #0e46a3;     /* primary brand · royal blue */
+  --signal-hover:  #1a55b8;     /* hover state on signal surfaces */
+  --signal-dim:    #072d6a;     /* deepest blue · topbar gradient bottom */
+  --signal-pale:   rgba(14, 70, 163, 0.08);  /* subtle blue tint bg */
+  --signal-tint:   rgba(14, 70, 163, 0.18);  /* focus ring / glow */
+  --signal-glow:   rgba(14, 70, 163, 0.28);  /* hover-state glow */
+
+  /* ── Brand · amber accent ────────────────────────────────────────────── */
+  --accent:        #ffd100;     /* primary CTA · amber yellow */
+  --accent-hover:  #ffdc33;     /* hover state on amber */
+  --accent-dim:    #e6bc00;     /* amber border / muted */
+  --accent-deep:   #b89400;     /* darkest amber for borders */
+
+  /* ── Surface system ──────────────────────────────────────────────────── */
+  --bg:            #f7f9fc;     /* page background */
+  --surface:       #ffffff;     /* card surface */
+  --surface-2:     #ebf0f5;     /* secondary surface · readonly inputs */
+  --surface-3:     #dde4ee;     /* tertiary · subtle dividers */
+  --overlay:       rgba(7, 22, 56, 0.42);  /* modal backdrop */
+
+  /* ── Text colors ─────────────────────────────────────────────────────── */
+  --text:          #0a1a3a;     /* primary text · darkest navy */
+  --text-2:        #2c3e64;     /* secondary text · for labels */
+  --text-3:        #5a6a86;     /* tertiary · placeholders */
+  --text-mute:     #8893a8;     /* muted · disabled */
+  --text-on-signal:#ffffff;     /* text on royal-blue surfaces */
+  --text-on-accent:#1a1a1a;     /* text on amber surfaces */
+  --text-link:     var(--signal);
+
+  /* ── Lines + dividers ────────────────────────────────────────────────── */
+  --line:          #d7e0f3;     /* default rule line */
+  --line-warm:     #b9c6e0;     /* emphasized line */
+  --line-cool:     #e3eaf5;     /* lightest divider */
+
+  /* ── Status pills · 6-state RQBI lifecycle ───────────────────────────── */
+  /* Each status has a paired bg + ink for contrast.                       */
+  --status-submission-bg:  #f1f4f9;       --status-submission-ink: #5a6a86;
+  --status-cleared-bg:     #e3edff;       --status-cleared-ink:    #1e4ba3;
+  --status-inquired-bg:    #fff5d6;       --status-inquired-ink:   #8a6500;
+  --status-quoted-bg:      #fff0c2;       --status-quoted-ink:     #6e4d00;
+  --status-bound-bg:       #d8f3df;       --status-bound-ink:      #1f6b3a;
+  --status-issued-bg:      #d4e7ff;       --status-issued-ink:     #0e46a3;
+  --status-cancelled-bg:   #fce4e7;       --status-cancelled-ink:  #8a1f2c;
+
+  /* ── Lifecycle progress strip ─────────────────────────────────────────── */
+  --stage-pending-bg:   rgba(255, 255, 255, 0.16);
+  --stage-pending-dot:  rgba(255, 255, 255, 0.32);
+  --stage-pending-text: rgba(255, 255, 255, 0.55);
+  --stage-active-bg:    var(--accent);
+  --stage-active-dot:   #ffffff;
+  --stage-active-text:  #ffffff;
+  --stage-active-glow:  rgba(255, 209, 0, 0.55);
+  --stage-done-bg:      rgba(255, 255, 255, 0.85);
+  --stage-done-dot:     var(--signal);
+  --stage-done-text:    rgba(255, 255, 255, 0.92);
+  --stage-line:         rgba(255, 255, 255, 0.24);
+  --stage-line-done:    rgba(255, 255, 255, 0.62);
+
+  /* ── KPI strip ───────────────────────────────────────────────────────── */
+  --kpi-bg:        rgba(255, 255, 255, 0.92);
+  --kpi-border:    var(--line-warm);
+  --kpi-label:     var(--text-3);
+  --kpi-value:     var(--text);
+  --kpi-divider:   var(--line);
+  --kpi-emphasis:  var(--signal);
+
+  /* ── Glass sidebar ───────────────────────────────────────────────────── */
+  --glass-bg:      rgba(14, 70, 163, 0.88);
+  --glass-blur:    blur(18px) saturate(160%);
+  --glass-border:  rgba(255, 255, 255, 0.18);
+  --glass-rim:     linear-gradient(145deg, rgba(255, 209, 0, 0.32), rgba(255, 255, 255, 0));
+  --glass-text:    #ffffff;
+  --glass-text-2:  rgba(255, 255, 255, 0.78);
+  --glass-input:   rgba(255, 255, 255, 0.14);
+  --glass-input-2: rgba(255, 255, 255, 0.20);
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-display:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body:     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:     'Geist Mono', 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  --fs-base:       14.5px;
+  --lh-base:       1.42;
+  --fs-mono-eyebrow: 10.5px;
+  --fs-label:      0.82rem;
+  --fs-body:       0.88rem;
+  --fs-card-title: 1.18rem;
+  --fs-card-body:  0.85rem;
+  --fs-h1:         1.5rem;
+  --fs-h2:         1.25rem;
+  --fs-h3:         1rem;
+  --fs-kpi-label:  0.68rem;
+  --fs-kpi-value:  1.05rem;
+  --letter-eyebrow: 0.14em;
+  --letter-tight:  -0.012em;
+  --letter-display:-0.025em;
+
+  /* ── Geometry ────────────────────────────────────────────────────────── */
+  --radius-sm:     0.27rem;
+  --radius-md:     0.4rem;
+  --radius:        0.7rem;       /* default */
+  --radius-lg:     0.9rem;
+  --radius-pill:   999px;
+
+  --gutter:        1.2rem;
+  --gutter-sm:     0.8rem;
+  --gutter-lg:     1.6rem;
+  --side-width:    310px;        /* sidebar fixed width */
+  --topbar-h:      54px;
+  --kpi-h:         42px;
+
+  /* ── Shadow / depth ──────────────────────────────────────────────────── */
+  --shadow-sm:     0 1px 2px rgba(7, 22, 56, 0.05);
+  --shadow:        0 6px 18px rgba(7, 22, 56, 0.06);
+  --shadow-md:     0 10px 28px rgba(7, 22, 56, 0.08), 0 2px 4px rgba(7, 22, 56, 0.04);
+  --shadow-lg:     0 20px 48px rgba(7, 22, 56, 0.12), 0 4px 8px rgba(7, 22, 56, 0.06);
+  --shadow-glass:  0 22px 48px -12px rgba(7, 22, 56, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  --shadow-topbar: 0 2px 5px rgba(0, 0, 0, 0.18);
+  --shadow-glow-signal: 0 0 0 3px var(--signal-tint);
+  --shadow-glow-accent: 0 0 0 3px rgba(255, 209, 0, 0.30);
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --t-fast:        120ms;
+  --t-base:        180ms;
+  --t-slow:        260ms;
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ── Z-index scale ───────────────────────────────────────────────────── */
+  --z-topbar:      10;
+  --z-sticky:      20;
+  --z-dropdown:    100;
+  --z-modal-bg:    900;
+  --z-modal:       1000;
+  --z-toast:       2000;
+  --z-flatpickr:   9999;
+}
+
+/* ─── DARK THEME ───────────────────────────────────────────────────────────
+   Activated via <html data-theme="dark">. Most tokens flip; brand colors
+   (signal, accent) stay the same hue but get tuned for dark surfaces.       */
+:root[data-theme="dark"] {
+  /* Brand stays — same hue, slight luminance tuning */
+  --signal-pale:   rgba(14, 70, 163, 0.18);
+  --signal-tint:   rgba(14, 70, 163, 0.30);
+  --signal-glow:   rgba(26, 85, 184, 0.42);
+
+  /* Surfaces flip dark */
+  --bg:            #0a1828;        /* deep navy near-black */
+  --surface:       #102236;        /* card surface */
+  --surface-2:     #173049;        /* secondary surface */
+  --surface-3:     #1f3a5b;        /* tertiary */
+  --overlay:       rgba(0, 0, 0, 0.62);
+
+  /* Text inverts */
+  --text:          #e8eef7;
+  --text-2:        #b8c5db;
+  --text-3:        #8b9bb5;
+  --text-mute:     #5a6a86;
+  --text-link:     #5b8def;        /* lighter blue for dark-mode legibility */
+
+  /* Lines */
+  --line:          #1e3556;
+  --line-warm:     #2c4276;
+  --line-cool:     #16263e;
+
+  /* Status pills · darker, more saturated for legibility on dark surfaces */
+  --status-submission-bg:  #1f2c44;       --status-submission-ink: #b8c5db;
+  --status-cleared-bg:     #1a3565;       --status-cleared-ink:    #b3cdff;
+  --status-inquired-bg:    #3a2e0a;       --status-inquired-ink:   #ffd97a;
+  --status-quoted-bg:      #4a3a05;       --status-quoted-ink:     #ffe28a;
+  --status-bound-bg:       #103a1f;       --status-bound-ink:      #6cd98c;
+  --status-issued-bg:      #1a2f5e;       --status-issued-ink:     #6ba1ff;
+  --status-cancelled-bg:   #4a1620;       --status-cancelled-ink:  #ff8b94;
+
+  /* KPI strip · darker */
+  --kpi-bg:        rgba(16, 34, 54, 0.92);
+  --kpi-border:    var(--line);
+  --kpi-divider:   var(--line-cool);
+
+  /* Glass sidebar · still royal blue but pulled a touch deeper */
+  --glass-bg:      rgba(7, 22, 56, 0.84);
+  --glass-border:  rgba(255, 255, 255, 0.14);
+  --glass-input:   rgba(255, 255, 255, 0.10);
+  --glass-input-2: rgba(255, 255, 255, 0.16);
+
+  /* Shadows · darker / more pronounced */
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow:        0 6px 18px rgba(0, 0, 0, 0.45);
+  --shadow-md:     0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 4px rgba(0, 0, 0, 0.30);
+  --shadow-lg:     0 20px 48px rgba(0, 0, 0, 0.65), 0 4px 8px rgba(0, 0, 0, 0.40);
+  --shadow-glass:  0 30px 60px -16px rgba(0, 0, 0, 0.70), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────────
+   Respect user preference. Animations and transitions collapse to instant.  */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-base: 0ms;
+    --t-slow: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Theme transition smoothing ──────────────────────────────────────────
+   When the user toggles between light/dark, transition surface colors so
+   the flip feels intentional rather than jarring. Only color/border, not
+   layout properties.                                                       */
+html, body, .topbar, .card, .sidebar, .subnav, .limits-category,
+.limit-entry, .limit-details-panel, .layer-options-panel,
+.kpi-strip, .lifecycle-strip, .form-row, .subjectivity-entry,
+input, select, textarea, button, dialog {
+  transition: background-color var(--t-base) var(--ease-out),
+              border-color var(--t-base) var(--ease-out),
+              color var(--t-base) var(--ease-out);
+}
+
+/* The .no-transitions class on <html> is added briefly during initial
+   theme load to prevent a flash of mid-transition colors.                  */
+.no-transitions, .no-transitions * { transition: none !important; }
+
+/* ============================================================================
+   foundation.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   The base layer. Resets, base typography, layout grid, card system, form
+   controls, button system, animations, utilities. Loaded immediately after
+   tokens.css; everything in sessions 3-10 cascades after this file.
+
+   Sections
+   --------
+    1. Reset + base
+    2. Typography
+    3. Layout (container, sidebar, page system)
+    4. Subnav system (used by Risk / Forms / Underwriting pages)
+    5. Card system
+    6. Grid helpers (.grid, .grid-2/3/4)
+    7. Form control base (input / select / textarea / labels)
+    8. Button base (.btn-action, .btn-secondary, .edit, .btn-icon)
+    9. Currency input wrapper
+   10. Animation keyframes (all prefixed stm-*)
+   11. Utility classes
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. RESET + BASE
+   ════════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01';     /* Inter stylistic alternates */
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Selection uses brand color so it feels intentional, not browser-default */
+::selection {
+  background: var(--signal-tint);
+  color: var(--text);
+}
+
+/* Scrollbar polish — Firefox + WebKit */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-warm) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-warm);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--bg);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* Reset list/link defaults — most are styled per-component */
+ul, ol { list-style: none; }
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Remove default focus outline; use :focus-visible with custom glow instead */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+img, svg { display: block; max-width: 100%; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. TYPOGRAPHY
+   ════════════════════════════════════════════════════════════════════════ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--letter-tight);
+  color: var(--text);
+}
+
+h1 { font-size: var(--fs-h1); letter-spacing: var(--letter-display); }
+h2 { font-size: var(--fs-h2); }
+h3 { font-size: var(--fs-h3); }
+
+p { margin: 0; }
+
+/* Mono eyebrow — small ALL-CAPS labels for sections and stat labels */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+/* Tabular numerals — used on every numeric input + display so columns align */
+.tabular,
+input[type="text"].currency-input,
+input[type="number"],
+.loss-row input,
+.large-loss-row input,
+.flatpickr-input {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'cv11', 'ss01';
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. LAYOUT
+   ════════════════════════════════════════════════════════════════════════ */
+
+.container {
+  display: grid;
+  gap: var(--gutter);
+  padding: var(--gutter);
+  grid-template-columns: minmax(0, 1fr) var(--side-width);
+  grid-template-areas: "content summary";
+  /* Stretch the row with content height so the sidebar can sticky against
+     scroll without breaking the grid. (Don't add align-items: start here —
+     it's the bug that previously broke sidebar scroll.) */
+}
+
+#pageContent {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+  min-width: 0;          /* allows grid cells to shrink, prevents overflow */
+}
+
+.sidebar {
+  grid-area: summary;
+  position: sticky;
+  /* Sticky offset = topbar height + KPI strip height + container padding   */
+  top: calc(var(--topbar-h) + var(--kpi-h) + var(--gutter));
+  align-self: start;
+  height: max-content;
+}
+
+/* Page show/hide system — JS toggles .active to swap visible page */
+.page-section,
+.risk-panel,
+.form-panel,
+.underwriting-panel {
+  display: none;
+  animation: stm-fade-in var(--t-base) var(--ease-out);
+}
+.page-section.active,
+.risk-panel.active,
+.form-panel.active,
+.underwriting-panel.active {
+  display: block;
+}
+
+/* Responsive: sidebar collapses below content at narrow widths */
+@media (max-width: 980px) {
+  .container {
+    grid-template-columns: 1fr;
+    grid-template-areas: "content" "summary";
+  }
+  .sidebar {
+    position: static;
+    top: auto;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. SUBNAV SYSTEM
+   ════════════════════════════════════════════════════════════════════════
+   Used by Risk & Coverage, Forms & Subjectivities, Underwriting pages —
+   secondary tab bar inside a page section.                                  */
+
+.subnav {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.4rem var(--gutter-sm);
+  margin-bottom: var(--gutter-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.subnav ul {
+  display: flex;
+  gap: var(--gutter-lg);
+  font-size: var(--fs-body);
+  flex-wrap: wrap;
+}
+
+.subnav li {
+  cursor: pointer;
+  color: var(--text-3);
+  position: relative;
+  padding: 0.4rem 0;
+  transition: color var(--t-fast) var(--ease-out);
+  font-weight: 500;
+}
+.subnav li:hover { color: var(--text); }
+.subnav li.active { color: var(--signal); }
+
+.subnav li::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.1rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleX(0.6);
+  transform-origin: center;
+  transition: opacity var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out);
+}
+.subnav li.active::after,
+.subnav li:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. CARD SYSTEM
+   ════════════════════════════════════════════════════════════════════════ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--gutter);
+  box-shadow: var(--shadow);
+  position: relative;
+  animation: stm-fade-in var(--t-slow) var(--ease-out);
+  transition: box-shadow var(--t-base) var(--ease-out),
+              border-color var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out);
+}
+
+/* Subtle lift on hover for interactive cards.
+   Default cards don't lift; opt in via .card--interactive.                  */
+.card--interactive { cursor: pointer; }
+.card--interactive:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--line-warm);
+  transform: translateY(-1px);
+}
+
+/* card--wide spans the full content column (no layout change, just intent) */
+.card--wide { width: 100%; }
+
+/* card--accent gets a 3px royal-blue stripe at the top edge */
+.card--accent::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--signal), var(--signal-hover));
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* Card stacking — successive cards in #pageContent already use the
+   container's gap, but inside risk panels they stack with margin */
+.card + .card { margin-top: var(--gutter); }
+#risk-loss > .card + .card { margin-top: var(--gutter); }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.7rem;
+  gap: var(--gutter-sm);
+}
+
+.card h2,
+.card h3 {
+  font-size: var(--fs-card-title);
+  color: var(--text);
+}
+
+.card > p {
+  font-size: var(--fs-card-body);
+  line-height: 1.55;
+  color: var(--text-2);
+  margin-bottom: 0.5rem;
+}
+.card > p:last-child { margin-bottom: 0; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. GRID HELPERS
+   ════════════════════════════════════════════════════════════════════════ */
+
+.grid {
+  display: grid;
+  gap: 0.9rem;
+}
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 720px) {
+  .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   7. FORM CONTROL BASE
+   ════════════════════════════════════════════════════════════════════════ */
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+input,
+select,
+textarea {
+  padding: 0.43rem 0.53rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-label);
+  font-family: inherit;
+  transition: border-color var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out),
+              background-color var(--t-fast) var(--ease-out);
+  width: 100%;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-mute);
+  opacity: 1;
+}
+
+input:hover:not([readonly]):not(:disabled),
+select:hover:not([disabled]),
+textarea:hover:not([readonly]):not(:disabled) {
+  border-color: var(--line-warm);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--signal);
+  box-shadow: var(--shadow-glow-signal);
+}
+
+input[readonly],
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: not-allowed;
+  border-color: var(--line-cool);
+}
+input[readonly] { cursor: default; }    /* readonly is not disabled */
+
+textarea { resize: vertical; min-height: 60px; }
+
+/* Tall textareas — used in Risk Overview (descOps, guideline conflicts)
+   and Underwriting Analysis (expLoss, acctStrengths, pricingRationale) */
+#descOps,
+#expLoss,
+#acctStrengths,
+#pricingRationale,
+#guidelineConflicts {
+  min-height: 100px;
+}
+
+/* Hide native number-input spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+/* Date inputs activated by flatpickr — visual cue the field is interactive */
+.flatpickr-input,
+input.limit-date,
+input.loss-date-picker,
+input.large-loss-date,
+input.date {
+  cursor: pointer;
+}
+
+/* Native select chevron — replace with custom (uses inline SVG, themable) */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a6a86' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 1.8rem;
+}
+
+/* Checkbox styling — accent color flips per theme */
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--signal);
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   8. BUTTON BASE
+   ════════════════════════════════════════════════════════════════════════ */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Primary action — amber CTA. Used for "Add Forms", "Add Limit", etc. */
+.btn-action,
+.add-limit-btn,
+.loss-controls button:not(.btn-secondary) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent-dim);
+  padding: 0.42rem 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--letter-tight);
+  transition: background-color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+.btn-action:hover,
+.add-limit-btn:hover,
+.loss-controls button:not(.btn-secondary):hover {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-glow-accent);
+}
+.btn-action:active,
+.add-limit-btn:active,
+.loss-controls button:not(.btn-secondary):active {
+  transform: translateY(1px);
+}
+
+/* Secondary action — quiet bg, used for "Reset", "Preview", "Add Large Loss" */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 0.42rem 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--letter-tight);
+  transition: background-color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out);
+}
+.btn-secondary:hover {
+  background: var(--surface-3);
+  border-color: var(--line-warm);
+}
+.btn-secondary:active {
+  transform: translateY(1px);
+}
+
+/* Inline edit button — used on cards with editable fields */
+button.edit {
+  background: var(--signal);
+  color: var(--text-on-signal);
+  border: 1px solid var(--signal);
+  padding: 0.37rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: var(--letter-tight);
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+button.edit:hover {
+  background: var(--signal-hover);
+}
+
+/* Icon button — used for theme toggle, dialog close, etc. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.btn-icon:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.btn-icon svg { width: 18px; height: 18px; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   9. CURRENCY INPUT WRAPPER
+   ════════════════════════════════════════════════════════════════════════
+   Used everywhere a dollar amount is entered. The wrapper renders a "$"
+   prefix that doesn't move when the input focuses or hovers.                */
+
+.currency-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.currency-wrap::before {
+  content: "$";
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  font-weight: 500;
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+.currency-wrap:focus-within::before {
+  color: var(--signal);
+}
+
+.currency-wrap input {
+  padding-left: 1.5rem !important;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   10. ANIMATION KEYFRAMES — all prefixed stm-* to avoid collisions
+   ════════════════════════════════════════════════════════════════════════ */
+
+@keyframes stm-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes stm-slide-down {
+  from { opacity: 0; transform: translateY(-8px); max-height: 0; }
+  to   { opacity: 1; transform: translateY(0); max-height: 999px; }
+}
+
+@keyframes stm-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes stm-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--stage-active-glow); }
+  50%      { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes stm-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes stm-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+
+@keyframes stm-modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes stm-overlay-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes stm-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes stm-glow-once {
+  0%   { box-shadow: 0 0 0 0 var(--signal-glow); }
+  60%  { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   11. UTILITY CLASSES
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Visually hidden but available to assistive tech */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skeleton loading state — shimmer effect for content not yet loaded */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: stm-shimmer 1.6s linear infinite;
+  border-radius: var(--radius-sm);
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Truncate with ellipsis — single line */
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status pill — paired with status-* modifier classes */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-pill::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.status-pill.status-submission { background: var(--status-submission-bg); color: var(--status-submission-ink); }
+.status-pill.status-cleared    { background: var(--status-cleared-bg);    color: var(--status-cleared-ink); }
+.status-pill.status-inquired   { background: var(--status-inquired-bg);   color: var(--status-inquired-ink); }
+.status-pill.status-quoted     { background: var(--status-quoted-bg);     color: var(--status-quoted-ink); }
+.status-pill.status-bound      { background: var(--status-bound-bg);      color: var(--status-bound-ink); }
+.status-pill.status-issued     { background: var(--status-issued-bg);     color: var(--status-issued-ink); }
+.status-pill.status-cancelled  { background: var(--status-cancelled-bg);  color: var(--status-cancelled-ink); }
+
+/* Spacing utilities — minimal set, prefer component-level spacing */
+.mt-0 { margin-top: 0 !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.gap-sm { gap: var(--gutter-sm) !important; }
+.gap-lg { gap: var(--gutter-lg) !important; }
+
+/* ============================================================================
+   topbar.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   The top chrome of the app. Three rows:
+     1. Topbar       — brand · nav · actions menu · save · theme toggle
+     2. Lifecycle    — Submission → Cleared → Inquired → Quoted → Bound → Issued
+     3. KPI strip    — Premium · Program Limit · Attachment · Target Date
+
+   The lifecycle strip lives INSIDE the topbar (so it inherits the gradient
+   background) but the KPI strip is a separate sibling element directly
+   beneath the topbar (so it can be either dark or light themed independently).
+
+   Sticky behavior: topbar is sticky-top with z-topbar. KPI strip is sticky-top
+   with offset = topbar-h, so both stay pinned during page scroll.
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. TOPBAR — outer container + gradient
+   ════════════════════════════════════════════════════════════════════════ */
+
+.topbar {
+  background:
+    linear-gradient(90deg, var(--signal) 0%, var(--signal-dim) 100%);
+  color: var(--text-on-signal);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  box-shadow: var(--shadow-topbar);
+  /* Subtle highlight along the top edge — feels like glass + crystal */
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* Inner row: horizontal flex of brand+nav (left) and actions (right) */
+.topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem var(--gutter);
+  min-height: var(--topbar-h);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--gutter);
+  min-width: 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. BRAND LOCKUP — Speed to Market AI logo + wordmark
+   ════════════════════════════════════════════════════════════════════════ */
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-decoration: none;
+  color: inherit;
+  font-family: var(--font-display);
+  flex-shrink: 0;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.brand:hover { opacity: 0.92; text-decoration: none; }
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--text-on-signal);
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+.brand-mark svg { width: 18px; height: 18px; }
+.brand:hover .brand-mark {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.brand-text {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: var(--letter-display);
+  color: var(--text-on-signal);
+  white-space: nowrap;
+}
+
+.brand-text em {
+  font-style: italic;
+  color: var(--accent);
+  font-weight: 500;
+  margin-left: 0.12em;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. MAIN NAV — primary tab system
+   ════════════════════════════════════════════════════════════════════════ */
+
+.main-nav ul {
+  display: flex;
+  gap: 1.4rem;
+  font-size: 0.92rem;
+}
+
+.main-nav li {
+  position: relative;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.74);
+  font-weight: 500;
+  padding: 0.35rem 0;
+  transition: color var(--t-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.main-nav li:hover { color: rgba(255, 255, 255, 0.95); }
+.main-nav li.active { color: var(--text-on-signal); }
+
+.main-nav li::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.4rem;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleX(0.5);
+  transform-origin: center;
+  transition: opacity var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out);
+}
+.main-nav li.active::after,
+.main-nav li:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+/* Focus state — keyboard navigation friendly */
+.main-nav li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. TOPBAR-RIGHT BUTTONS — theme toggle, actions, save
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Generic topbar pill button — used for Save and Actions */
+.topbar-right > button:not(.btn-icon),
+.action-dropdown > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.95rem;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--signal-dim);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: var(--letter-tight);
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+
+.topbar-right > button:not(.btn-icon):hover,
+.action-dropdown > button:hover {
+  background: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 14px -4px rgba(7, 22, 56, 0.30);
+}
+
+.topbar-right > button:not(.btn-icon):active,
+.action-dropdown > button:active {
+  transform: translateY(1px);
+}
+
+#actionsBtn svg {
+  width: 14px;
+  height: 14px;
+  stroke: var(--signal-dim);
+  transition: transform var(--t-base) var(--ease-out);
+}
+#actionsBtn.open svg { transform: rotate(180deg); }
+
+
+/* Theme toggle — minimal icon button on the topbar */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  color: rgba(255, 255, 255, 0.85);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text-on-signal);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.theme-toggle svg { width: 16px; height: 16px; }
+.theme-toggle .tt-sun  { display: none; }
+.theme-toggle .tt-moon { display: block; }
+:root[data-theme="dark"] .theme-toggle .tt-sun  { display: block; }
+:root[data-theme="dark"] .theme-toggle .tt-moon { display: none; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. ACTIONS DROPDOWN — quote/bind/issue/cancel menu
+   ════════════════════════════════════════════════════════════════════════ */
+
+.action-dropdown {
+  position: relative;
+}
+
+#actionsMenu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 220px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 0.4rem;
+  z-index: var(--z-dropdown);
+  max-height: 380px;
+  overflow-y: auto;
+  animation: stm-slide-down var(--t-base) var(--ease-out);
+}
+
+#actionsMenu.visible { display: block; }
+
+#actionsMenu li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text);
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+
+/* Tiny dot indicator before each action — color matches the resulting status */
+#actionsMenu li::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: transform var(--t-fast) var(--ease-out);
+}
+#actionsMenu li[data-status="Inquired"]::before  { background: var(--status-inquired-ink); }
+#actionsMenu li[data-status="Quoted"]::before    { background: var(--status-quoted-ink); }
+#actionsMenu li[data-status="Bound"]::before     { background: var(--status-bound-ink); }
+#actionsMenu li[data-status="Issued"]::before    { background: var(--status-issued-ink); }
+#actionsMenu li[data-status="Cancelled"]::before { background: var(--status-cancelled-ink); }
+
+#actionsMenu li:hover {
+  background: var(--signal-pale);
+  color: var(--text);
+}
+#actionsMenu li:hover::before {
+  transform: scale(1.3);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. LIFECYCLE PROGRESS STRIP — Submission → Cleared → ... → Issued
+   ════════════════════════════════════════════════════════════════════════
+   Lives inside the topbar, below the brand/nav row. Shows where the deal
+   is in its lifecycle. Wired to the actions menu via JS — when the user
+   clicks "Inquire" / "Quote" / "Bind" / "Issue", the strip advances.       */
+
+.lifecycle-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gutter);
+  padding: 0.5rem var(--gutter) 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0));
+}
+
+.lifecycle-stages {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+}
+
+.lifecycle-stage {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  position: relative;
+  transition: color var(--t-base) var(--ease-out);
+}
+
+/* The dot — wraps a visible inner element for state transitions */
+.lifecycle-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid var(--stage-pending-dot);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  transition: background-color var(--t-base) var(--ease-out),
+              border-color var(--t-base) var(--ease-out),
+              box-shadow var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out);
+}
+
+/* Checkmark inside dot for done stages */
+.lifecycle-dot::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background-color var(--t-base) var(--ease-out);
+}
+
+.lifecycle-label {
+  color: var(--stage-pending-text);
+  font-weight: 500;
+  white-space: nowrap;
+  font-size: 9.5px;
+  transition: color var(--t-base) var(--ease-out);
+}
+
+/* Done state: stage already passed */
+.lifecycle-stage.done .lifecycle-dot {
+  background: var(--stage-done-bg);
+  border-color: var(--stage-done-bg);
+}
+.lifecycle-stage.done .lifecycle-dot::after {
+  background: var(--stage-done-dot);
+}
+.lifecycle-stage.done .lifecycle-label {
+  color: var(--stage-done-text);
+}
+
+/* Active state: current stage. Pulses to draw the eye. */
+.lifecycle-stage.active .lifecycle-dot {
+  background: var(--stage-active-bg);
+  border-color: var(--stage-active-bg);
+  box-shadow: 0 0 0 5px var(--stage-active-glow);
+  transform: scale(1.1);
+  animation: stm-pulse 2.4s ease-in-out infinite;
+}
+.lifecycle-stage.active .lifecycle-dot::after {
+  background: var(--stage-active-dot);
+}
+.lifecycle-stage.active .lifecycle-label {
+  color: var(--stage-active-text);
+  font-weight: 700;
+}
+
+/* Connectors — thin lines between stages. They fill amber as stages complete. */
+.lifecycle-connector {
+  flex: 1;
+  height: 2px;
+  margin: 0 0.6rem;
+  background: var(--stage-line);
+  border-radius: 1px;
+  position: relative;
+  margin-top: -14px;     /* aligns with dots vertically */
+  overflow: hidden;
+  min-width: 16px;
+}
+
+.lifecycle-connector.done {
+  background: var(--stage-line-done);
+}
+
+/* Right-side meta: deal number + current status pill */
+.lifecycle-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.lifecycle-deal-num {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 500;
+}
+.lifecycle-deal-num strong {
+  color: var(--text-on-signal);
+  font-weight: 600;
+}
+
+/* The status pill in lifecycle context — tweaked for dark gradient bg */
+.lifecycle-meta .status-pill {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   7. KPI STRIP — premium / limit / attachment / target date
+   ════════════════════════════════════════════════════════════════════════
+   Sticky band immediately under the topbar. Reads from existing form fields
+   via the JS layer (session 9). When fields are empty, shows em-dash.       */
+
+.kpi-strip {
+  display: flex;
+  align-items: stretch;
+  background: var(--kpi-bg);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border-bottom: 1px solid var(--kpi-border);
+  position: sticky;
+  top: var(--topbar-h);   /* hangs directly under topbar */
+  z-index: var(--z-sticky);
+  min-height: var(--kpi-h);
+  padding: 0 var(--gutter);
+}
+
+.kpi-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  padding: 0.4rem 1rem;
+  min-width: 0;
+}
+
+.kpi-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-kpi-label);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--kpi-label);
+  font-weight: 500;
+  margin-bottom: 0.1rem;
+}
+
+.kpi-value {
+  font-family: var(--font-display);
+  font-size: var(--fs-kpi-value);
+  font-weight: 600;
+  color: var(--kpi-value);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Highlight the current "primary" metric — Premium gets the signal accent */
+.kpi-cell--emphasis .kpi-value {
+  color: var(--kpi-emphasis);
+}
+
+.kpi-divider {
+  width: 1px;
+  background: var(--kpi-divider);
+  align-self: stretch;
+  margin: 0.4rem 0;
+}
+
+/* Updated-pulse animation — fires briefly when a KPI changes value */
+.kpi-value.updated {
+  animation: stm-glow-once 1.4s ease-out;
+  border-radius: var(--radius-sm);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   8. RESPONSIVE OVERRIDES — narrow viewports
+   ════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 980px) {
+  .topbar-row {
+    flex-wrap: wrap;
+    padding: 0.55rem var(--gutter-sm);
+  }
+  .main-nav { width: 100%; order: 3; }
+  .main-nav ul {
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+    scrollbar-width: none;
+  }
+  .main-nav ul::-webkit-scrollbar { display: none; }
+
+  .lifecycle-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .lifecycle-meta { justify-content: space-between; }
+
+  .kpi-strip { overflow-x: auto; scrollbar-width: none; }
+  .kpi-strip::-webkit-scrollbar { display: none; }
+  .kpi-cell { min-width: 140px; }
+}
+
+@media (max-width: 600px) {
+  .brand-text { display: none; }   /* keep just the chevron mark */
+  .lifecycle-stages { overflow-x: auto; padding-bottom: 0.2rem; }
+  .lifecycle-stages::-webkit-scrollbar { display: none; }
+}
+
+/* ============================================================================
+   deal.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   The Deal Information page — the first thing the underwriter sees when
+   opening a submission. Three cards:
+     • Deal Details         — admission/dates/carrier/team/layer
+     • Insured Address      — mailing + controlling addresses with Edit
+     • Broker               — broker company + contact + region with Edit
+
+   This stylesheet refines the page beyond the foundation:
+     • Section dividers within Deal Details (dates / carrier / team blocks)
+     • Address rendering as label/value pairs (not inline "Label: value")
+     • Card-head with edit button gets a refined spacing pattern
+     • Empty placeholder state ("—") gets muted, never blank-looking
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. DEAL DETAILS — the big multi-row form card
+   ════════════════════════════════════════════════════════════════════════ */
+
+.deal-details {
+  padding: var(--gutter-lg) var(--gutter);
+}
+
+.deal-details > h2 {
+  font-size: var(--fs-h2);
+  letter-spacing: var(--letter-tight);
+  margin-bottom: 0.4rem;
+}
+
+/* Subtle eyebrow under the H2 — provides scannable section context */
+.deal-details > h2 + .deal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--gutter);
+  display: block;
+}
+
+/* Stack each grid row with a small section-divider label.
+   .form-section is the wrapper; .form-section-label is the eyebrow.        */
+.form-section {
+  padding-top: 1.1rem;
+  margin-top: 1.1rem;
+  border-top: 1px solid var(--line-cool);
+}
+.form-section:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.form-section-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+  margin-bottom: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Subtle dot before each section label — orientation aid */
+.form-section-label::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--signal);
+  flex-shrink: 0;
+}
+
+/* Within deal-details, ensure form labels stack tightly */
+.deal-details label {
+  gap: 0.25rem;
+}
+
+.deal-details label input,
+.deal-details label select {
+  margin-top: 2px;
+  padding: 0.48rem 0.58rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. CARD-HEAD WITH EDIT — for Insured Address + Broker cards
+   ════════════════════════════════════════════════════════════════════════ */
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gutter-sm);
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--line-cool);
+}
+
+.card-head h3 {
+  font-size: var(--fs-card-title);
+  letter-spacing: var(--letter-tight);
+  margin: 0;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. ADDRESS BLOCKS — Insured + Broker
+   ════════════════════════════════════════════════════════════════════════
+   Replace the inline "Mailing Address: <span>—</span>" pattern with a
+   stacked label-over-value layout. Reads as a proper data display, not
+   an inline form sentence.                                                  */
+
+.address-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gutter);
+}
+
+@media (max-width: 720px) {
+  .address-grid { grid-template-columns: 1fr; }
+}
+
+.address-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.address-block-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.address-block-value {
+  font-size: var(--fs-body);
+  color: var(--text);
+  line-height: 1.45;
+  /* Empty-state pseudo: when the span contains only "—", it gets muted.
+     The "data-empty" attribute is set by JS when the value is unset.       */
+}
+
+.address-block-value[data-empty="true"],
+.address-block-value:empty::before {
+  color: var(--text-mute);
+  font-style: italic;
+}
+.address-block-value:empty::before {
+  content: "Not set";
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. BROKER CARD — info-pair display
+   ════════════════════════════════════════════════════════════════════════ */
+
+.info-pairs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem var(--gutter);
+}
+
+@media (max-width: 720px) {
+  .info-pairs { grid-template-columns: 1fr; }
+}
+
+.info-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.info-pair-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.info-pair-value {
+  font-size: var(--fs-body);
+  color: var(--text);
+  line-height: 1.45;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.info-pair-value[data-empty="true"],
+.info-pair-value:empty::before {
+  color: var(--text-mute);
+  font-style: italic;
+}
+.info-pair-value:empty::before {
+  content: "Not set";
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. EMPTY-STATE TREATMENT — when a span shows "—" because no data
+   ════════════════════════════════════════════════════════════════════════
+   The original markup uses <span>—</span> as placeholder. We tone it down
+   visually so it doesn't compete with real values for attention.           */
+
+.address-block-value,
+.info-pair-value {
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. PAGE-LEVEL SPACING
+   ════════════════════════════════════════════════════════════════════════ */
+
+#page-deal > .card + .card {
+  margin-top: var(--gutter);
+}
+
+/* ============================================================================
+   risk.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   Risk & Coverage page. Six sub-panels:
+     • Risk Overview     — class code, exposure, ops description
+     • Loss History      — GL + Auto loss tables with large-loss callouts
+     • Limits & Premiums — handled separately in session 6 (limits.css)
+     • GL Exposure/Rater — placeholder (rater integration is its own session)
+     • AL Fleet/Rater    — placeholder
+
+   This file covers the first two panels in detail. The remaining four are
+   wrapped in placeholder cards with consistent empty-state treatment.
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. RISK OVERVIEW — class code lookup + exposure + operations narrative
+   ════════════════════════════════════════════════════════════════════════ */
+
+.risk-overview-details {
+  padding: var(--gutter-lg) var(--gutter);
+}
+
+.risk-overview-details > h2 {
+  margin-bottom: 0.4rem;
+}
+
+.risk-overview-details > h2 + .deal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--gutter);
+  display: block;
+}
+
+.risk-overview-details > * + * {
+  margin-top: var(--gutter);
+}
+
+/* Tighten label/input gap inside this card to match deal-details */
+.risk-overview-details label {
+  gap: 0.25rem;
+}
+
+/* Auto-filled fields (ISO Description, Hazard Grade, Dram Score) — visual
+   hint that they're computed from another field, not user-typed.           */
+.risk-overview-details input[readonly] {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-color: var(--line-cool);
+  font-style: italic;
+}
+.risk-overview-details input[readonly]:not(:placeholder-shown) {
+  font-style: normal;
+  color: var(--text);
+}
+
+/* Long-form textareas (descOps, guidelineConflicts) — already get min-height
+   from foundation. Add a subtle visual hint they're for narrative content. */
+.risk-overview-details textarea {
+  font-family: var(--font-body);
+  line-height: 1.55;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. LOSS HISTORY — GL + Auto tables
+   ════════════════════════════════════════════════════════════════════════ */
+
+#risk-loss > .card + .card {
+  margin-top: var(--gutter);
+}
+
+#risk-loss h2 {
+  font-size: var(--fs-h2);
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Subtle line-of-business badge next to the H2 (GL / Auto) — picks up
+   from the H2 text via a ::before; not strictly needed but adds polish. */
+
+/* No-losses checkbox row */
+.nolosses {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--fs-body);
+  margin: 0.4rem 0 var(--gutter-sm);
+  padding: 0.55rem 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-cool);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+.nolosses:hover {
+  background: var(--signal-pale);
+  border-color: var(--line-warm);
+}
+
+.nolosses input[type="checkbox"] {
+  margin: 0;
+}
+
+.nolosses span {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+/* When checked, the no-losses row gets emphasized */
+.nolosses:has(input:checked) {
+  background: var(--signal-pale);
+  border-color: var(--signal);
+}
+.nolosses:has(input:checked) span {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+/* Loss table — 7 column grid */
+.loss-header,
+.loss-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 1fr 1fr 1fr 0.9fr;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.loss-header {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.6rem;
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--kpi-h));
+  background: var(--surface);
+  z-index: 1;
+}
+
+.loss-row {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line-cool);
+  transition: background-color var(--t-fast) var(--ease-out);
+  border-radius: var(--radius-sm);
+}
+
+.loss-row:last-child {
+  border-bottom: none;
+}
+
+.loss-row:hover {
+  background: var(--signal-pale);
+}
+
+/* Loss-row inputs — tighter than default for table density */
+.loss-row input,
+.loss-row select {
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.policy-select {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Currency wrappers inside loss rows — tighter $ prefix */
+.loss-row .currency-wrap::before {
+  left: 0.55rem;
+  font-size: 0.74rem;
+}
+.loss-row .currency-wrap input {
+  padding-left: 1.4rem !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. LOSS TOTALS ROW — computed footer (additive feature, JS-driven)
+   ════════════════════════════════════════════════════════════════════════
+   New for v9. The risk.js module computes 5-year totals across the loss
+   rows and renders them as a footer-like row below the data. Designed to
+   be invisible if no totals have been computed yet.                         */
+
+.loss-totals {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 1fr 1fr 1fr 0.9fr;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  padding: 0.7rem 0.4rem;
+  margin-top: 0.4rem;
+  background: var(--signal-pale);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--signal-tint);
+  font-variant-numeric: tabular-nums;
+}
+
+.loss-totals .totals-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.loss-totals .totals-value {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.loss-totals .totals-empty {
+  color: var(--text-mute);
+  font-weight: 500;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. LARGE LOSSES — separate table for individual claim detail
+   ════════════════════════════════════════════════════════════════════════ */
+
+.large-loss-section-title {
+  font-size: var(--fs-h3);
+  color: var(--signal);
+  margin-top: 1.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line-cool);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.large-loss-section-title::before {
+  content: "";
+  width: 4px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.large-loss-header,
+.large-loss-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 1fr 2.5fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.large-loss-header {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin: 0.7rem 0 0.5rem;
+}
+
+.large-loss-row {
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line-cool);
+}
+
+.large-loss-row:last-child {
+  border-bottom: none;
+}
+
+.large-loss-row textarea {
+  min-height: 32px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.large-loss-row select,
+.large-loss-row input {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.32rem 0.45rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. LOSS CONTROLS — Add/Remove Year + Add/Remove Large Loss buttons
+   ════════════════════════════════════════════════════════════════════════ */
+
+.loss-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-cool);
+}
+
+.loss-controls button {
+  font-size: 0.8rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. RATER PANELS — placeholders for GL Exposure / AL Fleet / Internal
+   ════════════════════════════════════════════════════════════════════════
+   These four panels are currently scaffolds. Give them a polished empty
+   state that signals "this is intentional, not broken."                    */
+
+.rater-placeholder {
+  text-align: center;
+  padding: var(--gutter-lg) var(--gutter);
+}
+
+.rater-placeholder-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--gutter-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--signal-pale);
+  border: 1px solid var(--signal-tint);
+  border-radius: 50%;
+  color: var(--signal);
+}
+
+.rater-placeholder-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.rater-placeholder h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.4rem;
+}
+
+.rater-placeholder p {
+  color: var(--text-2);
+  max-width: 420px;
+  margin: 0 auto;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   7. RESPONSIVE — narrow viewports
+   ════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 720px) {
+  .loss-header,
+  .loss-row,
+  .loss-totals {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    font-size: 0.76rem;
+  }
+  .loss-header {
+    display: none;   /* labels collapse — use input placeholders */
+  }
+  .large-loss-header,
+  .large-loss-row {
+    grid-template-columns: 1fr;
+  }
+  .large-loss-header {
+    display: none;
+  }
+}
+
+/* ============================================================================
+   limits.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   The Limits & Premiums section — the densest, most interactive part of the
+   app. Coverage entries, expandable detail panels, "Our Layer" carrier-side
+   options panel, add-coverage dropdowns, template clones.
+
+   Renames vs original v2.19
+   -------------------------
+
+   Coordinated with limits.html (new markup) and limits.js (patched JS).
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. TOP ACTIONS BAR — Add Primary / Add Foreign / Add Excess buttons
+   ════════════════════════════════════════════════════════════════════════ */
+
+.top-actions-bar {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. ADD-COVERAGE DROPDOWNS
+   ════════════════════════════════════════════════════════════════════════ */
+
+.add-coverage-wrapper {
+  position: relative;
+}
+
+.add-limit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.coverage-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+  padding: 0.4rem;
+  z-index: var(--z-dropdown);
+  width: 280px;
+  max-height: 360px;
+  overflow-y: auto;
+  animation: stm-slide-down var(--t-base) var(--ease-out);
+}
+
+.coverage-dropdown.visible { display: block; }
+
+.coverage-dropdown li {
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+
+.coverage-dropdown li:hover {
+  background: var(--signal-pale);
+  color: var(--signal);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. LIMIT CATEGORIES — Lead / Primary / Foreign / Excess
+   ════════════════════════════════════════════════════════════════════════ */
+
+.limits-category {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line-cool);
+}
+
+.limits-category:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.limits-category h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--signal);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: var(--letter-tight);
+}
+
+/* Decorative pill before category headings */
+.limits-category h3::before {
+  content: "";
+  width: 4px;
+  height: 18px;
+  background: var(--signal);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. LIMIT ENTRIES — coverage rows that expand
+   ════════════════════════════════════════════════════════════════════════
+   Each .limit-entry is a card. Header shows the toggle + actions.
+   Click the checkbox or collapse arrow to reveal the detail panel.         */
+
+.limits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.limit-entry {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 0.9rem;
+  transition: border-color var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out),
+              background-color var(--t-fast) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.limit-entry:hover {
+  border-color: var(--line-warm);
+  box-shadow: var(--shadow-sm);
+}
+
+/* "Our Layer" entries get a gold left-edge stripe — instant visual signal
+   that this is the carrier's quoted layer (vs broker-given underlying).    */
+.limit-entry.our-layer-active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+}
+
+.limit-entry.our-layer-active {
+  background: linear-gradient(90deg, rgba(255, 209, 0, 0.04), transparent 30%);
+}
+
+.limit-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+}
+
+.limit-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-left: 0.7rem;
+}
+
+.limit-entry-actions svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out);
+}
+
+.limit-entry-actions svg:hover {
+  color: var(--signal);
+}
+
+.limit-entry-actions .delete-icon {
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+
+.limit-entry:hover .delete-icon {
+  opacity: 0.7;
+}
+
+.limit-entry-actions .delete-icon:hover {
+  color: var(--status-cancelled-ink);
+  opacity: 1;
+}
+
+.limit-entry-actions .collapse-arrow {
+  transition: transform var(--t-base) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+
+.limit-entry-actions .collapse-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+
+/* ────────────────────────────────────────────────────────────────────────
+   "Our Layer" checkbox — distinct visual treatment in the action area
+   ──────────────────────────────────────────────────────────────────────── */
+
+.limit-entry-actions .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+  cursor: pointer;
+}
+
+.limit-entry-actions .checkbox-label:hover {
+  background: var(--surface-3);
+  border-color: var(--line-warm);
+}
+
+/* Active "Our Layer" pill: amber background, dark text */
+.limit-entry-actions .checkbox-label:has(input[data-our-layer]:checked) {
+  background: var(--accent);
+  border-color: var(--accent-dim);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+
+.limit-entry-actions .checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. LIMIT-ENTRY MAIN CHECKBOX + LABEL
+   ════════════════════════════════════════════════════════════════════════ */
+
+.limit-entry-header > .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.limit-entry-header > .checkbox-label span {
+  flex-grow: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. LIMIT-DETAILS PANEL — the expanded form per coverage
+   ════════════════════════════════════════════════════════════════════════ */
+
+.limit-details-panel {
+  display: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line-cool);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-top: 0.7rem;
+}
+
+.limit-details-panel.visible {
+  display: block;
+  animation: stm-slide-down var(--t-base) var(--ease-out);
+}
+
+.limit-details-panel .grid + .grid {
+  margin-top: 0.9rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   ════════════════════════════════════════════════════════════════════════
+   Visible when the entry's "Our Layer" checkbox is on. Holds commission,
+   adj/flat, TRIA, min-earned-premium fields. Amber-tinted background to
+   reinforce the gold-edge "this is our layer" identity.                    */
+
+.layer-options-panel {
+  display: none;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--accent-dim);
+  position: relative;
+}
+
+.layer-options-panel.visible {
+  display: flex;
+  animation: stm-slide-down var(--t-base) var(--ease-out);
+}
+
+/* Eyebrow indicating these are carrier-controlled fields */
+.layer-options-panel::before {
+  content: "Our Carrier Options";
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--accent-deep);
+  font-weight: 700;
+  margin-bottom: -0.3rem;
+}
+
+/* Inputs inside the layer options panel get a subtle amber-tinted focus */
+.layer-options-panel input:focus,
+.layer-options-panel select:focus {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px rgba(255, 209, 0, 0.20);
+}
+
+/* Min Earned Premium computed value — special readonly treatment */
+.layer-mep-premium[readonly] {
+  background: rgba(255, 209, 0, 0.08);
+  border-color: var(--accent-dim);
+  color: var(--text);
+  font-weight: 600;
+  font-style: normal;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   8. RESPONSIVE
+   ════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 720px) {
+  .top-actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .add-limit-btn { justify-content: center; }
+  .coverage-dropdown { width: 100%; }
+
+  .limit-entry-header {
+    flex-wrap: wrap;
+  }
+  .limit-entry-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-left: 0;
+    padding-top: 0.4rem;
+  }
+}
+
+/* ============================================================================
+   forms.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   Three pages share this stylesheet:
+     • Forms & Endorsements    — schedules of policy forms + endorsements
+     • Subjectivities & Conds  — checklist of binding conditions
+     • Underwriting Analysis   — narrative textareas (exposure, strengths,
+                                 pricing rationale)
+     • History                 — chronological event log (empty in v9 base)
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. FORMS & ENDORSEMENTS — schedule list
+   ════════════════════════════════════════════════════════════════════════ */
+
+.forms-main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gutter-sm);
+  margin-bottom: 1rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--line-cool);
+}
+
+.forms-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Container — ALWAYS visible (the original had display: none / .active) */
+.forms-container {
+  display: block;
+}
+
+.forms-header {
+  display: grid;
+  grid-template-columns: 36px 1.4fr 2.6fr 110px;
+  gap: 1rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 600;
+  align-items: center;
+}
+
+.forms-header .checkbox-label {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.forms-header span:last-child {
+  text-align: center;
+}
+
+.form-category-header {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--signal);
+  background: var(--signal-pale);
+  padding: 0.55rem 0.9rem;
+  margin: 1rem 0 0.5rem;
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--signal);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-category-header::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  flex-shrink: 0;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 36px 1.4fr 2.6fr 110px;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+
+.form-row:hover {
+  background: var(--signal-pale);
+}
+
+.form-row + .form-row {
+  border-top: 1px solid var(--line-cool);
+}
+
+.form-row .checkbox-label {
+  justify-content: center;
+}
+
+/* Form number column — mono for that "form number" feel */
+.form-row > span:nth-child(2) {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-2);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.form-row > span:nth-child(3) {
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.form-actions-icons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.form-actions-icons svg {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  color: var(--text-3);
+  transition: color var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out);
+}
+
+.form-actions-icons svg:hover {
+  color: var(--signal);
+  transform: scale(1.1);
+}
+
+.form-actions-icons .form-action-delete:hover {
+  color: var(--status-cancelled-ink);
+}
+
+/* Empty state — when no Layer Type is set or no forms loaded */
+.forms-empty {
+  text-align: center;
+  padding: var(--gutter-lg) var(--gutter);
+  color: var(--text-3);
+  font-size: var(--fs-body);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-warm);
+  border-radius: var(--radius-md);
+  margin-top: var(--gutter-sm);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. SUBJECTIVITIES & CONDITIONS
+   ════════════════════════════════════════════════════════════════════════ */
+
+.subjectivities-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5rem;
+}
+
+.subjectivity-entry {
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+
+.subjectivity-entry + .subjectivity-entry {
+  border-top: 1px solid var(--line-cool);
+}
+
+.subjectivity-entry:hover {
+  background: var(--signal-pale);
+}
+
+.subjectivity-entry .checkbox-label {
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text);
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.subjectivity-entry .checkbox-label input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+/* Checked state — subtle signal-blue tint */
+.subjectivity-entry:has(input:checked) {
+  background: var(--signal-pale);
+  border-left: 3px solid var(--signal);
+  padding-left: calc(0.9rem - 3px);
+}
+
+.subjectivity-entry:has(input:checked) .checkbox-label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* "Other" subjectivity — has expanding panel */
+.other-subjectivity {
+  border-top: 1px solid var(--line) !important;
+  margin-top: 0.5rem;
+  padding-top: 0.9rem !important;
+}
+
+.other-details-panel {
+  display: none;
+  margin-top: 0.7rem;
+  padding-left: 2.2rem;
+}
+
+.other-details-panel.visible {
+  display: block;
+  animation: stm-slide-down var(--t-base) var(--ease-out);
+}
+
+.other-input-group {
+  margin-bottom: 0.7rem;
+}
+
+.other-details-panel textarea {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 0.5rem;
+  min-height: 50px;
+}
+
+.add-other-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. UNDERWRITING ANALYSIS — narrative textareas
+   ════════════════════════════════════════════════════════════════════════ */
+
+.underwriting-panel section.card {
+  padding: var(--gutter);
+}
+
+.underwriting-panel h2 {
+  margin-bottom: 0.4rem;
+}
+
+.underwriting-panel h2 + .deal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--gutter);
+  display: block;
+}
+
+.underwriting-panel label {
+  margin-top: 1.1rem;
+}
+
+.underwriting-panel label:first-of-type {
+  margin-top: 0;
+}
+
+/* Hint text under each narrative field — guides what to include */
+.uw-hint {
+  font-size: 0.76rem;
+  color: var(--text-3);
+  margin-top: 0.3rem;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. HISTORY — event log (placeholder for now)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.history-empty {
+  text-align: center;
+  padding: var(--gutter-lg) var(--gutter);
+}
+
+.history-empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--gutter-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--signal-pale);
+  border: 1px solid var(--signal-tint);
+  border-radius: 50%;
+  color: var(--signal);
+}
+
+.history-empty-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.history-empty h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.4rem;
+}
+
+.history-empty p {
+  color: var(--text-2);
+  max-width: 460px;
+  margin: 0 auto;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+/* Future-state: timeline-style history rows. Designed now so when wired,
+   the visual treatment is ready. */
+
+.history-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+}
+
+.history-timeline::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--line-warm);
+}
+
+.history-event {
+  display: grid;
+  grid-template-columns: 24px 110px 1fr;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  align-items: start;
+  position: relative;
+}
+
+.history-event::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--signal);
+  margin-top: 4px;
+  margin-left: 6px;
+  z-index: 1;
+}
+
+.history-event-time {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.history-event-body {
+  font-size: var(--fs-body);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.history-event-body strong {
+  font-weight: 600;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. RESPONSIVE
+   ════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 720px) {
+  .forms-header {
+    display: none;
+  }
+  .form-row {
+    grid-template-columns: 32px 1fr;
+    gap: 0.5rem;
+  }
+  .form-row > span:nth-child(3),
+  .form-row .form-actions-icons {
+    grid-column: 2;
+  }
+  .history-event {
+    grid-template-columns: 24px 1fr;
+  }
+  .history-event-time {
+    grid-column: 2;
+    font-size: 0.7rem;
+  }
+}
+
+/* ============================================================================
+   sidebar.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   The deal-summary sidebar in the right column. Glass-effect card with
+   status-driven stat blocks, sticky-positioned beneath the topbar+KPI
+   strip combo. Replaces the basic <p>Deal #: span</p> markup of v2.19.
+
+   Layout note: the .sidebar element gets sticky positioning from
+   foundation.css (grid-area: summary, position: sticky, top: ...).
+   This file styles its INTERNAL structure.
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. SIDEBAR CONTAINER — overrides for the .sidebar element
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sidebar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0;
+  overflow: hidden;
+  /* Glass treatment when the surface is set to glass-tinted in tokens */
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. SIDEBAR HEADER — gradient strip with deal number
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sidebar-header {
+  background: linear-gradient(135deg, var(--signal) 0%, var(--signal-hover) 100%);
+  color: var(--text-on-signal);
+  padding: 1rem 1.1rem 0.9rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle decorative chevron pattern in the corner */
+.sidebar-header::after {
+  content: "";
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 80px;
+  height: 80px;
+  background: radial-gradient(circle, rgba(255, 209, 0, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.sidebar-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  margin-bottom: 0.3rem;
+  display: block;
+}
+
+.sidebar-deal-num {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: var(--letter-display);
+  color: var(--text-on-signal);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-deal-num small {
+  font-size: 0.7em;
+  opacity: 0.6;
+  font-weight: 500;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. SIDEBAR BODY — stat blocks
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sidebar-body {
+  padding: 1rem 1.1rem;
+}
+
+.sidebar-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line-cool);
+}
+
+.sidebar-stat:last-child {
+  border-bottom: none;
+}
+
+.sidebar-stat-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.sidebar-stat-value {
+  font-size: 0.92rem;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-stat-value:empty::before,
+.sidebar-stat-value[data-empty="true"] {
+  content: "—";
+  color: var(--text-mute);
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* Status row gets the pill treatment */
+.sidebar-stat--status .sidebar-stat-value {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+}
+
+/* Premium row gets emphasis with signal color */
+.sidebar-stat--premium .sidebar-stat-value {
+  color: var(--signal);
+  font-size: 1.05rem;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. SIDEBAR FOOTER — quick actions
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sidebar-footer {
+  padding: 0.7rem 1.1rem 1rem;
+  border-top: 1px solid var(--line-cool);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-footer .btn-secondary {
+  width: 100%;
+  justify-content: center;
+  font-size: 0.78rem;
+}
+
+/* ============================================================================
+   chrome.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   App-shell concerns that don't belong to a single page:
+     1. Dialogs — Insured Address dialog, Broker dialog, generic modal base
+     2. Flatpickr — date picker theme override
+     3. Accessibility — skip link, screen-reader-only, print, keyboard
+     4. Reduced-motion + dark-mode polish
+
+   This file ships AFTER the page-specific stylesheets so its dialog
+   overrides win the cascade.
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. DIALOG BASE — both Insured Address + Broker dialogs share this
+   ════════════════════════════════════════════════════════════════════════ */
+
+dialog.app-dialog,
+dialog#insuredDialog,
+dialog#brokerDialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  box-shadow: var(--shadow-xl);
+  background: var(--surface);
+  color: var(--text);
+  width: min(560px, 92vw);
+  max-height: 92vh;
+  overflow: hidden;
+  animation: stm-modal-in var(--t-base) var(--ease-out);
+}
+
+dialog.app-dialog::backdrop,
+dialog#insuredDialog::backdrop,
+dialog#brokerDialog::backdrop {
+  background: rgba(11, 29, 58, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: stm-overlay-fade var(--t-base) var(--ease-out);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.dialog-head h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: var(--letter-tight);
+  margin: 0;
+}
+
+.dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.dialog-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.dialog-close svg { width: 16px; height: 16px; }
+
+.dialog-body {
+  padding: 1.1rem 1.2rem;
+  max-height: calc(92vh - 130px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.dialog-body label {
+  font-size: var(--fs-label);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.dialog-body .grid {
+  gap: 0.8rem;
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.2rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+/* "Same as Mailing" inline checkbox row */
+.same-as-mailing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--signal-pale);
+  border: 1px solid var(--signal-tint);
+  border-radius: var(--radius-md);
+  font-size: 0.84rem;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  color: var(--signal);
+}
+.same-as-mailing input { accent-color: var(--signal); }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. FLATPICKR THEME OVERRIDE
+   ════════════════════════════════════════════════════════════════════════
+   Targets the .flatpickr-* classes injected by flatpickr.min.js. Restyles
+   the picker to match the app — royal-blue selected, amber today, Inter
+   typeface, rounded corners, theme-aware light/dark.                       */
+
+.flatpickr-calendar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 8px;
+  font-family: var(--font-body);
+  color: var(--text);
+}
+
+.flatpickr-calendar.arrowTop::before,
+.flatpickr-calendar.arrowTop::after {
+  border-bottom-color: var(--line) !important;
+}
+
+.flatpickr-months {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line-cool);
+  margin-bottom: 6px;
+}
+
+.flatpickr-month {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.flatpickr-current-month {
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.flatpickr-prev-month,
+.flatpickr-next-month {
+  color: var(--text-2);
+  fill: var(--text-2);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.flatpickr-prev-month:hover,
+.flatpickr-next-month:hover {
+  background: var(--surface-2);
+  color: var(--signal);
+  fill: var(--signal);
+}
+
+.flatpickr-weekday {
+  color: var(--text-3);
+  font-weight: 600;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.flatpickr-day {
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+
+.flatpickr-day:hover {
+  background: var(--signal-pale);
+  border-color: var(--signal-tint);
+  color: var(--signal);
+}
+
+.flatpickr-day.today {
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 700;
+  background: rgba(255, 209, 0, 0.12);
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover {
+  background: var(--signal);
+  color: var(--text-on-signal);
+  border-color: var(--signal);
+  font-weight: 600;
+}
+
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+  color: var(--text-mute);
+  background: transparent;
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+.flatpickr-day.prevMonthDay,
+.flatpickr-day.nextMonthDay {
+  color: var(--text-mute);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. ACCESSIBILITY UTILITIES
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Skip link — appears on focus, lets keyboard users skip to main content */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: 0.55rem 0.95rem;
+  background: var(--signal);
+  color: var(--text-on-signal);
+  font-weight: 600;
+  border-radius: 0 0 var(--radius-md) 0;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 0;
+  top: 0;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Visually-hidden but available to assistive tech (already in foundation
+   as .sr-only — re-affirmed here with !important to win cascade)          */
+.sr-only-focusable:not(:focus):not(:active) {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Hover state should only apply on devices with a real hover capability —
+   prevents touch devices from showing sticky :hover after a tap.          */
+@media (hover: none) {
+  .card--interactive:hover { transform: none; }
+  .limit-entry:hover { box-shadow: none; }
+  .form-row:hover { background: var(--surface-2); }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. REDUCED-MOTION OVERRIDE — collapse all animations
+   ════════════════════════════════════════════════════════════════════════
+   Tokens already collapse durations to 0ms. Here we additionally stop
+   continuous animations (lifecycle pulse, shimmer) for users who request
+   reduced motion.                                                          */
+
+@media (prefers-reduced-motion: reduce) {
+  .lifecycle-stage.active .lifecycle-dot {
+    animation: none;
+    /* swap pulse for static glow ring */
+    box-shadow: 0 0 0 5px var(--stage-active-glow);
+  }
+  .skeleton {
+    animation: none;
+    background: var(--surface-2);
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. PRINT STYLES — when the underwriter prints the deal sheet
+   ════════════════════════════════════════════════════════════════════════ */
+
+@media print {
+  .topbar,
+  .kpi-strip,
+  .sidebar,
+  .subnav,
+  .top-actions-bar,
+  .loss-controls,
+  .forms-actions,
+  #actionsBtn,
+  #saveBtn,
+  .theme-toggle,
+  .delete-icon,
+  .collapse-arrow,
+  .dialog-close,
+  .dialog-foot {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+    font-size: 11pt;
+  }
+
+  .container {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+
+  #pageContent {
+    gap: 1rem;
+  }
+
+  .card {
+    border: 1px solid #999;
+    box-shadow: none;
+    page-break-inside: avoid;
+    margin-bottom: 0.5rem;
+  }
+
+  .page-section,
+  .risk-panel,
+  .form-panel,
+  .underwriting-panel {
+    display: block !important;
+  }
+
+  /* Expand all collapsed details for print */
+  .limit-details-panel,
+  .layer-options-panel,
+  .other-details-panel {
+    display: block !important;
+  }
+
+  a { color: black; text-decoration: underline; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. THEME-TRANSITION GUARD
+   ════════════════════════════════════════════════════════════════════════
+   When toggling between light and dark, every element's color/bg
+   transition fires at once. That looks bad. Disable transitions briefly
+   while the flip happens (added/removed by topbar.js applyTheme).         */
+
+.no-transitions,
+.no-transitions *,
+.no-transitions *::before,
+.no-transitions *::after {
+  transition: none !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   7. ENHANCED FOCUS-VISIBLE — appears clearly on every interactive
+   ════════════════════════════════════════════════════════════════════════ */
+
+button:focus-visible,
+.checkbox-label:focus-within,
+.limit-entry-actions svg:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* Topbar button focus is amber (against dark gradient bg) */
+.topbar button:focus-visible,
+.main-nav li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================================
+   polish.css · Speed to Market AI · RQBI Platform
+   ============================================================================
+   Final polish details — micro-interactions and feedback states that make
+   the app feel alive instead of just rendered:
+
+     1. Toast notification system     — bottom-right toast stack
+     2. Save button states            — saving spinner → saved checkmark
+     3. Card "just updated" pulse     — feedback after dialog save
+     4. Gold edge stripe animation    — slide-in on our-layer activate
+     5. Limits summary footer         — total premium / limit / our-layer count
+
+   Loaded LAST so its rules win the cascade where needed.
+   ============================================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. TOAST NOTIFICATIONS
+   ════════════════════════════════════════════════════════════════════════
+   Stacked at bottom-right. Auto-dismiss after a delay (handled in app.js).
+   Slide in from the right; fade+slide out on dismissal.                   */
+
+.toast-stack {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.2rem;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.55rem;
+  pointer-events: none;
+  max-width: calc(100vw - 2.4rem);
+}
+
+.toast {
+  pointer-events: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-width: 240px;
+  max-width: 380px;
+  animation: stm-toast-in var(--t-base) var(--ease-out);
+}
+
+.toast.toast-leaving {
+  animation: stm-toast-out 220ms var(--ease-in) forwards;
+}
+
+@keyframes stm-toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(20px); }
+}
+
+.toast-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast-body {
+  flex: 1;
+  line-height: 1.35;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.toast-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.toast-close svg { width: 14px; height: 14px; }
+
+/* Toast variants */
+.toast.toast-success {
+  border-left-color: var(--status-bound-ink);
+}
+.toast.toast-success .toast-icon { color: var(--status-bound-ink); }
+
+.toast.toast-error {
+  border-left-color: var(--status-cancelled-ink);
+}
+.toast.toast-error .toast-icon { color: var(--status-cancelled-ink); }
+
+.toast.toast-info {
+  border-left-color: var(--signal);
+}
+.toast.toast-info .toast-icon { color: var(--signal); }
+
+.toast.toast-warning {
+  border-left-color: var(--accent-deep);
+}
+.toast.toast-warning .toast-icon { color: var(--accent-deep); }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. SAVE BUTTON STATES
+   ════════════════════════════════════════════════════════════════════════
+   The Save button cycles: idle → saving → saved → idle. The transitions
+   give the user visible feedback that the click was received and the save
+   completed successfully.                                                  */
+
+#saveBtn {
+  position: relative;
+  min-width: 80px;
+  justify-content: center;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              min-width var(--t-base) var(--ease-out);
+}
+
+#saveBtn .save-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#saveBtn .save-spinner,
+#saveBtn .save-check {
+  display: none;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+#saveBtn .save-spinner {
+  animation: stm-spin 800ms linear infinite;
+}
+
+/* Saving state */
+#saveBtn[data-state="saving"] {
+  pointer-events: none;
+  opacity: 0.85;
+}
+#saveBtn[data-state="saving"] .save-label-text { opacity: 0.6; }
+#saveBtn[data-state="saving"] .save-spinner { display: inline-flex; }
+
+/* Saved state */
+#saveBtn[data-state="saved"] {
+  background: var(--status-bound-ink);
+  color: white;
+  border-color: var(--status-bound-ink);
+}
+#saveBtn[data-state="saved"] .save-check { display: inline-flex; color: white; }
+#saveBtn[data-state="saved"] .save-label-text::after { content: 'd'; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. CARD "JUST UPDATED" PULSE
+   ════════════════════════════════════════════════════════════════════════
+   When a dialog saves and updates a card's contents, the card briefly
+   pulses with a signal-blue ring. Tells the user "this just changed."     */
+
+.card.card--just-updated {
+  animation: stm-just-updated 1.6s var(--ease-out);
+}
+
+@keyframes stm-just-updated {
+  0%   { box-shadow: 0 0 0 0 var(--signal-glow), var(--shadow); }
+  20%  { box-shadow: 0 0 0 6px var(--signal-glow), var(--shadow); }
+  100% { box-shadow: 0 0 0 0 transparent, var(--shadow); }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. GOLD EDGE STRIPE — slide-in on our-layer-active
+   ════════════════════════════════════════════════════════════════════════
+   When a user checks "Our Layer" on a limit entry, the gold stripe should
+   slide in from the top rather than appear instantly. Uses a clip-path
+   animation on the ::before pseudo-element.                               */
+
+.limit-entry::before {
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--t-slow) var(--ease-out);
+}
+
+.limit-entry.our-layer-active::before {
+  transform: scaleY(1);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. LIMITS SUMMARY FOOTER — total premium / limit / our-layer count
+   ════════════════════════════════════════════════════════════════════════
+   Optional read-only footer beneath the Limits section. Shows aggregate
+   numbers across every limit entry. Pure additive feature.                */
+
+.limits-summary-footer {
+  margin-top: 1.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gutter);
+}
+
+.limits-summary-footer .summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-cool);
+  border-radius: var(--radius-md);
+}
+
+.limits-summary-footer .summary-cell--our {
+  background: linear-gradient(135deg, rgba(255, 209, 0, 0.08), rgba(255, 209, 0, 0.02));
+  border-color: var(--accent-dim);
+}
+
+.limits-summary-footer .summary-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-eyebrow);
+  letter-spacing: var(--letter-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.limits-summary-footer .summary-value {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.limits-summary-footer .summary-cell--our .summary-value {
+  color: var(--accent-deep);
+}
+
+@media (max-width: 720px) {
+  .limits-summary-footer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. KPI EMPHASIS WHEN OUR-LAYER ACTIVE
+   ════════════════════════════════════════════════════════════════════════
+   When at least one layer is marked "Our Layer" with non-zero premium,
+   the Premium KPI cell gets a subtle amber accent — visual signal that
+   the number reflects the carrier's actual quoted premium.                */
+
+.kpi-strip[data-our-layer-active="true"] .kpi-cell--emphasis::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: var(--gutter);
+  right: var(--gutter);
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-deep));
+  border-radius: 1px;
+  animation: stm-fade-in var(--t-base) var(--ease-out);
+}
+
+.kpi-strip[data-our-layer-active="true"] .kpi-cell--emphasis {
+  position: relative;
+}
+
