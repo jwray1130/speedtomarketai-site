@@ -1615,7 +1615,11 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
+  highConfidenceThreshold: 0.80,  // ≥ this → auto-proceed; below → review gate.
+                                  // Per UW request 2026-05-11: anything ≥80% should
+                                  // auto-route. Structural flags (combined_no_section_hint,
+                                  // missing_tag, etc.) remain as advisory annotations
+                                  // on needsReviewReasons but do NOT gate review.
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -3780,6 +3784,12 @@ async function classifyFile(file) {
         if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
         if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
+        // Confidence-only gate (per UW request 2026-05-11): only low_primary_conf
+        // blocks auto-routing. Other flags remain in needsReviewReasons as
+        // diagnostic annotations the admin/UW can inspect, but they don't
+        // stop a high-confidence doc from flowing through the pipeline.
+        const blocksRouting = needsReviewFlags.includes('low_primary_conf');
+
         return {
           type: final.primaryType,
           confidence: final.primaryConfidence,
@@ -3790,7 +3800,7 @@ async function classifyFile(file) {
           classifications: final.classifications,
           isCombined: final.isCombined,
           signatures: final.signatures,
-          needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
+          needsReview: final.suppressTag ? false : blocksRouting,
           needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,
           suppressTag: !!final.suppressTag,
           _source: 'deterministic',
@@ -3944,6 +3954,14 @@ async function classifyFile(file) {
   if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
   if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
+  // Confidence-only gate (per UW request 2026-05-11): only low_primary_conf
+  // or an explicit classifier_flag from the model itself blocks auto-routing.
+  // Structural flags (combined_no_section_hint, missing_tag, low_section_conf,
+  // low_subtype_conf) remain as advisory annotations on needsReviewReasons —
+  // surfaced for the admin/UW to inspect but they don't stop the pipeline.
+  const blocksRouting = needsReviewFlags.includes('low_primary_conf')
+                     || needsReviewFlags.includes('classifier_flag');
+
   // Return the FULL classification record — caller decides how to use it
   return {
     type: final.primaryType,                      // backward-compat
@@ -3955,7 +3973,7 @@ async function classifyFile(file) {
     classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
     isCombined: final.isCombined,
     signatures: final.signatures,
-    needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
+    needsReview: final.suppressTag ? false : blocksRouting,
     needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,         // v8.6.2: why review was flagged
     suppressTag: !!final.suppressTag,
   };
