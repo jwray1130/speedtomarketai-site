@@ -4593,10 +4593,24 @@ window.initDocumentsView = function() {
   // was being triggered by queue row clicks/deletes.
   // ══════════════════════════════════════════════════════════════════
   let _enrichmentInFlight = null;
+  // v8.6.35 (per GPT external review): pending-enrichment queue.
+  // When the user enters Deal B while Deal A is still enriching, the
+  // old code silently returned and Deal B's thumbnails never started.
+  // We now stash the latest requested submissionId and re-trigger
+  // enrichment for it once the in-flight run finishes.
+  // Stores only the LATEST requested deal — if the user bounces A→B→C
+  // we only need to enrich C when A finishes (B was superseded).
+  let _pendingEnrichmentSubmissionId = null;
 
   function scheduleLazyEnrichment(submissionId) {
     if (_enrichmentInFlight) {
-      dlog('[docs] thumbnail enrichment skipped — already running');
+      // v8.6.35: record the latest requested deal instead of dropping it.
+      // The .finally() block at the bottom of this function will pick it up.
+      _pendingEnrichmentSubmissionId = submissionId || null;
+      dlog('[docs] thumbnail enrichment queued — already running', {
+        runningFor: 'previous',
+        pending: _pendingEnrichmentSubmissionId,
+      });
       return;
     }
     if (typeof window.sbFetchDocumentPageThumbnail !== 'function' &&
@@ -4641,12 +4655,16 @@ window.initDocumentsView = function() {
         submissionId: submissionId || 'all',
       });
 
-      const MAX_TO_FETCH = 60;
+      // v8.6.34: cap removed. Previously MAX_TO_FETCH=60 silently dropped
+      // thumbs for deals with >60 docs. With per-batch render + 75ms delay
+      // between batches the user sees thumbs stream in progressively and
+      // the network load stays modest. Keep BATCH_SIZE small (20) so each
+      // round-trip is small and Postgres TOAST reads stay cheap.
       const BATCH_SIZE = 20;
       const DELAY_MS = 75;
       let enriched = 0;
       let failed = 0;
-      const limited = candidates.slice(0, MAX_TO_FETCH);
+      const limited = candidates;  // no cap
 
       if (typeof window.sbFetchDocumentPageThumbnails === 'function') {
         for (let i = 0; i < limited.length; i += BATCH_SIZE) {
@@ -4655,13 +4673,29 @@ window.initDocumentsView = function() {
           try {
             const rows = await window.sbFetchDocumentPageThumbnails(ids);
             const byId = new Map((rows || []).map(r => [String(r.id), r]));
+            let batchEnriched = 0;
             for (const d of chunk) {
               const doc = state.docs.find(x => x.id === d.id);
               const row = byId.get(String(d.id));
               if (doc && row && row.thumbnail_data_url && !doc.thumbnailData) {
                 doc.thumbnailData = row.thumbnail_data_url;
                 enriched++;
+                batchEnriched++;
               }
+            }
+            // v8.6.34: render after each batch so thumbs appear progressively
+            // instead of waiting until every doc in the deal is loaded.
+            // v8.6.35 (per GPT external review): stale-run guard. Only
+            // re-render if the user is still on the deal we're enriching.
+            // If they jumped to another deal mid-batch, the thumbs are still
+            // attached to in-memory docs for next time, but we skip the
+            // visible re-render to avoid flicker on the deal they're now in.
+            const stillSameSubmission =
+              !submissionId ||
+              state.activeSubmissionId === submissionId ||
+              state.submissionFilter === submissionId;
+            if (batchEnriched && stillSameSubmission && typeof renderDocsList === 'function') {
+              try { renderDocsList(); } catch(e) {}
             }
           } catch (err) {
             failed += chunk.length;
@@ -4671,6 +4705,7 @@ window.initDocumentsView = function() {
         }
       } else {
         // Compatibility fallback for older supabase-data.js builds.
+        let sinceLastRender = 0;
         for (const d of limited) {
           const doc = state.docs.find(x => x.id === d.id);
           if (!doc || doc.thumbnailData) continue;
@@ -4679,6 +4714,17 @@ window.initDocumentsView = function() {
             if (row && row.thumbnail_data_url && !doc.thumbnailData) {
               doc.thumbnailData = row.thumbnail_data_url;
               enriched++;
+              sinceLastRender++;
+              // v8.6.34: per-batch render in the fallback path too
+              // v8.6.35: stale-run guard applies here too.
+              const stillSameSubmission =
+                !submissionId ||
+                state.activeSubmissionId === submissionId ||
+                state.submissionFilter === submissionId;
+              if (sinceLastRender >= BATCH_SIZE && stillSameSubmission && typeof renderDocsList === 'function') {
+                try { renderDocsList(); } catch(e) {}
+                sinceLastRender = 0;
+              }
             }
           } catch (err) {
             failed++;
@@ -4692,17 +4738,35 @@ window.initDocumentsView = function() {
         enriched,
         failed,
         candidateCount: candidates.length,
-        cappedAt: MAX_TO_FETCH,
         batchSize: typeof window.sbFetchDocumentPageThumbnails === 'function' ? BATCH_SIZE : 1,
       });
 
-      if (enriched && typeof renderDocsList === 'function') {
+      // v8.6.35: final render also guarded by stale-run check.
+      // Thumbs remain in memory for next time; we just skip the visible
+      // refresh if the user has moved to a different deal.
+      const stillSameSubmissionFinal =
+        !submissionId ||
+        state.activeSubmissionId === submissionId ||
+        state.submissionFilter === submissionId;
+      if (enriched && stillSameSubmissionFinal && typeof renderDocsList === 'function') {
         try { renderDocsList(); } catch(e) {}
       }
     })().catch(err => {
       console.warn('[docs] thumbnail enrichment error:', err);
     }).finally(() => {
       _enrichmentInFlight = null;
+      // v8.6.35: if the user entered another deal while we were running,
+      // pick that one up now. We only stash the LATEST (rapid bounces
+      // A→B→C collapse to just C — B was superseded by C).
+      if (_pendingEnrichmentSubmissionId !== null) {
+        const nextId = _pendingEnrichmentSubmissionId;
+        _pendingEnrichmentSubmissionId = null;
+        dlog('[docs] thumbnail enrichment chaining to queued deal', { nextId });
+        // Defer one tick so any in-progress render finishes first.
+        setTimeout(() => {
+          try { scheduleLazyEnrichment(nextId); } catch (e) {}
+        }, 0);
+      }
     });
   }
 
@@ -4764,6 +4828,17 @@ window.initDocumentsView = function() {
     //
     // Guarded against concurrent fetches by hydrateFromCloud's internal
     // _hydrateInFlight check. Safe to call even mid-hydrate.
+    //
+    // v8.6.34: ALSO trigger thumbnail enrichment unconditionally when a
+    // submission is entered, even if docs are already in memory. The
+    // hydrate path only runs when state.docs is empty for this submission,
+    // but on re-entry into the same deal in the same session, the docs
+    // ARE in memory yet their thumbnailData fields may be null (DOC_HYDRATE_COLUMNS
+    // excludes thumbnail_data_url for perf — so a fresh hydrate doesn't
+    // populate them; they only fill via scheduleLazyEnrichment). Before
+    // this change, the only enrichment trigger was docsViewActivated()
+    // and there were timing windows where it didn't fire on re-entry.
+    // Now we kick it from both paths: any deal entry guarantees thumbs.
     if (submissionId) {
       const haveDocsForSubmission = state.docs.some(d => d.submissionId === submissionId);
       if (!haveDocsForSubmission && !state._hydrating) {
@@ -4771,6 +4846,11 @@ window.initDocumentsView = function() {
           reason: 'setSubmissionContext_empty_scope',
           submissionId: submissionId
         }).catch(err => console.warn('[docs] hydrate-on-context failed:', err));
+      } else if (haveDocsForSubmission) {
+        // Already have docs — but they might be missing thumbs.
+        // scheduleLazyEnrichment is idempotent and self-guards via
+        // _enrichmentInFlight, so this is safe to call always.
+        try { scheduleLazyEnrichment(submissionId); } catch (e) {}
       }
     }
   }
