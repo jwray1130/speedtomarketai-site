@@ -1649,9 +1649,13 @@ table.queue {
 .pipe-node.done .pipe-node-timing { color: var(--signal-ink); font-weight: 600; }
 
 .pipeline-done {
+  /* v8.6.48: switched from signal/blue to success/green so the
+     pipeline-complete moment feels like a celebration, not just a
+     status update. Same spotlight recipe — diagonal pale-tint
+     gradient → surface — but green-tuned for "look here, success". */
   padding: 18px 22px;
-  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border: 1px solid rgba(5, 112, 222, 0.35);
+  background: linear-gradient(135deg, rgba(93, 221, 159, 0.10) 0%, var(--surface-2) 80%);
+  border: 1px solid rgba(93, 221, 159, 0.35);
   border-radius: var(--radius);
   margin-top: 20px;
   display: flex;
@@ -1661,8 +1665,9 @@ table.queue {
 .pipeline-done-icon {
   width: 40px; height: 40px;
   border-radius: 50%;
-  background: var(--signal);
-  color: #0A2540;
+  /* v8.6.48: was --signal navy text; now --success green w/ dark text */
+  background: var(--success);
+  color: #0a0a0c;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1673,7 +1678,7 @@ table.queue {
   flex-shrink: 0;
 }
 .pipeline-done-text { flex: 1; font-size: 13px; }
-.pipeline-done-text strong { color: var(--text); display: block; font-size: 14px; margin-bottom: 2px; }
+.pipeline-done-text strong { color: var(--success); display: block; font-size: 14px; margin-bottom: 2px; font-style: italic; font-family: var(--font-display); letter-spacing: -0.01em; font-weight: 500; }
 .pipeline-done-text p { color: var(--text-2); font-size: 12px; font-family: var(--font-mono); letter-spacing: 0.03em; }
 .btn-view-summary {
   padding: 9px 18px;
@@ -3244,11 +3249,14 @@ table.loss {
 .verdict-card {
   padding: 14px;
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border: 1px solid rgba(5, 112, 222, 0.32);
+  /* v8.6.48: was hardcoded rgba(5, 112, 222, 0.32) royal blue. Now uses
+     --signal-tint so it adapts to Carbon (soft cool blue tint) AND
+     light mode (royal blue tint) automatically. */
+  border: 1px solid var(--signal-tint);
   border-radius: var(--radius);
   margin-bottom: 14px;
 }
-.verdict-card.ref { background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, var(--surface-2) 80%); border-color: rgba(251, 191, 36, 0.32); }
+.verdict-card.ref { background: linear-gradient(135deg, rgba(255, 207, 64, 0.08) 0%, var(--surface-2) 80%); border-color: rgba(255, 207, 64, 0.32); }
 .verdict-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -3269,6 +3277,90 @@ table.loss {
 }
 .verdict-card.ref .verdict-value { color: var(--warning); }
 .verdict-sub { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
+
+/* ════════════════════════════════════════════════════════════════════
+   SPOTLIGHT CARDS (v8.6.48)
+   ────────────────────────────────────────────────────────────────────
+   A reusable variant system distilled from the .verdict-card recipe
+   that Justin liked. Used SPARINGLY — only for AI-synthesized moments
+   that deserve attention: takeaways, recommendations, guideline
+   citations, risk flags, and completion banners. Never for data tables,
+   buttons, repeating list items, or status pills — overuse kills the
+   "look here" effect that makes the pattern work.
+   
+   Recipe:
+   - Diagonal pale-tint → surface gradient (the spotlight)
+   - 1px translucent border matching the accent
+   - Tiny mono uppercase eyebrow label
+   - Italic display title in the accent's ink color
+   - Body sub-text underneath
+   
+   Variants:
+   .spotlight-card.signal   — blue (AI synthesis, default)
+   .spotlight-card.ref      — amber (guidelines / citations / reference)
+   .spotlight-card.warn     — red (risk flags / referral required)
+   .spotlight-card.success  — green (completion / pipeline done)
+   ════════════════════════════════════════════════════════════════════ */
+.spotlight-card {
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  margin-bottom: 14px;
+  /* Defaults to signal/blue; override per variant below */
+  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
+  border-color: var(--signal-tint);
+}
+.spotlight-card.signal {
+  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
+  border-color: var(--signal-tint);
+}
+.spotlight-card.ref {
+  background: linear-gradient(135deg, rgba(255, 207, 64, 0.08) 0%, var(--surface-2) 80%);
+  border-color: rgba(255, 207, 64, 0.32);
+}
+.spotlight-card.warn {
+  background: linear-gradient(135deg, rgba(255, 122, 122, 0.08) 0%, var(--surface-2) 80%);
+  border-color: rgba(255, 122, 122, 0.32);
+}
+.spotlight-card.success {
+  background: linear-gradient(135deg, rgba(93, 221, 159, 0.08) 0%, var(--surface-2) 80%);
+  border-color: rgba(93, 221, 159, 0.32);
+}
+
+/* Internal pieces — keyed to .spotlight-card so they don't collide with
+   .verdict-label / .verdict-value (which keep their old names). */
+.spotlight-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.spotlight-value {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  color: var(--signal-ink);
+  margin-bottom: 5px;
+}
+.spotlight-card.ref .spotlight-value { color: var(--warning); }
+.spotlight-card.warn .spotlight-value { color: var(--danger); }
+.spotlight-card.success .spotlight-value { color: var(--success); }
+.spotlight-sub { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
+
+/* Centered variant for empty/awaiting states. Same recipe; just
+   center-aligned and roomier. Used in pipeline/docs/tags empty states. */
+.spotlight-card.centered {
+  text-align: center;
+  padding: 36px 30px;
+}
+.spotlight-card.centered .spotlight-label { margin-bottom: 8px; }
+.spotlight-card.centered .spotlight-value { font-size: 22px; margin-bottom: 8px; }
+.spotlight-card.centered .spotlight-sub { max-width: 340px; margin: 0 auto; }
 
 .action-btns { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .act-btn {

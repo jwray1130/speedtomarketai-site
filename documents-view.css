@@ -938,33 +938,43 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 }
 
 #docs-view-root .docs-empty {
+  /* v8.6.48: dressed as a compact spotlight card. Same recipe as the
+     .verdict-card / .spotlight-card system in app.css — diagonal
+     pale-signal gradient, tinted border, italic display title — just
+     tuned for the narrow sidebar (~280px) instead of full width. */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
+  padding: 28px 20px;
+  margin: 10px;
   text-align: center;
   color: var(--text-tertiary);
-  height: 100%;
+  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-alt) 80%);
+  border: 1px solid var(--signal-tint);
+  border-radius: var(--radius);
 }
 
 #docs-view-root .docs-empty svg {
-  width: 40px; height: 40px;
-  color: var(--border-strong);
-  margin-bottom: 14px;
+  width: 36px; height: 36px;
+  color: var(--signal-dim);
+  opacity: 0.7;
+  margin-bottom: 12px;
 }
 
 #docs-view-root .docs-empty-title {
   font-family: var(--font-display);
   font-size: 16px;
   font-style: italic;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--signal-ink);
+  margin-bottom: 5px;
 }
 
 #docs-view-root .docs-empty-sub {
   font-size: 11.5px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -1883,16 +1893,21 @@ html[data-theme="light"] #docs-view-root .tagged-item.tag-yellow .tagged-label {
 #docs-view-root .tagged-item:hover .tagged-actions { opacity: 1; }
 
 #docs-view-root .tags-empty {
+  /* v8.6.48: same compact spotlight treatment as .docs-empty */
   text-align: center;
-  padding: 28px 20px;
+  padding: 24px 16px;
+  margin: 10px;
   color: var(--text-tertiary);
+  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-alt) 80%);
+  border: 1px solid var(--signal-tint);
+  border-radius: var(--radius);
 }
 
-#docs-view-root .tags-empty svg { width: 32px; height: 32px; opacity: 0.3; margin-bottom: 10px; }
+#docs-view-root .tags-empty svg { width: 30px; height: 30px; color: var(--signal-dim); opacity: 0.65; margin-bottom: 10px; }
 
-#docs-view-root .tags-empty-title { font-family: var(--font-display); font-size: 14px; font-style: italic; color: var(--text-secondary); margin-bottom: 3px; }
+#docs-view-root .tags-empty-title { font-family: var(--font-display); font-size: 14px; font-style: italic; font-weight: 500; letter-spacing: -0.01em; color: var(--signal-ink); margin-bottom: 4px; }
 
-#docs-view-root .tags-empty-sub { font-size: 11px; }
+#docs-view-root .tags-empty-sub { font-size: 11px; color: var(--text-secondary); }
 
 #docs-view-root .tags-footer {
   padding: 10px 16px;
