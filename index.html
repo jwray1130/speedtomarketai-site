@@ -38,18 +38,24 @@
 
 <style>
 :root {
-  /* Palette — deliberate, not derivative */
-  --bg: #0A2540;           /* Deep charcoal, slight cool cast — NOT pure black */
-  --surface: #0F2A4A;      /* Elevated surface */
-  --surface-2: #163057;    /* Secondary elevation */
-  --line: #1F3460;         /* Subtle rule lines */
-  --line-warm: #2C4276;    /* Warmer line accent */
-  --signal: #0570DE;       /* Electric chartreuse — the hero accent, velocity & market-green */
-  --signal-dim: #0469C5;   /* Signal when dimmed */
-  --amber: #00D4FF;        /* Warm secondary accent, used sparingly */
-  --cream: #F6F9FC;        /* Warm off-white body text */
-  --muted: #ADBDCC;        /* Dim text */
-  --muted-2: #708099;      /* Deeper dim */
+  /* ════════════════════════════════════════════════════════════════════
+     Carbon dark theme (v8.6.46). Marketing site base — true neutral
+     grays, no color cast. The hero flame shader keeps its own
+     pink/peach/blue/lavender palette so the marbled gradient still
+     pops against this neutral charcoal canvas.
+     ════════════════════════════════════════════════════════════════════ */
+  /* Palette */
+  --bg: #0a0a0c;           /* True neutral charcoal — no blue cast */
+  --surface: #141417;      /* Elevated surface */
+  --surface-2: #1a1a1e;    /* Secondary elevation */
+  --line: rgba(255, 255, 255, 0.07);  /* Subtle rule lines */
+  --line-warm: rgba(255, 255, 255, 0.13);
+  --signal: #9ec4ff;       /* Soft cool blue — restrained vs royal */
+  --signal-dim: #6f99d4;
+  --amber: #66d8ff;        /* Cool cyan secondary */
+  --cream: #fafafa;        /* Near-white body text */
+  --muted: #a0a0a8;        /* Dim text */
+  --muted-2: #62646c;      /* Deeper dim */
   /* Type */
   --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -58,9 +64,9 @@
   --gutter: clamp(20px, 4vw, 48px);
   --max-w: 1320px;
   /* Grain overlay opacity (overridden in light mode) */
-  --grain-opacity: 0.45;
-  /* Hero device shadow (overridden in light mode) */
-  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(5, 112, 222, 0.08), 0 60px 120px -40px rgba(5, 112, 222, 0.12);
+  --grain-opacity: 0.38;
+  /* Hero device shadow — Carbon variant (neutral, no blue tint in halo) */
+  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 60px 120px -40px rgba(0, 0, 0, 0.42);
 }
 
 /* ===== LIGHT MODE THEME ===== */

@@ -51,24 +51,29 @@ body.docs-fullwidth {
    ════════════════════════════════════════════════════════════════════════ */
 
 #docs-view-root {
-  /* SIGNAL (chartreuse across both modes for bg/border) */
-  --signal: #0570DE;
-  --signal-hover: #3B82F6;
-  --signal-dim: #0469C5;
-  --signal-pale: rgba(5, 112, 222, 0.10);
-  --signal-tint: rgba(5, 112, 222, 0.18);
-  --signal-ink: #0570DE;
-  --amber: #00D4FF;
+  /* ════════════════════════════════════════════════════════════════════
+     Carbon dark theme (v8.6.46). Documents view surfaces aligned to
+     the rest of the app. Tag colors (red/blue/green/yellow/etc) are
+     CATEGORICAL and intentionally identical across themes — they
+     identify document type, not visual style. Only the chrome
+     (sidebars, surfaces, text) is themed.
+     ════════════════════════════════════════════════════════════════════ */
+  /* SIGNAL (soft cool blue, restrained for Carbon) */
+  --signal: #9ec4ff;
+  --signal-hover: #c0d8ff;
+  --signal-dim: #6f99d4;
+  --signal-pale: rgba(158, 196, 255, 0.10);
+  --signal-tint: rgba(158, 196, 255, 0.18);
+  --signal-ink: #c6dcff;
+  --amber: #66d8ff;
 
   /* STATUS */
-  --success: #7DD88A;
-  --warning: #FBBF24;
-  --danger: #F87171;
-  --info: #60A5FA;
+  --success: #5ddd9f;
+  --warning: #ffcf40;
+  --danger: #ff7a7a;
+  --info: #9ec4ff;
 
-  /* TAG COLORS — identical in both themes so tags look the same when you toggle.
-     Chosen to be visible on both dark navy and cream backgrounds; the glow effect
-     on tagged items boosts visibility where needed. */
+  /* TAG COLORS — identical in both themes (categorical, not visual style) */
   --tag-red: #DC2626;
   --tag-maroon: #7F1D1D;
   --tag-blue: #2563EB;
@@ -96,24 +101,24 @@ body.docs-fullwidth {
   --tag-magenta-rgb: 219, 39, 119;
   --tag-coral-rgb: 251, 113, 133;
 
-  /* SURFACES (dark default) */
-  --bg: #0A2540;
-  --surface: #0F2A4A;
-  --surface-alt: #163057;
-  --surface-raised: #1B3964;
-  --border: #1F3460;
-  --border-strong: #2C4276;
+  /* SURFACES — Carbon (true neutral, no blue) */
+  --bg: #0a0a0c;
+  --surface: #141417;
+  --surface-alt: #1a1a1e;
+  --surface-raised: #202024;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
 
   /* TYPE */
-  --text: #F6F9FC;
-  --text-secondary: #ADBDCC;
-  --text-tertiary: #708099;
+  --text: #fafafa;
+  --text-secondary: #a0a0a8;
+  --text-tertiary: #62646c;
 
-  /* CHROME */
-  --sidebar-bg: #06192F;
-  --sidebar-text: #A3B8D1;
-  --topbar-bg: rgba(15, 42, 74, 0.85);
-  --backdrop-bg: rgba(10, 37, 64, 0.75);
+  /* CHROME — deeper background for sidebars to create elevation hierarchy */
+  --sidebar-bg: #07070a;
+  --sidebar-text: #888890;
+  --topbar-bg: rgba(20, 20, 23, 0.85);
+  --backdrop-bg: rgba(10, 10, 12, 0.82);
 
   /* FONTS */
   --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -123,10 +128,10 @@ body.docs-fullwidth {
   /* GEOMETRY */
   --radius: 6px;
   --radius-lg: 10px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.7);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.42);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.52);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.72);
 
   --topbar-h: 52px;
   --docs-panel-w: 300px;
@@ -134,9 +139,15 @@ body.docs-fullwidth {
 }
 
 html[data-theme="light"] #docs-view-root {
+  /* Carbon-era v8.6.46: signal must be redefined here so it doesn't
+     inherit the soft blue from the Carbon dark base. */
+  --signal: #0570DE;
+  --signal-hover: #3B82F6;
+  --signal-dim: #0469C5;
   --signal-ink: #0469C5;
   --signal-pale: rgba(5, 112, 222, 0.22);
   --signal-tint: rgba(5, 112, 222, 0.35);
+  --amber: #00D4FF;
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
