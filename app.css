@@ -1446,6 +1446,91 @@ table.queue {
 .pipe-node.queued {
   opacity: 0.42;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PIPELINE NODE FX  ·  v8.6.36
+   "PROCESSING" wave-reveal overlay that appears only while a node
+   is .running, and disappears the instant it transitions to .done
+   (or back to queued/error). Sits inside the existing 54px node
+   footprint — name/timing become invisibility:hidden so the layout
+   never reflows when modules start or finish. Royal blue letters,
+   amber covers lifting letter-by-letter in a staggered wave.
+   ═══════════════════════════════════════════════════════════════ */
+.pipe-node-fx {
+  display: none;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 32px;
+  bottom: 6px;
+  align-items: center;
+  justify-content: flex-start;
+  pointer-events: none;
+  z-index: 2;
+}
+.pipe-node.running .pipe-node-fx { display: flex; }
+.pipe-node.running .pipe-node-name,
+.pipe-node.running .pipe-node-timing {
+  visibility: hidden;
+}
+.pipe-node-fx-text {
+  position: relative;
+  height: 14px;
+  overflow: hidden;
+  font-family: var(--font-mono, 'SF Mono', 'Courier New', monospace);
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--signal-ink, #0e46a3);
+  text-transform: uppercase;
+  line-height: 14px;
+  user-select: none;
+}
+.pipe-node-fx-letters {
+  display: flex;
+  gap: 1px;
+  position: relative;
+}
+.pipe-node-fx-letters span {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+  line-height: 14px;
+}
+.pipe-node-fx-covers {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 1px;
+  pointer-events: none;
+}
+.pipe-node-fx-covers span {
+  display: inline-block;
+  width: 10px;
+  height: 14px;
+  background: linear-gradient(180deg, #ffd100 0%, #e0b500 100%);
+  box-shadow: 0 1px 2px rgba(184, 140, 0, 0.35);
+  animation: pipeNodeFxSweep 1.6s infinite ease-in-out;
+}
+.pipe-node-fx-covers span:nth-child(1)  { animation-delay: 0s; }
+.pipe-node-fx-covers span:nth-child(2)  { animation-delay: 0.13s; }
+.pipe-node-fx-covers span:nth-child(3)  { animation-delay: 0.26s; }
+.pipe-node-fx-covers span:nth-child(4)  { animation-delay: 0.39s; }
+.pipe-node-fx-covers span:nth-child(5)  { animation-delay: 0.52s; }
+.pipe-node-fx-covers span:nth-child(6)  { animation-delay: 0.65s; }
+.pipe-node-fx-covers span:nth-child(7)  { animation-delay: 0.78s; }
+.pipe-node-fx-covers span:nth-child(8)  { animation-delay: 0.91s; }
+.pipe-node-fx-covers span:nth-child(9)  { animation-delay: 1.04s; }
+.pipe-node-fx-covers span:nth-child(10) { animation-delay: 1.17s; }
+@keyframes pipeNodeFxSweep {
+  0%   { transform: translateY(0); }
+  18%  { transform: translateY(-100%); }
+  50%  { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pipe-node-fx-covers span { animation: none; transform: translateY(-100%); }
+}
 /* Skipped modules — visually distinct from queued so UW knows they were intentionally
    bypassed (not just unstarted). Dimmer than queued, with a subtle strikethrough-adjacent
    treatment on the tag. */

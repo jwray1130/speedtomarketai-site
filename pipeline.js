@@ -3991,6 +3991,22 @@ async function classifyFile(file) {
 
 // Render all module nodes in their starting queued state
 function renderPipelineNodes() {
+  // v8.6.36: build the PROCESSING wave overlay once, reuse in every node.
+  // The overlay is present on every .pipe-node but invisible by default;
+  // CSS reveals it only when the node has the .running class, and hides it
+  // the moment .running is removed. No JS state changes needed — purely
+  // CSS-reactive, so we can't accidentally break the pipeline state machine.
+  const FX_HTML = `<div class="pipe-node-fx" aria-hidden="true">`
+    + `<div class="pipe-node-fx-text">`
+    + `<div class="pipe-node-fx-letters">`
+    + `<span>P</span><span>R</span><span>O</span><span>C</span><span>E</span><span>S</span><span>S</span><span>I</span><span>N</span><span>G</span>`
+    + `</div>`
+    + `<div class="pipe-node-fx-covers">`
+    + `<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>`
+    + `</div>`
+    + `</div>`
+    + `</div>`;
+
   // Classifier (Stage 0)
   const cls = document.getElementById('stageClassifier');
   if (cls) {
@@ -3999,6 +4015,7 @@ function renderPipelineNodes() {
         <div class="pipe-node-head"><span class="pipe-node-tag">CLS</span><span class="pipe-node-status queued">QUEUED</span></div>
         <div class="pipe-node-name">Document routing</div>
         <div class="pipe-node-timing">—</div>
+        ${FX_HTML}
       </div>
     `;
   }
@@ -4014,6 +4031,7 @@ function renderPipelineNodes() {
         </div>
         <div class="pipe-node-name">${m.name}</div>
         <div class="pipe-node-timing">—</div>
+        ${FX_HTML}
       </div>
     `).join('');
   }
