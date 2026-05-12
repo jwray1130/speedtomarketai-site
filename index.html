@@ -56,6 +56,8 @@
   --cream: #fafafa;        /* Near-white body text */
   --muted: #a0a0a8;        /* Dim text */
   --muted-2: #62646c;      /* Deeper dim */
+  /* Backdrop — for sticky nav, modals. Carbon neutral translucent. */
+  --backdrop: rgba(10, 10, 12, 0.82);
   /* Type */
   --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -82,6 +84,8 @@
   --cream: #0A2540;       /* "Cream" = dark text on light */
   --muted: #425466;       /* Muted text */
   --muted-2: #697386;     /* Deeper dim — was too light at #697386 */
+  /* Backdrop — for sticky nav, modals. Light translucent. */
+  --backdrop: rgba(255, 255, 255, 0.75);
   --grain-opacity: 0.08;  /* Much less grain in light mode */
   --device-shadow: 0 20px 50px -20px rgba(10, 37, 64, 0.15), 0 0 0 1px rgba(5, 112, 222, 0.14), 0 40px 80px -30px rgba(5, 112, 222, 0.10);
 }
@@ -171,7 +175,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(10, 37, 64, 0.82);
+  /* v8.6.47: was hardcoded rgba(10, 37, 64, 0.82) — old royal navy
+     translucent. That bypassed the theme variable system so the topbar
+     stayed navy regardless of Carbon dark / light mode toggle. Now uses
+     --backdrop so it adapts: Carbon (rgba(10,10,12,0.82)) in dark mode,
+     rgba(255,255,255,0.75) in light mode. The theme toggle now visibly
+     changes the topbar instead of looking like it "didn't stick". */
+  background: var(--backdrop);
   backdrop-filter: blur(16px) saturate(130%);
   -webkit-backdrop-filter: blur(16px) saturate(130%);
   border-bottom: 1px solid var(--line);
