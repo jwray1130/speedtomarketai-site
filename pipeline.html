@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speed to Market AI · Product</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght,ital@14..32,100..900,0..1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/lib/index.browser.js" onerror="window.__msgReaderFailed=true"></script>
+<script type="module">
+  // postal-mime is ESM-only; load via esm.sh and attach to window so the
+  // rest of app.js (non-module) can call window.PostalMime.parse(buf).
+  // Used by parseEml() in app.js to expand .eml drops into the email body
+  // + each attachment as separate file-queue entries (mirroring the .msg
+  // attachment unpack flow so the deterministic detector chain runs on
+  // every attachment independently).
+  //
+  // PHASE B FIX (per GPT external audit): fire-and-forget instead of
+  // top-level await. The previous version awaited the import at the top
+  // level of a module script, which BLOCKS DOMContentLoaded until the ESM
+  // CDN responds.
+  //
+  // PHASE 5 FIX (per GPT external audit round 4): store the promise on
+  // window.PostalMimeReady so extractText() can await it on fast .eml
+  // uploads. Without this, dropping an .eml within the first ~500ms of
+  // page load (before the ESM CDN responds) silently falls back to the
+  // legacy text-only parseEml path — which doesn't extract attachments.
+  // Carroll County and other .eml-with-attachments demos would lose every
+  // attached PDF. Race window is small but real, especially on slow
+  // corp networks. Keeping the import non-blocking (DOMContentLoaded
+  // still fires snappy) but exposing the promise so consumers can await
+  // briefly when they actually need the parser.
+  window.PostalMimeReady = import('https://esm.sh/postal-mime@2.2.7')
+    .then(mod => {
+      window.PostalMime = mod.default || mod.PostalMime || mod;
+      return window.PostalMime;
+    })
+    .catch(err => {
+      console.warn('postal-mime failed to load — .eml will fall back to text-only parsing', err);
+      window.__postalMimeFailed = true;
+      return null;
+    });
+</script>
+<script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
+<script src="pipeline-prompts.js"></script>
+<link rel="stylesheet" href="pipeline-app.css">
+<!-- Documents view (Speed File Manager prototype, native port).
+     CSS is namespaced under #docs-view-root so it cannot leak into Altitude.
+     Additional libs the prototype needs: jszip (docx pagination, pptx parsing,
+     archives) and jspdf (Tagged-Pages export, single-doc download as PDF). -->
+<link rel="stylesheet" href="pipeline-documents-view.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ============ AUTH OVERLAY (magic link) ============
+     v8.6.48: matches the marketing site's marbled flame hero.
+     Domain-warped FBM fragment shader (Iñigo Quílez technique — three
+     FBM samples each feeding the next to produce ribbon-like flow).
+     Same hot pink / peach / blue / lavender palette as speedtomarketai.com.
+     Card glass is Carbon-tinted (rgba(20,20,23,...)) instead of the old
+     navy so it's consistent with the Carbon dark mode in the app.
+     ============ -->
+<div id="authOverlay" style="position:fixed;inset:0;background:#0a0a0c;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:'Inter Variable','Inter',-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;">
+  <canvas id="authBackdropCanvas" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+
+  <!-- Brand mark top-left so the screen reads as a continuation of
+       speedtomarketai.com, not a standalone "ugly login" page -->
+  <div style="position:absolute;top:24px;left:32px;z-index:2;display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;color:#fafafa;letter-spacing:-0.01em;">
+    <span style="display:inline-flex;width:26px;height:26px;border-radius:6px;border:1.5px solid #9ec4ff;align-items:center;justify-content:center;color:#9ec4ff;">
+      <svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;">
+        <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+      </svg>
+    </span>
+    Speed to Market <em style="font-style:italic;color:#9ec4ff;margin-left:3px;">AI</em>
+  </div>
+
+  <!-- Card: Carbon-tinted glass (true neutral, no blue cast) -->
+  <div style="position:relative;z-index:1;background:rgba(20,20,23,0.62);backdrop-filter:blur(32px) saturate(150%);-webkit-backdrop-filter:blur(32px) saturate(150%);padding:42px 38px 36px;border-radius:18px;width:420px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.85),0 0 0 1px rgba(255,255,255,0.10),inset 0 1px 0 rgba(255,255,255,0.10);text-align:left;">
+    <div style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#9ec4ff;text-transform:uppercase;margin-bottom:14px;display:inline-flex;align-items:center;gap:8px;">
+      <span style="display:inline-block;width:14px;height:1px;background:#9ec4ff;"></span>
+      Sign in
+    </div>
+    <div style="font-family:'Inter Variable','Inter',sans-serif;font-size:30px;color:#fafafa;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin-bottom:10px;">
+      Open the <em style="font-style:italic;font-weight:500;background:linear-gradient(180deg,#FF61AB 0%,#C8A2FF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;">workbench</em>.
+    </div>
+    <div style="font-size:13.5px;color:#a0a0a8;line-height:1.5;margin-bottom:24px;">
+      Drop your work email below. We'll send a magic link — no password, no setup.
+    </div>
+    <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email"
+      style="width:100%;box-sizing:border-box;padding:13px 15px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(10,10,12,0.5);color:#fafafa;font-size:14px;font-family:inherit;margin-bottom:12px;outline:none;transition:border-color 0.18s,background 0.18s;" />
+    <button id="authSendBtn"
+      style="width:100%;padding:13px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#c0d8ff 0%,#9ec4ff 100%);color:#0a0a0c;font-weight:600;font-size:13.5px;font-family:inherit;cursor:pointer;letter-spacing:-0.005em;box-shadow:0 1px 0 rgba(255,255,255,0.25) inset, 0 6px 18px -6px rgba(158,196,255,0.5);transition:transform 0.15s,box-shadow 0.2s;">
+      Send magic link →
+    </button>
+    <div id="authError" style="color:#ff7a7a;font-size:11.5px;margin-top:14px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
+    <div id="authSuccess" style="color:#9ec4ff;font-size:11.5px;margin-top:4px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
+  </div>
+
+  <!-- Footer credit so the screen feels finished, not stripped-down -->
+  <div style="position:absolute;bottom:24px;left:0;right:0;z-index:2;text-align:center;font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:0.18em;color:rgba(160,160,168,0.55);text-transform:uppercase;">
+    AI for Commercial Insurance Underwriting
+  </div>
+</div>
+
+<!-- ===== Three.js WebGL marbled flame behind the auth card =====
+     Same shader architecture as the marketing hero on speedtomarketai.com:
+     domain-warped FBM (3 cascaded fbm() samples) → painterly ribbon flow.
+     Palette: hot pink → peach/orange → light blue → lavender accent. ===== -->
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+  import * as THREE from 'three';
+  const canvas = document.getElementById('authBackdropCanvas');
+  if (canvas && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: false, powerPreference: 'high-performance' });
+    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const scene = new THREE.Scene();
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); cam.position.z = 1;
+    const geo = new THREE.PlaneGeometry(2, 2);
+
+    /* Marketing-hero palette — light + dark theme variants. Reads from
+       html[data-theme] so toggling theme on the auth screen re-tunes
+       the shader without rebuilding the WebGL context. */
+    const PALETTES = {
+      light: {
+        base:    '#FFFFFF',
+        flameA:  '#FF61AB',
+        flameB:  '#FFA75E',
+        flameC:  '#5BD2FF',
+        accent:  '#C8A2FF',
+      },
+      dark: {
+        base:    '#0a0a0c',
+        flameA:  '#E63B85',
+        flameB:  '#FF8E3C',
+        flameC:  '#3FB8E8',
+        accent:  '#9F7BFF',
+      },
+    };
+    function currentPalette() {
+      return document.documentElement.getAttribute('data-theme') === 'light' ? PALETTES.light : PALETTES.dark;
+    }
+    const p = currentPalette();
+    const u = {
+      u_time:   { value: 0 },
+      u_base:   { value: new THREE.Color(p.base) },
+      u_flameA: { value: new THREE.Color(p.flameA) },
+      u_flameB: { value: new THREE.Color(p.flameB) },
+      u_flameC: { value: new THREE.Color(p.flameC) },
+      u_accent: { value: new THREE.Color(p.accent) },
+    };
+    /* Re-tune palette on theme toggle without rebuilding the renderer */
+    new MutationObserver(() => {
+      const np = currentPalette();
+      u.u_base.value.set(np.base);
+      u.u_flameA.value.set(np.flameA);
+      u.u_flameB.value.set(np.flameB);
+      u.u_flameC.value.set(np.flameC);
+      u.u_accent.value.set(np.accent);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    const vs = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
+
+    /* SIMPLEX 2D + FBM helpers — identical to marketing hero's
+       buildHeroFlame shader. 5 FBM octaves at decreasing amplitude. */
+    const fs = `
+      vec3 permute(vec3 x){return mod(((x*34.0)+1.0)*x,289.0);}
+      float snoise(vec2 v){
+        const vec4 C=vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
+        vec2 i=floor(v+dot(v,C.yy));
+        vec2 x0=v-i+dot(i,C.xx);
+        vec2 i1=(x0.x>x0.y)?vec2(1.0,0.0):vec2(0.0,1.0);
+        vec4 x12=x0.xyxy+C.xxzz; x12.xy-=i1;
+        i=mod(i,289.0);
+        vec3 p=permute(permute(i.y+vec3(0.0,i1.y,1.0))+i.x+vec3(0.0,i1.x,1.0));
+        vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0); m=m*m; m=m*m;
+        vec3 x=2.0*fract(p*C.www)-1.0; vec3 h=abs(x)-0.5; vec3 ox=floor(x+0.5); vec3 a0=x-ox;
+        m*=1.79284291400159-0.85373472095314*(a0*a0+h*h);
+        vec3 g; g.x=a0.x*x0.x+h.x*x0.y; g.yz=a0.yz*x12.xz+h.yz*x12.yw;
+        return 130.0*dot(m,g);
+      }
+      float fbm(vec2 p){
+        float v=0.0; float a=0.5; vec2 shift=vec2(100.0);
+        mat2 rot=mat2(cos(0.5),sin(0.5),-sin(0.5),cos(0.5));
+        for(int i=0;i<5;i++){ v+=a*snoise(p); p=rot*p*2.0+shift; a*=0.5; }
+        return v;
+      }
+      varying vec2 vUv;
+      uniform float u_time;
+      uniform vec3 u_base, u_flameA, u_flameB, u_flameC, u_accent;
+      void main(){
+        vec2 uv = vUv; uv.x *= 1.6;
+        float t = u_time * 0.08;
+        vec2 q = vec2(fbm(uv + t*0.5), fbm(uv + vec2(5.2,1.3) + t*0.4));
+        vec2 rv = vec2(fbm(uv + 4.0*q + vec2(1.7,9.2) + t*0.6), fbm(uv + 4.0*q + vec2(8.3,2.8) + t*0.5));
+        float f = fbm(uv + 3.5*rv + t*0.3);
+        vec3 color = u_base;
+        color = mix(color, u_flameA, clamp(length(q)*0.65, 0.0, 1.0));
+        color = mix(color, u_flameB, clamp(length(rv)*0.55, 0.0, 1.0));
+        color = mix(color, u_flameC, clamp(f*f*1.2 + 0.1, 0.0, 1.0));
+        color = mix(color, u_accent, clamp(pow(f, 4.0)*1.8, 0.0, 0.5));
+        float alpha = smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.94, vUv.y);
+        gl_FragColor = vec4(color, alpha * 0.95);
+      }
+    `;
+    const m = new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs, transparent: true, depthWrite: false });
+    scene.add(new THREE.Mesh(geo, m));
+    function fit(){ const w=canvas.clientWidth, h=canvas.clientHeight; if(w&&h) r.setSize(w,h,false); }
+    fit(); window.addEventListener('resize', fit);
+    let f = 0; const t0 = performance.now();
+    (function loop(){
+      requestAnimationFrame(loop);
+      const overlay = document.getElementById('authOverlay');
+      if (!overlay || overlay.style.display === 'none' || document.hidden) return;
+      f++; if (f % 2) return;
+      u.u_time.value = (performance.now() - t0) / 1000;
+      r.render(scene, cam);
+    })();
+  }
+</script>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 22px;">
+    <a href="/" class="brand" style="text-decoration: none; color: inherit;" title="Back to marketing site">
+      <span class="brand-mark">
+        <svg viewBox="0 0 20 20" fill="none">
+          <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+        </svg>
+      </span>
+      <span>Speed to Market <em>AI</em></span>
+    </a>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-view="queue">Queue</button>
+      <button class="tab" data-view="submission">Submission</button>
+      <button class="tab" data-view="admin">Admin</button>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <!-- VERSION BADGE — always visible across all views. Populated at runtime
+         by app.js from window.STM_BUILD. Click to copy the full build string.
+         If this badge ever shows an unexpected version after a Vercel deploy,
+         you instantly know the deployment didn't pick up the new files. -->
+    <div class="version-badge" id="versionBadge" onclick="copyBuildString()" title="Click to copy full build string">
+      <span class="version-badge-label">BUILD</span>
+      <span class="version-badge-value" id="versionBadgeValue">loading…</span>
+    </div>
+    <button class="api-pill demo" id="apiPill" onclick="openSettings()">
+      <span class="dot"></span>
+      <span id="apiPillText">SIGN IN REQUIRED</span>
+    </button>
+    <button class="btn-icon theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="tt-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="tt-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <div class="avatar">
+      <div class="avatar-circle">—</div>
+      <div class="avatar-name">Not signed in<br><small>—</small></div>
+    </div>
+  </div>
+</div>
+
+<main>
+<!-- ============ QUEUE VIEW ============ -->
+<section class="view active" id="view-queue">
+  <div class="page-head">
+    <div class="page-eyebrow">01 · Queue</div>
+    <h1 class="page-title">Submissions in flight</h1>
+    <p class="page-sub">Start a new submission to open the workbench. Drop broker documents, let the pipeline classify and route them, then review the extracted summary.</p>
+    <div style="margin-top: 18px;">
+      <button class="btn btn-primary" onclick="startNewSubmission()" style="padding: 9px 18px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600;">
+        <span style="margin-right: 6px; font-size: 14px;">+</span> New Submission
+      </button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi">
+      <div class="kpi-label">Active Submission</div>
+      <div class="kpi-value"><em id="kpiActive">—</em></div>
+      <div class="kpi-sub" id="kpiActiveSub">Click New Submission to begin</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Pipeline Modules</div>
+      <div class="kpi-value"><em>17</em></div>
+      <div class="kpi-sub">+ classifier + referral email</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Document Formats</div>
+      <div class="kpi-value"><em>10+</em></div>
+      <div class="kpi-sub">PDF · DOCX · XLSX · MSG · EML · RTF · HTML · CSV · TXT · MD</div>
+    </div>
+    <div class="kpi amber">
+      <div class="kpi-label">Backend</div>
+      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud-synced</div>
+      <div class="kpi-sub">single-tenant prototype</div>
+    </div>
+  </div>
+
+  <div class="queue-table-wrap">
+    <table class="queue">
+      <thead><tr>
+        <th>Account</th><th>Broker</th><th>Effective</th><th>Requested</th><th style="width: 90px;">Modules</th><th style="width: 90px;">Confidence</th><th style="width: 130px;">Missing</th><th style="width: 180px;">Status</th>
+      </tr></thead>
+      <tbody id="queueBody">
+        <tr>
+          <td colspan="8" style="padding: 60px 24px; text-align: center; color: var(--text-3);">
+            <div style="font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 500;">No submissions yet</div>
+            <div style="font-size: 12px; color: var(--text-3);">Click <strong style="color: var(--signal-ink);">+ New Submission</strong> to open the workbench. Once the pipeline runs, submissions archive here with UW status tracking.</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ SUBMISSION VIEW ============ -->
+<section class="view" id="view-submission">
+
+  <div class="sub-header">
+    <div class="sub-header-main">
+      <div class="sub-header-name" id="sh-name">New submission</div>
+      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 17 specialist modules</div>
+    </div>
+    <div class="sub-header-pills" id="sh-pills">
+      <span class="sub-pill handoff-pill" id="shHandoffPill" style="display: none;"></span>
+      <span class="sub-pill signal" id="shModePill">SIGN IN REQUIRED</span>
+    </div>
+  </div>
+
+  <div class="sub-layout">
+
+    <!-- LEFT: Files -->
+    <aside class="pane">
+      <div class="pane-head">
+        <h3>Intake · Files</h3>
+        <span id="fileCount" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3);">0 files</span>
+      </div>
+      <div class="pane-body">
+        <div class="intake-incremental-cue">
+          <strong>Incremental Mode</strong>
+          Pipeline already complete. Dropping new files here will classify them, route to the affected modules, and refresh only those (plus their downstream dependents). The existing run is preserved.
+        </div>
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">+</div>
+          <div class="dropzone-text">Drop submission docs</div>
+          <div class="dropzone-hint">PDF · DOCX · XLSX · MSG · EML · CSV · TXT · HTML · RTF</div>
+          <input type="file" id="fileInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.eml,.msg,.html,.htm,.rtf">
+        </div>
+
+        <!-- ============ WEBSITE SCRAPE (Session 8) ============
+             Auto-search by name is the primary path. Manual URL is the fallback
+             when the auto-search can't find the domain or the user has a specific
+             URL they want scraped. -->
+        <div class="web-intake" id="webIntake">
+          <div class="web-intake-head">
+            <span class="web-intake-eyebrow">Insured Website Scrape</span>
+            <span class="web-intake-sub">Auto-finds the insured's website by name, then crawls homepage + all nav/footer links 2 levels deep. Extracts services, markets, safety, projects.</span>
+          </div>
+          <div class="web-intake-tabs">
+            <button class="web-tab active" id="webTabFind" onclick="setWebTab('find')">Auto-Find</button>
+            <button class="web-tab" id="webTabUrl" onclick="setWebTab('url')">Manual URL</button>
+          </div>
+
+          <!-- Tab: Find by Name + Zip (default/primary) -->
+          <div class="web-tab-body" id="webBodyFind">
+            <input type="text" class="web-input" id="webNameInput" placeholder="Named Insured"
+                   onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
+            <input type="text" class="web-input" id="webZipInput" placeholder="ZIP or City (helps disambiguation)" maxlength="20"
+                   onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
+            <button class="btn web-action-btn" id="btnFindAndScrape" onclick="findAndScrapeWebsite()">
+              <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M12 12 L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              Find & Crawl
+            </button>
+            <div class="web-hint">Claude identifies the authoritative domain (filters out Yelp/BBB/LinkedIn) then scrapes it. Uses the authenticated LLM proxy. If no URL found, switches to Manual URL tab.</div>
+          </div>
+
+          <!-- Tab: Manual URL (fallback) -->
+          <div class="web-tab-body" id="webBodyUrl" style="display: none;">
+            <input type="url" class="web-input" id="webUrlInput" placeholder="https://www.acmecontractors.com"
+                   onkeypress="if(event.key==='Enter'){event.preventDefault();scrapeWebsiteFromUrl();}">
+            <button class="btn web-action-btn" id="btnScrapeUrl" onclick="scrapeWebsiteFromUrl()">
+              <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><path d="M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M3 10 L17 10 M10 3 C6 6 6 14 10 17 C14 14 14 6 10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Crawl Site
+            </button>
+            <div class="web-hint">Use when auto-find can't locate the site, or when you have a specific URL to scrape. Browser-side BFS crawl with sitemap discovery + Jina fallback (~30-60s, up to 30 pages).</div>
+          </div>
+
+          <!-- Progress / status display -->
+          <div class="web-status" id="webStatus" style="display: none;"></div>
+        </div>
+
+        <div class="file-list" id="fileList"></div>
+
+        <div class="files-footer" id="filesFooter" style="display: none;">
+          <span id="filesClassified">0/0 parsed</span>
+          <span id="filesRoutingOk"></span>
+        </div>
+
+        <button class="btn-run" id="btnRun" onclick="runPipeline()" disabled>
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 4 L15 10 L5 16 Z" fill="currentColor"/></svg>
+          <span id="btnRunLabel">Drop files to begin</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- CENTER: Pipeline / Summary -->
+    <div class="pane center-pane">
+      <div class="pane-head">
+        <h3>Workbench</h3>
+        <div class="stage-tabs">
+          <button class="stage-tab active" id="stageTabPipe" onclick="showStage('pipe')">
+            Pipeline
+          </button>
+          <button class="stage-tab" id="stageTabSum" onclick="showStage('sum')" disabled>
+            Summary <span class="count" id="sumCount">0</span>
+          </button>
+          <button class="stage-tab" id="stageTabDocs" onclick="showStage('docs')">
+            Documents <span class="count" id="docsCount">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- PIPELINE STAGE -->
+      <div id="pipelineStage">
+
+        <div class="pipeline-empty" id="pipelineEmpty">
+          <!-- v8.6.48: wrapped in spotlight-card.signal.centered so the
+               awaiting state reads as an intentional AI pause moment
+               instead of a generic empty state. Inner DOM unchanged
+               so the existing JS (id="pipelineEmptyHeading", id="pipelineEmptyBody")
+               that updates the copy on file drop still works. -->
+          <div class="spotlight-card signal centered">
+            <div class="pipeline-empty-icon">◢</div>
+            <div class="spotlight-label">Pipeline</div>
+            <h2 id="pipelineEmptyHeading" class="spotlight-value">Pipeline waiting</h2>
+            <p id="pipelineEmptyBody" class="spotlight-sub">Drop broker documents to begin. Files appear in the intake queue immediately, then the pipeline unlocks when parsing is complete.</p>
+          </div>
+        </div>
+
+        <div class="pipeline-flow" id="pipelineFlow" style="display: none;">
+          <div class="pipeline-meta">
+            <div class="pipeline-status"><strong id="pipeStatus">Initializing…</strong></div>
+            <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+            <div class="pipeline-timer"><strong id="pipeTimer">0.0s</strong></div>
+          </div>
+
+          <!-- Stage 0 — Classifier -->
+          <div class="pipe-stage">
+            <div class="pipe-stage-label">Stage 0<em>Classify</em></div>
+            <div class="pipe-nodes" id="stageClassifier"></div>
+          </div>
+
+          <!-- Wave 1 — Parallel extractors (A1-A5, A7, A11-A14) -->
+          <div class="pipe-stage">
+            <div class="pipe-stage-label">Stage 1<em>Extract · 10 parallel</em></div>
+            <div class="pipe-nodes" id="wave1"></div>
+          </div>
+
+          <!-- Wave 2 — Summary of Ops (depends on A1-A5) -->
+          <div class="pipe-stage">
+            <div class="pipe-stage-label">Stage 2<em>Synthesize</em></div>
+            <div class="pipe-nodes" id="wave2"></div>
+          </div>
+
+          <!-- Wave 3 — Guidelines, Exposure, Strengths (depend on A6) -->
+          <div class="pipe-stage">
+            <div class="pipe-stage-label">Stage 3<em>Analyze · 3 parallel</em></div>
+            <div class="pipe-nodes" id="wave3"></div>
+          </div>
+
+          <!-- Wave 4 — Referral Email -->
+          <div class="pipe-stage">
+            <div class="pipe-stage-label">Stage 4<em>Deliver</em></div>
+            <div class="pipe-nodes" id="wave4"></div>
+          </div>
+
+          <div id="pipeDone" style="display: none;">
+            <div class="pipeline-done">
+              <div class="pipeline-done-icon">✓</div>
+              <div class="pipeline-done-text">
+                <strong>Pipeline complete</strong>
+                <p>17/17 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
+              </div>
+              <button class="btn-view-summary" onclick="showStage('sum')">
+                View Summary
+                <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUMMARY STAGE -->
+      <div class="summary-view" id="summaryStage">
+        <div class="summary-meta">
+          <div class="summary-meta-text">
+            <strong>0/17 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <span class="save-indicator saved" id="saveIndicator"><span class="dot"></span><span id="saveIndicatorText">Ready</span></span>
+            <span class="sub-pill signal">AUDIT LOGGED</span>
+          </div>
+        </div>
+
+        <div style="padding: 8px 22px; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); background: var(--surface-2); align-items: center;">
+          <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.04em;">
+            Click any card body to edit · Ctrl+B for bold · ✎ edit · ✕ delete · ⟲ revert
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="add-docs-btn" onclick="triggerAddDocuments()" title="Add follow-up documents (broker email, updated loss run, etc.) — re-runs only affected modules">
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Add Documents
+            </button>
+            <button onclick="toggleAllCards(false)" style="font-family: var(--font-mono); font-size: 10px; padding: 4px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer; text-transform: uppercase; font-weight: 600;">Expand all</button>
+            <button onclick="toggleAllCards(true)" style="font-family: var(--font-mono); font-size: 10px; padding: 4px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer; text-transform: uppercase; font-weight: 600;">Collapse all</button>
+            <button onclick="clearAllEdits()" style="font-family: var(--font-mono); font-size: 10px; padding: 4px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer; text-transform: uppercase; font-weight: 600;" title="Revert every card to original AI output and delete custom cards">Reset all edits</button>
+          </div>
+        </div>
+
+        <div class="hidden-tray" id="hiddenTray">
+          <span>Hidden cards: <strong id="hiddenCount">0</strong></span>
+          <button onclick="restoreAllCards()">Restore all</button>
+        </div>
+
+        <!-- NEEDS CLASSIFICATION FOLDER — inbox-style list of files needing UW routing -->
+        <div class="needs-class-folder" id="classifierReview" style="display: none;">
+          <div class="ncf-header">
+            <div class="ncf-header-left">
+              <span class="ncf-folder-icon" aria-hidden="true">
+                <svg width="20" height="15" viewBox="0 0 20 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 3.5C1 2.67 1.67 2 2.5 2H7.5L9 4H17.5C18.33 4 19 4.67 19 5.5V12.5C19 13.33 18.33 14 17.5 14H2.5C1.67 14 1 13.33 1 12.5V3.5Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                </svg>
+              </span>
+              <div class="ncf-title-stack">
+                <span class="ncf-eyebrow">Folder</span>
+                <span class="ncf-title" id="crTitleText">Needs Classification</span>
+              </div>
+              <span class="ncf-count-badge" id="ncfCountBadge">0</span>
+            </div>
+            <button class="ncf-collapse" id="ncfCollapseBtn" onclick="toggleNcfCollapse()" title="Collapse / expand folder">−</button>
+          </div>
+          <div class="ncf-body" id="ncfBody">
+            <div class="ncf-sub">Inbox-style view of files the classifier couldn't route confidently. Use <strong>Send to…</strong> on each row to manually route, or click <strong>Confirm</strong> to accept the AI's guess. Pipeline ran with best guesses — re-run only affected modules after routing changes.</div>
+            <div id="crList"></div>
+          </div>
+        </div>
+
+        <!-- PINNED HANDOFF NOTE — shows UW's note to assistant OR assistant's return note to UW -->
+        <div class="handoff-note-banner" id="handoffNoteBanner" style="display: none;">
+          <div class="hnb-head">
+            <div class="hnb-head-left">
+              <span class="hnb-icon" id="hnbIcon" aria-hidden="true"></span>
+              <div class="hnb-title-stack">
+                <span class="hnb-eyebrow" id="hnbEyebrow">Note from UW</span>
+                <span class="hnb-title" id="hnbTitle"></span>
+              </div>
+            </div>
+            <span class="hnb-timestamp" id="hnbTimestamp"></span>
+          </div>
+          <div class="hnb-body" id="hnbBody"></div>
+        </div>
+
+        <div class="summary-cards" id="summaryCards"></div>
+
+        <div class="add-custom-row">
+          <button class="btn-add-custom" onclick="addCustomCard()">+ Add Custom Note / Section</button>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           DOCUMENTS STAGE — Speed File Manager (native port)
+           ═══════════════════════════════════════════════════════════════════
+           The prototype's full UI is mounted directly inside Altitude's
+           submission view, hidden by default. showStage('docs') toggles
+           visibility via body.docs-fullwidth, and the #docs-view-root
+           container is positioned fixed/inset:0/z-index:9999 so it overlays
+           every other Altitude stage and chrome element.
+
+           CSS is namespaced under #docs-view-root in /documents-view.css —
+           the prototype's class names (.topbar, .modal, .btn, etc.) cannot
+           collide with Altitude's identical class names because every
+           selector lives behind the namespace.
+
+           Module entry: /documents-view.js exposes initDocumentsView() which
+           is called once at app boot.
+           ═══════════════════════════════════════════════════════════════ -->
+      <div id="docs-view-root">
+      <div class="app">
+
+        <!-- ══════ TOPBAR ══════ -->
+        <header class="topbar">
+          <div class="topbar-left">
+            <a class="brand" href="#" id="docsBackToAltitude" title="Back to Altitude">
+              <div class="brand-mark">S</div>
+              <div class="brand-text">
+                <div class="brand-name">Speed to Market AI</div>
+                <div class="brand-sub">Document Workspace</div>
+              </div>
+            </a>
+          </div>
+
+          <div class="topbar-center">
+            <!-- Submission scope chip — visible only when the docs view is
+                 opened from a submission context. Click × to clear filter
+                 and show all docs across submissions. -->
+            <div class="submission-chip" id="submissionChip" style="display:none;" title="Viewing only this submission's documents. Click × to show all.">
+              <svg class="submission-chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span class="submission-chip-label" id="submissionChipLabel">Submission</span>
+              <button class="submission-chip-clear" id="submissionChipClear" title="Show all submissions">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <button class="tools-btn" id="toolsBtn" title="Open annotation tools">
+              <svg class="tools-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+                <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <rect x="10" y="10" width="4" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+              </svg>
+              <span class="tools-btn-label">TOOLS</span>
+              <span class="tools-btn-active" id="toolsBtnActive"></span>
+              <svg class="tools-btn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+
+            <!-- Topbar search (moved from docs panel) -->
+            <div class="topbar-search">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" class="search-input" id="searchInput" placeholder="Search documents…">
+              <span class="search-counter" id="searchCounter"></span>
+              <button class="search-nav-btn" id="searchPrev" title="Previous match (Shift+Enter)" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button class="search-nav-btn" id="searchNext" title="Next match (Enter)" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <button class="search-clear" id="searchClear" title="Clear search (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+
+            <!-- Topbar utility icons (view toggle + sort) -->
+            <div class="topbar-utils">
+              <div class="view-toggle">
+                <button class="active" data-view="thumbnail" title="Thumbnail view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+                <button data-view="list" title="List view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+              </div>
+              <div class="sort-wrap">
+                <button class="sort-btn" id="sortBtn" title="Sort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg></button>
+                <div class="sort-menu" id="sortMenu">
+                  <button class="sort-option active" data-sort="newest">Newest First</button>
+                  <button class="sort-option" data-sort="oldest">Oldest First</button>
+                  <button class="sort-option" data-sort="name-asc">Name A → Z</button>
+                  <button class="sort-option" data-sort="name-desc">Name Z → A</button>
+                  <button class="sort-option" data-sort="type">By Type</button>
+                </div>
+              </div>
+              <button class="btn-icon" id="clearAllBtn" title="Clear all documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+            </div>
+
+            <span class="topbar-category" id="activeCategoryLabel">All Documents</span>
+            <!-- Hidden legacy element kept for existing JS references -->
+            <span id="dvDocsCount" style="display:none">0</span>
+          </div>
+
+          <div class="topbar-right">
+            <!-- Cloud sync status — visible only when writes are failing.
+                 Tap for details. Defaults to hidden; documents-view.js
+                 toggles visibility based on the cloudSync state machine. -->
+            <button class="cloud-sync-badge" id="cloudSyncBadge" style="display:none;" title="Cloud sync paused — your changes are saved locally only. Click for details.">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+              </svg>
+              <span class="cloud-sync-label">Sync paused</span>
+            </button>
+            <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            </button>
+            <button class="btn btn-primary" id="uploadBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload Documents
+            </button>
+            <input type="file" id="dvFileInput" multiple accept=".pdf,.xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm,.doc,.docx,.rtf,.jpg,.jpeg,.png,.tiff,.tif,.gif,.webp,.bmp,.eml,.msg,.oft,.pptx,.ppt,.ppsx,.potx,.potm,.pptm,.csv,.tsv,.txt,.log,.md,.zip,.rar,.7z,.tar,.gz" style="display:none">
+          </div>
+        </header>
+
+        <!-- ══════ 3-COLUMN WORKSPACE ══════ -->
+        <main class="workspace">
+
+          <!-- LEFT: Documents panel -->
+          <aside class="docs-panel">
+
+            <!-- Bulk bar -->
+            <div class="bulk-bar" id="bulkBar">
+              <div class="bulk-count"><b id="bulkCount">0</b> selected</div>
+              <div class="bulk-actions">
+                <button class="bulk-btn" data-bulk="tag" title="Tag all"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
+                <button class="bulk-btn" data-bulk="color-red" title="Loss History"><span class="mini-dot red"></span></button>
+                <button class="bulk-btn" data-bulk="color-maroon" title="Cancellations"><span class="mini-dot maroon"></span></button>
+                <button class="bulk-btn" data-bulk="color-blue" title="Policy"><span class="mini-dot blue"></span></button>
+                <button class="bulk-btn" data-bulk="color-green" title="Applications"><span class="mini-dot green"></span></button>
+                <button class="bulk-btn" data-bulk="color-yellow" title="Underlying"><span class="mini-dot yellow"></span></button>
+                <button class="bulk-btn" data-bulk="color-purple" title="Project"><span class="mini-dot purple"></span></button>
+                <button class="bulk-btn" data-bulk="color-orange" title="Subjectivity"><span class="mini-dot orange"></span></button>
+                <button class="bulk-btn" data-bulk="color-pink" title="Quote / Indication"><span class="mini-dot pink"></span></button>
+                <button class="bulk-btn" data-bulk="color-black" title="Underwriting"><span class="mini-dot black"></span></button>
+                <button class="bulk-btn" data-bulk="move" title="Move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
+                <button class="bulk-btn" data-bulk="download" title="Download as ZIP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                <button class="bulk-btn danger" data-bulk="delete" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+                <button class="bulk-btn" id="bulkClose" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+              </div>
+            </div>
+
+            <!-- Docs list -->
+            <div class="docs-list" id="docsList" data-view="thumbnail">
+              <div class="docs-empty" id="docsEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div class="docs-empty-title">No documents yet</div>
+                <div class="docs-empty-sub">Drop files here or click Upload Documents</div>
+              </div>
+            </div>
+          </aside>
+
+          <div class="resizer" id="resizer1"></div>
+
+          <!-- CENTER: Categories -->
+          <section class="categories-panel">
+            <div class="cat-header">
+              <div>
+                <div class="cat-header-label">Categories</div>
+                <h1 class="cat-header-title">Document Library</h1>
+              </div>
+              <div class="cat-stats">
+                <span class="cat-stat-pill"><b id="totalDocs">0</b> Total</span>
+                <span class="cat-stat-pill"><b id="totalTagged">0</b> Tagged</span>
+              </div>
+            </div>
+            <div class="cat-grid" id="catGrid"></div>
+          </section>
+
+          <div class="resizer" id="resizer2"></div>
+
+          <!-- RIGHT: Tagged pages -->
+          <aside class="tags-panel">
+            <div class="tags-header">
+              <span class="tags-header-title">Tagged Pages</span>
+              <span class="tags-count-badge"><span id="tagsCount">0</span> pages</span>
+            </div>
+
+            <div class="color-filter">
+              <button class="color-filter-btn" id="colorFilterBtn">
+                <span class="color-filter-display">
+                  <span class="color-dot all"></span>
+                  <span id="colorFilterLabel">All Colors</span>
+                </span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="color-filter-menu" id="colorFilterMenu">
+                <button class="color-option active" data-filter="all"><span class="color-dot all"></span>All Colors</button>
+                <!-- Pipeline-routed categories (auto-classified) -->
+                <button class="color-option" data-filter="red"><span class="color-dot red"></span>Loss History</button>
+                <button class="color-option" data-filter="green"><span class="color-dot green"></span>Applications</button>
+                <button class="color-option" data-filter="yellow"><span class="color-dot yellow"></span>Underlying</button>
+                <button class="color-option" data-filter="purple"><span class="color-dot purple"></span>Project</button>
+                <button class="color-option" data-filter="pink"><span class="color-dot pink"></span>Correspondence</button>
+                <button class="color-option" data-filter="orange"><span class="color-dot orange"></span>Compliance</button>
+                <button class="color-option" data-filter="maroon"><span class="color-dot maroon"></span>Administration</button>
+                <!-- Manual-only categories -->
+                <button class="color-option" data-filter="teal"><span class="color-dot teal"></span>Quotes &amp; Indications</button>
+                <button class="color-option" data-filter="magenta"><span class="color-dot magenta"></span>Cancellations</button>
+                <button class="color-option" data-filter="blue"><span class="color-dot blue"></span>Policy</button>
+                <button class="color-option" data-filter="coral"><span class="color-dot coral"></span>Subjectivity</button>
+                <button class="color-option" data-filter="black"><span class="color-dot black"></span>Underwriting</button>
+              </div>
+            </div>
+
+            <div class="tags-list" id="tagsList">
+              <div class="tags-empty" id="tagsEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <div class="tags-empty-title">No tagged pages</div>
+                <div class="tags-empty-sub">Tag pages to organize</div>
+              </div>
+            </div>
+
+            <div class="tags-footer">
+              <button class="btn" id="exportTaggedBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export PDF
+              </button>
+              <button class="btn" id="clearTaggedBtn">Clear Tags</button>
+            </div>
+          </aside>
+        </main>
+      </div>
+
+      <!-- ══════ Floating Annotation Toolbox (draggable) ══════ -->
+      <div class="anno-toolbox" id="annoToolbox" role="toolbar" aria-label="Annotation tools">
+        <div class="anno-toolbox-header" id="annoToolboxHandle">
+          <div class="anno-toolbox-grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <span class="anno-toolbox-title">Annotate</span>
+          <button class="anno-toolbox-btn" id="annoToolboxMin" title="Collapse">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+        <div class="anno-toolbox-body">
+          <div class="anno-tools-row">
+            <button class="anno-btn active" data-tool="pointer" title="Select (V)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 10-7 2-3 7L4 2z"/></svg></button>
+            <div class="anno-divider"></div>
+            <button class="anno-btn" data-tool="pen" title="Pen (P)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+            <button class="anno-btn" data-tool="highlighter" title="Highlighter (H)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h3l6-6"/><path d="M14 4l6 6-9 9-6-6z"/></svg></button>
+            <div class="anno-divider"></div>
+            <button class="anno-btn" data-tool="rectangle" title="Rectangle (U)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg></button>
+            <button class="anno-btn" data-tool="ellipse" title="Ellipse (O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button>
+            <button class="anno-btn" data-tool="arrow" title="Arrow (A)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg></button>
+            <button class="anno-btn" data-tool="line" title="Line (L)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+            <div class="anno-divider"></div>
+            <button class="anno-btn" data-tool="text" title="Text (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
+            <button class="anno-btn" data-tool="sticky" title="Sticky Note (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+            <div class="anno-divider"></div>
+            <button class="anno-btn" data-tool="eraser" title="Eraser (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-7-7 9-9 10 10-4 6z"/><line x1="22" y1="22" x2="16" y2="16"/></svg></button>
+          </div>
+
+          <div class="anno-options-row">
+            <span class="anno-label">Color</span>
+            <div class="anno-swatches">
+              <button class="anno-swatch active" data-color="#F87171" style="background:#F87171" title="Red"></button>
+              <button class="anno-swatch" data-color="#60A5FA" style="background:#60A5FA" title="Blue"></button>
+              <button class="anno-swatch" data-color="#7DD88A" style="background:#7DD88A" title="Green"></button>
+              <button class="anno-swatch" data-color="#FBBF24" style="background:#FBBF24" title="Yellow"></button>
+              <button class="anno-swatch" data-color="#00D4FF" style="background:#00D4FF" title="Orange"></button>
+              <button class="anno-swatch" data-color="#A78BFA" style="background:#A78BFA" title="Purple"></button>
+              <button class="anno-swatch" data-color="#F472B6" style="background:#F472B6" title="Pink"></button>
+              <button class="anno-swatch" data-color="#0A2540" style="background:#0A2540" title="Black"></button>
+              <button class="anno-swatch" data-color="#FFFFFF" style="background:#FFFFFF; border-color:#C0CCDA" title="White"></button>
+            </div>
+
+            <div class="anno-divider"></div>
+            <span class="anno-label">Stroke</span>
+            <div class="anno-strokes">
+              <button class="anno-stroke-btn" data-width="2" title="Thin"><span class="anno-stroke-preview" style="height:2px"></span></button>
+              <button class="anno-stroke-btn active" data-width="4" title="Medium"><span class="anno-stroke-preview" style="height:4px"></span></button>
+              <button class="anno-stroke-btn" data-width="8" title="Thick"><span class="anno-stroke-preview" style="height:8px"></span></button>
+            </div>
+
+            <div id="opacityGroup" class="opt-group">
+              <div class="anno-divider"></div>
+              <span class="anno-label">Opacity</span>
+              <input type="range" class="anno-opacity" id="opacitySlider" min="5" max="50" value="15">
+            </div>
+
+            <div id="fontSizeGroup" class="opt-group">
+              <div class="anno-divider"></div>
+              <span class="anno-label">Size</span>
+              <div class="anno-fontsize-btns">
+                <button class="anno-fontsize-btn" data-size="14">S</button>
+                <button class="anno-fontsize-btn active" data-size="18">M</button>
+                <button class="anno-fontsize-btn" data-size="26">L</button>
+              </div>
+            </div>
+
+            <div id="fillGroup" class="opt-group">
+              <div class="anno-divider"></div>
+              <span class="anno-label">Fill</span>
+              <button class="anno-fill-toggle" id="fillToggle" title="Toggle fill">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4L4 18h16L12 4z"/></svg>
+              </button>
+            </div>
+
+            <div class="anno-action-group">
+              <button class="btn btn-primary anno-preview-btn" id="fullscreenBtn" title="Preview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                Preview
+              </button>
+              <div class="anno-divider" style="margin:0 4px"></div>
+              <button class="anno-action-btn" id="undoBtn" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>
+              <button class="anno-action-btn" id="redoBtn" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
+              <button class="anno-action-btn danger" id="clearAnnoBtn" title="Clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ Overlays (drop zone, modal, context menu, preview) ══════ -->
+
+      <div class="drop-overlay" id="dropOverlay" role="status" aria-live="polite" aria-hidden="true">
+        <div class="drop-content">
+          <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <div class="drop-title">Drop files to upload</div>
+          <div class="drop-sub">PDF · Excel · Word · Images</div>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="categoryModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">Assign to Category</div>
+            <div class="modal-sub" id="modalSub">Select a category</div>
+          </div>
+          <div class="modal-cat-grid" id="modalCatGrid"></div>
+          <div class="modal-footer">
+            <button class="btn" id="modalCancel">Cancel</button>
+            <button class="btn btn-primary" id="modalConfirm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="20 6 9 17 4 12"/></svg>
+              <span id="modalConfirmLabel">Upload</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="context-menu" id="contextMenu" role="menu">
+        <button class="ctx-item" data-act="preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Preview<kbd>Space</kbd></button>
+        <button class="ctx-item" data-act="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Toggle Tag<kbd>T</kbd></button>
+        <div class="ctx-sep"></div>
+        <button class="ctx-item" data-act="color-red"><span class="mini-dot red"></span>Loss History</button>
+        <button class="ctx-item" data-act="color-maroon"><span class="mini-dot maroon"></span>Cancellations</button>
+        <button class="ctx-item" data-act="color-blue"><span class="mini-dot blue"></span>Policy</button>
+        <button class="ctx-item" data-act="color-green"><span class="mini-dot green"></span>Applications</button>
+        <button class="ctx-item" data-act="color-yellow"><span class="mini-dot yellow"></span>Underlying</button>
+        <button class="ctx-item" data-act="color-purple"><span class="mini-dot purple"></span>Project</button>
+        <button class="ctx-item" data-act="color-orange"><span class="mini-dot orange"></span>Subjectivity</button>
+        <button class="ctx-item" data-act="color-pink"><span class="mini-dot pink"></span>Quote / Indication</button>
+        <button class="ctx-item" data-act="color-black"><span class="mini-dot black"></span>Underwriting</button>
+        <button class="ctx-item" data-act="color-clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Clear Color</button>
+        <div class="ctx-sep"></div>
+        <button class="ctx-item" data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>Rename</button>
+        <button class="ctx-item" data-act="move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>Move to Folder</button>
+        <button class="ctx-item" data-act="download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+        <div class="ctx-sep"></div>
+        <button class="ctx-item danger" data-act="delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>Delete<kbd>Del</kbd></button>
+      </div>
+
+      <div class="preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="Document preview">
+        <div class="preview-header">
+          <div class="preview-title-wrap">
+            <input type="text" class="preview-title" id="previewTitle" readonly>
+            <button class="btn-icon" id="previewTitleEdit" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+          </div>
+          <div class="preview-actions">
+            <div class="preview-nav">
+              <button class="preview-nav-btn" id="previewPrev" title="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <div class="preview-counter" id="previewCounter">1 / 1</div>
+              <button class="preview-nav-btn" id="previewNext" title="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+            <button class="preview-btn preview-btn-primary" id="previewOCR" title="Run OCR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg><span id="ocrLabel">OCR</span></button>
+            <button class="preview-btn" id="previewCopy" title="Copy text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+            <div class="preview-color-wrap">
+              <button class="preview-btn" id="previewColorBtn" title="Color tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg></button>
+              <div class="color-picker-menu preview-dropdown" id="previewColorMenu">
+                <div class="color-grid" id="previewColorGrid"></div>
+                <button class="color-clear-btn" id="previewColorClear">Clear</button>
+              </div>
+            </div>
+            <button class="preview-btn" id="previewTag" title="Toggle tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
+            <button class="preview-btn" id="previewZoomOut" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+            <button class="preview-btn" id="previewZoomIn" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+            <button class="preview-btn" id="previewRotate" title="Rotate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
+            <button class="preview-btn" id="previewDownload" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <button class="preview-btn" id="previewClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+        </div>
+        <div class="preview-body" id="previewBody"></div>
+      </div>
+
+      <div class="loading-overlay" id="loadingOverlay" role="status" aria-live="polite">
+        <div class="loading-box">
+          <div class="loading-spinner"></div>
+          <div class="loading-title" id="loadingTitle">Processing</div>
+          <div class="loading-sub" id="loadingSub">Starting…</div>
+          <div class="loading-progress"><div class="loading-fill" id="loadingFill" style="width:0%"></div></div>
+          <div class="loading-pct" id="loadingPct">0%</div>
+        </div>
+      </div>
+
+      <div class="toast-stack" id="toastStack" role="status" aria-live="polite" aria-atomic="false"></div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: Actions -->
+    <aside class="pane actions-pane">
+      <div class="pane-head">
+        <h3>Decision</h3>
+      </div>
+      <div class="pane-body">
+
+        <div class="verdict-card" id="verdictCard">
+          <div class="verdict-label">Recommendation</div>
+          <div class="verdict-value">Awaiting pipeline</div>
+          <div class="verdict-sub">Run the pipeline to see recommendation.</div>
+        </div>
+
+        <div class="action-btns">
+          <button class="act-btn primary" id="btnExcel" onclick="exportExcel()" disabled>
+            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M4 8h12 M4 12h12 M8 4v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            Export Excel Pack
+          </button>
+          <button class="act-btn" id="btnMd" onclick="exportMarkdown()" disabled>
+            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 12 L7 8 L9 10 L11 8 L11 12 M13 8 L13 12 L15 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Download Markdown
+          </button>
+          <button class="act-btn" id="btnAuditExport" onclick="exportAudit()">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M7 9h6 M7 12h6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            Export Audit JSON
+          </button>
+          <button class="act-btn" id="btnRerunGuidelines" onclick="rerunGuidelines()" disabled title="Re-run the guidelines cross-reference (useful when guidelines have been updated or account has cleared 90-120 days out)">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M4 10 A6 6 0 0 1 16 10 M16 10 L18 8 M16 10 L14 8 M16 10 A6 6 0 0 1 4 10 M4 10 L2 12 M4 10 L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Re-run Guidelines
+          </button>
+          <div class="handoff-divider" id="handoffDivider"></div>
+          <button class="act-btn handoff-btn" id="btnSendToAssistant" onclick="openSendToAssistantModal()" disabled title="Send this submission to an assistant for review / QC">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M3 10 L17 10 M12 5 L17 10 L12 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="3" cy="10" r="1.5" fill="currentColor"/></svg>
+            Send to Assistant
+          </button>
+          <button class="act-btn handoff-btn" id="btnReturnToUw" onclick="openReturnToUwModal()" style="display: none;" title="Return this submission to the underwriter with your notes">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M17 10 L3 10 M8 5 L3 10 L8 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="10" r="1.5" fill="currentColor"/></svg>
+            Return to UW
+          </button>
+          <button class="act-btn handoff-btn ghost" id="btnToggleAssistantView" onclick="toggleAssistantView()" style="display: none;" title="Switch between UW and Assistant perspectives">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="7" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 16 C3 13 5 12 7 12 C9 12 11 13 11 16 M9 16 C9 13 11 12 13 12 C15 12 17 13 17 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span id="toggleViewLabel">View as Assistant</span>
+          </button>
+        </div>
+
+        <div class="meta-block">
+          <h4>Submission</h4>
+          <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">DEMO</span></div>
+          <div class="meta-row" id="sidebarCostRow"><span class="meta-row-label">Run cost</span><span class="meta-row-value" id="sidebarRunCost">$0.00</span></div>
+        </div>
+
+        <div class="meta-block">
+          <h4>Audit</h4>
+          <div class="meta-row"><span class="meta-row-label">Pipeline run</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
+          <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">0</span></div>
+          <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">—</span></div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+</section>
+
+<!-- ============ ADMIN VIEW ============ -->
+<section class="view" id="view-admin">
+  <div class="page-head">
+    <div class="page-eyebrow">02 · Admin</div>
+    <h1 class="page-title">Carrier configuration</h1>
+    <p class="page-sub">Six screens that separate a prototype from a product. Users, guidelines, appetite thresholds, prompt overrides, integrations, audit export.</p>
+  </div>
+
+  <div class="admin-grid">
+    <div class="admin-card" id="usersAdminCard">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M4 20s2-6 8-6 8 6 8 6" stroke-linecap="round"/></svg>
+      </div>
+      <div class="admin-card-title">Users &amp; roles</div>
+      <div class="admin-card-desc">Active accounts on this Altitude tenant. Role and submission count per user. Sign-ups create profile rows automatically via Supabase Auth trigger.</div>
+      <div class="admin-card-status" id="usersAdminStatus">— USERS · — ROLES</div>
+      <div id="usersAdminList" style="display: none;"></div>
+    </div>
+
+    <div class="admin-card" onclick="toast('Guidelines — upload, version, diff, publish')">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4 M8 13h8M8 17h6" stroke-linecap="round"/></svg>
+      </div>
+      <div class="admin-card-title">Guidelines</div>
+      <div class="admin-card-desc">Upload UW guide. Extract appetite rules, state restrictions, attachment minimums. Every published version dated and diffable.</div>
+      <div class="admin-card-status">V 2026.3 · PUBLISHED 1/1/26</div>
+    </div>
+
+    <div class="admin-card" onclick="toast('Appetite thresholds — tunable confidence gates for STP vs QA')">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h5l3-6 3 12 3-6h2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="admin-card-title">Confidence thresholds</div>
+      <div class="admin-card-desc">Tune when fields pass straight through vs route to QA. Per-module sliders. Every change logged to audit.</div>
+      <div class="admin-card-status">STP GATE: 92% · QA GATE: 78%</div>
+    </div>
+
+    <div class="admin-card" onclick="toast('Prompt library — tune extraction prompts per carrier')">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4z M8 10h8M8 14h5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="admin-card-title">Prompt overrides</div>
+      <div class="admin-card-desc">Tune extraction prompts for your book. Side-by-side evaluation on historical submissions before publishing.</div>
+      <div class="admin-card-status">17 MODULES · 3 OVERRIDDEN</div>
+    </div>
+
+    <div class="admin-card" onclick="toast('Integrations — O365 inbox, Guidewire write-back, SharePoint')">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a4 4 0 1 0 6 0l2-2a5 5 0 0 0-7-7l-1 1 M14 11a4 4 0 1 0-6 0l-2 2a5 5 0 0 0 7 7l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="admin-card-title">Integrations</div>
+      <div class="admin-card-desc">Microsoft Graph for broker-email intake. SharePoint / OneDrive / Box. Guidewire &amp; Duck Creek write-back.</div>
+      <div class="admin-card-status">O365 CONNECTED · GW PENDING</div>
+    </div>
+
+    <div class="admin-card" onclick="toast('Audit export — CSV, JSON, SOC-2-ready PDF')">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-0.5-8-4-8-9V7l8-4z" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="admin-card-title">Audit &amp; compliance</div>
+      <div class="admin-card-desc">Every field change, every prompt version, every reviewer sign-off. Export as CSV, JSON, or SOC-2-ready PDF.</div>
+      <div class="admin-card-status">18,324 EVENTS · LAST 30D</div>
+    </div>
+
+    <div class="admin-card" id="feedbackAdminCard">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12c0 3.866-4.03 7-9 7-1.36 0-2.64-.237-3.79-.661L3 20l1.704-4.222C3.642 14.496 3 13.302 3 12c0-3.866 4.03-7 9-7s9 3.134 9 7z" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="admin-card-title">Feedback loop</div>
+      <div class="admin-card-desc">Card-level 👍 / 👎 / 💬 from underwriters. Compiled monthly to improve prompts and model behavior. Every event attributed, every comment preserved.</div>
+      <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
+      <div id="feedbackAdminList" style="display: none;"></div>
+      <div style="margin-top: 12px; display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
+        <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Phase 6 step 6: LLM spend card. Links out to Anthropic Console because
+         per-call telemetry isn't persisted in Supabase yet (planned follow-up).
+         What's real and local: rate limits enforced by the llm-proxy Edge Function. -->
+    <div class="admin-card" id="llmSpendAdminCard">
+      <div class="admin-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="8"/>
+          <path d="M12 7v10 M9 10h4.5a1.5 1.5 0 0 1 0 3H9h5a1.5 1.5 0 0 1 0 3H9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="admin-card-title">LLM spend</div>
+      <div class="admin-card-desc">Token usage and cost across every Claude call from Altitude. Hourly and daily rate limits are enforced server-side at the Edge Function. Aggregate spend and per-model breakdown live in the Anthropic Console — per-call persistence in Supabase is a planned follow-up.</div>
+      <div class="admin-card-status" id="llmSpendStatus">LIMITS: 120/HR · 1000/DAY · 3 MODELS</div>
+      <div style="margin-top: 12px; display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="audit-log collapsed" id="auditLogContainer">
+    <h3 class="audit-header-toggle" onclick="toggleAuditLog()" style="display:flex; justify-content: space-between; align-items: center;">
+      <span><span class="audit-chevron">▾</span>Live Audit Log<span class="audit-count" id="auditCount"></span></span>
+      <span style="display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); exportAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Export JSON</button>
+        <button onclick="event.stopPropagation(); refreshAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Refresh</button>
+      </span>
+    </h3>
+    <div id="auditEntries"><div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">No events yet. Upload files and run the pipeline to populate the audit log.</div></div>
+  </div>
+
+</section>
+
+</main>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-backdrop" id="settingsModal" onclick="if(event.target===this) closeSettings()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button class="btn-icon" onclick="closeSettings()" style="border:none;">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 16px;">Model and token settings for the pipeline. The Anthropic API key is held server-side — you do not need to paste it here.</p>
+
+      <div class="form-group">
+        <label>Model</label>
+        <select id="apiModel">
+          <option value="claude-opus-4-7">claude-opus-4-7</option>
+          <option value="claude-sonnet-4-6" selected>claude-sonnet-4-6</option>
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+        </select>
+        <div class="form-hint">Default global model. Individual modules may override this based on reasoning / extraction preference.</div>
+      </div>
+      <div class="form-group">
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="forceGlobalModel" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--signal);">
+          <span>Force ALL modules to use the model above</span>
+        </label>
+        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 17 modules) goes through the model above. Use this for max-quality runs regardless of cost. ~50% more spend per submission with all-Opus vs. default routing.</div>
+      </div>
+      <div class="form-group">
+        <label>Max output tokens</label>
+        <input type="number" id="apiMaxTokens" value="4096" min="512" max="16384">
+        <div class="form-hint">Anthropic only generates as much as the response naturally needs — this is the ceiling, not the target. Default 4096 covers most modules. Raise to 8192 or 16384 for complex Loss History tables, large Excess Towers, or detailed Discrepancy reports. Server-side limit: 16384.</div>
+      </div>
+
+      <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line);">
+        <h3 style="font-family: var(--font-display); font-size: 16px; font-weight: 500; margin: 0 0 4px; color: var(--text);">Carrier Underwriting Guideline</h3>
+        <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Drop a PDF or Word doc, or paste the full guideline below. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
+
+        <!-- Guideline drop zone (Round 5 Fix #3) -->
+        <div id="guidelineDropZone" style="border: 2px dashed var(--line-warm); border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.18s; background: var(--surface-2); margin-bottom: 14px;"
+             ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='rgba(127,168,32,0.05)';"
+             ondragleave="event.preventDefault(); this.style.borderColor=''; this.style.background='';"
+             ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; handleGuidelineDrop(event);"
+             onclick="document.getElementById('guidelineFileInput').click()">
+          <div style="font-size: 13px; color: var(--text); margin-bottom: 4px;">📄  Drop a guideline PDF, DOCX, or TXT here</div>
+          <div style="font-size: 11px; color: var(--text-3);">or click to browse · max 10MB · text extracted client-side</div>
+          <input type="file" id="guidelineFileInput" accept=".pdf,.docx,.doc,.txt,.md" style="display: none;" onchange="handleGuidelineFileInput(event)">
+        </div>
+
+        <div class="form-group">
+          <label>Guideline text <span id="guidelineStatus" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.04em; float: right;"></span></label>
+          <textarea id="carrierGuideline" rows="8" placeholder="...or paste the full underwriting guideline here. The drop zone above is the easier path for PDFs and Word docs." style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+          <div class="form-hint">Leave empty to use the default embedded Zurich E&amp;S excerpt (~9.5K chars, 114-page guideline condensed).</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" onclick="resetGuidelineToDefault()" style="font-size: 10.5px;">Reset to Default</button>
+          <button class="btn" onclick="showDefaultGuideline()" style="font-size: 10.5px;">View Default</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEND TO ASSISTANT — UW writes a note and picks the assistant -->
+<div class="modal-backdrop" id="sendAssistantModal" onclick="if(event.target===this) closeSendToAssistantModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Send to Assistant</h2>
+      <button class="btn-icon" onclick="closeSendToAssistantModal()" style="border:none;">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 14px; color: var(--text-2); font-size: 13px; line-height: 1.5;">
+        The assistant will see every summary card, your note pinned at the top, and the full file inventory.
+        They can edit cards, add notes, and return the submission to you with their review notes.
+      </p>
+      <div class="form-group">
+        <label>Assign to</label>
+        <select id="handoffAssignee">
+          <option value="Tracy Savage">Tracy Savage · Underwriting Assistant</option>
+          <option value="Pappanastos">Pappanastos</option>
+          <option value="Craver">Craver</option>
+          <option value="Haq">Haq</option>
+          <option value="Turner">Turner</option>
+          <option value="Solis">Solis</option>
+          <option value="Tralongo">Tralongo</option>
+          <option value="Chavez">Chavez</option>
+          <option value="Wynter">Wynter</option>
+          <option value="Crenshaw">Crenshaw</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Note to assistant</label>
+        <textarea id="handoffUwNote" rows="6" placeholder="Please QC the following before I submit to senior UW:&#10;&#10;1. Verify primary carrier AM Best ratings (Starr A XV, Great American A+ XV)&#10;2. Confirm Employers Liability $500K minimum on primary AL&#10;3. Double-check NY Albany warehouse — is it pure storage or any construction ops?&#10;4. Loss runs: pull latest reserve values and confirm no late-reported claims&#10;&#10;Effective is 5/1 so not urgent but please circle back by 4/24.&#10;&#10;Thanks" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+        <div class="form-hint">Note will be pinned at the top of the summary when the assistant opens the submission. Plain text — keep it actionable.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSendToAssistantModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSendToAssistant()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- RETURN TO UW — Assistant writes their review note -->
+<div class="modal-backdrop" id="returnUwModal" onclick="if(event.target===this) closeReturnToUwModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Return to Underwriter</h2>
+      <button class="btn-icon" onclick="closeReturnToUwModal()" style="border:none;">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 14px; color: var(--text-2); font-size: 13px; line-height: 1.5;">
+        Your note will be pinned at the top of the submission when the underwriter opens it.
+        Any edits you've made to summary cards are already persisted.
+      </p>
+      <div class="form-group">
+        <label>Review notes to underwriter</label>
+        <textarea id="handoffAssistantNote" rows="7" placeholder="Review complete. Changes made:&#10;&#10;1. Verified AM Best — Starr A XV ✓, Great American A+ XV ✓&#10;2. Updated Primary AL card — confirmed Employers Liability $1M (exceeds $500K min)&#10;3. Added note on Albany: CONFIRMED pure storage per broker call with Rachel 4/23; no construction ops&#10;4. Loss runs: latest reserves pulled 4/23, 3 open GL claims total $22,300 (unchanged)&#10;&#10;Ready for senior UW. Referral triggers still in play — Tiffany Fann review required.&#10;&#10;Tracy" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeReturnToUwModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmReturnToUw()">Return to UW</button>
+    </div>
+  </div>
+</div>
+
+<!-- (Blocking review gate modal removed — replaced by non-blocking inline review banner in Summary view) -->
+
+<!-- ============ MANUAL-PASTE MODAL (Session 7) ============
+   Opened from the file list when a scanned PDF or unreadable format is detected.
+   User pastes visible text from the document; on save, the entry is upgraded from
+   needs_manual → parsed and the pipeline can route it normally. -->
+<div class="modal-backdrop" id="manualPasteModal" onclick="if(event.target===this) closeManualPasteModal()">
+  <div class="modal" style="max-width: 680px;">
+    <div class="modal-header">
+      <h2 id="mpmTitle">Paste document text</h2>
+      <button class="btn-icon" onclick="closeManualPasteModal()" style="border:none;">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="mpmWarning" style="padding: 10px 12px; margin-bottom: 14px; background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.28); border-left: 3px solid var(--warning); border-radius: 4px; font-size: 12px; color: var(--text-2); line-height: 1.5;"></div>
+      <p style="margin-bottom: 12px; color: var(--text-2); font-size: 13px; line-height: 1.5;">
+        Paste the document content below. The pipeline will classify and extract it the same as any text file.
+      </p>
+      <div class="form-group">
+        <label id="mpmLabel">Document text</label>
+        <textarea id="mpmTextarea" rows="16" placeholder="Paste the visible text from the PDF / PPT / image here…" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+      </div>
+      <div id="mpmCharCount" style="margin-top: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); letter-spacing: 0.04em;">0 chars · minimum 20 to save</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeManualPasteModal()">Cancel</button>
+      <button class="btn btn-primary" id="mpmSaveBtn" onclick="confirmManualPaste()" disabled>Save and classify</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- Phase 8 step 7: residue extraction. Defines window.STATE, window.sb, window.MOCKS, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
+<script src="pipeline-core.js"></script>
+<!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
+<script src="pipeline-supabase-data.js"></script>
+<!-- Phase 8 step 4: Admin operator-console renderers. Must load AFTER supabase-data.js (renderers call sb* helpers from there). -->
+<script src="pipeline-admin-views.js"></script>
+<!-- Phase 8 step 5: Website-scraping subsystem (BFS crawler, sitemap discovery, Jina fallback). Must load AFTER the inline init script (which defines llmProxyFetch). -->
+<script src="pipeline-scraper.js"></script>
+<!-- Phase 8 step 6: Pipeline subsystem (DAG, classifier, orchestrator, module fan-out). Must load AFTER prompts.js (uses PROMPTS), supabase-data.js (uses sb*), admin-views.js, scraper.js, and the inline init (uses llmProxyFetch, logAudit, etc). -->
+<script src="pipeline-engine.js"></script>
+<!-- Documents view (Speed File Manager — native port). Module exports
+     window.initDocumentsView() which app.js invokes once at boot. Must load
+     AFTER app.js (uses window.STATE / window.sb) and AFTER pdfjsLib + xlsx +
+     mammoth + jszip + jspdf are loaded in <head>. -->
+<script src="pipeline-documents-view.js"></script>
+
+
+</body>
+</html>
