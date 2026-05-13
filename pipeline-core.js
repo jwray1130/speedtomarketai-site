@@ -6617,6 +6617,24 @@ function switchView(name) {
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
 
+// Brand navigation behavior:
+// - From Submission/Admin views, return to the platform queue first.
+// - From Queue view, allow the link to navigate back to the public marketing site.
+(function wirePlatformBrandNavigation(){
+  const brand = document.getElementById('platformBrandNav');
+  if (!brand || brand.__stmBrandNavBound) return;
+  brand.__stmBrandNavBound = true;
+  brand.addEventListener('click', (event) => {
+    const queueView = document.getElementById('view-queue');
+    const isOnQueue = !!(queueView && queueView.classList.contains('active'));
+    if (!isOnQueue) {
+      event.preventDefault();
+      if (typeof switchView === 'function') switchView('queue');
+    }
+  });
+})();
+
+
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
 async function startNewSubmission() {
