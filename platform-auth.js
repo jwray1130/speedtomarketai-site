@@ -1,6 +1,6 @@
 // ============================================================================
 // platform-auth.js — Speed to Market AI runtime auth gate
-// Protects workbench.html with the same Supabase magic-link pattern used by
+// Protects platform.html and workbench.html with the same Supabase magic-link pattern used by
 // the pipeline app. Marketing index.html stays public.
 // ============================================================================
 (function () {
