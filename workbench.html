@@ -10,6 +10,12 @@
 <link rel="stylesheet" href="workbench-style.css">
 <link rel="stylesheet" href="pipeline-bridge.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<style>
+html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !important; }
+</style>
+<script>document.documentElement.classList.add('stm-auth-pending');</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="platform-auth.js" defer></script>
 <script>
 // Apply saved theme synchronously before render to prevent flash
 (function() {
