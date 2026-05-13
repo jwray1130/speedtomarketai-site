@@ -111,9 +111,15 @@ async function sendMagicLink() {
   const ok = document.getElementById('authSuccess');
   err.textContent = ''; ok.textContent = '';
   if (!email) { err.textContent = 'Enter your email.'; return; }
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin + window.location.pathname } });
-  if (error) { err.textContent = error.message; return; }
-  ok.textContent = 'Check your email for the sign-in link.';
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: window.location.origin + window.location.pathname
+    }
+  });
+  if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
+  ok.textContent = 'If that email is registered, you will receive a sign-in link shortly.';
 }
 
 async function signOut() {

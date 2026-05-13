@@ -92,10 +92,13 @@
     if (!email) { if (err) err.textContent = 'Enter your email.'; return; }
     const { error } = await client.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin + window.location.pathname }
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: window.location.origin + window.location.pathname
+      }
     });
-    if (error) { if (err) err.textContent = error.message; return; }
-    if (ok) ok.textContent = 'Check your email for the sign-in link.';
+    if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
+    if (ok) ok.textContent = 'If that email is registered, you will receive a sign-in link shortly.';
   }
 
   async function signOut() {
