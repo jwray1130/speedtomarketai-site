@@ -598,13 +598,30 @@ async function callLLM(systemPrompt, userContent, modelOverride) {
     messages: [{ role: 'user', content: wrappedUser }]
   };
   const data = await llmProxyFetch(body);
+  const textBlock = (data.content || []).find(b => b && b.type === 'text') || (data.content || [])[0];
+  const usage = {
+    input_tokens: (data.usage && data.usage.input_tokens) || 0,
+    output_tokens: (data.usage && data.usage.output_tokens) || 0,
+    model: model
+  };
+  if (!textBlock || typeof textBlock.text !== 'string') {
+    const err = new Error('LLM response did not contain a text block');
+    err.category = 'MODEL_EMPTY_RESPONSE';
+    err.usage = usage;
+    throw err;
+  }
+  if (data.stop_reason === 'max_tokens') {
+    const err = new Error('LLM output truncated at max_tokens; rerun this module with a higher token limit before relying on it');
+    err.category = 'MODEL_TRUNCATED';
+    err.stop_reason = data.stop_reason;
+    err.partialText = textBlock.text;
+    err.usage = usage;
+    throw err;
+  }
   return {
-    text: data.content[0].text,
-    usage: {
-      input_tokens: (data.usage && data.usage.input_tokens) || 0,
-      output_tokens: (data.usage && data.usage.output_tokens) || 0,
-      model: model
-    }
+    text: textBlock.text,
+    stop_reason: data.stop_reason || null,
+    usage: usage
   };
 }
 
@@ -4064,6 +4081,22 @@ function updateTimer() {
   if (t) t.textContent = elapsed.toFixed(1) + 's';
 }
 
+// Deterministic extraction confidence heuristic. This is not a statistical
+// probability; it is a transparent quality score based on source citations,
+// checklist structure, concrete extracted facts, and whether the output names
+// missing information/conflicts. It replaces the prior Math.random() confidence
+// so repeated runs on the same output do not invent different percentages.
+function estimateExtractionConfidence(text) {
+  const t = String(text || '');
+  let score = 0.74;
+  if (/source extracts|sources used|source|file|page/i.test(t)) score += 0.06;
+  if (/checklist|missing information|subjectivit|conflict|discrepanc/i.test(t)) score += 0.05;
+  if (/\$\s?\d|\d{1,3}(?:,\d{3})+|\d+%|\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) score += 0.04;
+  if (/(GL|AL|EL|umbrella|excess|carrier|premium|limit|attachment|loss)/i.test(t)) score += 0.03;
+  if (/not provided|unknown|unclear|unable to determine|needs review/i.test(t)) score -= 0.04;
+  return Math.max(0.55, Math.min(0.96, Number(score.toFixed(2))));
+}
+
 // Run a single extraction module. Uses the module's declared `model` field
 // (falls back to STATE.api.model if not set). Captures usage + $ cost per call
 // so the audit log and submission sidebar can show running spend.
@@ -4080,7 +4113,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo) {
     const cost = calcCost(usage);
     STATE.extractions[moduleId] = {
       text: text,
-      confidence: hasQc ? (0.89 + Math.random() * 0.09) : (0.78 + Math.random() * 0.1),
+      confidence: estimateExtractionConfidence(text),
       timing: elapsed,
       mode: result.mock ? 'mock' : 'live',
       sourceInfo: sourceInfo,
@@ -4161,6 +4194,59 @@ function resetPipelineState() {
   updateDecisionPaneIdle();
 }
 
+// Estimate and confirm paid LLM usage before a pipeline run starts.
+// This is intentionally client-side and conservative: it is a user-facing
+// safety brake, not billing truth. Actual usage is still captured per module
+// after the run by the LLM proxy/audit layer.
+function estimatePipelineRunCost(readyFiles) {
+  const files = Array.isArray(readyFiles) ? readyFiles : [];
+  const totalChars = files.reduce((sum, f) => sum + String(f && (f.text || f.extractedText || '') || '').length, 0);
+  const docTokens = Math.max(1, Math.ceil(totalChars / 4));
+  const moduleCount = (typeof MODULES === 'object' && MODULES) ? Object.keys(MODULES).length : 17;
+  const classifierCalls = files.length || 1;
+  // Conservative planning assumptions:
+  // - classifier/verifier reads each file once
+  // - specialist modules read routed slices / extracted context
+  // - synthesis modules reread combined extraction context
+  const estimatedInputTokensLow = Math.ceil(docTokens * 2.0) + (classifierCalls * 800) + (moduleCount * 600);
+  const estimatedInputTokensHigh = Math.ceil(docTokens * 8.0) + (classifierCalls * 1600) + (moduleCount * 1200);
+  const estimatedOutputTokensLow = moduleCount * 600;
+  const estimatedOutputTokensHigh = moduleCount * 2200;
+  const inputRate = 15.00;   // conservative Opus input $/1M tokens
+  const outputRate = 75.00;  // conservative Opus output $/1M tokens
+  const low = ((estimatedInputTokensLow / 1000000) * inputRate) + ((estimatedOutputTokensLow / 1000000) * outputRate);
+  const high = ((estimatedInputTokensHigh / 1000000) * inputRate) + ((estimatedOutputTokensHigh / 1000000) * outputRate);
+  return {
+    files: files.length,
+    docTokens,
+    moduleCount,
+    lowCost: Math.max(0.01, low),
+    highCost: Math.max(0.05, high),
+    estimatedInputTokensLow,
+    estimatedInputTokensHigh,
+    estimatedOutputTokensLow,
+    estimatedOutputTokensHigh
+  };
+}
+
+function confirmPaidPipelineRun(readyFiles) {
+  if (window.STM_SKIP_PIPELINE_COST_CONFIRM === true) return true;
+  const est = estimatePipelineRunCost(readyFiles);
+  const fmt = n => '$' + n.toFixed(n >= 10 ? 0 : 2);
+  const msg = [
+    'Run Pipeline will trigger real paid LLM/API calls.',
+    '',
+    'Files ready: ' + est.files,
+    'Approx. document tokens: ' + est.docTokens.toLocaleString(),
+    'Modules available: ' + est.moduleCount,
+    'Rough planning estimate: ' + fmt(est.lowCost) + '–' + fmt(est.highCost),
+    '',
+    'Actual cost may be higher or lower depending on routing, cached classifications, output length, and model usage.',
+    'Continue with the paid pipeline run?'
+  ].join('\n');
+  return window.confirm(msg);
+}
+
 // Real runPipeline — uses STATE.files with real classifier + DAG execution
 async function runPipeline() {
   if (STATE.pipelineRunning) return;
@@ -4215,6 +4301,16 @@ async function runPipeline() {
     toast('Sign in required to run the pipeline.', 'warn');
     const overlay = document.getElementById('authOverlay');
     if (overlay) overlay.style.display = 'flex';
+    return;
+  }
+
+  // Paid API cost confirmation gate. This runs after parse/manual/error/auth
+  // guards and before any state changes or LLM calls. It protects against
+  // accidental paid runs while leaving the explicit Run Pipeline action intact.
+  if (!confirmPaidPipelineRun(ready)) {
+    toast('Pipeline run cancelled before any paid LLM calls.', 'warn');
+    if (typeof logAudit === 'function') logAudit('Pipeline', 'Run cancelled at paid-cost confirmation gate', 'warn');
+    if (typeof updateRunButton === 'function') updateRunButton();
     return;
   }
 

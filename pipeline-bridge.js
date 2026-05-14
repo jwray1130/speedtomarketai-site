@@ -159,14 +159,14 @@
       <header class="card-head">
         <div>
           <h2>Submission intake + AI pipeline</h2>
-          <p class="card-subtitle">One-system flow: drop the broker email and docs, run the pipeline, review the draft, then populate the workbench tabs.</p>
+          <p class="card-subtitle">Prototype only: this page demonstrates the future quote/bind/issue autofill flow with deterministic sample data. Real paid document processing runs from the protected Platform queue.</p>
         </div>
-        <span class="forms-layer-indicator">Phase 01 Demo</span>
+        <span class="forms-layer-indicator">Demo Mode</span>
       </header>
       <div class="unified-intake-layout">
         <div class="unified-dropzone" id="unifiedDropzone" tabindex="0" role="button" aria-label="Load demo submission documents">
-          <h3>Drop submission package here</h3>
-          <p>This prototype simulates the final flow with a sample broker email, ACORD 125, GL quote, AL quote, loss runs, excess quote, and supplemental application.</p>
+          <h3>Demo submission package</h3>
+          <p>This workbench demo does not parse uploaded files or call the live LLM pipeline. It simulates the final flow with a sample broker email, ACORD 125, GL quote, AL quote, loss runs, excess quote, and supplemental application.</p>
           <div class="unified-doc-pills" id="unifiedDocPills">
             <span class="unified-doc-pill">Broker Email</span>
             <span class="unified-doc-pill">ACORD 125</span>
@@ -185,10 +185,10 @@
             <li><span>Populate workbench tabs</span><span class="unified-small-tag">review gate</span></li>
           </ul>
           <div class="unified-action-row">
-            <button type="button" class="btn-primary" id="runUnifiedPipelineBtn">Process Submission</button>
+            <button type="button" class="btn-primary" id="runUnifiedPipelineBtn">Run Demo Autofill</button>
             <button type="button" class="btn-secondary" id="loadPacketBtn">View Draft Packet</button>
           </div>
-          <p class="unified-secondary-note">Phase 01 uses mock extracted data. Later phases replace the mock with your live parser/classifier/LLM pipeline.</p>
+          <p class="unified-secondary-note">Demo mode uses hardcoded sample extracted data. For real submissions and paid AI runs, use the protected Platform queue.</p>
         </aside>
       </div>`;
     hero.parentNode.insertBefore(card, hero);

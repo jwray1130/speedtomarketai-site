@@ -64,18 +64,24 @@ function normalizeUrl(raw) {
   try { new URL(url); return url; } catch { return null; }
 }
 
+// Parse scraped/remote HTML with DOMParser so the document is inert while we
+// extract visible text and links. Avoid element.innerHTML on untrusted pages;
+// event handlers on images/iframes can fire during parsing/cleanup.
+function parseRemoteHtml(html) {
+  return new DOMParser().parseFromString(String(html || ''), 'text/html');
+}
+
 // Strip HTML down to plain visible text — removes nav/footer/scripts/comments/svgs.
 function htmlToText(html) {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
+  const doc = parseRemoteHtml(html);
   // Remove junk elements
-  tmp.querySelectorAll('script, style, noscript, iframe, svg, nav, footer, header[role="banner"], .cookie-banner, .cookie-notice, [aria-hidden="true"]').forEach(el => el.remove());
+  doc.querySelectorAll('script, style, noscript, iframe, svg, object, embed, nav, footer, header[role="banner"], .cookie-banner, .cookie-notice, [aria-hidden="true"]').forEach(el => el.remove());
   // Prefer <main> / <article> / body content
-  const main = tmp.querySelector('main') || tmp.querySelector('article') || tmp.querySelector('#content') || tmp.querySelector('.content') || tmp;
-  let text = (main.innerText || main.textContent || '').replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  const main = doc.querySelector('main') || doc.querySelector('article') || doc.querySelector('#content') || doc.querySelector('.content') || doc.body || doc.documentElement || doc;
+  let text = (main.textContent || '').replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   // Also grab title + meta description for context
-  const title = tmp.querySelector('title')?.textContent?.trim() || '';
-  const meta = tmp.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || '';
+  const title = doc.querySelector('title')?.textContent?.trim() || '';
+  const meta = doc.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || '';
   let prefix = '';
   if (title) prefix += '=== PAGE TITLE ===\n' + title + '\n\n';
   if (meta) prefix += '=== META DESCRIPTION ===\n' + meta + '\n\n';
@@ -94,8 +100,7 @@ function htmlToText(html) {
 //   - Skip boilerplate pages (privacy, terms, careers, login, cart, 404)
 //   - Return in nav-order (sites list their most important pages first in nav)
 function extractCandidateLinks(html, baseUrl) {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
+  const tmp = parseRemoteHtml(html);
   const base = new URL(baseUrl);
   const targets = [];
   const seen = new Set();

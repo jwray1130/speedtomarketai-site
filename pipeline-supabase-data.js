@@ -786,12 +786,16 @@ window.sbLoadAuditCategories = sbLoadAuditCategories;
 // Supabase, replacing whatever the legacy localStorage loaders would have
 // done. Safe to call multiple times.
 async function sbHydrate() {
+  if (typeof STATE !== 'undefined') STATE._queueHydrating = true;
+  if (typeof renderQueueTable === 'function') renderQueueTable();
   if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate starting…', 'ok');
   try {
     // Defensive: if the session hasn't resolved yet, sbLoadSubmissions will
     // hit RLS and return 0 rows silently. Wait briefly for auth to settle.
     const sess = await window.sb.auth.getSession();
     if (!sess.data.session) {
+      if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
+      if (typeof renderQueueTable === 'function') renderQueueTable();
       if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate skipped — no session yet', 'warn');
       return;
     }
@@ -895,6 +899,7 @@ async function sbHydrate() {
       };
     });
     if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrated ' + STATE.submissions.length + ' submissions', 'ok');
+    if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
     // Rerender the Queue table. The function is `renderQueueTable` in this
     // codebase (not renderSubmissionsTable — an earlier version had the wrong
     // name, which is why refreshes appeared to wipe the Queue visually even
@@ -925,6 +930,8 @@ async function sbHydrate() {
     STATE.feedback = [];
     if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
   } catch (e) {
+    if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
+    if (typeof renderQueueTable === 'function') renderQueueTable();
     console.warn('sbHydrate failed', e);
     if (typeof logAudit === 'function') {
       logAudit('Supabase', 'Hydrate FAILED: ' + (e.message || e), 'warn');

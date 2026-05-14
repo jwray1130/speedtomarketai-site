@@ -35,9 +35,13 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
 </head>
 <body>
 <a href="#pageContent" class="skip-to-main">Skip to main content</a>
+
+<div class="demo-mode-banner" role="status">
+  <strong>Workbench demo mode:</strong> this screen demonstrates the quote/bind/issue autofill vision with sample data. Real document ingestion, parsing, and paid pipeline runs happen in the protected <a href="/platform">Platform queue</a>. Demo saves use this browser's local storage only and are not a production system of record.
+</div>
 <header class="topbar">
         <div class="topbar-left">
-            <a href="platform.html" class="brand" aria-label="Speed to Market AI" title="Back to platform dashboard">
+            <a href="/platform" class="brand" aria-label="Speed to Market AI" title="Back to platform dashboard">
                 <span class="brand-mark" aria-hidden="true">
                     <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>

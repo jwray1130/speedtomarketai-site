@@ -872,7 +872,11 @@ main { padding: 24px 28px 80px 28px; }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* overflow:visible so the status pill's dropdown menu (.status-menu)
+     can escape this wrapper. Previously overflow:hidden was clipping
+     the menu so only the top item ("AWAITING UW REVIEW") was visible.
+     The rounded-corner aesthetic is preserved by the border itself. */
+  overflow: visible;
 }
 table.queue {
   width: 100%;
@@ -3721,7 +3725,10 @@ table.loss {
   border: 1px solid var(--line-warm);
   border-radius: 6px;
   box-shadow: var(--shadow-lg);
-  z-index: 200;
+  /* z-index 1000 (was 200) so the dropdown floats above any neighboring
+     pill, the queue table border, and the page-head overlay even when
+     the queue wrapper no longer clips it. */
+  z-index: 1000;
   overflow: hidden;
 }
 .status-menu.open { display: block; }

@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.29-progressive-thumb-quality-2026-05-06';
+window.STM_BUILD = 'v8.6.31-status-dropdown-coverage-dates-model-list-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -232,6 +232,22 @@ function extractRayId(headers, bodySnippet) {
   return null;
 }
 
+// Parse untrusted HTML with DOMParser so broker-uploaded HTML files and
+// HTML email bodies are inert while we extract text. Do NOT use innerHTML for
+// these paths: event-handler attributes on images/iframes can fire before a
+// cleanup pass and could expose auth tokens in localStorage/sessionStorage.
+function parseUntrustedHtmlDocument(html) {
+  return new DOMParser().parseFromString(String(html || ''), 'text/html');
+}
+
+function visibleTextFromUntrustedHtml(html, removeSelector) {
+  const doc = parseUntrustedHtmlDocument(html);
+  const selector = removeSelector || 'script, style, noscript, iframe, svg, object, embed, link, meta';
+  doc.querySelectorAll(selector).forEach(el => el.remove());
+  const source = doc.body || doc.documentElement || doc;
+  return (source.textContent || '').replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function llmProxyFetch(body, extraHeaders) {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error('Not signed in');
@@ -256,6 +272,7 @@ async function llmProxyFetch(body, extraHeaders) {
   let attempt = 0;
   const maxAttempts = LLM_PROXY_RETRY_CONFIG.maxRetries + 1;
   let retryDelaysForLastError = [];
+  let refreshedAuthAfter401 = false;
 
   while (attempt < maxAttempts) {
     const startedAt = Date.now();
@@ -344,6 +361,28 @@ async function llmProxyFetch(body, extraHeaders) {
     }
 
     // === FAILURE PATH ===
+    // If the Supabase JWT expired mid-pipeline, refresh it once and retry the
+    // same request before treating the module as failed. This protects long
+    // 10+ minute runs started near the end of a 1-hour auth session.
+    if (status === 401 && !refreshedAuthAfter401 && sb && sb.auth && typeof sb.auth.refreshSession === 'function') {
+      refreshedAuthAfter401 = true;
+      try {
+        const { data: refreshData, error: refreshErr } = await sb.auth.refreshSession();
+        const freshToken = refreshData && refreshData.session && refreshData.session.access_token;
+        if (!refreshErr && freshToken) {
+          headers.Authorization = 'Bearer ' + freshToken;
+          meta.auth_refreshed = true;
+          if (typeof logAudit === 'function') {
+            logAudit('LLMProxy', 'AUTH_REFRESH · refreshed expired JWT and retrying request', meta);
+          }
+          continue;
+        }
+        meta.auth_refresh_error = refreshErr ? (refreshErr.message || String(refreshErr)) : 'no fresh access token returned';
+      } catch (refreshCatch) {
+        meta.auth_refresh_error = refreshCatch && refreshCatch.message ? refreshCatch.message : String(refreshCatch);
+      }
+    }
+
     // Categorize the failure. This determines whether to retry and with
     // what backoff schedule.
     const errInfo = categorizeProxyError(status, bodySnippet);
@@ -830,6 +869,10 @@ const STATE = {
   // dropped to stay under DB row size limits; extractions are kept so the
   // Summary view survives reload, but re-running requires the source files again.
   submissions: [],            // array of archived submission records
+  // Final cleanup: Queue rows hydrate from Supabase after auth. Keep the Queue
+  // in a loading state until hydration completes so users do not see a brief
+  // "No submissions yet" flash before their rows arrive.
+  _queueHydrating: true,
   activeSubmissionId: null,   // which submission is currently loaded in the workbench
   // Tier 1 feedback collection — card-level reactions written to Supabase
   // `feedback_events` table via submitFeedbackEvent(). Stamped with reviewer
@@ -1664,10 +1707,7 @@ async function extractText(file, metadata, onProgress) {
 
   if (name.endsWith('.html') || name.endsWith('.htm')) {
     meta.kind = 'html';
-    const tmp = document.createElement('div');
-    tmp.innerHTML = await file.text();
-    tmp.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
-    return (tmp.innerText || tmp.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+    return visibleTextFromUntrustedHtml(await file.text());
   }
 
   if (name.endsWith('.rtf')) {
@@ -1773,10 +1813,7 @@ function parseEml(raw) {
         if (/content-type:\s*text\/html/i.test(part)) {
           const bs = part.search(/\r?\n\r?\n/);
           if (bs > -1) {
-            const tmp = document.createElement('div');
-            tmp.innerHTML = part.substring(bs).replace(/^\r?\n\r?\n/, '').trim();
-            tmp.querySelectorAll('script, style').forEach(el => el.remove());
-            out += (tmp.innerText || tmp.textContent || '').trim();
+            out += visibleTextFromUntrustedHtml(part.substring(bs).replace(/^\r?\n\r?\n/, '').trim());
             return out;
           }
         }
@@ -3696,11 +3733,12 @@ function renderQueueTable() {
   if (!tbody) return;
   bindQueueTableClicks(tbody);
   if (STATE.submissions.length === 0) {
+    const isHydrating = STATE._queueHydrating !== false;
     tbody.innerHTML = `
       <tr>
         <td colspan="8" style="padding: 60px 24px; text-align: center; color: var(--text-3);">
-          <div style="font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 500;">No submissions yet</div>
-          <div style="font-size: 12px; color: var(--text-3);">Click <strong style="color: var(--signal-ink);">+ New Submission</strong> to open the workbench. Once the pipeline runs, submissions archive here with UW status tracking.</div>
+          <div style="font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 500;">${isHydrating ? 'Loading submissions…' : 'No submissions yet'}</div>
+          <div style="font-size: 12px; color: var(--text-3);">${isHydrating ? 'Restoring your queue from Supabase.' : 'Click <strong style="color: var(--signal-ink);">+ New Submission</strong> to open the workbench. Once the pipeline runs, submissions archive here with UW status tracking.'}</div>
         </td>
       </tr>
     `;

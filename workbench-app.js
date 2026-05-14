@@ -218,7 +218,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const dramScoreMap = { "AL": "Low", "AK": "Low", "AZ": "Medium", "AR": "Low", "CA": "High", "CO": "Medium", "CT": "Medium", "DE": "Low", "FL": "Medium", "GA": "Low", "HI": "Low", "ID": "Low", "IL": "High", "IN": "Low", "IA": "Low", "KS": "Low", "KY": "Low", "LA": "High", "ME": "Low", "MD": "Low", "MA": "Medium", "MI": "Medium", "MN": "Low", "MS": "Low", "MO": "Low", "MT": "Low", "NE": "Low", "NV": "High", "NH": "Medium", "NJ": "High", "NM": "Low", "NY": "High", "NC": "Low", "ND": "Low", "OH": "Medium", "OK": "Low", "OR": "Medium", "PA": "Medium", "RI": "High", "SC": "Low", "SD": "Low", "TN": "Low", "TX": "High", "UT": "Low", "VT": "Low", "VA": "Low", "WA": "Medium", "WV": "Low", "WI": "Medium", "WY": "Low" };
         const states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"];
 
-        initFlatpickr(".date, .limit-date");
+        // BUG FIX (additional coverage duplicate date inputs): the prior call
+        //   initFlatpickr(".date, .limit-date");
+        // matched .limit-date inputs that live inside the hidden .limit-templates
+        // block. Because flatpickrConfig sets `altInput: true`, every initialized
+        // input got a second visible sibling — and that sibling was carried into
+        // every cloneNode() in addCoverageEntry(), then a third one was created
+        // when initLimitDateInputs() re-initialized the clone (the `_flatpickr`
+        // guard fails because cloneNode does not copy expando properties).
+        // Result: three "Select Date..." inputs stacked in every added coverage
+        // panel. Skipping templates here lets initLimitDateInputs() be the sole
+        // initializer for cloned entries, which is the intended contract.
+        document.querySelectorAll(".date, .limit-date").forEach(el => {
+            if (el.closest('.limit-templates')) return;
+            initFlatpickr(el);
+        });
 
         setupTextareaAutoScroll('#descOps');
         setupTextareaAutoScroll('#expLoss');
@@ -1025,6 +1039,21 @@ document.addEventListener('DOMContentLoaded', () => {
             newEntry.removeAttribute('data-template-key');
             newEntry.dataset.coverageType = typeKey;
             newEntry.classList.remove('default-entry');
+
+            // Defensive flatpickr-clone cleanup (belt-and-suspenders for the
+            // same root cause fixed at initFlatpickr-on-load above). If a
+            // template ever ends up flatpickr-initialized — by stale code,
+            // by a third party plugin, or by future regressions — the clone
+            // will arrive carrying orphan altInput siblings AND the original
+            // .limit-date already class-tagged as flatpickr-input. Strip those
+            // here so initLimitDateInputs() runs against a clean canonical
+            // input and produces exactly one altInput per date column.
+            newEntry.querySelectorAll('.flatpickr-alt-input').forEach(alt => alt.remove());
+            newEntry.querySelectorAll('.limit-date').forEach(orig => {
+                orig.classList.remove('flatpickr-input');
+                if (orig.type === 'hidden') orig.type = 'text';
+                try { delete orig._flatpickr; } catch (e) { orig._flatpickr = undefined; }
+            });
 
             const newCheckbox = newEntry.querySelector('input[type="checkbox"][data-target]');
             const newDetailsPanel = newEntry.querySelector('.limit-details-panel');

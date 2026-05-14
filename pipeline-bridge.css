@@ -331,3 +331,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Go-live safety: make it impossible to mistake /workbench for the live paid pipeline. */
+.demo-mode-banner {
+  position: sticky;
+  top: 0;
+  z-index: 120;
+  padding: 10px 28px;
+  background: var(--accent-pale, rgba(255, 209, 0, 0.14));
+  border-bottom: 1px solid var(--accent-tint, rgba(255, 209, 0, 0.28));
+  color: var(--text, #253044);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.demo-mode-banner a {
+  color: var(--signal-ink, #0e46a3);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html[data-theme="dark"] .demo-mode-banner {
+  color: var(--text, #e2e4ea);
+}
