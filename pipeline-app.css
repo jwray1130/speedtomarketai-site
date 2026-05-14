@@ -266,6 +266,51 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   to { transform: rotate(360deg); }
 }
 
+/* Topbar workbench launcher — jumps to /workbench. Visually distinct
+   from the Queue/Submission/Admin view tabs on the left because it
+   actually navigates to another page. Signal-color outlined pill that
+   reads as an action, not a tab. Hover lifts slightly to match the
+   other interactive elements in the topbar (api-pill, theme-toggle). */
+.topbar-workbench-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 11px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--signal-ink);
+  background: var(--signal-pale);
+  border: 1px solid rgba(5, 112, 222, 0.28);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.topbar-workbench-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+  background: var(--signal-pale);
+  border-color: var(--signal);
+}
+.topbar-workbench-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+html[data-theme="dark"] .topbar-workbench-btn {
+  color: #9ec4ff;
+  background: rgba(158, 196, 255, 0.10);
+  border-color: rgba(158, 196, 255, 0.32);
+}
+html[data-theme="dark"] .topbar-workbench-btn:hover {
+  background: rgba(158, 196, 255, 0.18);
+  border-color: rgba(158, 196, 255, 0.55);
+}
+
 /* ============ SETTINGS MODAL ============ */
 .modal-backdrop {
   position: fixed; inset: 0;
