@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.50-phase4-gl-primary-coverage-2026-05-14
+  v8.6.50.1-sentinel-policy-period-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.50-phase4-gl-primary-coverage-2026-05-14';
+window.STM_BUILD = 'v8.6.50.1-sentinel-policy-period-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

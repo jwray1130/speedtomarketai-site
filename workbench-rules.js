@@ -164,11 +164,20 @@
     ],
     gl_effective_date: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Inception\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Inception\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      // FIX-PHASE-4.1-POLICY-PERIOD-COMPOSITE-2026-05-14
+      // Composite: "Policy Period: 05/01/2026 – 05/01/2027" — capture
+      // the LHS date. Separator can be en-dash, em-dash, hyphen, or
+      // text ("to", "thru", "through"). Date format is anything containing
+      // digits, slashes, dashes, or dots.
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
     ],
     gl_expiration_date: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      // FIX-PHASE-4.1-POLICY-PERIOD-COMPOSITE-2026-05-14
+      // Composite RHS — Policy Period range right-side date.
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
     ],
     gl_each_occurrence: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
@@ -219,8 +228,45 @@
     return null;
   }
 
+  // FIX-PHASE-4.1-SENTINEL-FILTER-2026-05-14
+  // ─── Sentinel-value detection ─────────────────────────────────────────
+  // ACORDs and broker docs frequently contain placeholder text where a
+  // field has not been filled in. The LLM extracts these placeholders
+  // verbatim (e.g., "Carrier: No information provided"). Without this
+  // filter, parseMarkdown happily returns "No information provided" as
+  // the value with parser_confidence 1.0 — silently corrupting the
+  // workbench with literal placeholder strings as if they were real data.
+  //
+  // Variants observed in live extractions:
+  //   "No information provided"
+  //   "Not provided" / "Not specified"
+  //   "N/A" / "n/a" / "N.A."
+  //   "Unknown"
+  //   "TBD" / "TBA" / "To Be Determined" / "To Be Advised"
+  //   "(blank)" / "—" / "–" (em/en dash standalone)
+  //   "Pending"
+  //
+  // Returns true if the value should be treated as no-value.
+  function isSentinelValue(s) {
+    if (s == null || s === '') return true;
+    const trimmed = String(s).trim();
+    if (!trimmed) return true;
+    // Dash placeholders (em-dash, en-dash, hyphen, or repeated dashes)
+    if (/^[—–-]+$/.test(trimmed)) return true;
+    // Common placeholder phrases — match start of trimmed value so
+    // longer strings like "No information provided (no bound carrier)"
+    // also count as sentinels.
+    if (/^(no\s+info(rmation)?\s+(?:provided|available|listed)|not\s+(?:provided|specified|listed|applicable|available)|n[.\/]?\s?a\.?|unknown|tbd|tba|to\s+be\s+(?:determined|advised|provided|confirmed)|pending|\(blank\))(?:\s|$|[\.,;:])/i.test(trimmed)) {
+      return true;
+    }
+    return false;
+  }
+
   // ─── Tier 2 parser: markdown label patterns ───────────────────────────
   // Returns { value, parser_confidence } on hit, null on miss.
+  // FIX-PHASE-4.1-SENTINEL-FILTER-2026-05-14 — when a pattern matches
+  // but the value is a sentinel (placeholder text), continue to the
+  // next pattern rather than returning a false-positive value.
   function parseMarkdown(text, fieldName) {
     if (!text || typeof text !== 'string') return null;
     const patterns = LABEL_PATTERNS[fieldName];
@@ -232,6 +278,7 @@
           .replace(/^\**\s*/, '')   // strip leading bold markers
           .replace(/\s*\**$/, '');  // strip trailing bold markers
         if (!value) continue;
+        if (isSentinelValue(value)) continue;  // treat placeholder as miss
         return { value: value, parser_confidence: p.conf };
       }
     }
@@ -644,12 +691,13 @@
     normalizeDateString,
     parseJsonBlock,
     parseMarkdown,
+    isSentinelValue,
     extractNamedInsured,
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase3.5-applicant-defense',
-    fixTag: 'FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14'
+    version: 'phase4.1-sentinel-policy-period',
+    fixTag: 'FIX-PHASE-4.1-SENTINEL-FILTER-2026-05-14'
   };
 
   // Console-testable convenience wrapper. From the workbench console:
