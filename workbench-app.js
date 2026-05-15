@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.44-summary-realign-2026-05-12
+  v8.6.47-phase1.5-smart-launcher-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.44-summary-realign-2026-05-12';
+window.STM_BUILD = 'v8.6.47-phase1.5-smart-launcher-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

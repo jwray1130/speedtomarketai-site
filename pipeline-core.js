@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.46-phase1-submission-handoff-2026-05-14';
+window.STM_BUILD = 'v8.6.47-phase1.5-smart-launcher-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -6669,6 +6669,29 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
       event.preventDefault();
       if (typeof switchView === 'function') switchView('queue');
     }
+  });
+})();
+
+// FIX-PHASE-1.5-SMART-LAUNCHER-2026-05-14
+// Make the topbar "Workbench →" launcher submission-aware. When the user
+// is viewing a submission (STATE.activeSubmissionId is set), the launcher
+// appends ?submission=<id> so the workbench loads that submission via the
+// Phase 1 handoff. When no submission is active (queue view, admin view,
+// or any pre-load state), the static href="/workbench" handles it and
+// the workbench opens to manual-entry mode. Click-time evaluation (not
+// reactive href updates) keeps this bulletproof against view-switch race
+// conditions — by the time the click event fires, STATE is authoritative.
+(function wireWorkbenchLauncher(){
+  const btn = document.querySelector('.topbar-workbench-btn');
+  if (!btn || btn.__stmWorkbenchNavBound) return;
+  btn.__stmWorkbenchNavBound = true;
+  btn.addEventListener('click', (event) => {
+    const activeId = (typeof STATE !== 'undefined') ? STATE.activeSubmissionId : null;
+    if (activeId) {
+      event.preventDefault();
+      window.location.href = '/workbench?submission=' + encodeURIComponent(activeId);
+    }
+    // else: default href="/workbench" handles it (queue/admin view).
   });
 })();
 
