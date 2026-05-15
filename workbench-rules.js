@@ -55,7 +55,10 @@
     'submission_date',
     'quote_expiration',
     'target_date',
-    'created_date'
+    'created_date',
+    // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+    'gl_effective_date',
+    'gl_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -143,9 +146,57 @@
     broker_address: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker)\s+Address\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Producer\s+Office\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
-    ]
+    ],
     // layer_type: Phase 11 classifier reads schedule of underlying; no
     // pattern-based extraction is reliable enough to ship.
+
+    // ─── Phase 4 — Primary GL Coverage labels ───
+    // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+    // gl_quote extractions from the platform follow a "**Section:**\n
+    // - Label: Value" pattern. We accept bullet dashes, optional bold,
+    // and several label variants per field. Currency values capture
+    // both formatted ("$1,000,000") and raw ("1000000") forms.
+    gl_carrier: [
+      // "Carrier: <name>" — possibly inside a "Carrier & Administrative" section
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurance\s+Company\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    gl_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Inception\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    gl_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    gl_each_occurrence: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Per\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Occurrence\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    gl_general_aggregate: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*General\s+Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Aggregate\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.60 }
+    ],
+    gl_products_ops_aggregate: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Products[\/\s\-]+Completed\s+Operations\s+Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Products[\/\s\-]+Comp(?:leted)?\s+Op(?:eration)?s?\s+Agg(?:regate)?\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Products[\/\s\-]+Comp\s+Ops\s+Agg\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*P\/C\s*Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
+    ],
+    gl_personal_adv_injury: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Personal\s*(?:and|&)?\s*Adv(?:ertising)?\s*Injury\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Personal\s*(?:and|&)?\s*Advertising\s*(?:Injury)?\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*PI[\/\s\-]+Adv\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
+    ],
+    gl_premium: [
+      // Most specific first: "Total Premium" / "GL Premium" / "Annual Premium" before generic "Premium"
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*GL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Annual\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ]
   };
 
   // ─── Tier 1 parser: JSON code block in extraction text ────────────────
@@ -361,7 +412,23 @@
     controlling_address: ['gl_quote:json', 'gl_quote', 'supplemental'],
     broker_name:         ['summary-ops', 'supplemental'],
     broker_address:      ['summary-ops', 'supplemental'],
-    layer_type:          []     // Phase 11 classifier — placeholder
+    layer_type:          [],    // Phase 11 classifier — placeholder
+
+    // ─── Phase 4 — Primary GL Coverage ───
+    // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+    // STRICT SOURCE RULE per Justin's spec: GL coverage data comes ONLY
+    // from the gl_quote module. No fallbacks to supplemental (ACORDs),
+    // summary-ops (AI synthesis), or any other module. If gl_quote is
+    // gated out by the Phase 3.5 cross-applicant defense, or the field
+    // pattern misses, the field stays empty — no degraded fallback.
+    gl_carrier:                 ['gl_quote:json', 'gl_quote'],
+    gl_effective_date:          ['gl_quote:json', 'gl_quote'],
+    gl_expiration_date:         ['gl_quote:json', 'gl_quote'],
+    gl_each_occurrence:         ['gl_quote:json', 'gl_quote'],
+    gl_general_aggregate:       ['gl_quote:json', 'gl_quote'],
+    gl_products_ops_aggregate:  ['gl_quote:json', 'gl_quote'],
+    gl_personal_adv_injury:     ['gl_quote:json', 'gl_quote'],
+    gl_premium:                 ['gl_quote:json', 'gl_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────

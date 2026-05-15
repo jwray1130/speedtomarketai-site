@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.49.1-cross-applicant-defense-2026-05-14
+  v8.6.50-phase4-gl-primary-coverage-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.49.1-cross-applicant-defense-2026-05-14';
+window.STM_BUILD = 'v8.6.50-phase4-gl-primary-coverage-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -334,6 +334,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
                     applyDealInfoFromActiveSubmission(data);
+                    // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+                    // Run GL coverage extraction after deal info. Per
+                    // Justin's spec, GL data comes ONLY from gl_quote
+                    // module. The Phase 3.5 cross-applicant gate runs
+                    // automatically inside the resolver — if gl_quote is
+                    // contaminated (different insured), all 8 GL fields
+                    // return null and the panel stays empty.
+                    applyGLCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -462,6 +470,150 @@ document.addEventListener('DOMContentLoaded', () => {
                     paperEl.classList.add('autofilled-from-platform');
                 }
             }, 120);
+        }
+
+        // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+        // Apply resolved Primary GL coverage fields to the #details-gl panel.
+        // Per Justin's spec: source is gl_quote module ONLY (no fallback to
+        // ACORDs, supp apps, broker emails). Strict isolation enforced by
+        // SOURCE_AUTHORITY in workbench-rules.js.
+        //
+        // Multi-quote handling deferred to Phase 4.1 — for now we extract
+        // the first GL quote in gl_quote.text and fill #details-gl. If
+        // multiple quotes exist, the regex will pick the first match.
+        //
+        // Behavior under Phase 3.5 cross-applicant defense:
+        //   - If gl_quote.text's stated insured matches submission → fill
+        //   - If gl_quote is contaminated (different insured) → all 8
+        //     fields return null, panel stays empty, console logs the
+        //     gate firing exactly once.
+        function applyGLCoverageFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            // Field order MUST match the visible column order of
+            // #details-gl: carrier, eff, exp, occ, agg, p/co agg, p&a, premium.
+            // This array is consumed positionally by fillCoveragePanelByPosition.
+            const fieldOrder = [
+                'gl_carrier',
+                'gl_effective_date',
+                'gl_expiration_date',
+                'gl_each_occurrence',
+                'gl_general_aggregate',
+                'gl_products_ops_aggregate',
+                'gl_personal_adv_injury',
+                'gl_premium'
+            ];
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] Phase 4 GL coverage apply: 0 fields resolved.',
+                    'Likely cause: gl_quote module gated by cross-applicant',
+                    'defense (Phase 3.5), or pattern misses across all 8 fields.',
+                    '#details-gl panel left empty.'
+                );
+                return;
+            }
+
+            const fillResult = fillCoveragePanelByPosition('#details-gl', valuesByPosition);
+
+            // Check the GL coverage checkbox so the panel is marked active.
+            // The workbench treats unchecked panels as "not included" for
+            // downstream rating and forms — auto-check when we filled data.
+            const glCheck = document.querySelector('input[data-target="details-gl"]');
+            if (glCheck && !glCheck.checked) glCheck.click();
+
+            console.log(
+                '[workbench] Phase 4 GL coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                'panel checkbox auto-checked'
+            );
+            console.log('[workbench] Phase 4 GL filled:', resolvedSummary);
+        }
+
+        // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
+        // Positional fill for any coverage panel (#details-gl, #details-al,
+        // #details-lead-excess, dynamically-added panels in Phase 4.1+).
+        // Mirrors the altInput-skip logic of pipeline-bridge.js fillPanel
+        // (FIX-2026-05-14-COVERAGE-ALIGNMENT) so we can write 8 values
+        // into the 8 logical columns of #details-gl regardless of how
+        // many DOM inputs flatpickr created.
+        //
+        // Returns { filled, missed } counts.
+        function fillCoveragePanelByPosition(panelSelector, valuesByPosition) {
+            const panel = document.querySelector(panelSelector);
+            if (!panel) {
+                console.warn('[workbench] Phase 4: panel not found:', panelSelector);
+                return { filled: 0, missed: valuesByPosition.length };
+            }
+            // Same filter as pipeline-bridge.js fillPanel — exclude
+            // checkboxes and flatpickr altInput siblings so the index
+            // matches the visible column order.
+            const els = Array.from(panel.querySelectorAll('input, select, textarea'))
+                .filter(el => {
+                    if (el.matches('[type="checkbox"]')) return false;
+                    if (!el._flatpickr) {
+                        const prev = el.previousElementSibling;
+                        if (prev && prev._flatpickr) return false;
+                    }
+                    return true;
+                });
+
+            let filled = 0, missed = 0;
+            for (let i = 0; i < valuesByPosition.length; i++) {
+                const value = valuesByPosition[i];
+                const el = els[i];
+                if (value == null || value === '' || !el) { missed++; continue; }
+                try {
+                    if (el.classList.contains('limit-date') || el._flatpickr) {
+                        // Date — normalize then setDate via flatpickr
+                        let v = value;
+                        if (window.WorkbenchRules
+                            && typeof window.WorkbenchRules.normalizeDateString === 'function') {
+                            v = window.WorkbenchRules.normalizeDateString(v);
+                        }
+                        if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
+                            el._flatpickr.setDate(v, true);
+                        } else {
+                            el.value = v;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    } else {
+                        // Text / currency input
+                        el.value = value;
+                        el.dispatchEvent(new Event('input',  { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    el.classList.add('autofilled-from-platform');
+                    filled++;
+                } catch (err) {
+                    console.warn('[workbench] Phase 4: fill error at position', i, err);
+                    missed++;
+                }
+            }
+            return { filled, missed };
         }
 
         function applyResolvedToElement(el, kind, value) {
