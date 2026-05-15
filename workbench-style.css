@@ -474,6 +474,55 @@ hr {
     .topbar-platform-btn { padding: 6px 10px; }
 }
 
+/* FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
+   Active submission badge in the workbench topbar. Hidden by default
+   (display: none) and only flipped to inline-flex when Phase 1's
+   loadSubmissionFromUrl() succeeds. Uses the gold/amber accent so it
+   reads as informational status rather than a navigation action — the
+   signal-blue pill treatment is reserved for clickable navigation
+   (Platform button, Workbench button). Account name truncates with
+   ellipsis if it overflows so the badge stays a fixed visual weight. */
+.workbench-submission-badge {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    background: var(--accent-pale, rgba(255, 209, 0, 0.14));
+    border: 1px solid var(--accent-tint, rgba(255, 209, 0, 0.32));
+    white-space: nowrap;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+}
+.workbench-submission-badge.is-visible {
+    display: inline-flex;
+}
+.workbench-submission-badge .submission-badge-label {
+    color: var(--accent-ink, #8a6d18);
+    opacity: 0.78;
+}
+.workbench-submission-badge .submission-badge-value {
+    color: var(--text, #253044);
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+html[data-theme="dark"] .workbench-submission-badge .submission-badge-value {
+    color: var(--text, #e2e4ea);
+}
+@media (max-width: 1100px) {
+    .workbench-submission-badge { max-width: 180px; padding: 6px 10px; }
+    .workbench-submission-badge .submission-badge-label { display: none; }
+}
+
 .topbar-pill-dot {
     width: 6px;
     height: 6px;

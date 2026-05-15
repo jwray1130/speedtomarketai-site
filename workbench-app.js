@@ -252,6 +252,81 @@ document.addEventListener('DOMContentLoaded', () => {
             initFlatpickr(el);
         });
 
+        // FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
+        // If the workbench was opened with ?submission=<id> in the URL,
+        // wait for the Supabase client + signed-in session to be ready
+        // (platform-auth.js initializes both on DOMContentLoaded after
+        // the magic-link overlay resolves), then fetch the submission
+        // row and park its full snapshot on window.workbenchActiveSubmission.
+        // Phase 2 will start reading from this global instead of the
+        // hardcoded SAMPLE_PACKET. For Phase 1 we ONLY load and show a
+        // topbar badge — no field writes, no behavior change for direct
+        // /workbench visits without the query param.
+        (async function loadSubmissionFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const submissionId = params.get('submission');
+            if (!submissionId) return;
+
+            // Poll for sb client + currentUser (set by platform-auth.js
+            // after successful magic-link session check). 5-second cap.
+            let attempts = 0;
+            while ((!window.sb || !window.currentUser) && attempts < 50) {
+                await new Promise(r => setTimeout(r, 100));
+                attempts++;
+            }
+            if (!window.sb) {
+                console.warn('[workbench] Phase 1: Supabase client not available after 5s; submission load skipped');
+                return;
+            }
+            if (!window.currentUser) {
+                console.warn('[workbench] Phase 1: Not signed in; submission load skipped');
+                return;
+            }
+
+            try {
+                const { data, error } = await window.sb
+                    .from('submissions')
+                    .select('*')
+                    .eq('id', submissionId)
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn('[workbench] Phase 1: submission fetch failed:', error.message, '· code:', error.code);
+                    return;
+                }
+                if (!data) {
+                    console.warn('[workbench] Phase 1: no submission found with id', submissionId);
+                    return;
+                }
+
+                window.workbenchActiveSubmission = data;
+                const extractionCount = data.snapshot?.extractions
+                    ? Object.keys(data.snapshot.extractions).length
+                    : 0;
+                console.log(
+                    '[workbench] Phase 1 loaded:',
+                    data.id, '·',
+                    data.account_name || '(no account_name)',
+                    '· extractions:', extractionCount,
+                    '· confidence:', data.confidence,
+                    '· status:', data.status
+                );
+
+                // Show the topbar badge with the account name. Tiny
+                // visual confirmation that the load worked end-to-end.
+                const badge = document.getElementById('workbenchSubmissionBadge');
+                if (badge) {
+                    const value = badge.querySelector('.submission-badge-value');
+                    if (value) {
+                        value.textContent = data.account_name || data.id;
+                    }
+                    badge.classList.add('is-visible');
+                }
+            } catch (err) {
+                console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
+            }
+        })();
+
         setupTextareaAutoScroll('#descOps');
         setupTextareaAutoScroll('#expLoss');
         setupTextareaAutoScroll('#acctStrengths');

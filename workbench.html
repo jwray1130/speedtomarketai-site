@@ -62,6 +62,19 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             </nav>
         </div>
         <div class="topbar-right">
+            <!-- FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
+                 Active submission badge. Shown only when /workbench was
+                 opened with a ?submission=<id> query param AND the matching
+                 submission was successfully loaded from Supabase. Hidden
+                 otherwise — direct /workbench visits (demo path or manual
+                 entry) see no change. Populated by loadSubmissionFromUrl()
+                 in workbench-app.js. -->
+            <div id="workbenchSubmissionBadge"
+                 class="workbench-submission-badge"
+                 title="Loaded from the /platform queue">
+                <span class="submission-badge-label">FROM PLATFORM</span>
+                <span class="submission-badge-value">—</span>
+            </div>
             <!-- PLATFORM LAUNCHER — mirror of the "Workbench" button on
                  /platform's topbar. Sits at the front of the right-side
                  group so the round-trip navigation pattern reads the same
