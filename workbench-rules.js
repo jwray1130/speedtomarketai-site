@@ -187,6 +187,110 @@
     return null;
   }
 
+  // FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14
+  // ─── Applicant identity gate ──────────────────────────────────────────
+  // Some platform-side extractions on multi-applicant submissions pull
+  // data from the wrong ACORD. Concrete example: SUB-MP1ZXZ3E (Anahuac
+  // Infrastructure LLC) has a gl_quote module whose text refers to
+  // "Carroll County Coop, Inc." — a completely unrelated entity that
+  // appeared in the same submission packet.
+  //
+  // Reading any field from a module that doesn't match the submission's
+  // account name silently fills the workbench with the wrong insured's
+  // data. This gate detects the mismatch and refuses the module's
+  // contributions BEFORE any field resolution touches it.
+  //
+  // Logic:
+  //   1. Extract the module text's stated Named Insured via regex.
+  //   2. Normalize both the extracted name and submission.account_name
+  //      (strip suffixes, punctuation, casing).
+  //   3. Compare with a permissive match (substring tolerated).
+  //   4. If mismatch → skip the module; log once.
+  //   5. If extraction can't determine an insured → unknown, proceed.
+  //
+  // The check result is cached per (submission.id, module key) so
+  // subsequent field resolutions on the same module don't re-scan.
+
+  const _applicantMatchCache = Object.create(null);
+
+  function extractNamedInsured(text) {
+    if (!text || typeof text !== 'string') return null;
+    const patterns = [
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Named\s+Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Applicant\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Company\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im
+    ];
+    for (const re of patterns) {
+      const m = re.exec(text);
+      if (m && m[1]) {
+        return m[1].trim()
+          .replace(/^\**\s*/, '')
+          .replace(/\s*\**$/, '');
+      }
+    }
+    return null;
+  }
+
+  function normalizeCompanyName(name) {
+    if (!name) return '';
+    return String(name)
+      .toLowerCase()
+      .replace(/[,.()]/g, ' ')
+      // Strip common corporate suffixes
+      .replace(/\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|lp|llp|plc|pllc|na)\b\.?/g, '')
+      // Strip "the" prefix
+      .replace(/^the\s+/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Returns:
+  //   true  → confident match (proceed with module)
+  //   false → confident mismatch (skip module)
+  //   null  → unknown / can't determine (proceed; treat as match)
+  function applicantsMatch(extractedName, submissionAccountName) {
+    if (!extractedName || !submissionAccountName) return null;
+    const a = normalizeCompanyName(extractedName);
+    const b = normalizeCompanyName(submissionAccountName);
+    if (!a || !b) return null;
+    if (a === b) return true;
+    // Permissive: one contains the other (e.g., "Anahuac" vs
+    // "Anahuac Infrastructure"), only if the shorter side is >= 4 chars
+    // (avoid false-positives on 2- or 3-letter fragments).
+    const shorter = a.length <= b.length ? a : b;
+    const longer  = a.length <= b.length ? b : a;
+    if (shorter.length >= 4 && longer.includes(shorter)) return true;
+    return false;
+  }
+
+  function checkApplicantMatch(submission, moduleKey, moduleRec) {
+    if (!submission || !submission.account_name) return null;
+    if (!moduleRec || !moduleRec.text) return null;
+    const cacheKey = (submission.id || '?') + '__' + moduleKey;
+    if (Object.prototype.hasOwnProperty.call(_applicantMatchCache, cacheKey)) {
+      return _applicantMatchCache[cacheKey];
+    }
+    const extracted = extractNamedInsured(moduleRec.text);
+    if (!extracted) {
+      _applicantMatchCache[cacheKey] = null; // unknown — can't verify
+      return null;
+    }
+    const match = applicantsMatch(extracted, submission.account_name);
+    _applicantMatchCache[cacheKey] = match;
+    if (match === false) {
+      // Log once per (submission, module) so console isn't spammed.
+      console.warn(
+        '[WorkbenchRules] Cross-applicant defense: module "' + moduleKey +
+        '" stated insured "' + extracted +
+        '" does not match submission "' + submission.account_name +
+        '". Skipping for this submission.'
+      );
+    }
+    return match;
+  }
+
   // ─── Company guideline caps ───────────────────────────────────────────────
   // Per Justin's spec: company/guideline rules, applied uniformly.
   // Used by Phase 4+ excess/lead writers — defined here so a single file
@@ -396,6 +500,15 @@
     const moduleRec = extractions[moduleKey];
     if (!moduleRec || typeof moduleRec.text !== 'string') return null;
 
+    // FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14
+    // Refuse modules whose stated Named Insured doesn't match the
+    // submission's account_name. Returns null treated as unknown
+    // (proceed). Returns false explicitly = skip this module entirely.
+    const applicantCheck = checkApplicantMatch(submission, moduleKey, moduleRec);
+    if (applicantCheck === false) {
+      return null;
+    }
+
     const extractionConf = (typeof moduleRec.confidence === 'number')
       ? moduleRec.confidence
       : 1.0;
@@ -464,9 +577,12 @@
     normalizeDateString,
     parseJsonBlock,
     parseMarkdown,
+    extractNamedInsured,
+    normalizeCompanyName,
+    applicantsMatch,
     formatIso,
-    version: 'phase3-tier1-2-dispatch',
-    fixTag: 'FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14'
+    version: 'phase3.5-applicant-defense',
+    fixTag: 'FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14'
   };
 
   // Console-testable convenience wrapper. From the workbench console:

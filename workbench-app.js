@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.49-phase3-tier1-2-dispatch-2026-05-14
+  v8.6.49.1-cross-applicant-defense-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.49-phase3-tier1-2-dispatch-2026-05-14';
+window.STM_BUILD = 'v8.6.49.1-cross-applicant-defense-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
