@@ -4141,18 +4141,233 @@ function substitutePromptVars(promptStr, context) {
 }
 window.substitutePromptVars = substitutePromptVars;
 
+// ============================================================================
+// FIX-PHASE-6.1-TWO-PASS-APPLICANT-GATE-2026-05-14
+// ============================================================================
+// Phase 6's per-applicant isolation preamble proved insufficient on its own —
+// empirical test on SUB-MP1ZXZ3E showed the LLM ignored the filter and
+// extracted Carroll County data despite being instructed to refuse. The
+// failure mode: a long template-completion task dominates over a short
+// filtering preamble; the LLM treats template completion as primary and
+// the preamble as background context, not a hard gate.
+//
+// Layer B (this section) is the STRUCTURAL FIX: a tiny precheck LLM call
+// detects which named insureds are stated in the documents, the engine
+// compares them to the submission's account_name, and if no match the
+// engine ITSELF emits a diagnostic message — the main extraction prompt
+// is never reached.
+//
+// Cost shape:
+//   - Refusal cases (precheck only): ~$0.05–0.15 (Sonnet 4.6, small output)
+//     — CHEAPER than today's failing extraction (~$1–2 wasted on Opus)
+//   - Accept cases (precheck + main): ~$0.10 overhead on top of main call
+//   - Average across a mixed portfolio: roughly cost-neutral, often cheaper
+//
+// Fail-open policy: if precheck errors or returns malformed JSON, the gate
+// proceeds to the main extraction (with Layer A's preamble still in play).
+// Better to risk a contamination than to block a real extraction due to
+// precheck flakiness.
+
+const APPLICANT_GATED_MODULES = new Set([
+  'gl_quote',
+  'al_quote',
+  'supplemental',
+  'excess',
+  'losses'
+]);
+
+const PRECHECK_PROMPT = `You are an identity-detection step in an insurance submission pipeline. Read the document content below. Identify every named insured / company entity that is explicitly stated as the subject of any document.
+
+Look for labels like:
+  "Named Insured", "Insured", "Applicant", "Company Name", "Insured Name", "First Named Insured"
+
+Output ONLY a valid JSON array of strings — the named insureds as they appear in the documents (preserve "LLC", "Inc.", etc.). Examples:
+  ["Anahuac Infrastructure LLC"]
+  ["Carroll County Coop, Inc.", "Acme Subsidiary LLC"]
+  []
+
+Rules:
+- Output the JSON array ONLY. No commentary, no prose, no explanation.
+- No code fences. No markdown. Just the bare JSON array on a single line.
+- If no named insured is explicitly stated, output: []
+- If multiple insureds appear, include all of them in the array.`;
+
+// Normalize a company name for matching — strip suffixes, punctuation, casing.
+// Inline copy of workbench-rules.js logic since pipeline-engine.js is loaded
+// independently of workbench-rules.js (different HTML pages).
+function _gateNormalizeInsuredName(name) {
+  if (!name) return '';
+  return String(name)
+    .toLowerCase()
+    .replace(/[,.()]/g, ' ')
+    .replace(/\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|lp|llp|plc|pllc|na)\b\.?/g, '')
+    .replace(/^the\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Returns true if extracted name matches target (with normalization +
+// permissive substring rule for shorter side ≥ 4 chars).
+function _gateInsuredMatches(extracted, target) {
+  if (!extracted || !target) return false;
+  const a = _gateNormalizeInsuredName(extracted);
+  const b = _gateNormalizeInsuredName(target);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  if (shorter.length >= 4 && longer.includes(shorter)) return true;
+  return false;
+}
+
+// Call the precheck LLM and parse out the named-insureds array.
+// Returns { detected: string[], usage: {...}, parseError?: bool, error?: string }
+async function detectNamedInsureds(userContent) {
+  try {
+    const result = await callLLM(PRECHECK_PROMPT, userContent, 'claude-sonnet-4-6');
+    let text = (result.text || '').trim();
+    // Strip code fences if the model wrapped output despite instructions
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    // Extract the first JSON array from the response
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    if (!arrayMatch) {
+      console.warn('[applicant-gate] precheck returned no JSON array:', text.slice(0, 200));
+      return { detected: [], usage: result.usage, parseError: true };
+    }
+    const parsed = JSON.parse(arrayMatch[0]);
+    if (!Array.isArray(parsed)) {
+      console.warn('[applicant-gate] precheck JSON was not an array');
+      return { detected: [], usage: result.usage, parseError: true };
+    }
+    const cleaned = parsed.filter(s => typeof s === 'string' && s.trim());
+    return { detected: cleaned, usage: result.usage, parseError: false };
+  } catch (err) {
+    console.warn('[applicant-gate] precheck failed:', err.message);
+    return { detected: [], usage: null, error: err.message };
+  }
+}
+
+// Main gate function — called by runModule before the main extraction LLM call.
+// Returns:
+//   { proceed: true, reason, matchedInsureds?, allDetected?, precheck? }
+//   { proceed: false, reason: 'no_match', detectedInsureds, precheck }
+async function gateModuleByApplicant(moduleId, userContent, context) {
+  if (!APPLICANT_GATED_MODULES.has(moduleId)) {
+    return { proceed: true, reason: 'module_not_gated' };
+  }
+  if (!context || !context.account_name || context.account_name === '(unknown)') {
+    return { proceed: true, reason: 'no_account_name' };
+  }
+  const precheck = await detectNamedInsureds(userContent);
+  if (precheck.error || precheck.parseError) {
+    console.warn('[applicant-gate] ' + moduleId + ' precheck unreliable, failing OPEN to main extraction. Reason:',
+      precheck.error || 'parse_error');
+    return { proceed: true, reason: 'precheck_failed_open', precheck };
+  }
+  if (precheck.detected.length === 0) {
+    console.log('[applicant-gate] ' + moduleId + ' precheck found no named insureds in input — proceeding without filter');
+    return { proceed: true, reason: 'no_insureds_detected', precheck };
+  }
+  const matches = precheck.detected.filter(n => _gateInsuredMatches(n, context.account_name));
+  if (matches.length > 0) {
+    console.log('[applicant-gate] ' + moduleId + ' precheck OK. Matched insured(s):', matches);
+    return {
+      proceed: true,
+      reason: 'matched',
+      matchedInsureds: matches,
+      allDetected: precheck.detected,
+      precheck
+    };
+  }
+  console.warn('[applicant-gate] ' + moduleId + ' REFUSED. Submission insured: "' + context.account_name +
+    '". Documents reference: ' + precheck.detected.join(', '));
+  return {
+    proceed: false,
+    reason: 'no_match',
+    detectedInsureds: precheck.detected,
+    precheck
+  };
+}
+
+// Build the diagnostic body for a refused module.
+function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
+  const moduleTitles = {
+    gl_quote: 'primary GL quote',
+    al_quote: 'primary AL quote',
+    supplemental: 'supplemental application',
+    excess: 'underlying excess policies',
+    losses: 'loss runs'
+  };
+  const title = moduleTitles[moduleId] || moduleId;
+  const refs = (detectedInsureds && detectedInsureds.length)
+    ? detectedInsureds.join(', ')
+    : 'unknown';
+  return '**No matching ' + title + ' found for this insured (documents reference: ' + refs + ').**';
+}
+
+// Expose for console / extension debugging
+window.detectNamedInsureds = detectNamedInsureds;
+window.gateModuleByApplicant = gateModuleByApplicant;
+window.APPLICANT_GATED_MODULES = APPLICANT_GATED_MODULES;
+
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
   const moduleModel = MODULES[moduleId]?.model;  // per-module preference
   try {
+    // FIX-PHASE-6.1-TWO-PASS-APPLICANT-GATE-2026-05-14
+    // Run the precheck gate BEFORE the main extraction. For gated modules
+    // with a known account_name and a detected mismatch, the gate emits
+    // the diagnostic message and returns — the main LLM call is skipped.
+    const gateResult = await gateModuleByApplicant(moduleId, userContent, context || {});
+    if (!gateResult.proceed) {
+      const diagnostic = buildRefusalDiagnostic(
+        moduleId,
+        (context && context.account_name) || '(unknown)',
+        gateResult.detectedInsureds
+      );
+      const elapsed = (Date.now() - t0) / 1000;
+      const gateUsage = (gateResult.precheck && gateResult.precheck.usage) || {
+        input_tokens: 0, output_tokens: 0, model: 'claude-sonnet-4-6'
+      };
+      const cost = calcCost(gateUsage);
+      STATE.extractions[moduleId] = {
+        text: diagnostic,
+        confidence: 0,    // explicit zero — refusal, not real data
+        timing: elapsed,
+        mode: 'gated',
+        sourceInfo: sourceInfo,
+        usage: gateUsage,
+        cost: cost,
+        applicantGate: {
+          proceed: false,
+          reason: 'no_match',
+          detectedInsureds: gateResult.detectedInsureds,
+          submissionInsured: (context && context.account_name) || null
+        }
+      };
+      STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
+      setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · gated');
+      logAudit('Pipeline', 'Gated ' + MODULES[moduleId].code + ' · refusal (documents reference: ' +
+        (gateResult.detectedInsureds || []).join(', ') + ')',
+        (gateUsage.model || 'claude-sonnet-4-6') + ' · ' + fmtCost(cost));
+      if (typeof renderSubmissionSidebar === 'function') renderSubmissionSidebar();
+      return true;
+    }
+    // Gate passed (or skipped). If we matched specific insureds, optionally
+    // pass them into context so Layer A's preamble can use them.
+    let enrichedContext = context;
+    if (gateResult.matchedInsureds && gateResult.matchedInsureds.length > 0) {
+      enrichedContext = Object.assign({}, context || {}, {
+        matched_insureds_csv: gateResult.matchedInsureds.join(', ')
+      });
+    }
+
     // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
     // Substitute ${account_name} and any other ${var} placeholders in the
-    // prompt before sending to the LLM. context is the pipelineContext
-    // built at runPipeline start (carries the active submission's prior
-    // account_name from STATE.submissions, when available).
-    const effectivePrompt = context
-      ? substitutePromptVars(systemPrompt, context)
+    // prompt before sending to the LLM.
+    const effectivePrompt = enrichedContext
+      ? substitutePromptVars(systemPrompt, enrichedContext)
       : systemPrompt;
     const result = await callLLM(effectivePrompt, userContent, moduleModel);
     const elapsed = (Date.now() - t0) / 1000;
