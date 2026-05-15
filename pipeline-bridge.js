@@ -185,7 +185,7 @@
             <li><span>Populate workbench tabs</span><span class="unified-small-tag">review gate</span></li>
           </ul>
           <div class="unified-action-row">
-            <button type="button" class="btn-primary" id="runUnifiedPipelineBtn">Run Demo Autofill</button>
+            <button type="button" class="btn-primary" id="runUnifiedPipelineBtn">Run Demo Pipeline + Autofill</button>
             <button type="button" class="btn-secondary" id="loadPacketBtn">View Draft Packet</button>
           </div>
           <p class="unified-secondary-note">Demo mode uses hardcoded sample extracted data. For real submissions and paid AI runs, use the protected Platform queue.</p>
@@ -302,6 +302,17 @@
     }
     populateReviewCard(SAMPLE_PACKET);
     setTimeout(() => modal.classList.remove('is-open'), 550);
+    // BUG FIX: previously the demo was a two-step flow — Run Demo
+    // Autofill played the animation and populated the review card, then
+    // the user had to scroll down and click "Apply Draft to Workbench"
+    // separately. Most users (Justin included) clicked the first button,
+    // watched the animation finish, and thought the demo was broken
+    // because no fields filled in. For a demo flow this two-click pattern
+    // is just friction. We now auto-apply the packet a short beat after
+    // the modal closes — long enough for the review card to scroll into
+    // view so the user sees the Accepted/Defaulted/Conflicts/Missing
+    // breakdown, then the form fields visibly fill in.
+    setTimeout(() => applyPacketToWorkbench(SAMPLE_PACKET), 900);
   }
 
   function populateReviewCard(packet) {
@@ -326,7 +337,11 @@
     applyNarratives(packet);
     recordDemoHistory(packet);
     markAutofilledFields();
-    window.alert('Draft applied. Deal Info, Loss History, Limits, Risk Profile, and Underwriting narratives have been populated for the demo.');
+    // The autofill highlight on each populated field gives the user
+    // visible feedback that data landed — alert dismissal was just
+    // friction. The "Draft workbench ready" review card stays visible
+    // alongside the populated fields so the Accepted/Defaulted breakdown
+    // remains as the audit trail.
   }
 
   function applyDeal(packet) {
@@ -407,7 +422,27 @@
   function fillPanel(selector, values) {
     const panel = q(selector);
     if (!panel) return;
-    const els = qa('input, select, textarea', panel).filter(el => !el.matches('[type="checkbox"]'));
+    // FIX-2026-05-14-COVERAGE-ALIGNMENT (3 of 3).
+    // flatpickr with altInput:true puts TWO inputs in the DOM per date
+    // column — a hidden original that owns the _flatpickr instance, and
+    // a visible altInput sibling that's display-only. Writing setDate()
+    // on the original propagates the formatted value to the altInput
+    // automatically. Iterating both as separate value slots shifts the
+    // value-to-element alignment by +1 per date column and is the root
+    // cause of limit/premium numbers landing in date columns on every
+    // coverage panel. We skip the altInputs by detecting: no _flatpickr
+    // own-flag AND the immediate previous sibling DOES own _flatpickr.
+    // Combined with the workbench-app.js class-strip on init, this
+    // guarantees exactly N writable inputs per panel for N visual
+    // columns, matching what applyCoverages already passes.
+    const els = qa('input, select, textarea', panel).filter(el => {
+      if (el.matches('[type="checkbox"]')) return false;
+      if (!el._flatpickr) {
+        const prev = el.previousElementSibling;
+        if (prev && prev._flatpickr) return false;
+      }
+      return true;
+    });
     values.forEach((val, idx) => {
       const el = els[idx];
       if (!el || val === '') return;

@@ -206,7 +206,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const initFlatpickr = (target) => {
             if (!target || !window.flatpickr) return null;
-            return window.flatpickr(target, flatpickrConfig);
+            const fp = window.flatpickr(target, flatpickrConfig);
+            // FIX-2026-05-14-COVERAGE-ALIGNMENT (1 of 3).
+            // flatpickr v4.6.13 copies the original input's classes onto
+            // the altInput it creates when altInput:true is set. That means
+            // an altInput attached to a .limit-date input ALSO carries the
+            // .limit-date class. Any later code path that queries for
+            // .limit-date (e.g. initLimitDateInputs on the risk section,
+            // or the page-load init pass running a second time) then
+            // re-initializes flatpickr on the altInput — making it hidden
+            // and creating a third visible input with doubled altInput
+            // classes. That third input is what landed limit/premium
+            // values into the date columns of every coverage panel.
+            // Stripping the trigger classes from the altInput at init time
+            // is the single source-of-truth fix.
+            if (fp && fp.altInput) {
+                fp.altInput.classList.remove('limit-date');
+                fp.altInput.classList.remove('date');
+            }
+            return fp;
         };
 
         // ISO CODE DATA
@@ -955,6 +973,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!root || !window.flatpickr) return;
             root.querySelectorAll('.limit-date').forEach(el => {
                 if (el._flatpickr) return;
+                // FIX-2026-05-14-COVERAGE-ALIGNMENT (2 of 3).
+                // Defensive guard against altInputs that may still carry
+                // .limit-date class from any legacy code path that didn't
+                // strip it (initFlatpickr above is the primary fix).
+                // A flatpickr altInput sits as the next sibling of a
+                // hidden input that owns the _flatpickr instance.
+                const prev = el.previousElementSibling;
+                if (prev && prev._flatpickr) return;
                 initFlatpickr(el);
             });
         }
