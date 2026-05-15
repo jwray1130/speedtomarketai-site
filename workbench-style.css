@@ -5315,3 +5315,22 @@ body {
     width: 100%;
     min-width: 0;
 }
+
+/* FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14
+   Subtle ring + amber-tinted background on fields that Phase 2 filled
+   from the active submission. Distinct from the existing
+   .autofilled-field (used by the demo) so we can visually separate
+   real-data fills from demo fills during testing. Phase 21+ may surface
+   per-field source attribution as tooltips; for now the ring is the
+   visual signal. Applied via classList.add('autofilled-from-platform')
+   in workbench-app.js applyResolvedToElement(). */
+.autofilled-from-platform {
+    box-shadow: 0 0 0 2px var(--accent-pale, rgba(255, 209, 0, 0.18)) !important;
+    border-color: var(--accent-tint, rgba(255, 209, 0, 0.45)) !important;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.autofilled-from-platform.flatpickr-alt-input,
+.autofilled-from-platform + .flatpickr-alt-input {
+    box-shadow: 0 0 0 2px var(--accent-pale, rgba(255, 209, 0, 0.18)) !important;
+    border-color: var(--accent-tint, rgba(255, 209, 0, 0.45)) !important;
+}

@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.47-phase1.5-smart-launcher-2026-05-14
+  v8.6.48-phase2-tier0-resolver-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.47-phase1.5-smart-launcher-2026-05-14';
+window.STM_BUILD = 'v8.6.48-phase2-tier0-resolver-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -322,10 +322,148 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     badge.classList.add('is-visible');
                 }
+
+                // FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14
+                // Auto-apply the resolved Deal Info fields. Phase 2 ships
+                // Tier 0 only — submission row columns + hardcoded defaults
+                // + computed values. No extraction-text parsing yet (that's
+                // Phase 3). The apply is best-effort: each field is tried
+                // independently and any miss leaves the field empty (no
+                // throws, no demo-data fallback). Console log summarizes
+                // what got filled and what didn't.
+                if (window.WorkbenchRules
+                    && typeof window.WorkbenchRules.resolveField === 'function') {
+                    applyDealInfoFromActiveSubmission(data);
+                } else {
+                    console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
+                }
             } catch (err) {
                 console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
             }
         })();
+
+        // FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14
+        // Apply resolved Deal Information fields to the live workbench
+        // form. Each field maps to one selector. The resolver walks the
+        // SOURCE_AUTHORITY chain in workbench-rules.js, returning either
+        // {value, source, tier, confidence} on success or null on miss.
+        // We log a per-field outcome so Justin can see exactly what got
+        // filled, from which source, and what was missed for Phase 3 to
+        // pick up.
+        function applyDealInfoFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            // (field name, selector, kind) — kind drives how the value lands:
+            //   'value' → input.value = v
+            //   'date'  → flatpickr setDate or input.value as ISO
+            //   'select'→ matching option's value; warns if option missing
+            //   'text'  → element.textContent (display divs)
+            const targets = [
+                { field: 'insured_name',      sel: '#dealName',        kind: 'value' },
+                { field: 'policy_effective',  sel: '#polEff',          kind: 'date'  },
+                { field: 'policy_expiration', sel: '#polExp',          kind: 'date'  },
+                { field: 'submission_date',   sel: '#subDate',         kind: 'date'  },
+                { field: 'quote_expiration',  sel: '#quoteExp',        kind: 'date'  },
+                { field: 'target_date',       sel: '#targetDate',      kind: 'date'  },
+                { field: 'created_date',      sel: '#createDate',      kind: 'date'  },
+                { field: 'underwriter',       sel: '#underwriter',     kind: 'select'},
+                { field: 'assistant',         sel: '#assistant',       kind: 'select'},
+                { field: 'paper',             sel: '#paper',           kind: 'value' },
+                { field: 'market',            sel: '#admission',       kind: 'select'},
+                { field: 'broker_company',    sel: '#brokerCoTxt',     kind: 'text'  },
+                { field: 'broker_type',       sel: '#brokerTypeTxt',   kind: 'text'  },
+                { field: 'broker_region',     sel: '#regionTxt',       kind: 'text'  }
+            ];
+
+            const filled = [];
+            const missed = [];
+            const skipped = [];
+
+            for (const t of targets) {
+                const el = document.querySelector(t.sel);
+                if (!el) {
+                    skipped.push({ field: t.field, reason: 'selector_not_found', sel: t.sel });
+                    continue;
+                }
+                const resolved = rules.resolveField(t.field, submission);
+                if (!resolved) {
+                    missed.push({ field: t.field, sel: t.sel });
+                    continue;
+                }
+                const applied = applyResolvedToElement(el, t.kind, resolved.value);
+                if (applied) {
+                    el.classList.add('autofilled-from-platform');
+                    filled.push({
+                        field: t.field,
+                        value: String(resolved.value).slice(0, 40),
+                        source: resolved.source,
+                        tier: resolved.tier
+                    });
+                } else {
+                    skipped.push({
+                        field: t.field,
+                        reason: 'apply_failed_' + t.kind,
+                        sel: t.sel,
+                        attempted: String(resolved.value).slice(0, 40)
+                    });
+                }
+            }
+
+            console.log(
+                '[workbench] Phase 2 deal-info apply:',
+                filled.length, 'filled ·',
+                missed.length, 'missed ·',
+                skipped.length, 'skipped'
+            );
+            if (filled.length)  console.log('[workbench] Phase 2 filled:',  filled);
+            if (missed.length)  console.log('[workbench] Phase 2 missed:',  missed);
+            if (skipped.length) console.log('[workbench] Phase 2 skipped:', skipped);
+        }
+
+        function applyResolvedToElement(el, kind, value) {
+            const tag = (el.tagName || '').toLowerCase();
+            try {
+                if (kind === 'date') {
+                    if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
+                        el._flatpickr.setDate(value, true);
+                        return true;
+                    }
+                    el.value = value;
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+                if (kind === 'select') {
+                    if (tag !== 'select') return false;
+                    const options = Array.from(el.options || []);
+                    const wanted = String(value).trim().toLowerCase();
+                    const match = options.find(o =>
+                        String(o.value).trim().toLowerCase() === wanted
+                        || String(o.text).trim().toLowerCase() === wanted
+                    );
+                    if (!match) return false;
+                    el.value = match.value;
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+                if (kind === 'value') {
+                    if (tag === 'input' || tag === 'textarea') {
+                        el.value = value;
+                        el.dispatchEvent(new Event('input',  { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                    }
+                    return false;
+                }
+                if (kind === 'text') {
+                    el.textContent = value;
+                    return true;
+                }
+            } catch (err) {
+                console.warn('[workbench] applyResolvedToElement error:', err);
+            }
+            return false;
+        }
 
         setupTextareaAutoScroll('#descOps');
         setupTextareaAutoScroll('#expLoss');
