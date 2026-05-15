@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.48-phase2-tier0-resolver-2026-05-14';
+window.STM_BUILD = 'v8.6.48.1-date-norm-tracy-market-mclick-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -6681,10 +6681,23 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 // the workbench opens to manual-entry mode. Click-time evaluation (not
 // reactive href updates) keeps this bulletproof against view-switch race
 // conditions — by the time the click event fires, STATE is authoritative.
+//
+// FIX-PHASE-2.1-MIDDLE-CLICK-SAFETY-2026-05-14
+// Also update href on mousedown so the browser's native href-following
+// path (middle-click, right-click → Open in new tab, Cmd/Ctrl+click)
+// inherits the submission param. Without this, those navigation modes
+// bypass the click handler and lose the active submission context.
 (function wireWorkbenchLauncher(){
   const btn = document.querySelector('.topbar-workbench-btn');
   if (!btn || btn.__stmWorkbenchNavBound) return;
   btn.__stmWorkbenchNavBound = true;
+  const setHrefForActive = () => {
+    const activeId = (typeof STATE !== 'undefined') ? STATE.activeSubmissionId : null;
+    btn.href = activeId
+      ? '/workbench?submission=' + encodeURIComponent(activeId)
+      : '/workbench';
+  };
+  btn.addEventListener('mousedown', setHrefForActive);
   btn.addEventListener('click', (event) => {
     const activeId = (typeof STATE !== 'undefined') ? STATE.activeSubmissionId : null;
     if (activeId) {

@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.48-phase2-tier0-resolver-2026-05-14
+  v8.6.48.1-date-norm-tracy-market-mclick-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.48-phase2-tier0-resolver-2026-05-14';
+window.STM_BUILD = 'v8.6.48.1-date-norm-tracy-market-mclick-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -425,11 +425,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const tag = (el.tagName || '').toLowerCase();
             try {
                 if (kind === 'date') {
+                    // FIX-v8.6.48.1: defensive ISO normalization. Resolver
+                    // normalizes for DATE_FIELDS at source, but if a future
+                    // Tier 2 parser returns a raw string format, this layer
+                    // is the last line of defense before flatpickr.setDate().
+                    let v = value;
+                    if (window.WorkbenchRules
+                        && typeof window.WorkbenchRules.normalizeDateString === 'function') {
+                        v = window.WorkbenchRules.normalizeDateString(v);
+                    }
                     if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
-                        el._flatpickr.setDate(value, true);
+                        el._flatpickr.setDate(v, true);
                         return true;
                     }
-                    el.value = value;
+                    el.value = v;
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                     return true;
                 }

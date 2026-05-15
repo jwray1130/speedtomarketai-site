@@ -36,10 +36,65 @@
     broker_type: 'Wholesale',
     broker_region: 'South East',
     paper: 'Steadfast Insurance Company',
-    market: 'Excess & Surplus Lines',
+    market: 'nonAdmitted',             // FIX-v8.6.48.1: option value, not display text
     target_lead_lookback_days: 10,     // target bind = effective - 10 days
     quote_expiration_days: 30          // quote exp  = submission + 30 days
   };
+
+  // FIX-v8.6.48.1-DATE-NORMALIZATION-2026-05-14
+  // Set of resolver field names that must produce a strict ISO YYYY-MM-DD
+  // date string. Any descriptor in SOURCE_AUTHORITY that resolves to one
+  // of these fields will be normalized in tryDescriptor() before return.
+  // This catches the Anahuac-specific bug where submission.effective_date
+  // is stored as a MM/DD/YYYY string in Supabase ("05/01/2026") rather
+  // than an ISO date — flatpickr's setDate() can't parse that locale-
+  // dependent format reliably and was rendering #polEff as "2026-01-01".
+  const DATE_FIELDS = new Set([
+    'policy_effective',
+    'policy_expiration',
+    'submission_date',
+    'quote_expiration',
+    'target_date',
+    'created_date'
+  ]);
+
+  // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
+  // MM/DD/YYYY, MM-DD-YYYY, M/D/YYYY, Date instances. Returns strict
+  // ISO YYYY-MM-DD. Never throws — if the input is unparseable, returns
+  // the input as-is so downstream consumers can decide what to do.
+  function normalizeDateString(s) {
+    if (s == null || s === '') return s;
+    if (s instanceof Date) {
+      if (isNaN(s.getTime())) return s;
+      return formatIso(s);
+    }
+    const str = String(s).trim();
+    let m;
+    // Already ISO YYYY-MM-DD
+    if (m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str)) {
+      return str;
+    }
+    // ISO with time component (created_at from Supabase)
+    if (m = /^(\d{4})-(\d{2})-(\d{2})T/.exec(str)) {
+      return `${m[1]}-${m[2]}-${m[3]}`;
+    }
+    // MM/DD/YYYY (Anahuac's effective_date shape)
+    if (m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str)) {
+      const mm = String(m[1]).padStart(2, '0');
+      const dd = String(m[2]).padStart(2, '0');
+      return `${m[3]}-${mm}-${dd}`;
+    }
+    // MM-DD-YYYY
+    if (m = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(str)) {
+      const mm = String(m[1]).padStart(2, '0');
+      const dd = String(m[2]).padStart(2, '0');
+      return `${m[3]}-${mm}-${dd}`;
+    }
+    // Last-resort: Date parser (locale-dependent, kept as a fallback only)
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return formatIso(d);
+    return str;
+  }
 
   // ─── Company guideline caps ───────────────────────────────────────────────
   // Per Justin's spec: company/guideline rules, applied uniformly.
@@ -88,7 +143,7 @@
     underwriter:         ['hardcoded:Justin Wray'],
     assistant:           ['hardcoded:Tracy Savage'],
     paper:               ['hardcoded:Steadfast Insurance Company'],
-    market:              ['hardcoded:Excess & Surplus Lines'],
+    market:              ['hardcoded:nonAdmitted'],
 
     // ─── Broker block (display divs in Phase 2) ───
     broker_company:      ['submission.broker'],
@@ -108,28 +163,28 @@
 
   const COMPUTE = {
     effective_plus_year(submission) {
-      const eff = submission && submission.effective_date;
-      if (!eff) return null;
-      const d = new Date(eff);
-      if (isNaN(d.getTime())) return null;
-      d.setUTCFullYear(d.getUTCFullYear() + 1);
-      return formatIso(d);
+      // FIX-v8.6.48.1: normalize Anahuac-shape MM/DD/YYYY before parsing.
+      // Also use UTC to avoid local-timezone day-shift quirks where
+      // "2026-05-01" might render as Apr 30 in negative-offset zones.
+      const eff = normalizeDateString(submission && submission.effective_date);
+      if (!eff || !/^\d{4}-\d{2}-\d{2}$/.test(eff)) return null;
+      const [y, mo, d] = eff.split('-').map(Number);
+      const next = new Date(Date.UTC(y + 1, mo - 1, d));
+      return formatIso(next);
     },
     effective_minus_lead_days(submission) {
-      const eff = submission && submission.effective_date;
-      if (!eff) return null;
-      const d = new Date(eff);
-      if (isNaN(d.getTime())) return null;
-      d.setUTCDate(d.getUTCDate() - DEFAULTS.target_lead_lookback_days);
-      return formatIso(d);
+      const eff = normalizeDateString(submission && submission.effective_date);
+      if (!eff || !/^\d{4}-\d{2}-\d{2}$/.test(eff)) return null;
+      const [y, mo, d] = eff.split('-').map(Number);
+      const next = new Date(Date.UTC(y, mo - 1, d - DEFAULTS.target_lead_lookback_days));
+      return formatIso(next);
     },
     submission_plus_quote_days(submission) {
-      const sub = submission && submission.created_at;
-      if (!sub) return null;
-      const d = new Date(sub);
-      if (isNaN(d.getTime())) return null;
-      d.setUTCDate(d.getUTCDate() + DEFAULTS.quote_expiration_days);
-      return formatIso(d);
+      const sub = normalizeDateString(submission && submission.created_at);
+      if (!sub || !/^\d{4}-\d{2}-\d{2}$/.test(sub)) return null;
+      const [y, mo, d] = sub.split('-').map(Number);
+      const next = new Date(Date.UTC(y, mo - 1, d + DEFAULTS.quote_expiration_days));
+      return formatIso(next);
     }
   };
 
@@ -169,8 +224,16 @@
     if (descriptor.startsWith('submission.')) {
       const col = descriptor.slice('submission.'.length);
       if (!submission || submission[col] == null) return null;
+      let value = submission[col];
+      // FIX-v8.6.48.1: normalize date-typed fields to strict ISO YYYY-MM-DD
+      // before they leave the resolver. Anahuac's effective_date column
+      // ships as "05/01/2026" (MM/DD/YYYY string), and Supabase's created_at
+      // includes a time component — flatpickr only reliably parses ISO.
+      if (DATE_FIELDS.has(fieldName)) {
+        value = normalizeDateString(value);
+      }
       return {
-        value: submission[col],
+        value: value,
         source: descriptor,
         tier: 0,
         confidence: 1.0
@@ -193,8 +256,13 @@
       const name = descriptor.slice('compute:'.length);
       const fn = COMPUTE[name];
       if (typeof fn !== 'function') return null;
-      const v = fn(submission);
+      let v = fn(submission);
       if (v === null || v === undefined || v === '') return null;
+      // Defensive: COMPUTE functions already normalize, but if a future
+      // formula returns a non-ISO string, catch it here for date fields.
+      if (DATE_FIELDS.has(fieldName)) {
+        v = normalizeDateString(v);
+      }
       return {
         value: v,
         source: descriptor,
@@ -215,9 +283,11 @@
     GUIDELINE_CAPS,
     DEFAULTS,
     COMPUTE,
+    DATE_FIELDS,
     resolveField,
+    normalizeDateString,
     formatIso,
-    version: 'phase2-tier0',
+    version: 'phase2-tier0-v48.1',
     fixTag: 'FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14'
   };
 

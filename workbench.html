@@ -304,6 +304,11 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                     <option>Finley Stone</option>
                                     <option>Harper Quinn</option>
                                     <option>Rowan Ellis</option>
+                                    <!-- FIX-v8.6.48.1: Tracy Savage is Justin's actual UA. Phase 6 will
+                                         replace this static list with a Supabase-backed UA assignment
+                                         table per UW, but until then this static option lets the Phase 2
+                                         hardcoded:Tracy Savage default actually resolve. -->
+                                    <option>Tracy Savage</option>
                                 </select>
                             </label>
                         </div>
