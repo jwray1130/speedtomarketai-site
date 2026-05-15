@@ -62,6 +62,20 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             </nav>
         </div>
         <div class="topbar-right">
+            <!-- PLATFORM LAUNCHER — mirror of the "Workbench" button on
+                 /platform's topbar. Sits at the front of the right-side
+                 group so the round-trip navigation pattern reads the same
+                 on both pages. Arrow points LEFT to signal "back to the
+                 queue" (platform is where submissions land; workbench is
+                 the downstream tool). Removable in one line once a richer
+                 in-app handoff exists. -->
+            <a href="/platform" class="topbar-platform-btn" title="Back to the platform queue">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M6 8l-4 3 4 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6 5h11M6 10h11M6 15h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                <span>Platform</span>
+            </a>
             <div class="action-dropdown">
                 <button id="actionsBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="actionsMenu">
                     <span>Actions</span>
