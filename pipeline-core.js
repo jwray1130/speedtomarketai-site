@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.51.1-papertxt-mirror-wholesale-cal-2026-05-14';
+window.STM_BUILD = 'v8.6.51.2-derivebroker-label-anchor-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -3009,11 +3009,28 @@ function deriveBroker() {
     const m = referralEmail.text.match(/Broker\s*:?\s*([^\n]+)/i);
     if (m) return cleanDerived(m[1]);
   }
-  // Fall back to supplemental if broker is named there
+  // Fall back to supplemental if broker is named there.
+  // FIX-PHASE-5.1a-DERIVEBROKER-LABEL-ANCHOR-2026-05-14
+  // The previous regex /\*{0,2}Broker\*{0,2}\s*:?\s*([^\n]+)/i matched
+  // ANY occurrence of "Broker" in supplemental.text — including inside
+  // mid-sentence phrases like "Insurance Broker; retained indefinitely"
+  // (from a COIs context block on Anahuac SUB-MP1ZXZ3E). That captured
+  // "; retained indefinitely" as the broker name and persisted it to
+  // the submissions.broker column.
+  //
+  // The tightened pattern requires:
+  //   1. Start of line (m flag) — rejects mid-sentence matches
+  //   2. Optional bullet/whitespace/asterisks prefix
+  //   3. Standalone word "Broker" — \b boundary rejects "Insurance Broker",
+  //      "Broker Email", "Broker Firm" (those are different labels)
+  //   4. Required colon — rejects "Broker; retained..." (semicolon ≠ colon)
+  //   5. Captured value must start with alphanumeric — rejects any
+  //      fragment that somehow still slips through and starts with
+  //      punctuation/whitespace.
   const supp = STATE.extractions.supplemental;
   if (supp && supp.text) {
-    const m = supp.text.match(/\*{0,2}Broker\*{0,2}\s*:?\s*([^\n]+)/i);
-    if (m) return cleanDerived(m[1]);
+    const m = supp.text.match(/^[\s\-*]*\**\s*\bBroker\b\**\s*:\**\s*([A-Za-z0-9][^\n]*)/im);
+    if (m) return cleanDerived(m[1].trim());
   }
   return null;
 }
