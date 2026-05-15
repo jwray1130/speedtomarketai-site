@@ -147,6 +147,21 @@
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker)\s+Address\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Producer\s+Office\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
     ],
+    // FIX-PHASE-5.0-BROKER-COMPANY-PATTERNS-2026-05-14
+    // Distinct from broker_name (the human producer). broker_company is
+    // the brokerage firm (AmWINS, CRC Insurance Services, Burns &
+    // Wilcox, RT Specialty, etc.). Common labels in extractions:
+    //   "Producer Firm:", "Brokerage:", "Broker Firm:", "Brokerage Firm:",
+    //   "Wholesaler:", "Wholesale Broker:"
+    broker_company: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker|Brokerage)\s+Firm\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Brokerage\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Wholesale(?:r|\s+Broker)?\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
+      // Often the broker section lists the company on a line after a
+      // person — e.g., "Rachel Tran\nAmWINS Brokerage of Texas\n...".
+      // Capture line that contains a well-known broker token.
+      { re: /(?:^|\n)\s*((?:AmWINS|CRC|Burns\s*(?:&|and)\s*Wilcox|RT\s+Specialty|Brown\s*(?:&|and)\s*Brown|Hull\s+(?:&|and)\s+Co)[^\n]*)(?:\n|$)/i, conf: 0.75 }
+    ],
     // layer_type: Phase 11 classifier reads schedule of underlying; no
     // pattern-based extraction is reliable enough to ship.
 
@@ -260,6 +275,35 @@
       return true;
     }
     return false;
+  }
+
+  // FIX-PHASE-5.0-STRUCTURAL-VALIDITY-2026-05-14
+  // ─── Structural validity check ────────────────────────────────────────
+  // Catches captured-fragment garbage that isn't a placeholder phrase
+  // (so sentinel filter misses it) but isn't a structurally plausible
+  // value either. Concrete trigger: Anahuac's submission.broker column
+  // contains "; retained indefinitely" — a fragment from a COIs context
+  // block mis-captured as broker name during platform extraction.
+  //
+  // Rejection rules:
+  //   - empty / whitespace-only
+  //   - starts with non-alphanumeric character (e.g., punctuation)
+  //   - fewer than 2 alphanumeric characters total
+  //
+  // This is intentionally permissive — it accepts dates (e.g., 2026-05-01),
+  // currency strings (1,000,000), single-word values (Wholesale, TX),
+  // multi-word names (Tracy Savage, Great American E&S), addresses with
+  // numbers/punctuation (123 Main St). It only rejects obvious junk.
+  function looksStructurallyValid(value) {
+    if (value == null) return false;
+    const s = String(value).trim();
+    if (s.length < 2) return false;
+    // Must start with a letter or digit (Unicode letters allowed)
+    if (!/^[\p{L}\p{N}]/u.test(s)) return false;
+    // Must contain at least 2 alphanumeric characters total
+    const alphaNum = s.match(/[\p{L}\p{N}]/gu);
+    if (!alphaNum || alphaNum.length < 2) return false;
+    return true;
   }
 
   // ─── Tier 2 parser: markdown label patterns ───────────────────────────
@@ -439,7 +483,13 @@
     market:              ['hardcoded:nonAdmitted'],
 
     // ─── Broker block (display divs in Phase 2) ───
-    broker_company:      ['submission.broker'],
+    // FIX-PHASE-5.0-BROKER-TIER-PRIORITY-2026-05-14
+    // Tier 2 markdown sources outrank Tier 0 submission.broker because
+    // the broker column on Anahuac contains "; retained indefinitely"
+    // — a captured fragment, not a broker name. Phase 5.0's structural
+    // validity check now rejects that Tier 0 value automatically, but
+    // we ALSO prefer better Tier 2 sources when they exist.
+    broker_company:      ['summary-ops', 'supplemental', 'submission.broker'],
     broker_type:         ['hardcoded:Wholesale'],
     broker_region:       ['hardcoded:South East'],
 
@@ -542,6 +592,21 @@
   function tryDescriptor(descriptor, submission, fieldName) {
     if (typeof descriptor !== 'string') return null;
 
+    // FIX-PHASE-5.0-STRUCTURAL-VALIDITY-2026-05-14
+    // Helper: validate a Tier 0 resolved value before returning it.
+    // Returns the value as-is if it passes both checks, or null if it
+    // fails (so resolveField falls through to the next descriptor).
+    // Date fields skip these checks since ISO dates aren't expected
+    // to satisfy either filter (sentinel words / structural validity
+    // are designed for human-readable text).
+    const validateTier0 = (val) => {
+      if (val == null || val === '') return null;
+      if (DATE_FIELDS.has(fieldName)) return val; // dates bypass filters
+      if (isSentinelValue(val)) return null;
+      if (!looksStructurallyValid(val)) return null;
+      return val;
+    };
+
     // submission.<column>
     if (descriptor.startsWith('submission.')) {
       const col = descriptor.slice('submission.'.length);
@@ -553,6 +618,11 @@
       // includes a time component — flatpickr only reliably parses ISO.
       if (DATE_FIELDS.has(fieldName)) {
         value = normalizeDateString(value);
+      } else {
+        // FIX-PHASE-5.0: reject captured-fragment garbage (e.g.,
+        // submission.broker = "; retained indefinitely" on Anahuac).
+        value = validateTier0(value);
+        if (value == null) return null;
       }
       return {
         value: value,
@@ -565,8 +635,13 @@
     // hardcoded:<value>
     if (descriptor.startsWith('hardcoded:')) {
       const v = descriptor.slice('hardcoded:'.length);
+      // Hardcoded values are author-controlled — still run them through
+      // validateTier0 as a defensive net (catches accidental typos that
+      // produced sentinel/punctuation strings).
+      const validated = DATE_FIELDS.has(fieldName) ? v : validateTier0(v);
+      if (validated == null) return null;
       return {
-        value: v,
+        value: validated,
         source: descriptor,
         tier: 0,
         confidence: 1.0
@@ -692,13 +767,39 @@
     parseJsonBlock,
     parseMarkdown,
     isSentinelValue,
+    looksStructurallyValid,
     extractNamedInsured,
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase4.1-sentinel-policy-period',
-    fixTag: 'FIX-PHASE-4.1-SENTINEL-FILTER-2026-05-14'
+    version: 'phase5.0-broker-structural-validity',
+    fixTag: 'FIX-PHASE-5.0-STRUCTURAL-VALIDITY-2026-05-14'
   };
+
+  // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
+  // Optional debug surface — only exposed when the page URL contains
+  // ?debug=1 (or &debug=1). Lets Justin reset the cross-applicant cache
+  // between test scenarios without a full page reload. Cache is otherwise
+  // private and immutable for safety, but observable + clearable in
+  // debug mode for development iteration.
+  try {
+    const params = (typeof window !== 'undefined' && window.location)
+      ? new URLSearchParams(window.location.search)
+      : null;
+    if (params && params.get('debug') === '1') {
+      root.WorkbenchRules._debugClearApplicantCache = function () {
+        const keys = Object.keys(_applicantMatchCache);
+        for (const k of keys) delete _applicantMatchCache[k];
+        console.log('[WorkbenchRules] _applicantMatchCache cleared (' + keys.length + ' entries)');
+        return keys.length;
+      };
+      root.WorkbenchRules._debugInspectApplicantCache = function () {
+        return Object.assign({}, _applicantMatchCache);
+      };
+      console.log('[WorkbenchRules] Debug mode active. Available:',
+                  '_debugClearApplicantCache(), _debugInspectApplicantCache()');
+    }
+  } catch (e) { /* no-op outside browser */ }
 
   // Console-testable convenience wrapper. From the workbench console:
   //   window.workbenchResolveField('insured_name')
