@@ -148,6 +148,7 @@
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Producer\s+Office\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
     ],
     // FIX-PHASE-5.0-BROKER-COMPANY-PATTERNS-2026-05-14
+    // FIX-PHASE-5.1-WHOLESALE-CONF-CALIBRATION-2026-05-14
     // Distinct from broker_name (the human producer). broker_company is
     // the brokerage firm (AmWINS, CRC Insurance Services, Burns &
     // Wilcox, RT Specialty, etc.). Common labels in extractions:
@@ -156,7 +157,10 @@
     broker_company: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker|Brokerage)\s+Firm\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Brokerage\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Wholesale(?:r|\s+Broker)?\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
+      // "Wholesale Broker:" and "Wholesaler:" are unambiguous broker-firm
+      // labels in E&S casualty submissions — calibrated to 1.0 alongside
+      // "Brokerage:" and "Producer Firm:".
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Wholesale(?:r|\s+Broker)?\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
       // Often the broker section lists the company on a line after a
       // person — e.g., "Rachel Tran\nAmWINS Brokerage of Texas\n...".
       // Capture line that contains a well-known broker token.
@@ -772,8 +776,8 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase5.0-broker-structural-validity',
-    fixTag: 'FIX-PHASE-5.0-STRUCTURAL-VALIDITY-2026-05-14'
+    version: 'phase5.1-papertxt-mirror-wholesale-cal',
+    fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.51-phase5.0-broker-structural-validity-2026-05-14
+  v8.6.51.1-papertxt-mirror-wholesale-cal-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.51-phase5.0-broker-structural-validity-2026-05-14';
+window.STM_BUILD = 'v8.6.51.1-papertxt-mirror-wholesale-cal-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -387,6 +387,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 { field: 'assistant',           sel: '#assistant',       kind: 'select'},
                 { field: 'market',              sel: '#admission',       kind: 'select'},
                 { field: 'paper',               sel: '#paper',           kind: 'value' },
+                // FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14
+                // Summary card mirror — #paperTxt is the read-only span
+                // rendered in the sidebar/summary card. Pre-Phase-5.1
+                // it was being populated by an older code path (showing
+                // "Crestline E&S Insurance Company") while #paper input
+                // correctly held "Steadfast Insurance Company". This
+                // second target writes the resolved paper value to the
+                // mirror so the summary card matches the form field.
+                { field: 'paper',               sel: '#paperTxt',        kind: 'text'  },
                 { field: 'broker_company',      sel: '#brokerCoTxt',     kind: 'text'  },
                 { field: 'broker_type',         sel: '#brokerTypeTxt',   kind: 'text'  },
                 { field: 'broker_region',       sel: '#regionTxt',       kind: 'text'  },
@@ -458,16 +467,29 @@ document.addEventListener('DOMContentLoaded', () => {
             // after our apply loop and clobbers paper, this re-applies
             // at 120ms. The sync clobber is handled by target ordering
             // above; this catches setTimeout(0) and microtask handlers.
+            //
+            // FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14
+            // Also mirror to #paperTxt in case the summary-card render
+            // function fires after our apply and overwrites with the
+            // demo/legacy Crestline value.
             setTimeout(() => {
-                const paperEl = document.querySelector('#paper');
-                if (!paperEl) return;
                 const paperResolved = rules.resolveField('paper', submission);
                 if (!paperResolved || !paperResolved.value) return;
-                if (paperEl.value !== paperResolved.value) {
+
+                const paperEl = document.querySelector('#paper');
+                if (paperEl && paperEl.value !== paperResolved.value) {
                     console.log('[workbench] Phase 3 paper safety re-apply:',
                                 paperEl.value, '→', paperResolved.value);
                     paperEl.value = paperResolved.value;
                     paperEl.classList.add('autofilled-from-platform');
+                }
+
+                const paperTxt = document.querySelector('#paperTxt');
+                if (paperTxt && paperTxt.textContent !== paperResolved.value) {
+                    console.log('[workbench] Phase 5.1 paperTxt mirror re-apply:',
+                                paperTxt.textContent, '→', paperResolved.value);
+                    paperTxt.textContent = paperResolved.value;
+                    paperTxt.classList.add('autofilled-from-platform');
                 }
             }, 120);
         }
