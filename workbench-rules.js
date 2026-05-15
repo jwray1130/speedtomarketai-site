@@ -96,6 +96,97 @@
     return str;
   }
 
+  // FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14
+  // ─── Label pattern catalog (Tier 2 markdown parsing) ──────────────────
+  // For each resolver field, a priority-ordered list of regex patterns.
+  // Each pattern has a parser_confidence (1.0 = exact label match,
+  // 0.75 = multi-candidate / fuzzy label, 0.60 = inferred from context,
+  // 0.50 = wrapped / multi-line / weakest signal).
+  // The composed final confidence is parser_confidence × module
+  // extraction.confidence.
+  //
+  // Patterns are intentionally case-insensitive and tolerant of common
+  // markdown formatting variations (bold asterisks, bullet dashes,
+  // colons optional, leading whitespace). When a pattern hits, the
+  // captured group is trimmed and returned. If no pattern hits, the
+  // module is skipped and the next module in the field's priority list
+  // is tried.
+
+  const LABEL_PATTERNS = {
+    home_state: [
+      // Strict label match — high confidence. Allow leading bullet
+      // dashes (- or *) and bold markers (**) in any combination.
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Home\s+State|State\s+of\s+Domicile|Mailing\s+State|Primary\s+State|Domicile\s+State)\**\s*:?\s*\**\s*([A-Z]{2})\b/im, conf: 1.0 },
+      // Generic "State:" — slightly weaker (could be product state, etc.)
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*State\**\s*:\s*([A-Z]{2})\b/im, conf: 0.75 },
+      // Two-letter state inferred from an address line ending in ZIP
+      { re: /,\s+([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/, conf: 0.60 }
+    ],
+    mailing_address: [
+      // Bold label, value on same line, may be preceded by bullet
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Mailing\s+Address\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      // Generic "Address:" — could be controlling or other
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Address\**\s*:\s*([^\n]+?)(?:\n|$)/im, conf: 0.60 }
+    ],
+    controlling_address: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Physical|Controlling|Premises|Insured)\s+Address\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      // Insured address often appears under a "Named Insured" section
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Location\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    broker_name: [
+      // Producer / broker name with bold formatting and optional bullet
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker)\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker|Agent)\**\s*:\s*([^\n,]+?)(?:\n|,|$)/im, conf: 0.75 },
+      // Email signature pattern — name on line before company line
+      { re: /(?:^|\n)([A-Z][a-z]+\s+[A-Z][a-z]+)\s*\n\s*(?:Producer|Broker|AmWINS|CRC|Burns|RT\s+Specialty)/m, conf: 0.60 }
+    ],
+    broker_address: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Producer|Broker)\s+Address\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Producer\s+Office\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ]
+    // layer_type: Phase 11 classifier reads schedule of underlying; no
+    // pattern-based extraction is reliable enough to ship.
+  };
+
+  // ─── Tier 1 parser: JSON code block in extraction text ────────────────
+  // Looks for a fenced ```json ... ``` block or a leading JSON object.
+  // Returns the parsed object on success, null on miss.
+  function parseJsonBlock(text) {
+    if (!text || typeof text !== 'string') return null;
+    // Try fenced JSON block first
+    const fencedMatch = /```json\s*([\s\S]*?)```/i.exec(text);
+    if (fencedMatch) {
+      try { return JSON.parse(fencedMatch[1].trim()); }
+      catch (e) { /* fall through */ }
+    }
+    // Try a JSON object starting at first { and ending at matching }
+    const objMatch = /({[\s\S]+?})/m.exec(text);
+    if (objMatch) {
+      try { return JSON.parse(objMatch[1]); }
+      catch (e) { /* fall through */ }
+    }
+    return null;
+  }
+
+  // ─── Tier 2 parser: markdown label patterns ───────────────────────────
+  // Returns { value, parser_confidence } on hit, null on miss.
+  function parseMarkdown(text, fieldName) {
+    if (!text || typeof text !== 'string') return null;
+    const patterns = LABEL_PATTERNS[fieldName];
+    if (!patterns || !patterns.length) return null;
+    for (const p of patterns) {
+      const m = p.re.exec(text);
+      if (m && m[1]) {
+        let value = m[1].trim()
+          .replace(/^\**\s*/, '')   // strip leading bold markers
+          .replace(/\s*\**$/, '');  // strip trailing bold markers
+        if (!value) continue;
+        return { value: value, parser_confidence: p.conf };
+      }
+    }
+    return null;
+  }
+
   // ─── Company guideline caps ───────────────────────────────────────────────
   // Per Justin's spec: company/guideline rules, applied uniformly.
   // Used by Phase 4+ excess/lead writers — defined here so a single file
@@ -129,7 +220,7 @@
   //   '<module>:json'                → require a JSON code block in
   //                                    extractions[module].text (Tier 1)
   //   '<module>:llm'                 → fire targeted LLM mini-extraction
-  //                                    (Tier 3 — opt-in only)
+  //                                    (Tier 3 — opt-in only, not yet wired)
 
   const SOURCE_AUTHORITY = {
     // ─── Deal Information ───
@@ -148,12 +239,25 @@
     // ─── Broker block (display divs in Phase 2) ───
     broker_company:      ['submission.broker'],
     broker_type:         ['hardcoded:Wholesale'],
-    broker_region:       ['hardcoded:South East']
+    broker_region:       ['hardcoded:South East'],
 
-    // Phase 3 will add:
-    //   home_state, layer_type, mailing_address, controlling_address,
-    //   broker_name, broker_address  — all needing Tier 2 markdown parsing
-    //   of the supplemental / gl_quote / summary-ops modules.
+    // ─── Phase 3 Tier 2 additions ───
+    // Module order = priority. For each field, the first module whose
+    // markdown parse hits with parser_confidence > 0 wins. Modules are
+    // listed roughly in order of authority for that field:
+    //   - supplemental: ACORD-derived data
+    //   - gl_quote:     primary policy quote sheet
+    //   - summary-ops:  AI-synthesized account summary
+    //   - subcontract:  subcontract agreement details
+    //   - exposure:     exposure analysis
+    home_state:          ['supplemental:json', 'gl_quote:json',
+                          'supplemental', 'gl_quote', 'summary-ops'],
+    mailing_address:     ['supplemental:json', 'supplemental',
+                          'gl_quote', 'summary-ops'],
+    controlling_address: ['gl_quote:json', 'gl_quote', 'supplemental'],
+    broker_name:         ['summary-ops', 'supplemental'],
+    broker_address:      ['summary-ops', 'supplemental'],
+    layer_type:          []     // Phase 11 classifier — placeholder
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -271,9 +375,80 @@
       };
     }
 
-    // Module-based descriptors (Tier 1/2/3) — not yet implemented in Phase 2.
-    // Phase 3 will branch here based on suffix (:json, :llm, plain).
-    return null;
+    // Module-based descriptors (Tier 1 = JSON code block, Tier 2 = markdown).
+    // FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14
+    // Format:
+    //   '<module>'        → Tier 2 markdown label parse
+    //   '<module>:json'   → Tier 1 JSON code block parse
+    //   '<module>:llm'    → Tier 3 LLM mini-extraction (not yet implemented)
+    const colonIdx = descriptor.indexOf(':');
+    const moduleKey = colonIdx === -1 ? descriptor : descriptor.slice(0, colonIdx);
+    const tierHint  = colonIdx === -1 ? '' : descriptor.slice(colonIdx + 1);
+
+    // Look up extractions on the active submission's snapshot. Multiple
+    // possible paths because this code may be called from console with
+    // shapes that differ — be permissive.
+    const extractions =
+      (submission && submission.snapshot && submission.snapshot.extractions) ||
+      (submission && submission.extractions) ||
+      null;
+    if (!extractions) return null;
+    const moduleRec = extractions[moduleKey];
+    if (!moduleRec || typeof moduleRec.text !== 'string') return null;
+
+    const extractionConf = (typeof moduleRec.confidence === 'number')
+      ? moduleRec.confidence
+      : 1.0;
+
+    if (tierHint === 'json') {
+      const obj = parseJsonBlock(moduleRec.text);
+      if (!obj) return null;
+      // Map fieldName to a plausible JSON key. Lowercase camelCase
+      // common variants; extend the variant list as needed when real
+      // JSON outputs land in Phase 3.5+.
+      const variants = [
+        fieldName,
+        camel(fieldName),
+        fieldName.replace(/_/g, ' '),
+        fieldName.replace(/_/g, '')
+      ];
+      let val = null;
+      for (const v of variants) {
+        if (obj[v] != null && obj[v] !== '') { val = obj[v]; break; }
+      }
+      if (val == null || val === '') return null;
+      if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      return {
+        value: val,
+        source: descriptor,
+        tier: 1,
+        confidence: extractionConf  // JSON is exact; parser_conf = 1.0
+      };
+    }
+
+    if (tierHint === 'llm') {
+      // Tier 3 — not yet wired. Phase 3.x or later.
+      return null;
+    }
+
+    // Plain module reference → Tier 2 markdown parse
+    const parsed = parseMarkdown(moduleRec.text, fieldName);
+    if (!parsed) return null;
+    let val = parsed.value;
+    if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+    return {
+      value: val,
+      source: descriptor,
+      tier: 2,
+      // Composed confidence: extraction × parser (Justin's refinement)
+      confidence: extractionConf * parsed.parser_confidence,
+      extraction_confidence: extractionConf,
+      parser_confidence: parsed.parser_confidence
+    };
+  }
+
+  function camel(snake) {
+    return snake.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
   }
 
   // ─── Public surface ───────────────────────────────────────────────────────
@@ -284,11 +459,14 @@
     DEFAULTS,
     COMPUTE,
     DATE_FIELDS,
+    LABEL_PATTERNS,
     resolveField,
     normalizeDateString,
+    parseJsonBlock,
+    parseMarkdown,
     formatIso,
-    version: 'phase2-tier0-v48.1',
-    fixTag: 'FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14'
+    version: 'phase3-tier1-2-dispatch',
+    fixTag: 'FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14'
   };
 
   // Console-testable convenience wrapper. From the workbench console:

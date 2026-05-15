@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.48.1-date-norm-tracy-market-mclick-2026-05-14
+  v8.6.49-phase3-tier1-2-dispatch-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.48.1-date-norm-tracy-market-mclick-2026-05-14';
+window.STM_BUILD = 'v8.6.49-phase3-tier1-2-dispatch-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -359,21 +359,39 @@ document.addEventListener('DOMContentLoaded', () => {
             //   'date'  → flatpickr setDate or input.value as ISO
             //   'select'→ matching option's value; warns if option missing
             //   'text'  → element.textContent (display divs)
+            //
+            // FIX-v8.6.49-PAPER-OVERRIDE-ORDERING — market must be applied
+            // BEFORE paper. The #paper input has a synchronous onchange
+            // listener tied to #admission that auto-writes a paper value
+            // when market changes. If we apply paper first then market,
+            // the market-change handler clobbers our paper write. Applying
+            // in this order means the handler fires first, then our paper
+            // value lands last and wins.
             const targets = [
-                { field: 'insured_name',      sel: '#dealName',        kind: 'value' },
-                { field: 'policy_effective',  sel: '#polEff',          kind: 'date'  },
-                { field: 'policy_expiration', sel: '#polExp',          kind: 'date'  },
-                { field: 'submission_date',   sel: '#subDate',         kind: 'date'  },
-                { field: 'quote_expiration',  sel: '#quoteExp',        kind: 'date'  },
-                { field: 'target_date',       sel: '#targetDate',      kind: 'date'  },
-                { field: 'created_date',      sel: '#createDate',      kind: 'date'  },
-                { field: 'underwriter',       sel: '#underwriter',     kind: 'select'},
-                { field: 'assistant',         sel: '#assistant',       kind: 'select'},
-                { field: 'paper',             sel: '#paper',           kind: 'value' },
-                { field: 'market',            sel: '#admission',       kind: 'select'},
-                { field: 'broker_company',    sel: '#brokerCoTxt',     kind: 'text'  },
-                { field: 'broker_type',       sel: '#brokerTypeTxt',   kind: 'text'  },
-                { field: 'broker_region',     sel: '#regionTxt',       kind: 'text'  }
+                { field: 'insured_name',        sel: '#dealName',        kind: 'value' },
+                { field: 'policy_effective',    sel: '#polEff',          kind: 'date'  },
+                { field: 'policy_expiration',   sel: '#polExp',          kind: 'date'  },
+                { field: 'submission_date',     sel: '#subDate',         kind: 'date'  },
+                { field: 'quote_expiration',    sel: '#quoteExp',        kind: 'date'  },
+                { field: 'target_date',         sel: '#targetDate',      kind: 'date'  },
+                { field: 'created_date',        sel: '#createDate',      kind: 'date'  },
+                { field: 'underwriter',         sel: '#underwriter',     kind: 'select'},
+                { field: 'assistant',           sel: '#assistant',       kind: 'select'},
+                { field: 'market',              sel: '#admission',       kind: 'select'},
+                { field: 'paper',               sel: '#paper',           kind: 'value' },
+                { field: 'broker_company',      sel: '#brokerCoTxt',     kind: 'text'  },
+                { field: 'broker_type',         sel: '#brokerTypeTxt',   kind: 'text'  },
+                { field: 'broker_region',       sel: '#regionTxt',       kind: 'text'  },
+                // ─── Phase 3 Tier 2 fields (extraction-derived) ───
+                // FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14
+                // These resolve via markdown label parsing of extraction
+                // text. If the pattern misses, resolveField returns null
+                // and the field stays empty — graceful degradation.
+                { field: 'home_state',          sel: '#homeState',       kind: 'select'},
+                { field: 'mailing_address',     sel: '#mailingTxt',      kind: 'text'  },
+                { field: 'controlling_address', sel: '#controllingTxt',  kind: 'text'  },
+                { field: 'broker_name',         sel: '#brokerNameTxt',   kind: 'text'  },
+                { field: 'broker_address',      sel: '#brokerAddrTxt',   kind: 'text'  }
             ];
 
             const filled = [];
@@ -394,11 +412,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const applied = applyResolvedToElement(el, t.kind, resolved.value);
                 if (applied) {
                     el.classList.add('autofilled-from-platform');
+                    // FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14
+                    // Enhanced logging — show tier + composed confidence
+                    // for every fill so failures surface in console review.
                     filled.push({
                         field: t.field,
                         value: String(resolved.value).slice(0, 40),
                         source: resolved.source,
-                        tier: resolved.tier
+                        tier: resolved.tier,
+                        confidence: Number(resolved.confidence || 0).toFixed(3),
+                        ...(resolved.parser_confidence != null && {
+                            parser_conf: resolved.parser_confidence
+                        })
                     });
                 } else {
                     skipped.push({
@@ -411,14 +436,32 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             console.log(
-                '[workbench] Phase 2 deal-info apply:',
+                '[workbench] Phase 3 deal-info apply:',
                 filled.length, 'filled ·',
                 missed.length, 'missed ·',
                 skipped.length, 'skipped'
             );
-            if (filled.length)  console.log('[workbench] Phase 2 filled:',  filled);
-            if (missed.length)  console.log('[workbench] Phase 2 missed:',  missed);
-            if (skipped.length) console.log('[workbench] Phase 2 skipped:', skipped);
+            if (filled.length)  console.log('[workbench] Phase 3 filled:',  filled);
+            if (missed.length)  console.log('[workbench] Phase 3 missed:',  missed);
+            if (skipped.length) console.log('[workbench] Phase 3 skipped:', skipped);
+
+            // FIX-v8.6.49-PAPER-OVERRIDE-GUARD
+            // Belt-and-suspenders for #paper: if any async handler fires
+            // after our apply loop and clobbers paper, this re-applies
+            // at 120ms. The sync clobber is handled by target ordering
+            // above; this catches setTimeout(0) and microtask handlers.
+            setTimeout(() => {
+                const paperEl = document.querySelector('#paper');
+                if (!paperEl) return;
+                const paperResolved = rules.resolveField('paper', submission);
+                if (!paperResolved || !paperResolved.value) return;
+                if (paperEl.value !== paperResolved.value) {
+                    console.log('[workbench] Phase 3 paper safety re-apply:',
+                                paperEl.value, '→', paperResolved.value);
+                    paperEl.value = paperResolved.value;
+                    paperEl.classList.add('autofilled-from-platform');
+                }
+            }, 120);
         }
 
         function applyResolvedToElement(el, kind, value) {
