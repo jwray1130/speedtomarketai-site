@@ -556,6 +556,15 @@ QC: After the summary, print "**Source Products & Services (verbatim):**" with e
 
   supplemental: `ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
 
+APPLICANT FILTER (FIX-PHASE-6-PER-APPLICANT-ISOLATION-2026-05-14):
+This submission's named insured (as previously identified, may be empty for first-pass): "\${account_name}".
+- If the input contains ACORDs / supplementals for MULTIPLE named insureds (a multi-applicant packet), identify which insured is the SUBJECT of this submission and extract ONLY data for that one. Selection priority:
+  1. If "\${account_name}" is a real name (not "(unknown)"), choose the insured that matches it.
+  2. Otherwise: choose the insured named first in any cover note or broker email, or the insured with the most documents.
+- Skip extraction for non-subject insureds entirely. Do not blend data from multiple insureds.
+- State which insured you selected at the very top of your output, on its own line: **Subject Insured: <name as it appears on the application>**
+- If "\${account_name}" is a name AND no documents in the packet reference it (even loosely), output ONLY: **No matching supplemental application found for this insured.** — nothing else.
+
 FIELDS: Company, Years in business, Ops description, Max height, Max depth, Crane use (Y/N + details), States w/ %, % direct, % subbed, % commercial, % residential, AI required (Y/N), COI retention, Indemnification, Minimum sub limits (GL/AL/Umbrella), Formal safety program (Y/N), Additional safety details.
 
 OUTPUT:
@@ -665,6 +674,13 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for: Vendor Type,
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
   losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—".
+
+APPLICANT FILTER (FIX-PHASE-6-PER-APPLICANT-ISOLATION-2026-05-14):
+This submission's named insured: "\${account_name}".
+- ONLY include loss runs that pertain to THIS specific insured (or a clear variant of the name). Loss runs are typically headed with an insured name or carrier-issued for a specific policy.
+- If a loss run is for a DIFFERENT named insured (different applicant in the same packet, parent company, subsidiary), SKIP it entirely. Do not blend claims across insureds.
+- If NO loss runs match this insured, your entire output should be exactly: **No matching loss runs found for this insured.** — nothing else.
+- If "\${account_name}" is "(unknown)", proceed normally with whatever loss runs are present.
 
 CRITICAL: Any loss approaching or exceeding primary attachment MUST be called out in the Large Losses table for that LOB. Never combine GL and AL claim counts into a single number — always keep them on separate tables.
 
@@ -799,6 +815,13 @@ If any check fails, rewrite internally before returning. Do NOT include a visibl
 
   gl_quote: `ROLE: Excess casualty underwriter extracting data from a primary GL quote or policy. Strict. Silent = "No information provided."
 
+APPLICANT FILTER (FIX-PHASE-6-PER-APPLICANT-ISOLATION-2026-05-14):
+This submission's named insured: "\${account_name}".
+- ONLY extract data from documents (quote forms, ACORDs, policy declarations) that reference THIS specific insured (or a clear variant — e.g., "Anahuac Infrastructure" matches "Anahuac Infrastructure LLC").
+- If a document references a DIFFERENT named insured (co-applicant, parent, subsidiary, unrelated entity bundled in the same packet), SKIP that document entirely. Do not extract any data from it.
+- If NO documents in the input match this insured, your ENTIRE output should be exactly the single line: **No matching primary GL quote found for this insured.** — nothing else, no template, no QC section.
+- If "\${account_name}" is literally "(unknown)" (account name not yet determined), proceed normally — extract from whatever GL quote documents are present.
+
 **Primary GL Summary**
 
 **Carrier & Administrative:**
@@ -830,6 +853,13 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 10
 
   al_quote: `ROLE: Excess casualty underwriter extracting data from a primary commercial auto policy. Strict. Silent = "No information provided."
 
+APPLICANT FILTER (FIX-PHASE-6-PER-APPLICANT-ISOLATION-2026-05-14):
+This submission's named insured: "\${account_name}".
+- ONLY extract data from documents that reference THIS specific insured (or a clear variant of the name).
+- If a document references a DIFFERENT named insured, SKIP that document entirely.
+- If NO documents match this insured, your entire output should be exactly: **No matching primary AL quote found for this insured.** — nothing else.
+- If "\${account_name}" is "(unknown)", proceed normally.
+
 **Primary AL Summary**
 
 **Carrier & Administrative:**
@@ -860,6 +890,13 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 10
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
   excess: `ROLE: Excess casualty underwriter reviewing underlying excess/umbrella policies. Build the program tower.
+
+APPLICANT FILTER (FIX-PHASE-6-PER-APPLICANT-ISOLATION-2026-05-14):
+This submission's named insured: "\${account_name}".
+- ONLY extract excess/umbrella layers from policies that name THIS specific insured (or a clear name variant).
+- If a layer's underlying policy references a DIFFERENT named insured, SKIP that layer entirely. Do not include it in the tower.
+- If NO underlying excess policies match this insured, your entire output should be exactly: **No matching underlying excess policies found for this insured.** — nothing else.
+- If "\${account_name}" is "(unknown)", proceed normally — build the tower from whatever excess documents are present.
 
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 

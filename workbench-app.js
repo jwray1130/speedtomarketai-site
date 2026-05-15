@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.51.2-derivebroker-label-anchor-2026-05-14
+  v8.6.52-phase6-per-applicant-isolation-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.51.2-derivebroker-label-anchor-2026-05-14';
+window.STM_BUILD = 'v8.6.52-phase6-per-applicant-isolation-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

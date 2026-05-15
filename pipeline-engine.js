@@ -1446,6 +1446,18 @@ function hideIncrementalBanner() {
 }
 
 async function rerunModules(moduleIds) {
+  // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
+  // Build pipelineContext from the active submission's persisted record.
+  // On a rerun, the account_name is already known from the prior pipeline
+  // run — that's exactly what we want for per-applicant isolation in the
+  // re-run extractions (especially gl_quote, which on Anahuac previously
+  // contaminated with Carroll County Coop data).
+  const pipelineContext = (function () {
+    const sid = STATE.activeSubmissionId;
+    if (!sid || !Array.isArray(STATE.submissions)) return { account_name: null };
+    const prior = STATE.submissions.find(s => s.id === sid);
+    return { account_name: (prior && prior.account) || null };
+  })();
   // === FIX #2 — BACKUP BEFORE DELETE ===
   // Previously we deleted STATE.extractions[mid] for every module in the rerun
   // list, then attempted to re-run. If runModule failed (returned false), the
@@ -1501,13 +1513,13 @@ async function rerunModules(moduleIds) {
           // Falls back to f.text for non-combined or pre-v8.5 files.
           const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
           const src = matched.map(f => f.name).join(', ');
-          runResult = await runModule(mid, PROMPTS[mid], combined, src);
+          runResult = await runModule(mid, PROMPTS[mid], combined, src, pipelineContext);
         } else {
           skipModule(mid, 'no matching file');
         }
       } else if (m.inputsFrom === 'extraction' && m.deps.length > 0) {
         if (STATE.extractions[m.deps[0]]) {
-          runResult = await runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
+          runResult = await runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0], pipelineContext);
         } else {
           skipModule(mid, 'dep missing');
         }
@@ -1529,10 +1541,10 @@ async function rerunModules(moduleIds) {
             // Guidelines needs the appended guidelines text
             const soText = STATE.extractions['summary-ops'] ? STATE.extractions['summary-ops'].text : '';
             const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
-            runResult = await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines');
+            runResult = await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines', pipelineContext);
           } else {
             const combined = availableDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-            runResult = await runModule(mid, PROMPTS[mid], combined, availableDeps.map(d => MODULES[d].code).join('+'));
+            runResult = await runModule(mid, PROMPTS[mid], combined, availableDeps.map(d => MODULES[d].code).join('+'), pipelineContext);
           }
         } else {
           skipModule(mid, 'no deps ready');
@@ -4100,12 +4112,49 @@ function estimateExtractionConfidence(text) {
 // Run a single extraction module. Uses the module's declared `model` field
 // (falls back to STATE.api.model if not set). Captures usage + $ cost per call
 // so the audit log and submission sidebar can show running spend.
-async function runModule(moduleId, systemPrompt, userContent, sourceInfo) {
+// FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
+// Substitute ${variable} placeholders in a prompt string with values from
+// a context object. Used to inject submission-specific context (currently
+// account_name) into prompts before they're sent to the LLM.
+//
+// Format: prompts use ${variable_name} placeholders. The substituter
+// replaces them with context[variable_name] when present, or the literal
+// string "(unknown)" when the variable isn't in context. Prompts are
+// expected to handle the "(unknown)" case gracefully — typically by
+// proceeding without per-applicant filtering.
+//
+// Example:
+//   substitutePromptVars(
+//     "The submission insured is ${account_name}.",
+//     { account_name: "Anahuac Infrastructure LLC" }
+//   )
+//   → "The submission insured is Anahuac Infrastructure LLC."
+function substitutePromptVars(promptStr, context) {
+  if (!promptStr) return promptStr;
+  if (!context) context = {};
+  return promptStr.replace(/\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_, varName) => {
+    if (context[varName] != null && context[varName] !== '') {
+      return String(context[varName]);
+    }
+    return '(unknown)';
+  });
+}
+window.substitutePromptVars = substitutePromptVars;
+
+async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
   const moduleModel = MODULES[moduleId]?.model;  // per-module preference
   try {
-    const result = await callLLM(systemPrompt, userContent, moduleModel);
+    // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
+    // Substitute ${account_name} and any other ${var} placeholders in the
+    // prompt before sending to the LLM. context is the pipelineContext
+    // built at runPipeline start (carries the active submission's prior
+    // account_name from STATE.submissions, when available).
+    const effectivePrompt = context
+      ? substitutePromptVars(systemPrompt, context)
+      : systemPrompt;
+    const result = await callLLM(effectivePrompt, userContent, moduleModel);
     const elapsed = (Date.now() - t0) / 1000;
     const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
     const hasQc = /checklist|source extracts/i.test(text);
@@ -4756,6 +4805,25 @@ async function runPipeline() {
 
   // === Stage 1: Wave 1 modules run in parallel ===
   updateProgress(12, '<strong>Wave 1</strong> · parallel extraction across matched files');
+
+  // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
+  // Build pipelineContext from the active submission's persisted record.
+  // For brand-new submissions with no prior pipeline run, account_name
+  // will be null and per-applicant isolation degrades gracefully — the
+  // prompt preambles substitute "(unknown)" and proceed without filtering.
+  // For re-runs of submissions with a previously-derived account name
+  // (like SUB-MP1ZXZ3E / Anahuac), account_name is known BEFORE Wave 1
+  // starts, so gl_quote / al_quote / excess / losses get per-applicant
+  // filtering from turn 1 of the re-run.
+  const pipelineContext = (function () {
+    const sid = STATE.activeSubmissionId;
+    if (!sid || !Array.isArray(STATE.submissions)) return { account_name: null };
+    const prior = STATE.submissions.find(s => s.id === sid);
+    return { account_name: (prior && prior.account) || null };
+  })();
+  console.log('[pipeline] Phase 6 context built. account_name:',
+              pipelineContext.account_name || '(none — fresh run)');
+
   const wave1Tasks = [];
   for (const [mid, m] of Object.entries(MODULES)) {
     if (m.wave !== 1) continue;
@@ -4765,7 +4833,7 @@ async function runPipeline() {
         // v8.5 Rule 9: per-section text slicing. See sliceTextForModule.
         const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
         const src = matched.map(f => f.name).join(', ');
-        wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src));
+        wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src, pipelineContext));
       } else {
         skipModule(mid, 'no matching file');
       }
@@ -4778,11 +4846,26 @@ async function runPipeline() {
           if (depEl && depEl.classList.contains('error')) { skipModule(mid, 'dep errored'); return false; }
           await sleep(80);
         }
-        return runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0]);
+        return runModule(mid, PROMPTS[mid], STATE.extractions[m.deps[0]].text, m.deps[0], pipelineContext);
       })());
     }
   }
   await Promise.all(wave1Tasks);
+
+  // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
+  // After Wave 1 completes, refresh pipelineContext.account_name from the
+  // freshly-extracted supplemental data IF it's still null (i.e., this is
+  // a fresh first run for a new submission). This lets Wave 2 + Wave 3
+  // modules benefit from per-applicant isolation even on first runs.
+  // Wave 1 modules that needed the context have already completed; this
+  // refresh is for downstream waves only.
+  if (!pipelineContext.account_name && typeof deriveAccountName === 'function') {
+    const derivedName = deriveAccountName();
+    if (derivedName) {
+      pipelineContext.account_name = derivedName;
+      console.log('[pipeline] Phase 6 context refreshed from supplemental:', derivedName);
+    }
+  }
 
   // === Stage 2: Wave-2 syntheses — Summary of Ops + Excess Tower (parallel) ===
   updateProgress(55, '<strong>Wave 2</strong> · synthesizing Summary of Operations + Excess Tower');
@@ -4796,7 +4879,7 @@ async function runPipeline() {
   const soAllDeps = [...availableDeps, ...soOptionalDeps];
   if (availableDeps.length > 0) {
     const combined = soAllDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-    wave2Tasks.push(runModule('summary-ops', PROMPTS['summary-ops'], combined, soAllDeps.map(d => MODULES[d].code).join('+')));
+    wave2Tasks.push(runModule('summary-ops', PROMPTS['summary-ops'], combined, soAllDeps.map(d => MODULES[d].code).join('+'), pipelineContext));
   } else {
     skipModule('summary-ops', 'no intake extractions available');
   }
@@ -4816,7 +4899,7 @@ async function runPipeline() {
   const towerPresent = towerCandidates.filter(d => STATE.extractions[d]);
   if (towerPresent.length > 0) {
     const towerInput = towerPresent.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+')));
+    wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+'), pipelineContext));
   } else {
     skipModule('tower', 'no supplemental, excess, gl_quote, or al_quote extraction available');
   }
@@ -4829,9 +4912,9 @@ async function runPipeline() {
   if (STATE.extractions['summary-ops']) {
     const soText = STATE.extractions['summary-ops'].text;
     const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
-    wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines'));
-    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6'));
-    wave3Tasks.push(runModule('strengths', PROMPTS.strengths, soText, 'A6'));
+    wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines', pipelineContext));
+    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6', pipelineContext));
+    wave3Tasks.push(runModule('strengths', PROMPTS.strengths, soText, 'A6', pipelineContext));
   } else {
     skipModule('guidelines', 'no Summary of Ops');
     skipModule('exposure', 'no Summary of Ops');
@@ -4845,7 +4928,7 @@ async function runPipeline() {
       .filter(mid => STATE.extractions[mid])
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
-    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs auth sources'));
+    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs auth sources', pipelineContext));
   } else {
     skipModule('discrepancy', 'no email to cross-check');
   }
