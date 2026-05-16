@@ -2165,6 +2165,96 @@
     return out;
   }
 
+  // ─── Phase 14.1 — Forms Intelligence ───
+  // FIX-PHASE-14.1-FORMS-INTELLIGENCE-2026-05-14
+  //
+  // recommendForms(submission) does NOT change the form set (defaults
+  // still load by layer type, untouched). It flags which already-present
+  // forms/exclusions/endorsements THIS deal's facts make extra-relevant,
+  // so the underwriter's eye goes to the ones that matter for this risk.
+  // Suggest-only, same model as subjectivities: emphasis + reasoning,
+  // never auto-add/remove a form. Matched to the exact FORMS_DATA names.
+  //
+  // Returns { emphases:[{ formName, reason, factSource }], towerBlocked }
+  function recommendForms(submission) {
+    const out = { emphases: [], towerBlocked: false };
+    if (!submission) return out;
+
+    let tower = null;
+    if (typeof buildTowerFromExcessModule === 'function') {
+      tower = buildTowerFromExcessModule(submission);
+      if (tower && tower.blocked) out.towerBlocked = true;
+    }
+    const rungs = (tower && !tower.blocked && Array.isArray(tower.rungs)) ? tower.rungs : [];
+    const hasQuotaShare = rungs.some(r => r.shared === true);
+    const anyUncertain  = rungs.some(r => r.status === '????');
+
+    const ex = (submission.snapshot && submission.snapshot.extractions)
+            || submission.extractions || {};
+    const acct = submission.account_name || null;
+    const txt = (k) => {
+      const r = ex[k];
+      if (!r || typeof r.text !== 'string') return '';
+      if (acct && acct !== '(unknown)'
+          && typeof extractNamedInsured === 'function'
+          && typeof applicantsMatch === 'function') {
+        const s = extractNamedInsured(r.text);
+        if (s && applicantsMatch(s, acct) === false) return ''; // contaminated
+      }
+      return r.text.toLowerCase();
+    };
+    const blob = [txt('gl_quote'), txt('al_quote'), txt('excess')].join(' ');
+    const opsBlob = ((submission.snapshot && submission.snapshot.descOps) || '')
+      .toLowerCase() + ' ' + blob;
+
+    const add = (formName, reason, factSource) =>
+      out.emphases.push({ formName, reason, factSource });
+
+    // Construction / contractor signals → silica, NY Labor Law context,
+    // PFAS, total pollution are the high-relevance exclusions.
+    if (/construct|contractor|utility|excavat|grading|underground|concrete|paving/.test(opsBlob)) {
+      add('Silica or Silica Mixed Dust Exclusion',
+          'Construction/contractor operations detected — silica exposure is a primary excess-casualty concern for this class.',
+          'coverage.ops_construction');
+      add('Total Pollution Exclusion',
+          'Contracting operations — pollution exposure (fuel, runoff, materials) makes the total pollution exclusion high-relevance.',
+          'coverage.ops_construction');
+      add('Per- and Polyfluoroalkyl Substances (PFAS) Exclusion',
+          'Construction/utility work can implicate PFAS-bearing materials; confirm the PFAS exclusion is intended.',
+          'coverage.ops_construction');
+    }
+    // Habitational / hospitality signals → abuse, assault/battery.
+    if (/habitational|apartment|hotel|hospitality|residential|dwelling|tenant/.test(opsBlob)) {
+      add('Abuse Or Molestation Exclusion',
+          'Habitational/hospitality exposure detected — abuse/molestation is a high-relevance exclusion for this class.',
+          'coverage.ops_habitational');
+      add('Assault or Battery Exclusion',
+          'Habitational/hospitality exposure — assault & battery is a primary loss driver for this class.',
+          'coverage.ops_habitational');
+    }
+    // Quota-share tower → service of suit + cross suits matter more.
+    if (hasQuotaShare) {
+      add('Service of Suit Clause',
+          'Tower contains a quota-share/shared layer — service-of-suit coordination across participating carriers is material.',
+          'tower.shared_rung');
+      add('Cross Suits Exclusion',
+          'Multiple carriers on a shared layer — cross-suits language warrants review for inter-carrier consistency.',
+          'tower.shared_rung');
+    }
+    // Any uncertain tower rung → schedule of underlying is the form to scrutinize.
+    if (anyUncertain) {
+      add('Schedule of Underlying Insurance',
+          'The tower has unresolved (????) layer(s) — the Schedule of Underlying is the form to verify once the gap is relabeled.',
+          'tower.uncertain');
+    }
+    // TRIA always relevant on excess casualty — light standing emphasis.
+    add('Cap on Losses From Certified Acts of Terrorism',
+        'Standing excess-casualty TRIA consideration — confirm terrorism cap aligns with the underlying program.',
+        'standing.tria');
+
+    return out;
+  }
+
   root.WorkbenchRules = {
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
@@ -2190,11 +2280,12 @@
     buildTowerFromExcessModule,
     buildTowerView,
     recommendSubjectivities,
+    recommendForms,
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.0.4-canonical-demo-pipeline',
-    fixTag: 'FIX-PHASE-14.0.4-CANONICAL-DEMO-PIPELINE-2026-05-14'
+    version: 'phase14.1-forms-intelligence',
+    fixTag: 'FIX-PHASE-14.1-FORMS-INTELLIGENCE-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
