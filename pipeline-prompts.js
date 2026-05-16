@@ -1258,14 +1258,21 @@ STRUCTURED TOWER DATA — emit this EXACT JSON block last, after the human-reada
       "statedAttachment": 0,
       "schedulesPrimary": true,
       "sharedGroupKey": null,
-      "sharedCombinedLimit": null
+      "sharedCombinedLimit": null,
+      "effectiveDate": "2026-06-01",
+      "expirationDate": "2027-06-01",
+      "aggregate": 5000000,
+      "premium": 61000
     }
   ]
 }
 \`\`\`
 
 Rules for the JSON block:
-- decLimit / statedAttachment / sharedCombinedLimit are NUMBERS, digits only, no "$" or commas. Use null when genuinely not stated (do NOT guess).
+- decLimit / statedAttachment / sharedCombinedLimit / aggregate / premium are NUMBERS, digits only, no "$" or commas. Use null when genuinely not stated (do NOT guess).
+- effectiveDate / expirationDate are strings in ISO format "YYYY-MM-DD". Use null when genuinely not stated (do NOT guess or infer from other layers).
+- aggregate is this layer's own aggregate limit if stated on its dec/quote; else null.
+- premium is this layer's own premium if stated; for a quota-share participant, that participant's own premium (each participant object carries its own).
 - statedAttachment is 0 for the lead (attaches at base); for excess, the summed underlying from its Schedule of Underlying.
 - schedulesPrimary is true ONLY if the Schedule of Underlying lists primary coverages.
 - For quota-share: each participant is its own object; decLimit = that carrier's participation amount; sharedGroupKey = a shared string (e.g. "qs-30M"); sharedCombinedLimit = the full combined layer limit.

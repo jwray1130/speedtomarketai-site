@@ -48,11 +48,40 @@ function setWebTab(tab) {
   document.getElementById('webStatus').style.display = 'none';
 }
 
-function setWebStatus(msg, kind) {
+// FIX-PHASE-GO-LIVE-74-XSS-SINK-2026-05-16
+// setWebStatus assigns via innerHTML, so any caller that concatenates a
+// dynamic value (named insured, err.message, fetched URL) into `msg`
+// creates an XSS sink. v73 escaped one caller (the `name` one) but the
+// pattern remained (err.message at the scrape-failed path, etc). The
+// correct fix is at the sink: callers may still pass intentional static
+// markup in `msg`, but ALL untrusted dynamic values must go through the
+// optional `subs` map and are escaped here. `msg` may contain
+// {{token}} placeholders that are replaced with escaped subs.
+function _escWebStatus(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function setWebStatus(msg, kind, subs) {
   const el = document.getElementById('webStatus');
+  if (!el) return;
   el.className = 'web-status' + (kind ? ' ' + kind : '');
   const spinner = kind === 'running' ? '<span class="web-status-spinner"></span>' : '';
-  el.innerHTML = spinner + msg;
+  let safeMsg = String(msg == null ? '' : msg);
+  if (subs && typeof subs === 'object') {
+    // FIX-PHASE-GO-LIVE-74B-SUBS-SINGLE-PASS-2026-05-16
+    // Single-pass replacement. The previous sequential split/join loop
+    // was order-dependent: a substituted value containing "{{otherKey}}"
+    // would be re-expanded by a later iteration (second-order
+    // substitution). One regex pass over the ORIGINAL template, looking
+    // each token up exactly once, makes substituted content inert — it
+    // is never re-scanned for tokens. Unknown tokens are left literal.
+    safeMsg = safeMsg.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (whole, key) =>
+      Object.prototype.hasOwnProperty.call(subs, key)
+        ? _escWebStatus(subs[key])
+        : whole);
+  }
+  el.innerHTML = spinner + safeMsg;
   el.style.display = 'block';
 }
 
@@ -387,7 +416,7 @@ async function scrapeUrl(url, options = {}) {
   const pagesScraped = [];  // { url, text, depth, linkText? }
   let failCount = 0;
 
-  setWebStatus('<strong>Starting crawl</strong> of ' + url.replace(/^https?:\/\//, '') + '…', 'running');
+  setWebStatus('<strong>Starting crawl</strong> of {{u}}…', 'running', { u: url.replace(/^https?:\/\//, '') });
   logAudit('Scrape', '=== CRAWL START · ' + url + ' · browser BFS (max ' + MAX_PAGES + ' pages, depth ' + MAX_DEPTH + ') ===', 'ok');
 
   // ---- Sitemap discovery ----
@@ -522,7 +551,7 @@ async function scrapeUrl(url, options = {}) {
 // more intelligently filtered scrape but costs API tokens.
 // ============================================================================
 async function scrapeUrlViaClaude(url) {
-  setWebStatus('<strong>Claude-driven crawl</strong> starting for ' + url.replace(/^https?:\/\//, '') + '…', 'running');
+  setWebStatus('<strong>Claude-driven crawl</strong> starting for {{u}}…', 'running', { u: url.replace(/^https?:\/\//, '') });
   logAudit('Scrape', '=== CRAWL START · ' + url + ' · Claude agentic (max 25 pages, AI-selected) ===', 'ok');
 
   const crawlPrompt = `You are an excess casualty insurance underwriter researching a commercial insured's website. Your goal is to extract every operationally-relevant fact from their public web presence.
@@ -634,7 +663,7 @@ async function scrapeWebsiteFromUrl() {
       elapsedMs: result.elapsedMs
     });
   } catch (err) {
-    setWebStatus('<strong>Scrape failed</strong> — ' + err.message, 'error');
+    setWebStatus('<strong>Scrape failed</strong> — {{e}}', 'error', { e: err && err.message });
     logAudit('Classifier', 'Website scrape failed for ' + url + ': ' + err.message, 'error');
   } finally {
     btn.disabled = false;
@@ -660,7 +689,9 @@ async function findAndScrapeWebsite() {
   const btn = document.getElementById('btnFindAndScrape');
   btn.disabled = true;
   try {
-    setWebStatus('<strong>Searching</strong> for "' + name + (zip ? ' · ' + zip : '') + '"…', 'running');
+    // FIX-PHASE-GO-LIVE-74: dynamic values now escaped at the sink via
+    // the subs API ({{n}}/{{z}} replaced+escaped inside setWebStatus).
+    setWebStatus('<strong>Searching</strong> for "{{n}}{{z}}"…', 'running', { n: name, z: zip ? ' · ' + zip : '' });
     const url = await findWebsiteViaClaude(name, zip);
     if (!url) {
       // Claude ran but couldn't find an authoritative domain. Switch to Manual tab.
@@ -738,7 +769,7 @@ Return exactly one of:
 // Create a STATE.files entry from scraped website text and route it to the website module.
 function ingestScrapedWebsite(url, text, subPages, extra) {
   if (!text || text.length < 100) {
-    setWebStatus('<strong>Scraped content too small</strong> (' + (text ? text.length : 0) + ' chars). Site may be JS-only or bot-blocked. Paste HTML manually instead.', 'error');
+    setWebStatus('<strong>Scraped content too small</strong> ({{c}} chars). Site may be JS-only or bot-blocked. Paste HTML manually instead.', 'error', { c: (text ? text.length : 0) });
     return;
   }
   const hostname = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } })();

@@ -219,6 +219,17 @@
       // Composite RHS — Policy Period range right-side date.
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
     ],
+    // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
+    // policy_expiration reuses the SAME proven expiration patterns as
+    // gl_expiration_date. The resolver's markdown parse keys on
+    // LABEL_PATTERNS[fieldName], so with fieldName='policy_expiration'
+    // and module descriptors 'gl_quote'/'al_quote' it extracts the
+    // stated term from the quote text before any +1yr compute fallback.
+    policy_expiration: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
     gl_each_occurrence: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Per\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
@@ -488,11 +499,49 @@
       try { return JSON.parse(fencedMatch[1].trim()); }
       catch (e) { /* fall through */ }
     }
-    // Try a JSON object starting at first { and ending at matching }
-    const objMatch = /({[\s\S]+?})/m.exec(text);
-    if (objMatch) {
-      try { return JSON.parse(objMatch[1]); }
-      catch (e) { /* fall through */ }
+    // FIX-PHASE-GO-LIVE-73-JSON-BALANCED-BRACE-2026-05-16
+    // (extended GO-LIVE-75) The old fallback used a non-greedy
+    // /({[\s\S]+?})/m which captured only up to the FIRST closing
+    // brace. The balanced scanner below walks a depth counter
+    // (string-literal aware) to the matching close so nested structures
+    // survive. GO-LIVE-75: also handle a TOP-LEVEL ARRAY ([{...},{...}])
+    // — if the model ever returns a bare array instead of an object,
+    // the old code grabbed only the first element's object. We now
+    // start at whichever of '{' or '[' appears first and balance the
+    // matching bracket type, so a full top-level array is preserved.
+    const objAt = text.indexOf('{');
+    const arrAt = text.indexOf('[');
+    let start = -1, openCh = '{', closeCh = '}';
+    if (objAt !== -1 && (arrAt === -1 || objAt < arrAt)) {
+      start = objAt; openCh = '{'; closeCh = '}';
+    } else if (arrAt !== -1) {
+      start = arrAt; openCh = '['; closeCh = ']';
+    }
+    if (start !== -1) {
+      let depth = 0, inStr = false, esc = false;
+      for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+        if (inStr) {
+          if (esc) { esc = false; }
+          else if (ch === '\\') { esc = true; }
+          else if (ch === '"') { inStr = false; }
+          continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === openCh) depth++;
+        else if (ch === closeCh) {
+          depth--;
+          if (depth === 0) {
+            const candidate = text.slice(start, i + 1);
+            try { return JSON.parse(candidate); }
+            catch (e) { /* fall through to tolerant retry */ }
+            try {
+              // tolerant retry: strip trailing commas before } or ]
+              return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1'));
+            } catch (e2) { return null; }
+          }
+        }
+      }
     }
     return null;
   }
@@ -782,7 +831,21 @@
     // ─── Deal Information ───
     insured_name:        ['submission.account_name'],
     policy_effective:    ['submission.effective_date'],
-    policy_expiration:   ['compute:effective_plus_year'],
+    policy_expiration:   [
+      // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
+      // Per the stated rule: policy term must be pulled from the GL/AL
+      // quote when present, NOT blindly computed as effective + 1 year
+      // (wrong for short-term, multi-year, extended or non-annual
+      // terms). These plain module descriptors run the resolver's
+      // standard markdown parse, which keys on LABEL_PATTERNS
+      // ['policy_expiration'] (added below, mirroring the proven
+      // gl_expiration_date regexes) against the gl_quote / al_quote
+      // module text. Falls back to the +1yr compute only when neither
+      // quote actually states an expiration. Uses ONLY the existing
+      // resolver mechanism — no new descriptor plumbing.
+      'gl_quote', 'al_quote',
+      'compute:effective_plus_year'
+    ],
     submission_date:     ['submission.created_at'],
     quote_expiration:    ['compute:submission_plus_quote_days'],
     target_date:         ['compute:effective_minus_lead_days'],
@@ -1206,11 +1269,51 @@
   //                         //   relabel (Phase 13.1) — wins over parsed
   //  }, ... ]
   // OUTPUT: { rungs: [...], blocked, anyUncertain, totalTowerLimit }
+  // FIX-PHASE-GO-LIVE-73-MONEY-PARSER-2026-05-16
+  // Multiplier-aware money parser. The old implementation stripped all
+  // non-numeric characters then parseFloat'd, so "$5M" -> 5 (a silent
+  // 1,000,000x error — the single most dangerous bug in an underwriting
+  // tower). This version understands magnitude suffixes/words and, when
+  // a value is genuinely ambiguous, returns null rather than a
+  // misleadingly tiny number. Callers already treat null as "absent /
+  // user must confirm", which is the safe failure mode for money.
   function _num(v) {
     if (v == null) return null;
-    if (typeof v === 'number') return v;
-    const n = parseFloat(String(v).replace(/[^0-9.]/g, ''));
-    return isFinite(n) ? n : null;
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    let s = String(v).trim().toLowerCase();
+    if (!s) return null;
+    // Strip currency symbols, spaces and thousands separators, but keep
+    // letters (k/m/mm/b, "million", "thousand") and the decimal point.
+    s = s.replace(/[\$£€,]/g, '').replace(/\s+/g, ' ').trim();
+
+    // Word multipliers: "5 million", "2.5 thousand", "1 billion".
+    let m = s.match(/^([0-9]*\.?[0-9]+)\s*(billion|million|thousand)\b/);
+    if (m) {
+      const base = parseFloat(m[1]);
+      if (!isFinite(base)) return null;
+      const mult = m[2] === 'billion' ? 1e9
+                 : m[2] === 'million' ? 1e6
+                 : 1e3;
+      return base * mult;
+    }
+    // Suffix multipliers: 5m, 5mm, $5M, 250k, 1b, 5.0mm.
+    m = s.match(/^([0-9]*\.?[0-9]+)\s*(mm|m|k|b)\b/);
+    if (m) {
+      const base = parseFloat(m[1]);
+      if (!isFinite(base)) return null;
+      const suf = m[2];
+      const mult = suf === 'b' ? 1e9
+                 : (suf === 'm' || suf === 'mm') ? 1e6
+                 : 1e3; // k
+      return base * mult;
+    }
+    // Plain number path. After removing currency/commas we should have
+    // only digits and at most one decimal point. If any unrecognised
+    // letters remain, the value is ambiguous — return null (safe) rather
+    // than silently producing a wrong magnitude.
+    if (/[a-z]/.test(s)) return null;        // unhandled letters → ambiguous
+    const plain = parseFloat(s.replace(/[^0-9.]/g, ''));
+    return isFinite(plain) ? plain : null;
   }
 
   function assembleTower(docs) {
@@ -1234,6 +1337,14 @@
         sharedGroupKey: d.sharedGroupKey || null,
         sharedCombinedLimit: _num(d.sharedCombinedLimit),
         forcedKind: ov.kind || null,   // user can force 'lead' | 'excess'
+        // FIX-PHASE-GO-LIVE-73-TOWER-ECONOMICS-2026-05-16
+        // Preserve layer economics through normalization so rung
+        // construction (and the workbench writer) can populate
+        // eff/exp/aggregate/premium, not just carrier+limit.
+        effectiveDate: d.effectiveDate || d.effective || null,
+        expirationDate: d.expirationDate || d.expiration || null,
+        aggregate: _num(d.aggregate),
+        premium: _num(d.premium),
         override: ov
       };
     });
@@ -1264,10 +1375,19 @@
         kind: isLead ? 'lead' : 'excess',
         limit: it.decLimit,
         attachment: isLead ? 0 : it.statedAttachment,
-        participants: [{ carrier: it.carrier, participation: it.decLimit }],
+        participants: [{ carrier: it.carrier, participation: it.decLimit,
+                         sourceDocName: it.sourceDocName || null, sourceId: it.id }],
         shared: false,
         status: 'ok',
         sources: [it.id],
+        // FIX-PHASE-GO-LIVE-73-TOWER-ECONOMICS-2026-05-16
+        // Preserve full layer economics so the workbench writer can
+        // populate eff/exp/aggregate/premium, not just carrier+limit.
+        effectiveDate: it.effectiveDate || it.effective || null,
+        expirationDate: it.expirationDate || it.expiration || null,
+        aggregate: it.aggregate != null ? it.aggregate : null,
+        premium: it.premium != null ? it.premium : null,
+        sourceDocName: it.sourceDocName || null,
         _statedAttachment: it.statedAttachment,
         _userRelabelAttachment: !!it._attFromUser
       });
@@ -1297,6 +1417,17 @@
         sharedGroupKey: key,
         status: 'ok',
         sources: parts.map(p => p.id),
+        // FIX-PHASE-GO-LIVE-73-TOWER-ECONOMICS-2026-05-16
+        // Shared layer: dates from any participant that has them;
+        // premium summed across participants; aggregate = combined.
+        effectiveDate: (parts.find(p => p.effectiveDate || p.effective) || {}).effectiveDate
+                     || (parts.find(p => p.effective) || {}).effective || null,
+        expirationDate: (parts.find(p => p.expirationDate || p.expiration) || {}).expirationDate
+                     || (parts.find(p => p.expiration) || {}).expiration || null,
+        aggregate: combined,
+        premium: parts.some(p => p.premium != null)
+          ? parts.reduce((s, p) => s + (p.premium || 0), 0) : null,
+        sourceDocName: (parts.find(p => p.sourceDocName) || {}).sourceDocName || null,
         _statedAttachment: att,
         _userRelabelAttachment: parts.some(p => p._attFromUser)
       });
@@ -1714,6 +1845,10 @@
         schedulesPrimary:    'bool    — does its Schedule of Underlying list primary coverages',
         sharedGroupKey:      'string|null — rungs sharing ONE combined layer carry the same key',
         sharedCombinedLimit: 'number|null — the FULL combined layer limit when this is a quota-share participation',
+        effectiveDate:       'string|null — ISO YYYY-MM-DD, this layer own effective date',
+        expirationDate:      'string|null — ISO YYYY-MM-DD, this layer own expiration date',
+        aggregate:           'number|null — this layer own aggregate limit if stated',
+        premium:             'number|null — this layer own premium if stated',
         override:            '{limit?:number, attachment?:number, kind?:"lead"|"excess"} — user relabel; wins over parsed values'
       },
       exampleLead: {
@@ -1876,7 +2011,16 @@
       statedAttachment:    d.statedAttachment,
       schedulesPrimary:    !!d.schedulesPrimary,
       sharedGroupKey:      d.sharedGroupKey != null ? String(d.sharedGroupKey) : null,
-      sharedCombinedLimit: d.sharedCombinedLimit != null ? d.sharedCombinedLimit : null
+      sharedCombinedLimit: d.sharedCombinedLimit != null ? d.sharedCombinedLimit : null,
+      // FIX-PHASE-GO-LIVE-74-TOWER-ECONOMICS-PASSTHROUGH-2026-05-16
+      // v73 wired assembleTower+writer to carry these, but this parser
+      // (the real prompt→assembler hop) silently dropped them, so on
+      // real Opus output they were always null. Forward them now so the
+      // economics survive the full pipeline, not just hand-fed tests.
+      effectiveDate:       d.effectiveDate != null ? String(d.effectiveDate) : null,
+      expirationDate:      d.expirationDate != null ? String(d.expirationDate) : null,
+      aggregate:           d.aggregate != null ? d.aggregate : null,
+      premium:             d.premium != null ? d.premium : null
     }));
     return { blocked: false, reason: 'parsed', docs: docs };
   }
@@ -2362,8 +2506,8 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.3-workflow-readiness',
-    fixTag: 'FIX-PHASE-14.3-WORKFLOW-READINESS-2026-05-14'
+    version: 'v8.6.75-go-live-hardening-3',
+    fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

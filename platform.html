@@ -1206,7 +1206,7 @@
                cost preview + audit-log $ values reflect whichever model is
                selected. Tier-grouped so the relative spend is visible at a
                glance before you turn on "Force ALL modules". -->
-          <optgroup label="Opus tier — $15 / $75 per M tokens · highest quality">
+          <optgroup label="Opus tier — $5 / $25 per M tokens · highest quality">
             <option value="claude-opus-4-7">Opus 4.7 · claude-opus-4-7</option>
             <option value="claude-opus-4-6">Opus 4.6 · claude-opus-4-6</option>
           </optgroup>
@@ -1224,7 +1224,7 @@
           <input type="checkbox" id="forceGlobalModel" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--signal);">
           <span>Force ALL modules to use the model above</span>
         </label>
-        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 17 modules) goes through the model above. Use this for max-quality runs regardless of cost. ~50% more spend per submission with all-Opus vs. default routing.</div>
+        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 17 modules) goes through the model above. Use this for max-quality runs regardless of cost. Modestly higher spend per submission with all-Opus vs. default routing (the default already runs most modules on Opus; only the few lighter Sonnet modules move up).</div>
       </div>
       <div class="form-group">
         <label>Max output tokens</label>

@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.72-phase14.3-workflow-readiness-2026-05-14
+  v8.6.75-go-live-hardening-3-2026-05-16
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.72-phase14.3-workflow-readiness-2026-05-14';
+window.STM_BUILD = 'v8.6.75-go-live-hardening-3-2026-05-16';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -278,6 +278,74 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             applyDealInfoFromActiveSubmission(data);
+            // FIX-PHASE-GO-LIVE-73-LAYERTYPE-2026-05-16
+            // The real submission path never set #layerType, so coverage
+            // panels stayed hidden behind "Select a Layer Type" until
+            // the user manually picked one (the demo only worked because
+            // the bridge's applyCoverages indirectly triggered it).
+            // Infer from the assembled tower: a resolved lead rung → a
+            // Lead class; excess-only structure → an Excess class. We
+            // pick the generic "... Other" option (the underwriter
+            // refines the class); the point is to UNHIDE the panels.
+            try {
+                const lt = document.querySelector('#layerType');
+                if (lt
+                    && window.WorkbenchRules
+                    && typeof window.WorkbenchRules.buildTowerFromExcessModule === 'function') {
+                    const tw = window.WorkbenchRules.buildTowerFromExcessModule(data);
+                    let inferred = null, family = null;
+                    if (tw && !tw.blocked && Array.isArray(tw.rungs) && tw.rungs.length) {
+                        const hasLead = tw.rungs.some(r => r.kind === 'lead' && r.status !== '????');
+                        inferred = hasLead ? 'Lead Other' : 'Excess Other';
+                        family = hasLead ? 'lead' : 'excess';
+                    }
+                    const current = (lt.value || '').trim();
+                    if (inferred && !current) {
+                        // Field blank → set it (original behavior).
+                        const opt = Array.from(lt.options)
+                            .find(o => o.value === inferred || o.textContent.trim() === inferred);
+                        if (opt) {
+                            lt.value = opt.value || opt.textContent.trim();
+                            lt.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log('[workbench] Phase GL-73: layer type inferred from tower →',
+                                lt.value, '(coverage panels unhidden; underwriter refines class)');
+                        }
+                    } else if (inferred && current && family) {
+                        // FIX-PHASE-GO-LIVE-75-LAYERTYPE-STALE-GUARD-2026-05-16
+                        // A value is already present. Do NOT silently
+                        // overwrite (it may be the underwriter's deliberate
+                        // class choice) — but if it's a STALE value from a
+                        // prior submission whose family CONFLICTS with what
+                        // this submission's tower implies (e.g. field says
+                        // "Lead ..." but the tower is excess-only), keeping
+                        // it silently is the dangerous outcome. Warn loudly
+                        // and visibly so the underwriter reconciles it.
+                        const curFamily = /^lead/i.test(current) ? 'lead'
+                                        : /^excess/i.test(current) ? 'excess' : null;
+                        if (curFamily && curFamily !== family) {
+                            console.warn('[workbench] Phase GL-75 LAYER TYPE CONFLICT — field shows "'
+                                + current + '" but this submission\u2019s tower implies a '
+                                + family.toUpperCase() + ' structure. NOT auto-changed (could be a '
+                                + 'deliberate choice); verify the Layer Type is correct for this deal.');
+                            const badge = document.getElementById('workbenchSubmissionBadge');
+                            if (badge) {
+                                let warn = document.getElementById('stmLayerTypeConflictWarn');
+                                if (!warn) {
+                                    warn = document.createElement('span');
+                                    warn.id = 'stmLayerTypeConflictWarn';
+                                    warn.style.cssText = 'margin-left:10px;padding:2px 8px;border-radius:4px;'
+                                        + 'background:#b54708;color:#fff;font-size:11px;font-weight:600;';
+                                    badge.appendChild(warn);
+                                }
+                                warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';
+                            }
+                        }
+                    }
+                }
+            } catch (ltErr) {
+                console.warn('[workbench] Phase GL-73 layer-type inference skipped —',
+                    ltErr && ltErr.message);
+            }
             applyGLCoverageFromActiveSubmission(data);
             applyALCoverageFromActiveSubmission(data);
             applyELCoverageFromActiveSubmission(data);
@@ -1075,15 +1143,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Each rung's panel columns: carrier, eff, exp, limit,
                     // aggregate, premium. The solver supplies limit +
                     // attachment + provenance; carrier from participants.
+                    // FIX-PHASE-GO-LIVE-73-TOWER-WRITER-2026-05-16
+                    // Panel columns: [carrier, eff, exp, limit,
+                    // aggregate, premium]. The old writer emitted
+                    // [carrier, null, null, limit, null, null] —
+                    // silently dropping dates, aggregate and premium
+                    // even though the rung now carries them. Write the
+                    // full economics; leave a column null only when the
+                    // rung genuinely lacks that value (underwriter fills).
                     const rungToPositions = (r) => {
                         const carrier = (r.participants && r.participants.length === 1)
                             ? r.participants[0].carrier
                             : (r.participants || []).map(p => p.carrier).filter(Boolean).join(' / ');
-                        // limit column = this rung's own limit; aggregate
-                        // left blank (underwriter fills); premium blank
-                        // unless a single participant carried one.
-                        return [carrier || null, null, null,
-                                r.limit != null ? r.limit : null, null, null];
+                        return [
+                            carrier || null,
+                            r.effectiveDate != null ? r.effectiveDate : null,
+                            r.expirationDate != null ? r.expirationDate : null,
+                            r.limit != null ? r.limit : null,
+                            r.aggregate != null ? r.aggregate : null,
+                            r.premium != null ? r.premium : null
+                        ];
                     };
 
                     const ordered = built.rungs;     // already attachment-ordered

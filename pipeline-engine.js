@@ -509,12 +509,12 @@ function docsViewMappingFor(classifierType, tag) {
 // Prices are per-million-tokens in USD. Update here when Anthropic changes pricing.
 // ============================================================================
 const MODEL_PRICING = {
-  'claude-opus-4-7':      { input: 15.00, output: 75.00 },
-  'claude-opus-4-6':      { input: 15.00, output: 75.00 },
+  'claude-opus-4-7':      { input:  5.00, output: 25.00 },
+  'claude-opus-4-6':      { input:  5.00, output: 25.00 },
   'claude-sonnet-4-6':    { input:  3.00, output: 15.00 },
   'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
   // Fallbacks for future model names — conservative estimates
-  'default-opus':         { input: 15.00, output: 75.00 },
+  'default-opus':         { input:  5.00, output: 25.00 },
   'default-sonnet':       { input:  3.00, output: 15.00 }
 };
 
@@ -573,7 +573,7 @@ const MODULES = {
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
-  discrepancy:   { code: 'A17', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-7' }
+  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-7' }
 };
 
 // ============================================================================
@@ -4497,8 +4497,8 @@ function estimatePipelineRunCost(readyFiles) {
   const estimatedInputTokensHigh = Math.ceil(docTokens * 8.0) + (classifierCalls * 1600) + (moduleCount * 1200);
   const estimatedOutputTokensLow = moduleCount * 600;
   const estimatedOutputTokensHigh = moduleCount * 2200;
-  const inputRate = 15.00;   // conservative Opus input $/1M tokens
-  const outputRate = 75.00;  // conservative Opus output $/1M tokens
+  const inputRate = 5.00;    // Opus 4.7 input $/1M tokens (verified 2026-05)
+  const outputRate = 25.00;  // Opus 4.7 output $/1M tokens (verified 2026-05)
   const low = ((estimatedInputTokensLow / 1000000) * inputRate) + ((estimatedOutputTokensLow / 1000000) * outputRate);
   const high = ((estimatedInputTokensHigh / 1000000) * inputRate) + ((estimatedOutputTokensHigh / 1000000) * outputRate);
   return {

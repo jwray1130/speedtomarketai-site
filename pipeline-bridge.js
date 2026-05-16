@@ -274,6 +274,33 @@
   }
 
   async function runPipelineDemo() {
+    // FIX-PHASE-GO-LIVE-73-DEMO-GUARD-2026-05-16
+    // If a REAL submission is loaded (workbenchActiveSubmission with an
+    // id that isn't a demo fixture), the demo's deterministic Ridgeway
+    // data would overwrite live form fields. Confirm before clobbering.
+    try {
+      const act = window.workbenchActiveSubmission;
+      const isReal = act && act.id
+        && !/^DEMO[-_]/i.test(String(act.id))
+        && act.status !== 'demo_clean';
+      if (isReal) {
+        const proceed = window.confirm(
+          'A real submission is loaded (' +
+          (act.account_name || act.id) + ').\n\n' +
+          'Running the demo will OVERWRITE the workbench with sample ' +
+          'Ridgeway data. This cannot be undone.\n\nRun the demo anyway?');
+        if (!proceed) {
+          console.log('[bridge] Demo cancelled — real submission preserved:',
+            act.account_name || act.id);
+          return;
+        }
+        console.warn('[bridge] Demo OVERRIDING real submission by user confirm:',
+          act.account_name || act.id);
+      }
+    } catch (gErr) {
+      console.warn('[bridge] demo guard check failed (continuing):',
+        gErr && gErr.message);
+    }
     const modal = q('#pipelineModal');
     const fill = q('#pipelineProgressFill');
     const pct = q('#pipelineProgressText');
