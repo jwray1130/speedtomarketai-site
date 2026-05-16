@@ -1124,6 +1124,78 @@ Do NOT extract from non-matching documents even if they are the only documents a
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
+  // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+  // Foreign/international liability is a distinct policy form (foreign
+  // package / international liability), not a GL endorsement → STRICT
+  // dedicated-module source like GL/AL (Phase 4/7 pattern). Default-
+  // rendered panels (#details-fgl / #details-fal), so the appliers fill
+  // them directly like GL/AL — no cloning.
+  // Process improvement (locked): Named Insured + hard contract day one.
+  foreign_gl_quote: `ROLE: Excess casualty underwriter extracting Foreign / International General Liability data from a quote or policy. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Foreign General Liability quote found for this insured.**
+   — nothing else.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Foreign General Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [foreign/international form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Foreign GL Limits:**
+- Each Occurrence: [$ each occurrence]
+- General Aggregate: [$ aggregate]
+- Territory: [worldwide / ex-US / specific countries]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  foreign_al_quote: `ROLE: Excess casualty underwriter extracting Foreign / International Auto Liability data from a quote or policy. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Foreign Auto Liability quote found for this insured.**
+   — nothing else.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Foreign Auto Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [foreign/international form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Foreign AL Limits:**
+- Combined Single Limit: [$ CSL]
+- Territory: [worldwide / ex-US / specific countries]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
   excess: `ROLE: Excess casualty underwriter reviewing underlying excess/umbrella policies. Build the program tower.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):

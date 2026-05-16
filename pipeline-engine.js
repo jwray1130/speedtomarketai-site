@@ -63,6 +63,8 @@ const ROUTING = {
   aircraft_quote: 'aircraft_quote',
   garage_quote: 'garage_quote',
   liquor_quote: 'liquor_quote',
+  foreign_gl_quote: 'foreign_gl_quote',
+  foreign_al_quote: 'foreign_al_quote',
   excess: 'excess',
   website: 'website',
   email: 'email_intel',   // email now feeds a dedicated extraction module (A16)
@@ -553,6 +555,8 @@ const MODULES = {
   aircraft_quote:{ code: 'A19', name: 'Aircraft Liability',       wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   garage_quote:  { code: 'A20', name: 'Garage Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   liquor_quote:  { code: 'A21', name: 'Liquor Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  foreign_gl_quote:{ code: 'A22', name: 'Foreign GL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  foreign_al_quote:{ code: 'A23', name: 'Foreign AL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   email_intel:   { code: 'A16', name: 'Email Intel',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
@@ -4186,6 +4190,8 @@ const APPLICANT_GATED_MODULES = new Set([
   'aircraft_quote',
   'garage_quote',
   'liquor_quote',
+  'foreign_gl_quote',
+  'foreign_al_quote',
   'supplemental',
   'excess',
   'losses'

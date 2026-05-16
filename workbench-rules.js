@@ -74,7 +74,12 @@
     'garage_effective_date',
     'garage_expiration_date',
     'liquor_effective_date',
-    'liquor_expiration_date'
+    'liquor_expiration_date',
+    // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+    'fgl_effective_date',
+    'fgl_expiration_date',
+    'fal_effective_date',
+    'fal_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -420,6 +425,55 @@
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Liquor\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
+    ],
+
+    // ─── Phase 11 — Foreign GL / Foreign AL labels ───
+    // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+    // foreign_gl_quote / foreign_al_quote use bare labels. Strict source
+    // (no gl_quote fallback) so no prefixed-label collision concern.
+    fgl_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    fgl_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    fgl_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    fgl_each_occurrence: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 }
+    ],
+    fgl_general_aggregate: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*General\s+Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+    fgl_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+
+    fal_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    fal_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    fal_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    fal_combined_single_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Combined\s+Single\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*CSL\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    fal_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
     ]
   };
 
@@ -848,7 +902,26 @@
     liquor_expiration_date:     ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
     liquor_each_common_cause_limit: ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
     liquor_aggregate_limit:     ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
-    liquor_premium:             ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote']
+    liquor_premium:             ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+
+    // ─── Phase 11 — Foreign GL / Foreign AL ───
+    // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+    // Foreign/international liability is a distinct policy form, not a GL
+    // endorsement → STRICT dedicated-module source (no gl_quote fallback,
+    // same rule as GL/AL Phase 4/7). Default-rendered panels. FGL 6
+    // fields, FAL 5 fields.
+    fgl_carrier:                ['foreign_gl_quote:json', 'foreign_gl_quote'],
+    fgl_effective_date:         ['foreign_gl_quote:json', 'foreign_gl_quote'],
+    fgl_expiration_date:        ['foreign_gl_quote:json', 'foreign_gl_quote'],
+    fgl_each_occurrence:        ['foreign_gl_quote:json', 'foreign_gl_quote'],
+    fgl_general_aggregate:      ['foreign_gl_quote:json', 'foreign_gl_quote'],
+    fgl_premium:                ['foreign_gl_quote:json', 'foreign_gl_quote'],
+
+    fal_carrier:                ['foreign_al_quote:json', 'foreign_al_quote'],
+    fal_effective_date:         ['foreign_al_quote:json', 'foreign_al_quote'],
+    fal_expiration_date:        ['foreign_al_quote:json', 'foreign_al_quote'],
+    fal_combined_single_limit:  ['foreign_al_quote:json', 'foreign_al_quote'],
+    fal_premium:                ['foreign_al_quote:json', 'foreign_al_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -1095,7 +1168,7 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase10-aircraft-garage-liquor',
+    version: 'phase11-foreign-gl-al',
     fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 

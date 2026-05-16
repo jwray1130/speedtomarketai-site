@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.57-phase10-aircraft-garage-liquor-2026-05-14
+  v8.6.58-phase11-foreign-gl-al-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.57-phase10-aircraft-garage-liquor-2026-05-14';
+window.STM_BUILD = 'v8.6.58-phase11-foreign-gl-al-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -361,6 +361,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     applyAircraftCoverageFromActiveSubmission(data);
                     applyGarageCoverageFromActiveSubmission(data);
                     applyLiquorCoverageFromActiveSubmission(data);
+                    // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+                    applyForeignGLCoverageFromActiveSubmission(data);
+                    applyForeignALCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -950,6 +953,80 @@ document.addEventListener('DOMContentLoaded', () => {
                 'liquor_carrier', 'liquor_effective_date',
                 'liquor_expiration_date', 'liquor_each_common_cause_limit',
                 'liquor_aggregate_limit', 'liquor_premium'
+            ]);
+        }
+
+        // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
+        // Generic DEFAULT-PANEL applier. Foreign GL/AL have default-
+        // rendered panels (#details-fgl / #details-fal) like GL/AL —
+        // NOT clonable templates like EL/EBL/aircraft/etc. So this fills
+        // the existing panel in place (mirrors applyGL/applyAL) rather
+        // than cloning. Generic so future default-panel coverages reuse.
+        //
+        // panelSelector: static panel id (e.g. '#details-fgl')
+        // checkboxSelector: the panel's enable checkbox
+        function applyDefaultPanelCoverage(submission, phaseLabel, panelSelector, checkboxSelector, fieldOrder) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] ' + phaseLabel + ' coverage apply: 0 fields resolved.',
+                    'No matching foreign quote, or blocked by one of three',
+                    'defense layers: (1) Phase 6.1 pipeline gate, (2) Phase',
+                    '3.5 workbench cross-applicant defense, (3) sentinel/',
+                    'structural misses. ' + panelSelector + ' left empty.'
+                );
+                return;
+            }
+
+            const fillResult = fillCoveragePanelByPosition(panelSelector, valuesByPosition);
+
+            const cb = document.querySelector(checkboxSelector);
+            if (cb && !cb.checked) cb.click();
+
+            console.log(
+                '[workbench] ' + phaseLabel + ' coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                'panel checkbox auto-checked'
+            );
+            console.log('[workbench] ' + phaseLabel + ' filled:', resolvedSummary);
+        }
+
+        function applyForeignGLCoverageFromActiveSubmission(submission) {
+            applyDefaultPanelCoverage(submission, 'Phase 11 Foreign GL',
+                '#details-fgl', 'input[data-target="details-fgl"]', [
+                'fgl_carrier', 'fgl_effective_date', 'fgl_expiration_date',
+                'fgl_each_occurrence', 'fgl_general_aggregate', 'fgl_premium'
+            ]);
+        }
+        function applyForeignALCoverageFromActiveSubmission(submission) {
+            applyDefaultPanelCoverage(submission, 'Phase 11 Foreign AL',
+                '#details-fal', 'input[data-target="details-fal"]', [
+                'fal_carrier', 'fal_effective_date', 'fal_expiration_date',
+                'fal_combined_single_limit', 'fal_premium'
             ]);
         }
 
