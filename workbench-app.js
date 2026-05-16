@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.53-phase6.1-two-pass-applicant-gate-2026-05-14
+  v8.6.54-phase7-al-primary-coverage-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.53-phase6.1-two-pass-applicant-gate-2026-05-14';
+window.STM_BUILD = 'v8.6.54-phase7-al-primary-coverage-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -342,6 +342,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     // contaminated (different insured), all 8 GL fields
                     // return null and the panel stays empty.
                     applyGLCoverageFromActiveSubmission(data);
+                    // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
+                    // Run AL coverage extraction after GL. Same strict
+                    // source rule: al_quote module only. Phase 6.1 gate
+                    // runs upstream in the pipeline, so a contaminated
+                    // al_quote produces a refusal diagnostic that the
+                    // resolver's sentinel/structural filters reject —
+                    // AL fields stay empty rather than wrong.
+                    applyALCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -573,6 +581,77 @@ document.addEventListener('DOMContentLoaded', () => {
                 'panel checkbox auto-checked'
             );
             console.log('[workbench] Phase 4 GL filled:', resolvedSummary);
+        }
+
+        // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
+        // Apply resolved Primary AL coverage to #details-al. Mirrors the
+        // GL applier exactly, but #details-al is a 5-field panel (carrier,
+        // eff, exp, CSL, premium) — no split limits, no products/personal.
+        // Source: al_quote module ONLY (strict, per Justin's spec).
+        //
+        // Behavior under Phase 6.1 two-pass gate: if al_quote was gated
+        // (documents reference a different insured), the module body is
+        // the refusal diagnostic "**No matching primary AL quote...**".
+        // The resolver's isSentinelValue + looksStructurallyValid filters
+        // reject that, all 5 AL fields return null, and #details-al stays
+        // empty + unchecked — correct outcome, no contamination.
+        function applyALCoverageFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            // Field order MUST match the visible column order of
+            // #details-al: carrier, eff, exp, CSL, premium.
+            const fieldOrder = [
+                'al_carrier',
+                'al_effective_date',
+                'al_expiration_date',
+                'al_combined_single_limit',
+                'al_premium'
+            ];
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] Phase 7 AL coverage apply: 0 fields resolved.',
+                    'Likely cause: al_quote module gated by Phase 6.1',
+                    'two-pass applicant gate, or pattern misses across all',
+                    '5 fields. #details-al panel left empty.'
+                );
+                return;
+            }
+
+            const fillResult = fillCoveragePanelByPosition('#details-al', valuesByPosition);
+
+            const alCheck = document.querySelector('input[data-target="details-al"]');
+            if (alCheck && !alCheck.checked) alCheck.click();
+
+            console.log(
+                '[workbench] Phase 7 AL coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                'panel checkbox auto-checked'
+            );
+            console.log('[workbench] Phase 7 AL filled:', resolvedSummary);
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14

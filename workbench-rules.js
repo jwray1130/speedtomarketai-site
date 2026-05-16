@@ -58,7 +58,10 @@
     'created_date',
     // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
     'gl_effective_date',
-    'gl_expiration_date'
+    'gl_expiration_date',
+    // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
+    'al_effective_date',
+    'al_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -222,6 +225,41 @@
       // Most specific first: "Total Premium" / "GL Premium" / "Annual Premium" before generic "Premium"
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*GL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Annual\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+
+    // ─── Phase 7 — Primary AL Coverage labels ───
+    // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
+    // The al_quote prompt produces: "Carrier:", "Period:" (composite
+    // dates, same shape as GL Policy Period), "Combined Single Limit:",
+    // "Premium:". Patterns mirror the GL patterns with AL-specific labels.
+    al_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurance\s+Company\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    al_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Inception\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      // Composite: "Period: 05/01/2026 – 05/01/2027" — LHS date
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    al_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      // Composite RHS
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    al_combined_single_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Combined\s+Single\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*CSL\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Accident\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.60 }
+    ],
+    al_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*AL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Auto\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Annual\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
     ]
@@ -529,7 +567,18 @@
     gl_general_aggregate:       ['gl_quote:json', 'gl_quote'],
     gl_products_ops_aggregate:  ['gl_quote:json', 'gl_quote'],
     gl_personal_adv_injury:     ['gl_quote:json', 'gl_quote'],
-    gl_premium:                 ['gl_quote:json', 'gl_quote']
+    gl_premium:                 ['gl_quote:json', 'gl_quote'],
+
+    // ─── Phase 7 — Primary AL Coverage ───
+    // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
+    // STRICT SOURCE RULE per Justin's spec (same as GL): AL coverage data
+    // comes ONLY from the al_quote module. No fallbacks. The #details-al
+    // panel is 5 fields: carrier, eff, exp, CSL, premium (no split limits).
+    al_carrier:                 ['al_quote:json', 'al_quote'],
+    al_effective_date:          ['al_quote:json', 'al_quote'],
+    al_expiration_date:         ['al_quote:json', 'al_quote'],
+    al_combined_single_limit:   ['al_quote:json', 'al_quote'],
+    al_premium:                 ['al_quote:json', 'al_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
