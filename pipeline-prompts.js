@@ -877,6 +877,12 @@ This is a hard refusal contract. Do NOT extract from non-matching documents even
 - EBL Each Employee Limit: [$ per employee]
 - EBL Premium: [$]
 
+**Liquor Liability (if this GL quote includes a liquor liability endorsement — otherwise omit this whole section):**
+- Liquor Carrier: [name if different from GL carrier, else "same"]
+- Liquor Each Common Cause Limit: [$ each common cause]
+- Liquor Aggregate Limit: [$ aggregate]
+- Liquor Premium: [$]
+
 **Key Endorsements Affecting Excess:**
 - [Form] - [Description] - [Excess impact: narrows/aligns/concerning/positive]
 
@@ -1014,6 +1020,107 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Aggregate Limit: [$ aggregate, if stated]
 - Deductible: [$ each employee deductible, if stated]
 - Retroactive Date: [date, if claims-made]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+  // Three specialty coverages. Aircraft & Garage are standalone policies
+  // (never GL endorsements) → strict dedicated-module source. Liquor
+  // genuinely can be a GL endorsement → Option B (gl_quote fallback).
+  // All three: Named Insured + hard contract from day one (locked).
+  aircraft_quote: `ROLE: Excess casualty underwriter extracting Aircraft / Aviation Liability data from a quote or policy. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Aircraft Liability quote found for this insured.**
+   — nothing else.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Aircraft Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Aircraft Liability Limits:**
+- Each Occurrence: [$ each occurrence / combined single limit]
+- Aircraft scheduled / non-owned: [details]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  garage_quote: `ROLE: Excess casualty underwriter extracting Garage Liability data from a quote or policy. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Garage Liability quote found for this insured.**
+   — nothing else.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Garage Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Garage Liability Limits:**
+- Limit: [$ combined single limit / aggregate]
+- Garagekeepers: [details if present]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  liquor_quote: `ROLE: Excess casualty underwriter extracting Liquor Liability data from a quote, policy, or liquor liability endorsement. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Liquor Liability quote found for this insured.**
+   — nothing else.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Liquor Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Liquor Liability Limits:**
+- Each Common Cause Limit: [$ each common cause]
+- Aggregate Limit: [$ aggregate]
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 

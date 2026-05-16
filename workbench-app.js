@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.56-phase9-employee-benefits-liability-2026-05-14
+  v8.6.57-phase10-aircraft-garage-liquor-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.56-phase9-employee-benefits-liability-2026-05-14';
+window.STM_BUILD = 'v8.6.57-phase10-aircraft-garage-liquor-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -357,6 +357,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     applyELCoverageFromActiveSubmission(data);
                     // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
                     applyEBLCoverageFromActiveSubmission(data);
+                    // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+                    applyAircraftCoverageFromActiveSubmission(data);
+                    applyGarageCoverageFromActiveSubmission(data);
+                    applyLiquorCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -849,6 +853,104 @@ document.addEventListener('DOMContentLoaded', () => {
                 'EBL panel cloned, enabled, checkbox auto-checked'
             );
             console.log('[workbench] Phase 9 EBL filled:', resolvedSummary);
+        }
+
+        // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+        // Generic clonable-coverage applier. Phases 8 (EL) and 9 (EBL)
+        // each hand-rolled this; Phase 10 adds three more coverages, so
+        // the shared logic is extracted here. The EL/EBL appliers are
+        // left as-is (working, validated) — this generic path powers
+        // aircraft/garage/liquor and any future clonable coverage.
+        //
+        // phaseLabel: console tag (e.g. "Phase 10 Aircraft")
+        // typeKey:    addCoverageEntry template key (e.g. "aircraft")
+        // fieldOrder: resolver field names in visible column order
+        function applyClonableCoverage(submission, phaseLabel, typeKey, fieldOrder) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] ' + phaseLabel + ' coverage apply: 0 fields resolved.',
+                    'No matching ' + typeKey + ' quote, or blocked by one of',
+                    'three defense layers: (1) Phase 6.1 pipeline gate,',
+                    '(2) Phase 3.5 workbench cross-applicant defense,',
+                    '(3) sentinel/structural misses.',
+                    typeKey + ' panel not added (correct — no empty clone).'
+                );
+                return;
+            }
+
+            const primaryList = document.getElementById('primary-limits-list');
+            if (!primaryList || typeof addCoverageEntry !== 'function') {
+                console.warn('[workbench] ' + phaseLabel + ': primary-limits-list',
+                    'or addCoverageEntry unavailable.');
+                return;
+            }
+            const entry = addCoverageEntry(typeKey, primaryList);
+            if (!entry) {
+                console.warn('[workbench] ' + phaseLabel + ': clone failed.');
+                return;
+            }
+            const panel = entry.querySelector('.limit-details-panel');
+            if (!panel || !panel.id) {
+                console.warn('[workbench] ' + phaseLabel + ': cloned panel missing id.');
+                return;
+            }
+            const fillResult = fillCoveragePanelByPosition('#' + panel.id, valuesByPosition);
+
+            const cb = entry.querySelector('input[type="checkbox"][data-target]');
+            if (cb && !cb.checked) cb.click();
+
+            console.log(
+                '[workbench] ' + phaseLabel + ' coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                typeKey + ' panel cloned, enabled, checkbox auto-checked'
+            );
+            console.log('[workbench] ' + phaseLabel + ' filled:', resolvedSummary);
+        }
+
+        function applyAircraftCoverageFromActiveSubmission(submission) {
+            applyClonableCoverage(submission, 'Phase 10 Aircraft', 'aircraft', [
+                'aircraft_carrier', 'aircraft_effective_date',
+                'aircraft_expiration_date', 'aircraft_each_occurrence',
+                'aircraft_premium'
+            ]);
+        }
+        function applyGarageCoverageFromActiveSubmission(submission) {
+            applyClonableCoverage(submission, 'Phase 10 Garage', 'garage', [
+                'garage_carrier', 'garage_effective_date',
+                'garage_expiration_date', 'garage_limit', 'garage_premium'
+            ]);
+        }
+        function applyLiquorCoverageFromActiveSubmission(submission) {
+            applyClonableCoverage(submission, 'Phase 10 Liquor', 'liquor', [
+                'liquor_carrier', 'liquor_effective_date',
+                'liquor_expiration_date', 'liquor_each_common_cause_limit',
+                'liquor_aggregate_limit', 'liquor_premium'
+            ]);
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14

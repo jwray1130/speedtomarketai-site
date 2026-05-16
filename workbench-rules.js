@@ -67,7 +67,14 @@
     'el_expiration_date',
     // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
     'ebl_effective_date',
-    'ebl_expiration_date'
+    'ebl_expiration_date',
+    // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+    'aircraft_effective_date',
+    'aircraft_expiration_date',
+    'garage_effective_date',
+    'garage_expiration_date',
+    'liquor_effective_date',
+    'liquor_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -336,6 +343,81 @@
     ],
     ebl_premium: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EBL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
+    ],
+
+    // ─── Phase 10 — Aircraft / Garage / Liquor labels ───
+    // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+    // Each dedicated module uses bare labels; gl_quote uses prefixed
+    // labels (Liquor only — aircraft/garage are never GL endorsements).
+    aircraft_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    aircraft_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    aircraft_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    aircraft_each_occurrence: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Occurrence\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Combined\s+Single\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    aircraft_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+
+    garage_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    garage_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    garage_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    garage_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Combined\s+Single\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    garage_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+
+    liquor_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Liquor\s+Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.90 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    liquor_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    liquor_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    liquor_each_common_cause_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Liquor\s+Each\s+Common\s+Cause\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Common\s+Cause\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Common\s+Cause\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.80 }
+    ],
+    liquor_aggregate_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Liquor\s+Aggregate\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Aggregate\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.80 }
+    ],
+    liquor_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Liquor\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
     ]
@@ -741,7 +823,32 @@
     ebl_effective_date:         ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
     ebl_expiration_date:        ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
     ebl_each_employee_limit:    ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
-    ebl_premium:                ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote']
+    ebl_premium:                ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
+
+    // ─── Phase 10 — Aircraft / Garage / Liquor ───
+    // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
+    // Aircraft & Garage: standalone policies, never GL endorsements →
+    // STRICT dedicated-module source (like GL/AL). Liquor: genuinely can
+    // be a GL endorsement → Option B (gl_quote fallback). All clonable
+    // panels. Aircraft 5 fields, Garage 5 fields, Liquor 6 fields.
+    aircraft_carrier:           ['aircraft_quote:json', 'aircraft_quote'],
+    aircraft_effective_date:    ['aircraft_quote:json', 'aircraft_quote'],
+    aircraft_expiration_date:   ['aircraft_quote:json', 'aircraft_quote'],
+    aircraft_each_occurrence:   ['aircraft_quote:json', 'aircraft_quote'],
+    aircraft_premium:           ['aircraft_quote:json', 'aircraft_quote'],
+
+    garage_carrier:             ['garage_quote:json', 'garage_quote'],
+    garage_effective_date:      ['garage_quote:json', 'garage_quote'],
+    garage_expiration_date:     ['garage_quote:json', 'garage_quote'],
+    garage_limit:               ['garage_quote:json', 'garage_quote'],
+    garage_premium:             ['garage_quote:json', 'garage_quote'],
+
+    liquor_carrier:             ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+    liquor_effective_date:      ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+    liquor_expiration_date:     ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+    liquor_each_common_cause_limit: ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+    liquor_aggregate_limit:     ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote'],
+    liquor_premium:             ['liquor_quote:json', 'liquor_quote', 'gl_quote:json', 'gl_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -988,7 +1095,7 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase9-employee-benefits-liability',
+    version: 'phase10-aircraft-garage-liquor',
     fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 

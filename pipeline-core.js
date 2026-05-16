@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.56-phase9-employee-benefits-liability-2026-05-14';
+window.STM_BUILD = 'v8.6.57-phase10-aircraft-garage-liquor-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
