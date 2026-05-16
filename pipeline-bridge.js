@@ -356,6 +356,19 @@
   }
 
   function applyPacketToWorkbench(packet) {
+    // FIX-PHASE-GO-LIVE-76-DEMO-DOUBLE-APPLY-2026-05-16
+    // The demo has TWO apply triggers (runPipelineDemo auto-applies
+    // ~900ms after the animation; the "Apply Draft to Workbench" button
+    // applies on click), so the natural flow applied the packet twice.
+    // Singleton coverages (GL/AL/Lead Excess) overwrite in place, but
+    // cloneable coverages (EL/EBL/Liquor/Aircraft/Garage) used to clone
+    // a SECOND stacked panel on the second apply (extension-found,
+    // v8.6.75 audit). Root fix is in the workbench coverage appliers,
+    // which are now IDEMPOTENT: they reuse an existing panel of the
+    // same coverage type instead of cloning a duplicate (see
+    // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE in workbench-app.js). That
+    // also fixes the real-submission re-apply-after-correction path the
+    // audit flagged, not just the demo double-click.
     applyDeal(packet);
     applyAddressBroker(packet);
     applyLosses(packet);

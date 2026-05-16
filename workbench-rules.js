@@ -2506,7 +2506,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.75-go-live-hardening-3',
+    version: 'v8.6.76b-idempotent-coverage-datefix',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

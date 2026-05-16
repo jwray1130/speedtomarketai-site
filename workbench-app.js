@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.75-go-live-hardening-3-2026-05-16
+  v8.6.76b-idempotent-coverage-datefix-2026-05-16
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.75-go-live-hardening-3-2026-05-16';
+window.STM_BUILD = 'v8.6.76b-idempotent-coverage-datefix-2026-05-16';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -327,18 +327,37 @@ document.addEventListener('DOMContentLoaded', () => {
                                 + current + '" but this submission\u2019s tower implies a '
                                 + family.toUpperCase() + ' structure. NOT auto-changed (could be a '
                                 + 'deliberate choice); verify the Layer Type is correct for this deal.');
-                            const badge = document.getElementById('workbenchSubmissionBadge');
-                            if (badge) {
-                                let warn = document.getElementById('stmLayerTypeConflictWarn');
-                                if (!warn) {
-                                    warn = document.createElement('span');
-                                    warn.id = 'stmLayerTypeConflictWarn';
-                                    warn.style.cssText = 'margin-left:10px;padding:2px 8px;border-radius:4px;'
-                                        + 'background:#b54708;color:#fff;font-size:11px;font-weight:600;';
-                                    badge.appendChild(warn);
+                            // FIX-PHASE-GO-LIVE-76-LAYERTYPE-WARN-VISIBILITY-2026-05-16
+                            // Extension v8.6.75 audit: the warning was
+                            // appended to #workbenchSubmissionBadge, which
+                            // has display:none on the clean-demo path (no
+                            // real submission loaded) — so the underwriter
+                            // never saw it on a path they actually use.
+                            // Attach it directly after the always-visible
+                            // #layerType control instead (with the badge
+                            // as a fallback), so it is visible wherever
+                            // the layer type itself is visible.
+                            let warn = document.getElementById('stmLayerTypeConflictWarn');
+                            if (!warn) {
+                                warn = document.createElement('span');
+                                warn.id = 'stmLayerTypeConflictWarn';
+                                warn.style.cssText = 'display:inline-block;margin-left:10px;'
+                                    + 'padding:2px 8px;border-radius:4px;background:#b54708;'
+                                    + 'color:#fff;font-size:11px;font-weight:600;'
+                                    + 'vertical-align:middle;';
+                                const ltCtrl = document.querySelector('#layerType');
+                                const anchor = (ltCtrl && (ltCtrl.closest('.field, .form-row, label') || ltCtrl.parentNode))
+                                    || document.getElementById('workbenchSubmissionBadge');
+                                if (anchor) {
+                                    if (ltCtrl && ltCtrl.parentNode === anchor) {
+                                        anchor.insertBefore(warn, ltCtrl.nextSibling);
+                                    } else {
+                                        anchor.appendChild(warn);
+                                    }
                                 }
-                                warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';
                             }
+                            warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';
+                            warn.style.display = 'inline-block';
                         }
                     }
                 }
@@ -810,6 +829,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // FIX-PHASE-GO-LIVE-76-FOREIGN-SOURCE-BLEED-2026-05-16
+            // Extension v8.6.75 audit found $185,000 (the GL premium)
+            // bleeding into EL "Bodily Injury by Disease" on the demo,
+            // because EL value fields fall back to gl_quote/al_quote for
+            // genuine combined-package quotes — but when the submission
+            // has NO real EL content, a generic premium/limit pattern
+            // matched the GL "- Premium: $185,000" line and fabricated a
+            // bogus EL panel. Rule: a real EL placement is identified by
+            // an EL-SPECIFIC signal — a resolved el_carrier, or any EL
+            // field resolved from an el_quote* source. If the ONLY
+            // things that resolved are value fields (premium/limits)
+            // sourced from a foreign GL/AL module, that is bleed, not an
+            // EL quote — suppress the panel exactly like the no-resolve
+            // case. Combined-package EL (real el_carrier or el_quote
+            // source) is unaffected.
+            const elIdentified = resolvedSummary.some(s => {
+                const src = String(s.source || '');
+                const fromElSource = /(^|[^a-z])el_quote/i.test(src);
+                const isCarrier = s.field === 'el_carrier';
+                return fromElSource || (isCarrier && fromElSource)
+                    || (isCarrier && !/gl_quote|al_quote/i.test(src));
+            });
+            if (!elIdentified) {
+                console.log('[workbench] Phase 8 EL: the only resolved',
+                    'values came from a foreign GL/AL fallback (no EL',
+                    'carrier, no el_quote source) — this is GL/AL premium',
+                    'bleed, not a real EL quote. EL panel NOT added',
+                    '(correct — prevents $185K-style cross-coverage bleed).');
+                return;
+            }
+
             // Clone + enable the EL panel. addCoverageEntry returns the
             // freshly-cloned entry (Phase 8 made it return newEntry).
             const primaryList = document.getElementById('primary-limits-list');
@@ -818,7 +868,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     'addCoverageEntry unavailable — cannot add EL panel.');
                 return;
             }
-            const elEntry = addCoverageEntry('el', primaryList);
+            // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE-2026-05-16
+            // Reuse an existing EL panel on re-apply instead of stacking
+            // a duplicate (extension-found duplicate-panel bug).
+            let elEntry = null;
+            const elExisting = primaryList.querySelector('[id^="details-el-"]');
+            if (elExisting) {
+                elEntry = elExisting.closest('.limit-entry, .coverage-entry') || elExisting;
+                console.log('[workbench] Phase 8 EL: reusing existing EL',
+                    'panel (idempotent re-apply, no duplicate clone).');
+            } else {
+                elEntry = addCoverageEntry('el', primaryList);
+            }
             if (!elEntry) {
                 console.warn('[workbench] Phase 8 EL: clone failed.');
                 return;
@@ -898,13 +959,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // FIX-PHASE-GO-LIVE-76-FOREIGN-SOURCE-BLEED-2026-05-16
+            // Same GL/AL premium-bleed guard as EL (see Phase 8). A real
+            // EBL placement is identified by a resolved ebl_carrier or
+            // an ebl_quote source; value-only matches from a foreign
+            // GL/AL fallback are bleed, not an EBL quote — suppress.
+            const eblIdentified = resolvedSummary.some(s => {
+                const src = String(s.source || '');
+                const fromEblSource = /(^|[^a-z])ebl_quote/i.test(src);
+                const isCarrier = s.field === 'ebl_carrier';
+                return fromEblSource
+                    || (isCarrier && !/gl_quote|al_quote/i.test(src));
+            });
+            if (!eblIdentified) {
+                console.log('[workbench] Phase 9 EBL: only foreign GL/AL',
+                    'fallback values resolved (no EBL carrier, no ebl_quote',
+                    'source) — premium bleed, not a real EBL quote. EBL',
+                    'panel NOT added (correct).');
+                return;
+            }
+
             const primaryList = document.getElementById('primary-limits-list');
             if (!primaryList || typeof addCoverageEntry !== 'function') {
                 console.warn('[workbench] Phase 9 EBL: primary-limits-list or',
                     'addCoverageEntry unavailable — cannot add EBL panel.');
                 return;
             }
-            const eblEntry = addCoverageEntry('ebl', primaryList);
+            // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE-2026-05-16
+            // Reuse an existing EBL panel on re-apply instead of
+            // stacking a duplicate (extension-found duplicate-panel bug).
+            let eblEntry = null;
+            const eblExisting = primaryList.querySelector('[id^="details-ebl-"]');
+            if (eblExisting) {
+                eblEntry = eblExisting.closest('.limit-entry, .coverage-entry') || eblExisting;
+                console.log('[workbench] Phase 9 EBL: reusing existing EBL',
+                    'panel (idempotent re-apply, no duplicate clone).');
+            } else {
+                eblEntry = addCoverageEntry('ebl', primaryList);
+            }
             if (!eblEntry) {
                 console.warn('[workbench] Phase 9 EBL: clone failed.');
                 return;
@@ -975,13 +1067,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // FIX-PHASE-GO-LIVE-76-FOREIGN-SOURCE-BLEED-2026-05-16
+            // Generic version of the EL/EBL GL-premium-bleed guard.
+            // Extension v8.6.75 found $185,000 (GL premium) bleeding
+            // into Liquor "Each Common Cause Limit" because liquor value
+            // fields fall back to gl_quote for combined-package quotes.
+            // A real <typeKey> placement is identified by a resolved
+            // <typeKey>_carrier OR any field resolved from a
+            // <typeKey>_quote* source. If every resolved value came from
+            // a foreign GL/AL fallback (no own-coverage carrier, no
+            // own-coverage source), it is bleed — suppress the panel.
+            const ownSourceRe = new RegExp('(^|[^a-z])' + typeKey + '_quote', 'i');
+            const carrierField = typeKey + '_carrier';
+            const coverageIdentified = resolvedSummary.some(s => {
+                const src = String(s.source || '');
+                if (ownSourceRe.test(src)) return true;
+                if (s.field === carrierField && !/gl_quote|al_quote/i.test(src)) return true;
+                return false;
+            });
+            if (!coverageIdentified) {
+                console.log('[workbench] ' + phaseLabel + ': only foreign',
+                    'GL/AL fallback values resolved (no ' + typeKey +
+                    ' carrier, no ' + typeKey + '_quote source) — premium',
+                    'bleed, not a real ' + typeKey + ' quote.',
+                    typeKey + ' panel NOT added (correct).');
+                return;
+            }
+
             const primaryList = document.getElementById('primary-limits-list');
             if (!primaryList || typeof addCoverageEntry !== 'function') {
                 console.warn('[workbench] ' + phaseLabel + ': primary-limits-list',
                     'or addCoverageEntry unavailable.');
                 return;
             }
-            const entry = addCoverageEntry(typeKey, primaryList);
+            // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE-2026-05-16
+            // Re-applying the pipeline (demo double-trigger, OR a real
+            // re-apply after an upstream correction) previously cloned a
+            // SECOND panel for this coverage every time, because the
+            // clone was unconditional. Reuse an existing panel of the
+            // same coverage type if one is already present, so re-apply
+            // REFRESHES in place instead of STACKING duplicates. A
+            // coverage panel's id is details-<typeKey>-<ts>-<seq>.
+            let entry = null;
+            const existing = primaryList.querySelector(
+                '[id^="details-' + typeKey + '-"]');
+            if (existing) {
+                entry = existing.closest('.limit-entry, .coverage-entry') || existing;
+                console.log('[workbench] ' + phaseLabel +
+                    ': reusing existing ' + typeKey +
+                    ' panel (idempotent re-apply, no duplicate clone).');
+            } else {
+                entry = addCoverageEntry(typeKey, primaryList);
+            }
             if (!entry) {
                 console.warn('[workbench] ' + phaseLabel + ': clone failed.');
                 return;
@@ -2223,16 +2360,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function initLimitDateInputs(root) {
             if (!root || !window.flatpickr) return;
+            // FIX-PHASE-GO-LIVE-76B-DATE-PICKER-STACK-2026-05-16
+            // Extension v8.6.76 audit (HIGH): EL/EBL/Liquor panels showed
+            // TWO visible date pickers per labeled column. Root cause:
+            // flatpickr altInput:true creates a visible sibling input;
+            // on a reused/re-initialized panel (idempotent re-apply, or
+            // any second init pass) a NEW altInput was created while the
+            // PRIOR altInput sibling remained in the DOM — stacking two
+            // visible "Select Date..." inputs under one label, with no
+            // distinguishing sub-label. Make this function fully
+            // self-healing and idempotent: before (re)initializing a
+            // .limit-date, remove ALL adjacent flatpickr altInput
+            // siblings and reset the canonical input, so there is always
+            // exactly ONE picker per column no matter how many times
+            // this runs. This also hard-fixes the duplicate-date symptom
+            // independently of the panel-level idempotency guard.
+            const purgeAltSiblings = (canonical, keepAlt) => {
+                // Remove flatpickr altInput siblings EXCEPT the one the
+                // live instance legitimately owns (keepAlt). On a fresh
+                // (uninitialized) input keepAlt is null → remove all.
+                let sib = canonical.nextElementSibling;
+                while (sib && sib.classList && sib.classList.contains('flatpickr-input')
+                       && sib.classList.contains('flatpickr-alt-input')) {
+                    const next = sib.nextElementSibling;
+                    if (sib !== keepAlt) sib.remove();
+                    sib = next;
+                }
+                const cell = canonical.closest('label, .field, td, .grid > *') || canonical.parentNode;
+                if (cell) {
+                    cell.querySelectorAll('input.flatpickr-alt-input').forEach(a => {
+                        if (a !== canonical && a !== keepAlt) a.remove();
+                    });
+                }
+            };
             root.querySelectorAll('.limit-date').forEach(el => {
-                if (el._flatpickr) return;
-                // FIX-2026-05-14-COVERAGE-ALIGNMENT (2 of 3).
-                // Defensive guard against altInputs that may still carry
-                // .limit-date class from any legacy code path that didn't
-                // strip it (initFlatpickr above is the primary fix).
-                // A flatpickr altInput sits as the next sibling of a
-                // hidden input that owns the _flatpickr instance.
+                // Never operate on an altInput itself.
+                if (el.classList.contains('flatpickr-alt-input')) { return; }
+                if (el._flatpickr) {
+                    // Already initialized: strip any stacked duplicate
+                    // altInputs but KEEP the instance's own altInput.
+                    purgeAltSiblings(el, el._flatpickr.altInput || null);
+                    return;
+                }
                 const prev = el.previousElementSibling;
                 if (prev && prev._flatpickr) return;
+                // Fresh input: clean slate (remove ALL alt orphans), init once.
+                purgeAltSiblings(el, null);
+                el.classList.remove('flatpickr-input');
                 initFlatpickr(el);
             });
         }
