@@ -1468,6 +1468,211 @@
     return { blocked: false, reason: 'parsed', layers: layers };
   }
 
+  // ─── Phase 13.1 — Relabel persistence + propagation ───
+  // FIX-PHASE-13.1-RELABEL-PROPAGATION-2026-05-14
+  //
+  // _sampleTowerInputDoc: the canonical assembleTower() input contract,
+  // exposed so validation tooling can build correct fixtures without
+  // guessing field names (the input-side analogue of the Phase 10
+  // liquor_*_limit naming fix). Returns one representative lead doc and
+  // one representative quota-share participation doc.
+  function _sampleTowerInputDoc() {
+    return {
+      contract: {
+        id:                  'string  — stable doc id',
+        name:                'string  — display name',
+        carrier:             'string  — carrier on this policy',
+        decLimit:            'number  — this policy\'s OWN Dec Page limit (e.g. 5000000)',
+        statedAttachment:    'number|null — attachment from its Schedule of Underlying; 0 or null for the lead',
+        schedulesPrimary:    'bool    — does its Schedule of Underlying list primary coverages',
+        sharedGroupKey:      'string|null — rungs sharing ONE combined layer carry the same key',
+        sharedCombinedLimit: 'number|null — the FULL combined layer limit when this is a quota-share participation',
+        override:            '{limit?:number, attachment?:number, kind?:"lead"|"excess"} — user relabel; wins over parsed values'
+      },
+      exampleLead: {
+        id: 'lead', name: 'Lead Umbrella', carrier: 'Lead Co',
+        decLimit: 5000000, statedAttachment: 0, schedulesPrimary: true
+      },
+      exampleExcess: {
+        id: 'r1', name: '$5M xs $5M layer', carrier: 'Carrier One',
+        decLimit: 5000000, statedAttachment: 5000000, schedulesPrimary: false
+      },
+      exampleQuotaShareParticipation: {
+        id: 'r2a', name: 'Insurer A 50% of $10M xs $10M', carrier: 'Insurer A',
+        decLimit: 5000000, statedAttachment: 10000000,
+        sharedGroupKey: 'g10', sharedCombinedLimit: 10000000
+      },
+      exampleUserOverride: {
+        id: 'r3', name: 'corrected layer', carrier: 'Carrier Three',
+        decLimit: 4000000, statedAttachment: null,
+        override: { limit: 4000000, attachment: 20000000 }
+      }
+    };
+  }
+
+  // applyTowerRelabel: the structured-relabel entry point. A user
+  // relabel is NOT a display string — it is input to the assembly math.
+  // Given the submission, the doc id, and the correction, this:
+  //   1. writes the override into the submission's tower-relabel store
+  //      (lives in submission.snapshot.towerRelabels — travels with the
+  //      submission, no new Supabase schema)
+  //   2. re-runs assembleTower with the override applied
+  //   3. returns the freshly reconstructed tower so the caller can
+  //      re-render / re-fill
+  // Re-running is safe because assembleTower is pure + deterministic;
+  // one corrected rung re-chains everything stacked above it.
+  //
+  // correction = { limit?:number, attachment?:number, kind?:'lead'|'excess' }
+  function applyTowerRelabel(submission, docId, correction, towerDocs) {
+    if (!submission || !docId || !correction) {
+      return { ok: false, reason: 'bad_args' };
+    }
+    if (!submission.snapshot) submission.snapshot = {};
+    if (!submission.snapshot.towerRelabels) submission.snapshot.towerRelabels = {};
+    // Merge (not replace) — user may correct limit now, attachment later.
+    const prev = submission.snapshot.towerRelabels[docId] || {};
+    const merged = Object.assign({}, prev, {});
+    if (correction.limit != null)      merged.limit = _num(correction.limit);
+    if (correction.attachment != null) merged.attachment = _num(correction.attachment);
+    if (correction.kind)               merged.kind = correction.kind;
+    merged._relabeledByUser = true;
+    merged._relabeledAt = new Date().toISOString();
+    submission.snapshot.towerRelabels[docId] = merged;
+
+    // Apply all stored relabels onto the doc set, then re-assemble.
+    const relabels = submission.snapshot.towerRelabels;
+    const withOverrides = (towerDocs || []).map(d => {
+      const ov = relabels[d.id];
+      return ov ? Object.assign({}, d, { override: Object.assign({}, d.override || {}, ov) }) : d;
+    });
+    const tower = assembleTower(withOverrides);
+    return {
+      ok: true,
+      tower,
+      relabels: submission.snapshot.towerRelabels,
+      docId,
+      applied: merged
+    };
+  }
+
+  // Read stored relabels back (e.g. on submission reload) so a rebuilt
+  // tower reflects every prior user correction. Pure accessor.
+  function getTowerRelabels(submission) {
+    return (submission && submission.snapshot && submission.snapshot.towerRelabels) || {};
+  }
+
+  // Convenience: assemble a tower with any stored relabels already
+  // applied. This is what the workbench (13.4) and File Manager (13.3)
+  // call so persisted corrections always take effect on reload.
+  function assembleTowerWithRelabels(submission, towerDocs) {
+    const relabels = getTowerRelabels(submission);
+    const withOverrides = (towerDocs || []).map(d => {
+      const ov = relabels[d.id];
+      return ov ? Object.assign({}, d, { override: Object.assign({}, d.override || {}, ov) }) : d;
+    });
+    return assembleTower(withOverrides);
+  }
+
+  // ─── Phase 13.2 — Structured tower-document extraction ───
+  // FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14
+  //
+  // The excess module (Phase 13.2 prompt rework) now emits a
+  // ```json { "tower_documents": [...] } ``` block whose objects match
+  // the assembleTower() input contract exactly. parseTowerDocuments
+  // extracts that block into the array assembleTower consumes. It also
+  // runs the same refusal-diagnostic + cross-applicant gate as
+  // parseExcessTower so contaminated excess data can never reach the
+  // tower (defense-in-depth parity with every other coverage).
+  //
+  // Returns: { blocked, reason, docs:[...assembleTower input...], statedInsured? }
+  function parseTowerDocuments(excessText, accountName) {
+    if (!excessText || typeof excessText !== 'string') {
+      return { blocked: false, reason: 'no_text', docs: [] };
+    }
+    // Refusal diagnostic — same check as parseExcessTower
+    if (/\*\*\s*No matching underlying excess policies found for this insured/i.test(excessText)
+        || /\*\*\s*No matching .* found for this insured/i.test(excessText)) {
+      return { blocked: true, reason: 'refusal_diagnostic', docs: [] };
+    }
+    // Cross-applicant gate — replicate the resolveField-level defense
+    if (accountName && accountName !== '(unknown)') {
+      const stated = extractNamedInsured(excessText);
+      if (stated && applicantsMatch(stated, accountName) === false) {
+        console.warn(
+          '[WorkbenchRules] Cross-applicant defense: excess tower_documents stated insured "' +
+          stated + '" does not match submission "' + accountName +
+          '". Skipping tower for this submission.'
+        );
+        return { blocked: true, reason: 'cross_applicant', docs: [], statedInsured: stated };
+      }
+    }
+    // Extract the ```json ... ``` block containing tower_documents.
+    // Prefer a fenced block; fall back to a bare {...} with the key.
+    let jsonStr = null;
+    const fenced = excessText.match(/```(?:json)?\s*([\s\S]*?"tower_documents"[\s\S]*?)```/i);
+    if (fenced) {
+      jsonStr = fenced[1];
+    } else {
+      const bare = excessText.match(/\{[\s\S]*?"tower_documents"[\s\S]*\}/);
+      if (bare) jsonStr = bare[0];
+    }
+    if (!jsonStr) {
+      return { blocked: false, reason: 'no_json_block', docs: [] };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr.trim());
+    } catch (e) {
+      // Tolerant retry: trim to outermost balanced braces
+      const first = jsonStr.indexOf('{');
+      const last = jsonStr.lastIndexOf('}');
+      if (first !== -1 && last !== -1 && last > first) {
+        try { parsed = JSON.parse(jsonStr.slice(first, last + 1)); }
+        catch (e2) { return { blocked: false, reason: 'json_parse_error', docs: [] }; }
+      } else {
+        return { blocked: false, reason: 'json_parse_error', docs: [] };
+      }
+    }
+    const list = parsed && Array.isArray(parsed.tower_documents)
+      ? parsed.tower_documents : [];
+    // Normalize to the assembleTower input contract, dropping nothing —
+    // assembleTower itself handles nulls / classification / ????.
+    const docs = list.map((d, i) => ({
+      id:                  (d.id != null ? String(d.id) : ('tower-doc-' + i)),
+      name:                (d.name != null ? String(d.name) : ('Layer ' + (i + 1))),
+      carrier:             d.carrier != null ? String(d.carrier) : null,
+      decLimit:            d.decLimit,
+      statedAttachment:    d.statedAttachment,
+      schedulesPrimary:    !!d.schedulesPrimary,
+      sharedGroupKey:      d.sharedGroupKey != null ? String(d.sharedGroupKey) : null,
+      sharedCombinedLimit: d.sharedCombinedLimit != null ? d.sharedCombinedLimit : null
+    }));
+    return { blocked: false, reason: 'parsed', docs: docs };
+  }
+
+  // Convenience: excess module text → fully assembled tower (with any
+  // persisted user relabels applied). This is the single call the
+  // workbench (13.4) and File Manager (13.3) will use.
+  function buildTowerFromExcessModule(submission) {
+    const extractions =
+      (submission && submission.snapshot && submission.snapshot.extractions) ||
+      (submission && submission.extractions) || null;
+    const rec = extractions && extractions.excess;
+    const accountName = (submission && submission.account_name) || null;
+    if (!rec || typeof rec.text !== 'string') {
+      return { blocked: false, reason: 'no_excess_module', rungs: [], anyUncertain: false, totalTowerLimit: 0, docs: [] };
+    }
+    const pt = parseTowerDocuments(rec.text, accountName);
+    if (pt.blocked) {
+      return { blocked: true, reason: pt.reason, statedInsured: pt.statedInsured, rungs: [], anyUncertain: false, totalTowerLimit: 0, docs: [] };
+    }
+    if (!pt.docs.length) {
+      return { blocked: false, reason: pt.reason, rungs: [], anyUncertain: false, totalTowerLimit: 0, docs: [] };
+    }
+    const tower = assembleTowerWithRelabels(submission, pt.docs);
+    return Object.assign({ blocked: false, reason: 'assembled', docs: pt.docs }, tower);
+  }
+
   root.WorkbenchRules = {
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
@@ -1486,9 +1691,15 @@
     applicantsMatch,
     parseExcessTower,
     assembleTower,
+    assembleTowerWithRelabels,
+    applyTowerRelabel,
+    getTowerRelabels,
+    parseTowerDocuments,
+    buildTowerFromExcessModule,
+    _sampleTowerInputDoc,
     formatIso,
-    version: 'phase13.0-tower-assembly',
-    fixTag: 'FIX-PHASE-13.0-TOWER-ASSEMBLY-2026-05-14'
+    version: 'phase13.2-excess-structured-tower',
+    fixTag: 'FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

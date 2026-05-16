@@ -1214,6 +1214,13 @@ Do NOT include layers from policies for different insureds, even if they are the
 
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 
+TOWER RECONSTRUCTION METHOD (FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14):
+Each excess/umbrella policy describes ITSELF plus what is directly beneath it. No single document contains the whole tower. For EACH policy, read:
+  • Its DEC PAGE → the policy's OWN limit (its capacity / "Layer Limit").
+  • Its SCHEDULE OF UNDERLYING → what it sits on top of. The sum of the underlying = this policy's ATTACHMENT point.
+  • Whether its Schedule of Underlying lists PRIMARY coverages (GL / AL / EL / EBL / Aircraft / Liquor / Garage / Stop Gap / Foreign GL-AL-EL). A policy whose schedule lists primary coverages is the LEAD — but ONLY if its attachment is at the base ($0 over primary). A policy that schedules primary AND excess but attaches up the tower is an EXCESS layer, classified by its attachment, NOT by the fact it lists primary.
+  • QUOTA-SHARE / SHARED LAYER: if a layer is split across carriers ("part of" / "P/O" / "participation" / "X%"), every participant shares ONE combined layer limit at ONE attachment. The next layer's attachment = this attachment + the FULL combined limit (never + a single participation).
+
 **Underlying Excess Program Tower**
 
 - Named Insured: [name]
@@ -1236,6 +1243,32 @@ For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form sta
 - Tower Coordination: [continuous/gaps/overlap]
 - Carrier Downgrades: [list or "none"]
 - Form Coordination: [aligned/issues]
+
+STRUCTURED TOWER DATA — emit this EXACT JSON block last, after the human-readable summary. One object per distinct policy document (quota-share participants are SEPARATE objects sharing the same sharedGroupKey + sharedCombinedLimit). Field names must match EXACTLY:
+
+\`\`\`json
+{
+  "tower_documents": [
+    {
+      "id": "layer-1",
+      "name": "Lead Umbrella — [carrier]",
+      "carrier": "[carrier name]",
+      "decLimit": 5000000,
+      "statedAttachment": 0,
+      "schedulesPrimary": true,
+      "sharedGroupKey": null,
+      "sharedCombinedLimit": null
+    }
+  ]
+}
+\`\`\`
+
+Rules for the JSON block:
+- decLimit / statedAttachment / sharedCombinedLimit are NUMBERS, digits only, no "$" or commas. Use null when genuinely not stated (do NOT guess).
+- statedAttachment is 0 for the lead (attaches at base); for excess, the summed underlying from its Schedule of Underlying.
+- schedulesPrimary is true ONLY if the Schedule of Underlying lists primary coverages.
+- For quota-share: each participant is its own object; decLimit = that carrier's participation amount; sharedGroupKey = a shared string (e.g. "qs-30M"); sharedCombinedLimit = the full combined layer limit.
+- If the applicant filter triggered a refusal, do NOT emit the JSON block at all (the single refusal line is the entire output).
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
