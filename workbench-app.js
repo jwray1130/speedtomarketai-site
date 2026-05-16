@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.54-phase7-al-primary-coverage-2026-05-14
+  v8.6.54.1-phase7.1-acord-verbatim-insured-fallback-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.54-phase7-al-primary-coverage-2026-05-14';
+window.STM_BUILD = 'v8.6.54.1-phase7.1-acord-verbatim-insured-fallback-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

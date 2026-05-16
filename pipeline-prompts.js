@@ -708,7 +708,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   <div class="loss-summary-label">Summary</div>
   <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $500K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
   <div class="loss-summary-meta">
-    Effective Date Reviewed: <strong>[eff date]</strong> &nbsp;·&nbsp; Valuation: <strong>[valuation date]</strong> &nbsp;·&nbsp; Period: <strong>[start – end]</strong> &nbsp;·&nbsp; Carriers: [GL carrier] (GL), [AL carrier] (AL)
+    Named Insured: <strong>[name]</strong> &nbsp;·&nbsp; Effective Date Reviewed: <strong>[eff date]</strong> &nbsp;·&nbsp; Valuation: <strong>[valuation date]</strong> &nbsp;·&nbsp; Period: <strong>[start – end]</strong> &nbsp;·&nbsp; Carriers: [GL carrier] (GL), [AL carrier] (AL)
   </div>
 </div>
 
@@ -893,6 +893,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
+- Named Insured: [name]
 - Premium: [$]
 
 **Liability Structure:**
@@ -934,6 +935,8 @@ Do NOT include layers from policies for different insureds, even if they are the
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 
 **Underlying Excess Program Tower**
+
+- Named Insured: [name]
 
 **Layer 1:**
 - Carrier: [name]

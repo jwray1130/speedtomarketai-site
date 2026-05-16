@@ -400,19 +400,59 @@
   function extractNamedInsured(text) {
     if (!text || typeof text !== 'string') return null;
     const patterns = [
-      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Named\s+Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
-      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
-      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
-      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Applicant\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
-      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Company\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im
+      /(?:^|\n|>)\s*(?:[-*]\s+)?\**\s*Named\s+Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n|>)\s*(?:[-*]\s+)?\**\s*Insured\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n|>)\s*(?:[-*]\s+)?\**\s*Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n|>)\s*(?:[-*]\s+)?\**\s*Applicant\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im,
+      /(?:^|\n|>)\s*(?:[-*]\s+)?\**\s*Company\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im
     ];
     for (const re of patterns) {
       const m = re.exec(text);
       if (m && m[1]) {
-        return m[1].trim()
+        // FIX-PHASE-7.1: the losses module emits HTML, so a labeled
+        // "Named Insured: <strong>X</strong> &nbsp;·&nbsp; Effective..."
+        // capture needs HTML tags stripped and truncation at the first
+        // meta separator (· / &nbsp; / |) so we don't compare a whole
+        // metadata line against the account name.
+        let v = m[1]
+          .replace(/<[^>]+>/g, '')          // strip HTML tags
+          .replace(/&nbsp;/gi, ' ')         // decode nbsp
+          .split(/\s*[·|]\s*/)[0]           // truncate at first · or | separator
+          .trim()
           .replace(/^\**\s*/, '')
-          .replace(/\s*\**$/, '');
+          .replace(/\s*\**$/, '')
+          .trim();
+        if (v) return v;
       }
+    }
+    // FIX-PHASE-7.1-ACORD-VERBATIM-INSURED-FALLBACK-2026-05-14
+    // CRITICAL: not every coverage module's prompt emits a labeled
+    // "Named Insured:" field. gl_quote does; al_quote / excess / losses
+    // historically do NOT. When the labeled patterns above all miss, the
+    // insured still appears in the verbatim ACORD text as a company name
+    // immediately followed by a street address, e.g.:
+    //   "CARROLL COUNTY COOP, INC   505 E. Stuart Dr.   Hillsville VA 24343"
+    //
+    // Carriers do NOT appear with the insured's mailing address in this
+    // position (carriers appear as a labeled "Carrier:" field with no
+    // trailing street address), so this pattern reliably isolates the
+    // insured. We additionally skip any candidate that looks like an
+    // insurance carrier (Insurance/Casualty/Indemnity/Underwriters/etc.)
+    // as a second-line defense against false positives.
+    //
+    // Without this fallback, the Phase 3.5 cross-applicant defense
+    // silently lets contaminated al_quote/excess/losses extractions
+    // through (confirmed leak: Carroll County AL data surfaced on the
+    // Anahuac AL panel in Phase 7 testing).
+    const addrRe = /([A-Z][A-Za-z0-9&.,'\- ]{2,60}?(?:,?\s*(?:INC|LLC|CORP|CORPORATION|CO|COMPANY|COOP|COOPERATIVE|LP|LLP|LTD))\b\.?)\s+\d{1,6}\s+[A-Z][A-Za-z0-9.\- ]/g;
+    let m2;
+    while ((m2 = addrRe.exec(text)) !== null) {
+      const candidate = m2[1].trim().replace(/\s+/g, ' ');
+      // Skip insurance-carrier-looking names — they're not the insured
+      if (/\b(insurance|casualty|indemnity|underwriters?|assurance|surplus\s+lines?|reinsurance|mutual|specialty\s+insurance|E&S)\b/i.test(candidate)) {
+        continue;
+      }
+      return candidate;
     }
     return null;
   }
@@ -825,7 +865,7 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase5.1-papertxt-mirror-wholesale-cal',
+    version: 'phase7.1-acord-verbatim-insured-fallback',
     fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 
