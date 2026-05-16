@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.71-phase14.2-forms-emphasis-dom-2026-05-14
+  v8.6.72-phase14.3-workflow-readiness-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.71-phase14.2-forms-emphasis-dom-2026-05-14';
+window.STM_BUILD = 'v8.6.72-phase14.3-workflow-readiness-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1640,6 +1640,30 @@ document.addEventListener('DOMContentLoaded', () => {
             actionsMenu.addEventListener('click', e => {
                 if (e.target.tagName === 'LI') {
                     const status = e.target.dataset.status;
+                    // FIX-PHASE-14.3-WORKFLOW-READINESS-2026-05-14
+                    // Advisory only — surface readiness gaps but NEVER
+                    // block the transition (suggest-only parity).
+                    try {
+                        const WR = window.WorkbenchRules;
+                        const sub = window.workbenchActiveSubmission || null;
+                        if (WR && typeof WR.assessWorkflowReadiness === 'function' && sub) {
+                            const a = WR.assessWorkflowReadiness(sub, status);
+                            if (a && !a.ready && a.blockers.length) {
+                                console.warn('[workbench] Phase 14.3 readiness — "'
+                                    + status + '" has ' + a.blockers.length
+                                    + ' open item(s) (advisory, not blocking):',
+                                    a.blockers.map(b => b.reason).join(', '));
+                                a.blockers.forEach(b =>
+                                    console.warn('   • ' + b.reason + ': ' + b.detail));
+                            } else if (a && a.ready) {
+                                console.log('[workbench] Phase 14.3 readiness — "'
+                                    + status + '": all checks clear.');
+                            }
+                        }
+                    } catch (rErr) {
+                        console.warn('[workbench] Phase 14.3 readiness skipped —',
+                            rErr && rErr.message);
+                    }
                     const statusEl = $("#statusText");
                     statusEl.textContent = status;
                     statusEl.setAttribute('data-status', status);

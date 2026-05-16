@@ -2176,6 +2176,83 @@
   // never auto-add/remove a form. Matched to the exact FORMS_DATA names.
   //
   // Returns { emphases:[{ formName, reason, factSource }], towerBlocked }
+  // ─── Phase 14.3 — Workflow Readiness ───
+  // FIX-PHASE-14.3-WORKFLOW-READINESS-2026-05-14
+  //
+  // assessWorkflowReadiness(submission, targetStatus) reports what (if
+  // anything) is not yet in place for a forward transition. It is
+  // ADVISORY ONLY — it never blocks the status change (suggest-only
+  // parity: warn, don't prevent the click). The underwriter can always
+  // override; the system just makes the gaps visible.
+  //
+  // Returns { targetStatus, ready:bool, blockers:[{reason,detail}],
+  //           towerBlocked }
+  function assessWorkflowReadiness(submission, targetStatus) {
+    const out = { targetStatus: targetStatus || null, ready: true,
+                  blockers: [], towerBlocked: false };
+    if (!submission) { out.ready = false;
+      out.blockers.push({ reason: 'no_submission',
+        detail: 'No active submission loaded.' }); return out; }
+
+    const advancing = /^(Quoted|Bound|Issued)$/i.test(targetStatus || '');
+    if (!advancing) return out; // Inquired/Cancelled/Dead/Reinstate — no gate
+
+    let tower = null;
+    if (typeof buildTowerFromExcessModule === 'function') {
+      tower = buildTowerFromExcessModule(submission);
+      if (tower && tower.blocked) out.towerBlocked = true;
+    }
+    const rungs = (tower && !tower.blocked && Array.isArray(tower.rungs)) ? tower.rungs : [];
+
+    if (out.towerBlocked) {
+      out.blockers.push({ reason: 'tower_blocked',
+        detail: 'Excess tower is blocked (refusal/cross-applicant) — '
+              + 'underlying program cannot be confirmed for this insured.' });
+    } else if (rungs.length === 0) {
+      out.blockers.push({ reason: 'no_tower',
+        detail: 'No excess tower assembled — no structured underlying '
+              + 'program to quote/bind against.' });
+    } else {
+      if (rungs.some(r => r.status === '????')) {
+        out.blockers.push({ reason: 'tower_uncertain',
+          detail: 'Tower has unresolved (????) layer(s) — relabel in the '
+                + 'File Manager before ' + targetStatus.toLowerCase() + '.' });
+      }
+      if (!rungs.some(r => r.kind === 'lead' && r.status !== '????')) {
+        out.blockers.push({ reason: 'no_lead',
+          detail: 'No resolved lead layer — the lead anchors the tower '
+                + 'and schedules the primary coverages.' });
+      }
+    }
+
+    // Bind/Issue additionally want the primary coverages confirmed.
+    if (/^(Bound|Issued)$/i.test(targetStatus)) {
+      const ex = (submission.snapshot && submission.snapshot.extractions)
+              || submission.extractions || {};
+      const acct = submission.account_name || null;
+      const ok = (k) => {
+        const r = ex[k];
+        if (!r || typeof r.text !== 'string' || !r.text.trim()) return false;
+        if (/no matching .* found for this insured/i.test(r.text)) return false;
+        if (acct && acct !== '(unknown)'
+            && typeof extractNamedInsured === 'function'
+            && typeof applicantsMatch === 'function') {
+          const s = extractNamedInsured(r.text);
+          if (s && applicantsMatch(s, acct) === false) return false;
+        }
+        return true;
+      };
+      if (!ok('gl_quote') && !ok('al_quote')) {
+        out.blockers.push({ reason: 'no_primary',
+          detail: 'No confirmed primary GL/AL for this insured — required '
+                + 'to ' + targetStatus.toLowerCase() + ' an excess placement.' });
+      }
+    }
+
+    out.ready = out.blockers.length === 0;
+    return out;
+  }
+
   function recommendForms(submission) {
     const out = { emphases: [], towerBlocked: false };
     if (!submission) return out;
@@ -2281,11 +2358,12 @@
     buildTowerView,
     recommendSubjectivities,
     recommendForms,
+    assessWorkflowReadiness,
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.2-forms-emphasis-dom',
-    fixTag: 'FIX-PHASE-14.2-FORMS-EMPHASIS-DOM-2026-05-14'
+    version: 'phase14.3-workflow-readiness',
+    fixTag: 'FIX-PHASE-14.3-WORKFLOW-READINESS-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
