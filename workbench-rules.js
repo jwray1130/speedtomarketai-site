@@ -1151,6 +1151,323 @@
 
   // ─── Public surface ───────────────────────────────────────────────────────
 
+  // ─── Phase 12 — Excess Tower parser ───
+  // FIX-PHASE-12-EXCESS-TOWER-2026-05-14
+  // The excess module emits a VARIABLE number of "**Layer N:**" blocks —
+  // fundamentally different from every prior coverage (fixed single-value
+  // fields). This dedicated parser:
+  //   1. Detects the Phase-6.1/3.5 refusal diagnostic → blocked
+  //   2. Runs the cross-applicant gate (extractNamedInsured vs account)
+  //      → blocked on mismatch (same defense as resolveField applies to
+  //      single-value modules; replicated here since the tower bypasses
+  //      resolveField)
+  //   3. Splits into layer blocks, extracts per-layer fields, filters
+  //      sentinel/empty layers
+  // Returns: { blocked: bool, reason: string, layers: [ {carrier,
+  //   effective_date, expiration_date, limit, aggregate, premium} ] }
+  // ─── Phase 13.0 — Tower Assembly Engine ───
+  // FIX-PHASE-13.0-TOWER-ASSEMBLY-2026-05-14
+  //
+  // parseExcessTower (Phase 12) parses ONE excess module's text into a
+  // flat layer list. assembleTower (this) is the whole-packet pass: it
+  // takes the set of in-tower documents (each carrying its own Dec Page
+  // limit + Schedule-of-Underlying attachment + optional quota-share
+  // participation) and reconstructs the real tower:
+  //
+  //   • Classify each doc lead vs excess by POSITION, not per-file label.
+  //     Lead = schedules primary coverages AND attaches at base ($0 over
+  //     primary). An excess that also schedules primary is still excess
+  //     if its Dec Page limit attaches up the tower.
+  //   • Quota-share / shared rung: multiple carriers at the SAME
+  //     attachment sharing one combined layer limit. The combined limit
+  //     is counted ONCE; next attachment = prior attachment + full
+  //     combined limit (NOT + a participation).
+  //   • Validate continuity: each rung's attachment must equal the
+  //     running sum of full limits beneath it. Gap / overlap / conflict
+  //     / unclassifiable → that rung is marked status:'????' (the UI
+  //     highlights it, colors it the Underlying color, user relabels).
+  //   • A user relabel (Phase 13.1) is structured input: it overrides a
+  //     rung's limit/attachment and the walk-up RE-RUNS so everything
+  //     stacked above re-chains. assembleTower is pure + deterministic
+  //     so re-running with an override just works.
+  //
+  // INPUT: docs = [ {
+  //    id, name,
+  //    decLimit,            // number — this policy's own Dec Page limit
+  //    statedAttachment,    // number|null — attachment from its Schedule
+  //                         //   of Underlying, if the doc states one
+  //    schedulesPrimary,    // bool — does its SoU list primary coverages
+  //    sharedGroupKey,      // string|null — rungs sharing one combined
+  //                         //   layer carry the same key
+  //    sharedCombinedLimit, // number|null — full combined layer limit
+  //                         //   when this is a quota-share participation
+  //    carrier,
+  //    override             // {limit?, attachment?, kind?} from a user
+  //                         //   relabel (Phase 13.1) — wins over parsed
+  //  }, ... ]
+  // OUTPUT: { rungs: [...], blocked, anyUncertain, totalTowerLimit }
+  function _num(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') return v;
+    const n = parseFloat(String(v).replace(/[^0-9.]/g, ''));
+    return isFinite(n) ? n : null;
+  }
+
+  function assembleTower(docs) {
+    if (!Array.isArray(docs) || docs.length === 0) {
+      return { rungs: [], blocked: false, anyUncertain: false, totalTowerLimit: 0 };
+    }
+    // 1. Normalize + apply any user overrides (Phase 13.1 hook). An
+    //    override's explicit limit/attachment/kind always wins.
+    const items = docs.map((d, idx) => {
+      const ov = d.override || {};
+      return {
+        idx,
+        id: d.id || ('doc-' + idx),
+        name: d.name || ('doc-' + idx),
+        carrier: d.carrier || null,
+        decLimit: _num(ov.limit != null ? ov.limit : d.decLimit),
+        statedAttachment: _num(ov.attachment != null ? ov.attachment : d.statedAttachment),
+        schedulesPrimary: !!d.schedulesPrimary,
+        sharedGroupKey: d.sharedGroupKey || null,
+        sharedCombinedLimit: _num(d.sharedCombinedLimit),
+        forcedKind: ov.kind || null,   // user can force 'lead' | 'excess'
+        override: ov
+      };
+    });
+
+    // 2. Group quota-share participations. Rungs sharing a sharedGroupKey
+    //    are ONE tower rung; combined limit counted once.
+    const groups = new Map();      // key -> [items]
+    const singles = [];
+    for (const it of items) {
+      if (it.sharedGroupKey) {
+        if (!groups.has(it.sharedGroupKey)) groups.set(it.sharedGroupKey, []);
+        groups.get(it.sharedGroupKey).push(it);
+      } else {
+        singles.push(it);
+      }
+    }
+
+    // 3. Build provisional rungs. Each rung: { kind, limit, attachment,
+    //    participants:[{carrier, participation}], status, sources:[ids] }
+    const rungs = [];
+
+    for (const it of singles) {
+      const isLead = it.forcedKind === 'lead'
+        || (it.forcedKind !== 'excess'
+            && it.schedulesPrimary
+            && (it.statedAttachment === 0 || it.statedAttachment == null));
+      rungs.push({
+        kind: isLead ? 'lead' : 'excess',
+        limit: it.decLimit,
+        attachment: isLead ? 0 : it.statedAttachment,
+        participants: [{ carrier: it.carrier, participation: it.decLimit }],
+        shared: false,
+        status: 'ok',
+        sources: [it.id],
+        _statedAttachment: it.statedAttachment
+      });
+    }
+    for (const [key, parts] of groups.entries()) {
+      // Combined layer limit: prefer an explicit sharedCombinedLimit,
+      // else sum the participations (P/O amounts).
+      const combined = parts.find(p => p.sharedCombinedLimit)?.sharedCombinedLimit
+        || parts.reduce((s, p) => s + (p.decLimit || 0), 0);
+      const att = parts.map(p => p.statedAttachment).find(a => a != null);
+      const anyLead = parts.some(p => p.forcedKind === 'lead'
+        || (p.forcedKind !== 'excess' && p.schedulesPrimary && (p.statedAttachment === 0 || p.statedAttachment == null)));
+      rungs.push({
+        kind: anyLead ? 'lead' : 'excess',
+        limit: combined,                       // FULL combined — counted once
+        attachment: anyLead ? 0 : (att == null ? null : att),
+        participants: parts.map(p => ({ carrier: p.carrier, participation: p.decLimit })),
+        shared: true,
+        sharedGroupKey: key,
+        status: 'ok',
+        sources: parts.map(p => p.id),
+        _statedAttachment: att
+      });
+    }
+
+    // 4. Order: lead(s) first (attachment 0), then by attachment ascending.
+    //    Unknown attachment sinks to the end and will be flagged.
+    rungs.sort((a, b) => {
+      const aa = a.attachment == null ? Infinity : a.attachment;
+      const bb = b.attachment == null ? Infinity : b.attachment;
+      if (a.kind === 'lead' && b.kind !== 'lead') return -1;
+      if (b.kind === 'lead' && a.kind !== 'lead') return 1;
+      return aa - bb;
+    });
+
+    // 5. Continuity walk-up. Each rung's attachment must equal the
+    //    running sum of full limits beneath it (shared counted once).
+    //    Mismatch / missing → status '????'.
+    let cursor = 0;          // expected attachment of the next rung
+    let anyUncertain = false;
+    let leadCount = 0;
+    for (let i = 0; i < rungs.length; i++) {
+      const r = rungs[i];
+      if (r.kind === 'lead') {
+        leadCount++;
+        r.attachment = 0;
+        if (r.limit == null || r.limit <= 0) { r.status = '????'; anyUncertain = true; }
+        cursor = (r.limit || 0);
+        continue;
+      }
+      // excess rung
+      if (r.limit == null || r.limit <= 0) {
+        r.status = '????'; anyUncertain = true;
+        // can't advance cursor reliably; leave cursor, flag and continue
+        continue;
+      }
+      if (r.attachment == null) {
+        // No stated attachment — adopt the computed cursor but flag for
+        // user confirmation (we inferred position).
+        r.attachment = cursor;
+        r.status = '????';
+        r.uncertaintyReason = 'attachment_inferred';
+        anyUncertain = true;
+        cursor = cursor + r.limit;
+        continue;
+      }
+      // Stated attachment present — must agree with computed cursor.
+      if (Math.abs(r.attachment - cursor) > 0.5) {
+        r.status = '????';
+        r.uncertaintyReason = (r.attachment > cursor) ? 'gap' : 'overlap';
+        r.expectedAttachment = cursor;
+        anyUncertain = true;
+        // Trust the stated attachment for the label but do NOT silently
+        // heal the chain — advance cursor from the stated value so we
+        // don't cascade one error into all rungs above.
+        cursor = r.attachment + r.limit;
+        continue;
+      }
+      // Clean rung
+      r.status = 'ok';
+      cursor = r.attachment + r.limit;
+    }
+
+    if (leadCount > 1) {
+      // More than one lead is structurally impossible — flag all leads.
+      anyUncertain = true;
+      rungs.filter(r => r.kind === 'lead').forEach(r => {
+        r.status = '????';
+        r.uncertaintyReason = 'multiple_leads';
+      });
+    }
+    if (leadCount === 0 && rungs.length > 0) {
+      // No lead identified — the bottom rung is suspect.
+      anyUncertain = true;
+      rungs[0].status = '????';
+      rungs[0].uncertaintyReason = 'no_lead';
+    }
+
+    // 6. Human-readable label per rung (Phase 13.3 File Manager uses it).
+    const fmtM = (n) => {
+      if (n == null) return '?';
+      if (n >= 1e6 && n % 1e6 === 0) return '$' + (n / 1e6) + 'M';
+      if (n >= 1e6) return '$' + (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
+      return '$' + n.toLocaleString();
+    };
+    for (const r of rungs) {
+      if (r.status === '????') {
+        r.label = '????';
+      } else if (r.kind === 'lead') {
+        r.label = 'LEAD ' + fmtM(r.limit);
+      } else {
+        r.label = fmtM(r.limit) + ' xs ' + fmtM(r.attachment);
+      }
+    }
+
+    const top = rungs.reduce((mx, r) =>
+      (r.status === 'ok' && r.attachment != null && r.limit != null)
+        ? Math.max(mx, r.attachment + r.limit) : mx, 0);
+
+    return {
+      rungs,
+      blocked: false,
+      anyUncertain,
+      totalTowerLimit: top
+    };
+  }
+
+  function parseExcessTower(text, accountName) {
+    if (!text || typeof text !== 'string') {
+      return { blocked: false, reason: 'no_text', layers: [] };
+    }
+    // 1. Refusal diagnostic (Phase 6.1 gate or prompt-level refusal)
+    if (/\*\*\s*No matching underlying excess policies found for this insured/i.test(text)
+        || /\*\*\s*No matching .* found for this insured/i.test(text)) {
+      return { blocked: true, reason: 'refusal_diagnostic', layers: [] };
+    }
+    // 2. Cross-applicant gate — replicate the resolveField-level defense
+    if (accountName && accountName !== '(unknown)') {
+      const stated = extractNamedInsured(text);
+      if (stated && applicantsMatch(stated, accountName) === false) {
+        console.warn(
+          '[WorkbenchRules] Cross-applicant defense: excess tower stated insured "' +
+          stated + '" does not match submission "' + accountName +
+          '". Skipping tower for this submission.'
+        );
+        return { blocked: true, reason: 'cross_applicant', layers: [], statedInsured: stated };
+      }
+    }
+    // 3. Split into "**Layer N:**" blocks
+    const layerSplit = text.split(/\*\*\s*Layer\s+\d+\s*[:\*]/i);
+    // element 0 is the preamble before Layer 1 — discard it
+    const blocks = layerSplit.slice(1);
+    if (blocks.length === 0) {
+      return { blocked: false, reason: 'no_layers', layers: [] };
+    }
+    const grab = (block, re) => {
+      const m = re.exec(block);
+      return m && m[1] ? m[1].trim() : null;
+    };
+    const layers = [];
+    for (let block of blocks) {
+      // Trim the block at the Tower Summary if it bled in (last block)
+      const sumIdx = block.search(/\*\*\s*Tower\s+Summary/i);
+      if (sumIdx !== -1) block = block.slice(0, sumIdx);
+
+      const carrier = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/i);
+      // Limit: prefer explicit "Layer Limit", else first $ of "Limits: $X xs $Y", else "Limits: $X"
+      let limit = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Layer\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      if (!limit) {
+        limit = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Limits?\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)\s*(?:xs|x\/s|excess\s+of|over)\b/i);
+      }
+      if (!limit) {
+        limit = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Limits?\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      }
+      const aggregate = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Aggregate\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      const premium = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+
+      // Dates: from "Period: A – B", or explicit Effective/Expiration lines
+      let eff = null, exp = null;
+      const period = /(?:^|\n)\s*[-*]?\s*\**\s*Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/i.exec(block);
+      if (period) { eff = period[1]; exp = period[2]; }
+      else {
+        eff = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/i);
+        exp = grab(block, /(?:^|\n)\s*[-*]?\s*\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/i);
+      }
+
+      // Sentinel filtering — drop placeholder values
+      const clean = (v) => (v && !isSentinelValue(v)) ? v : null;
+      const layer = {
+        carrier:         clean(carrier),
+        effective_date:  clean(eff)  ? normalizeDateString(clean(eff))  : null,
+        expiration_date: clean(exp)  ? normalizeDateString(clean(exp))  : null,
+        limit:           clean(limit),
+        aggregate:       clean(aggregate),
+        premium:         clean(premium)
+      };
+      // Skip a layer that has NO useful data at all (carrier + limit both empty)
+      if (!layer.carrier && !layer.limit && !layer.premium) continue;
+      layers.push(layer);
+    }
+    return { blocked: false, reason: 'parsed', layers: layers };
+  }
+
   root.WorkbenchRules = {
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
@@ -1167,9 +1484,11 @@
     extractNamedInsured,
     normalizeCompanyName,
     applicantsMatch,
+    parseExcessTower,
+    assembleTower,
     formatIso,
-    version: 'phase11-foreign-gl-al',
-    fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
+    version: 'phase13.0-tower-assembly',
+    fixTag: 'FIX-PHASE-13.0-TOWER-ASSEMBLY-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
