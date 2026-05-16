@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.55-phase8-employers-liability-2026-05-14
+  v8.6.56-phase9-employee-benefits-liability-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.55-phase8-employers-liability-2026-05-14';
+window.STM_BUILD = 'v8.6.56-phase9-employee-benefits-liability-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -355,6 +355,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     // (Option B). Clones+enables the EL panel only if EL
                     // data actually resolved; otherwise EL doesn't appear.
                     applyELCoverageFromActiveSubmission(data);
+                    // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+                    applyEBLCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -764,6 +766,89 @@ document.addEventListener('DOMContentLoaded', () => {
                 'EL panel cloned, enabled, checkbox auto-checked'
             );
             console.log('[workbench] Phase 8 EL filled:', resolvedSummary);
+        }
+
+        // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+        // Apply resolved Employee Benefits Liability to the EBL panel.
+        // Same clonable-panel pattern as Phase 8 EL: #details-ebl is a
+        // template (data-template-key="ebl"), cloned via
+        // addCoverageEntry('ebl', ...). 5 fields: carrier, eff, exp,
+        // each-employee-limit, premium. Source priority ebl_quote →
+        // gl_quote (EBL is usually a GL endorsement). No empty clone if
+        // zero fields resolve.
+        function applyEBLCoverageFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            const fieldOrder = [
+                'ebl_carrier',
+                'ebl_effective_date',
+                'ebl_expiration_date',
+                'ebl_each_employee_limit',
+                'ebl_premium'
+            ];
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] Phase 9 EBL coverage apply: 0 fields resolved.',
+                    'No standalone EBL quote and no EBL endorsement in the GL',
+                    'quote, or blocked by one of three defense layers:',
+                    '(1) Phase 6.1 pipeline gate, (2) Phase 3.5 workbench',
+                    'cross-applicant defense, (3) sentinel/structural misses.',
+                    'EBL panel not added (correct — no empty clone).'
+                );
+                return;
+            }
+
+            const primaryList = document.getElementById('primary-limits-list');
+            if (!primaryList || typeof addCoverageEntry !== 'function') {
+                console.warn('[workbench] Phase 9 EBL: primary-limits-list or',
+                    'addCoverageEntry unavailable — cannot add EBL panel.');
+                return;
+            }
+            const eblEntry = addCoverageEntry('ebl', primaryList);
+            if (!eblEntry) {
+                console.warn('[workbench] Phase 9 EBL: clone failed.');
+                return;
+            }
+            const eblPanel = eblEntry.querySelector('.limit-details-panel');
+            if (!eblPanel || !eblPanel.id) {
+                console.warn('[workbench] Phase 9 EBL: cloned panel missing id.');
+                return;
+            }
+            const fillResult = fillCoveragePanelByPosition('#' + eblPanel.id, valuesByPosition);
+
+            const eblCheck = eblEntry.querySelector('input[type="checkbox"][data-target]');
+            if (eblCheck && !eblCheck.checked) eblCheck.click();
+
+            console.log(
+                '[workbench] Phase 9 EBL coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                'EBL panel cloned, enabled, checkbox auto-checked'
+            );
+            console.log('[workbench] Phase 9 EBL filled:', resolvedSummary);
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14

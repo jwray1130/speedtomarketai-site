@@ -64,7 +64,10 @@
     'al_expiration_date',
     // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
     'el_effective_date',
-    'el_expiration_date'
+    'el_expiration_date',
+    // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+    'ebl_effective_date',
+    'ebl_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -305,6 +308,34 @@
     ],
     el_premium: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
+    ],
+
+    // ─── Phase 9 — Employee Benefits Liability labels ───
+    // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+    // ebl_quote uses bare labels; gl_quote uses "EBL "-prefixed labels.
+    // ebl_quote tried first per SOURCE_AUTHORITY.
+    ebl_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EBL\s+Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.90 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    ebl_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    ebl_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    ebl_each_employee_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EBL\s+Each\s+Employee\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Employee\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Each\s+Employee\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.80 }
+    ],
+    ebl_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EBL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
     ]
@@ -697,7 +728,20 @@
     el_bi_accident:             ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
     el_bi_disease:              ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
     el_disease_policy_limit:    ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
-    el_premium:                 ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote']
+    el_premium:                 ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+
+    // ─── Phase 9 — Employee Benefits Liability Coverage ───
+    // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+    // EBL is most commonly a GL endorsement, so gl_quote is the common
+    // source; standalone EBL quotes feed ebl_quote. Resolver tries
+    // ebl_quote first, gl_quote fallback (Option B, same as EL). The
+    // #details-ebl panel is 5 fields: carrier, eff, exp, each-employee
+    // -limit, premium. Clonable template (details-ebl-clone).
+    ebl_carrier:                ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
+    ebl_effective_date:         ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
+    ebl_expiration_date:        ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
+    ebl_each_employee_limit:    ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote'],
+    ebl_premium:                ['ebl_quote:json', 'ebl_quote', 'gl_quote:json', 'gl_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -944,7 +988,7 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase8-employers-liability',
+    version: 'phase9-employee-benefits-liability',
     fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 

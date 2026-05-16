@@ -59,6 +59,7 @@ const ROUTING = {
   gl_quote: 'gl_quote',
   al_quote: 'al_quote',
   el_quote: 'el_quote',
+  ebl_quote: 'ebl_quote',
   excess: 'excess',
   website: 'website',
   email: 'email_intel',   // email now feeds a dedicated extraction module (A16)
@@ -545,6 +546,7 @@ const MODULES = {
   gl_quote:      { code: 'A12', name: 'Primary GL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   al_quote:      { code: 'A13', name: 'Primary AL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   el_quote:      { code: 'A17', name: 'Employers Liability',     wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  ebl_quote:     { code: 'A18', name: 'Employee Benefits Liab', wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   email_intel:   { code: 'A16', name: 'Email Intel',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
@@ -4174,6 +4176,7 @@ const APPLICANT_GATED_MODULES = new Set([
   'gl_quote',
   'al_quote',
   'el_quote',
+  'ebl_quote',
   'supplemental',
   'excess',
   'losses'

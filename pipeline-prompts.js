@@ -872,6 +872,11 @@ This is a hard refusal contract. Do NOT extract from non-matching documents even
 - EL Disease - Policy Limit: [$ policy limit]
 - EL Premium: [$]
 
+**Employee Benefits Liability (if this GL quote includes an EBL endorsement — otherwise omit this whole section):**
+- EBL Carrier: [name if different from GL carrier, else "same"]
+- EBL Each Employee Limit: [$ per employee]
+- EBL Premium: [$]
+
 **Key Endorsements Affecting Excess:**
 - [Form] - [Description] - [Excess impact: narrows/aligns/concerning/positive]
 
@@ -969,6 +974,46 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - States covered: [list]
 - Class codes: [codes + descriptions]
 - Experience mod: [mod factor]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
+  // ebl_quote handles STANDALONE Employee Benefits Liability quote docs.
+  // EBL is most commonly a GL policy endorsement (so gl_quote also emits
+  // EBL fields — Option B), but standalone EBL quotes do occur. Resolver
+  // checks ebl_quote first, gl_quote as fallback.
+  // Process improvement (locked): Named Insured + hard contract from day one.
+  ebl_quote: `ROLE: Excess casualty underwriter extracting Employee Benefits Liability data from a quote, policy, or EBL endorsement. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Employee Benefits Liability quote found for this insured.**
+   — nothing else. No template, no QC, no caveats. Refusal is the correct answer here.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Employee Benefits Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [form]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**EBL Limits:**
+- Each Employee Limit: [$ per employee]
+- Aggregate Limit: [$ aggregate, if stated]
+- Deductible: [$ each employee deductible, if stated]
+- Retroactive Date: [date, if claims-made]
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
