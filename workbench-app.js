@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.65-phase14.0-subjectivity-intelligence-2026-05-14
+  v8.6.67-phase14.0.2-subjectivity-cross-applicant-gate-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.65-phase14.0-subjectivity-intelligence-2026-05-14';
+window.STM_BUILD = 'v8.6.67-phase14.0.2-subjectivity-cross-applicant-gate-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1229,7 +1229,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 .replace(/&amp;/g, '&')
                 .toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-            let autoChecked = 0, suggested = 0, unmatched = 0;
+            let strongCount = 0, suggested = 0, unmatched = 0;
             for (const r of rec.recommendations) {
                 const want = norm(r.label);
                 const entry = entries.find(e => {
@@ -1243,39 +1243,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cb = entry.querySelector('input[type="checkbox"]');
                 if (!cb) { unmatched++; continue; }
 
-                if (r.mode === 'auto') {
-                    if (!cb.checked) { cb.checked = true;
-                        cb.dispatchEvent(new Event('change', { bubbles: true })); }
-                    entry.classList.add('subjectivity-auto');
-                    entry.setAttribute('title',
-                        'Auto-applied by Speed to Market AI — ' + (r.reason || ''));
-                    autoChecked++;
-                } else { // 'suggest' — never auto-check
-                    entry.classList.add('subjectivity-suggested');
-                    entry.setAttribute('title',
-                        'Suggested (your call) — ' + (r.reason || ''));
-                    if (!entry.querySelector('.subjectivity-suggest-chip')) {
-                        const chip = document.createElement('span');
-                        chip.className = 'subjectivity-suggest-chip';
-                        chip.textContent = 'SUGGESTED';
-                        const lbl = entry.querySelector('.checkbox-label');
-                        if (lbl) lbl.appendChild(chip);
-                    }
-                    suggested++;
+                // FIX-PHASE-14.0.1-SUGGEST-ONLY-2026-05-14
+                // The system NEVER checks a subjectivity box. A
+                // subjectivity is an underwriting commitment that goes on
+                // the binder — the underwriter consciously puts their
+                // name to each one. The system's job is to surface which
+                // ones the deal's facts point to, with reasoning; the
+                // click is always the underwriter's. Fact-implied recs
+                // (formerly 'auto') get a stronger STRONG-MATCH cue so
+                // the high-confidence ones stand out, but nothing is
+                // pre-checked.
+                const factImplied = (r.mode === 'auto');
+                entry.classList.add('subjectivity-suggested');
+                if (factImplied) entry.classList.add('subjectivity-strong');
+                entry.setAttribute('title',
+                    (factImplied ? 'Strongly indicated by this deal\u2019s facts'
+                                 : 'Suggested \u2014 your call')
+                    + ' \u2014 ' + (r.reason || '')
+                    + ' \u2014 click to apply');
+                if (!entry.querySelector('.subjectivity-suggest-chip')) {
+                    const chip = document.createElement('span');
+                    chip.className = 'subjectivity-suggest-chip'
+                        + (factImplied ? ' subjectivity-suggest-chip--strong' : '');
+                    chip.textContent = factImplied ? 'INDICATED' : 'SUGGESTED';
+                    const lbl = entry.querySelector('.checkbox-label');
+                    if (lbl) lbl.appendChild(chip);
                 }
+                if (factImplied) strongCount++; else suggested++;
             }
 
             console.log(
-                '[workbench] Phase 14.0 subjectivity intelligence:',
-                autoChecked, 'auto-checked (deterministic) ·',
-                suggested, 'suggested (underwriter decides) ·',
+                '[workbench] Phase 14.0.1 subjectivity intelligence (suggest-only):',
+                strongCount, 'strongly indicated ·',
+                suggested, 'suggested ·',
                 unmatched, 'unmatched ·',
+                'NONE auto-checked (underwriter decides every box) ·',
                 'anySuggest=' + rec.anySuggest +
                 (rec.towerBlocked ? ' · towerBlocked' : '')
             );
-            console.log('[workbench] Phase 14.0 recommendations:',
-                rec.recommendations.map(r => ({ mode: r.mode, label: r.label,
-                    fact: r.factSource })));
+            console.log('[workbench] Phase 14.0.1 recommendations:',
+                rec.recommendations.map(r => ({
+                    strength: r.mode === 'auto' ? 'indicated' : 'suggested',
+                    label: r.label, fact: r.factSource })));
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14

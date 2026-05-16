@@ -2068,13 +2068,33 @@
     const carriersPresent  = rungs.some(r =>
       (r.participants || []).some(p => p && p.carrier));
 
-    // Which primary coverages did the pipeline extract for this insured?
+    // Which primary coverages did the pipeline extract FOR THIS INSURED?
+    // FIX-PHASE-14.0.2-SUBJECTIVITY-CROSS-APPLICANT-GATE-2026-05-14
+    // Cross-applicant defense parity: a coverage extraction only counts
+    // toward a coverage.primary subjectivity if (a) it isn't a refusal
+    // diagnostic AND (b) its stated named insured matches this
+    // submission's account. Without (b) the recommender would fire a
+    // "produce the underlying GL/Auto policy" subjectivity off a quote
+    // that actually belongs to a DIFFERENT insured (the Anahuac /
+    // Carroll County contamination case) — every other phase already
+    // honors this gate; the subjectivity recommender now does too.
     const ex = (submission.snapshot && submission.snapshot.extractions)
             || submission.extractions || {};
+    const acct = submission.account_name || null;
     const has = (k) => {
       const rec = ex[k];
-      return !!(rec && typeof rec.text === 'string' && rec.text.trim()
-                && !/no matching .* found for this insured/i.test(rec.text));
+      if (!rec || typeof rec.text !== 'string' || !rec.text.trim()) return false;
+      if (/no matching .* found for this insured/i.test(rec.text)) return false;
+      // Cross-applicant gate — identical defense to Phases 6.1 / 4 / 7.
+      if (acct && acct !== '(unknown)'
+          && typeof extractNamedInsured === 'function'
+          && typeof applicantsMatch === 'function') {
+        const stated = extractNamedInsured(rec.text);
+        if (stated && applicantsMatch(stated, acct) === false) {
+          return false; // contaminated extraction — do NOT count it
+        }
+      }
+      return true;
     };
     const hasGL = has('gl_quote'), hasAL = has('al_quote'), hasEL = has('el_quote');
 
@@ -2173,8 +2193,8 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.0-subjectivity-intelligence',
-    fixTag: 'FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14'
+    version: 'phase14.0.2-subjectivity-cross-applicant-gate',
+    fixTag: 'FIX-PHASE-14.0.2-SUBJECTIVITY-CROSS-APPLICANT-GATE-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

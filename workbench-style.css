@@ -5335,20 +5335,20 @@ body {
     border-color: var(--accent-tint, rgba(255, 209, 0, 0.45)) !important;
 }
 
-/* FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14
-   Auto-applied subjectivities (deterministic consequence of a known
-   fact) get a subtle confirmed accent. Suggested ones (judgment — the
-   underwriter decides) get a distinct, attention-drawing chip and are
-   never auto-checked. */
-.subjectivity-entry.subjectivity-auto {
-  border-left: 3px solid var(--accent-positive, #2a8043);
-  padding-left: 9px;
-  background: rgba(42, 128, 67, 0.05);
-}
+/* FIX-PHASE-14.0.1-SUGGEST-ONLY-2026-05-14
+   The system never checks a subjectivity box — every one is the
+   underwriter's decision. Recommendations are surfaced as suggestions
+   only. Fact-implied ones get a stronger "INDICATED" cue so the
+   high-confidence ones stand out; judgment ones get "SUGGESTED". No
+   "applied/confirmed" styling exists because nothing is auto-applied. */
 .subjectivity-entry.subjectivity-suggested {
   border-left: 3px solid var(--accent, #ffd100);
   padding-left: 9px;
   background: rgba(255, 209, 0, 0.06);
+}
+.subjectivity-entry.subjectivity-suggested.subjectivity-strong {
+  border-left-color: var(--signal, #0e46a3);
+  background: rgba(14, 70, 163, 0.06);
 }
 .subjectivity-suggest-chip {
   display: inline-block;
@@ -5363,6 +5363,13 @@ body {
   padding: 2px 6px;
   vertical-align: middle;
 }
+.subjectivity-suggest-chip--strong {
+  color: #fff;
+  background: var(--signal, #0e46a3);
+}
 html[data-theme="dark"] .subjectivity-suggest-chip {
   color: #1a1400;
+}
+html[data-theme="dark"] .subjectivity-suggest-chip--strong {
+  color: #fff;
 }
