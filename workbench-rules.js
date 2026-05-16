@@ -2021,6 +2021,130 @@
     return out;
   }
 
+  // ─── Phase 14.0 — Subjectivity Intelligence ───
+  // FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14
+  //
+  // recommendSubjectivities(submission) reads the assembled tower + the
+  // extracted primary coverages and returns which of the workbench's
+  // standing subjectivities the deal's OWN facts call for. Each
+  // recommendation is classified:
+  //   • mode 'auto'    — mechanically implied by a fact the system is
+  //                      certain of (e.g. the tower literally contains a
+  //                      quota-share rung → "quota share partner
+  //                      policies" subjectivity). The same threshold
+  //                      philosophy as the tower solver: a deterministic
+  //                      consequence auto-applies (Option A parity).
+  //   • mode 'suggest' — judgment-based; surfaced with reasoning but the
+  //                      underwriter decides (the subjectivity analogue
+  //                      of a ???? — the system flags, you choose).
+  // Pure + deterministic + offline-provable. Zero API spend. Matched to
+  // the EXACT subjectivity label strings present in workbench.html so
+  // the applier can check the right boxes by text.
+  //
+  // Returns: { recommendations: [ { label, mode, reason, factSource } ],
+  //            anySuggest, towerBlocked }
+  //
+  // label values are matched (normalized, prefix-tolerant) against the
+  // checkbox label text in #form-subjectivities.
+  function recommendSubjectivities(submission) {
+    const out = { recommendations: [], anySuggest: false, towerBlocked: false };
+    if (!submission) return out;
+
+    // Build the resolved tower (re-uses the full 13.x pipeline; persisted
+    // relabels already applied). Subjectivities key off its facts.
+    let tower = null;
+    if (typeof buildTowerFromExcessModule === 'function') {
+      tower = buildTowerFromExcessModule(submission);
+      if (tower && tower.blocked) { out.towerBlocked = true; }
+    }
+    const rungs = (tower && !tower.blocked && Array.isArray(tower.rungs)) ? tower.rungs : [];
+
+    const hasQuotaShare   = rungs.some(r => r.shared === true);
+    const leadRung        = rungs.find(r => r.kind === 'lead');
+    const leadResolved    = !!leadRung && leadRung.status !== '????';
+    const excessRungs     = rungs.filter(r => r.kind !== 'lead');
+    const hasInterveningExcess = excessRungs.length > 0;
+    const anyUncertainRung = rungs.some(r => r.status === '????');
+    const carriersPresent  = rungs.some(r =>
+      (r.participants || []).some(p => p && p.carrier));
+
+    // Which primary coverages did the pipeline extract for this insured?
+    const ex = (submission.snapshot && submission.snapshot.extractions)
+            || submission.extractions || {};
+    const has = (k) => {
+      const rec = ex[k];
+      return !!(rec && typeof rec.text === 'string' && rec.text.trim()
+                && !/no matching .* found for this insured/i.test(rec.text));
+    };
+    const hasGL = has('gl_quote'), hasAL = has('al_quote'), hasEL = has('el_quote');
+
+    function add(label, mode, reason, factSource) {
+      out.recommendations.push({ label, mode, reason, factSource });
+      if (mode === 'suggest') out.anySuggest = true;
+    }
+
+    // ── Deterministic (auto) rules — each follows mechanically from a
+    //    fact the system is certain of. ──
+    if (hasQuotaShare) {
+      add('Complete copy of quota share partner policies within 60 days',
+          'auto',
+          'The assembled tower contains a quota-share / shared layer; the partner policies are required to confirm the combined-layer terms.',
+          'tower.shared_rung');
+    }
+    if (leadResolved) {
+      add('Complete copy of the lead policy within 60 days',
+          'auto',
+          'A lead policy was identified in the tower; the full lead policy is required to confirm scheduled underlying and follow-form terms.',
+          'tower.lead');
+    }
+    if (hasInterveningExcess) {
+      add('Complete copy of intervening layer policies within 60 days',
+          'auto',
+          'The tower has excess layer(s) between the lead and the quoted layer; intervening policies are required to confirm continuity.',
+          'tower.excess_rungs');
+    }
+    if (carriersPresent) {
+      add('All scheduled underlying carriers be rated by AM Best and have a rating of A- VII or better',
+          'auto',
+          'Underlying carriers are scheduled in the tower; the standard financial-strength condition applies.',
+          'tower.carriers');
+      add('Policy Numbers and exact names of each underlying issuing company, specified by line of business',
+          'auto',
+          'Underlying carriers present; exact issuing-company identification is a standing requirement to finalize the schedule of underlying.',
+          'tower.carriers');
+    }
+    if (hasGL || hasAL || hasEL) {
+      add('Complete copy of the GL policy and Declarations pages of Auto & EL with underlying limits within 60 days',
+          'auto',
+          'Primary ' + [hasGL && 'GL', hasAL && 'Auto', hasEL && 'EL'].filter(Boolean).join(' / ') +
+          ' coverage was extracted; the underlying policy/declarations are required to confirm limits.',
+          'coverage.primary');
+    }
+
+    // ── Judgment (suggest) rules — surfaced with reasoning; underwriter
+    //    decides. These are NOT auto-checked. ──
+    add('Acceptable review of currently valued loss history for a minimum of (5) years plus current year',
+        'suggest',
+        'Standard excess-casualty loss-history review; recommended on essentially all risks but left to underwriter judgment for this account.',
+        'standing.judgment');
+    add('Acceptable review of current financial statement prior to binding',
+        'suggest',
+        'Financial review is judgment-based — typically required on larger or construction risks; confirm whether this account warrants it.',
+        'standing.judgment');
+    add('Complete description of operations for all Named Insureds is required prior to binding coverage',
+        'suggest',
+        'Recommended when multiple or unclear named insureds are present; review the insured roster before requiring.',
+        'standing.judgment');
+    if (anyUncertainRung) {
+      add('Completed Supplementary Underwriting Questionnaire',
+          'suggest',
+          'The tower has unresolved (????) layer(s); a supplementary questionnaire can close the gaps the documents left open.',
+          'tower.uncertain');
+    }
+
+    return out;
+  }
+
   root.WorkbenchRules = {
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
@@ -2045,11 +2169,12 @@
     parseTowerDocuments,
     buildTowerFromExcessModule,
     buildTowerView,
+    recommendSubjectivities,
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase13.4-multipass-tower-solver',
-    fixTag: 'FIX-PHASE-13.4-MULTIPASS-SOLVER-2026-05-14'
+    version: 'phase14.0-subjectivity-intelligence',
+    fixTag: 'FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

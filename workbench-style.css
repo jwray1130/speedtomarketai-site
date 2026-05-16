@@ -5334,3 +5334,35 @@ body {
     box-shadow: 0 0 0 2px var(--accent-pale, rgba(255, 209, 0, 0.18)) !important;
     border-color: var(--accent-tint, rgba(255, 209, 0, 0.45)) !important;
 }
+
+/* FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14
+   Auto-applied subjectivities (deterministic consequence of a known
+   fact) get a subtle confirmed accent. Suggested ones (judgment — the
+   underwriter decides) get a distinct, attention-drawing chip and are
+   never auto-checked. */
+.subjectivity-entry.subjectivity-auto {
+  border-left: 3px solid var(--accent-positive, #2a8043);
+  padding-left: 9px;
+  background: rgba(42, 128, 67, 0.05);
+}
+.subjectivity-entry.subjectivity-suggested {
+  border-left: 3px solid var(--accent, #ffd100);
+  padding-left: 9px;
+  background: rgba(255, 209, 0, 0.06);
+}
+.subjectivity-suggest-chip {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7a5b00;
+  background: var(--accent, #ffd100);
+  border-radius: 4px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+html[data-theme="dark"] .subjectivity-suggest-chip {
+  color: #1a1400;
+}

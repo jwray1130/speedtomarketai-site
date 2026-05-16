@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.64-phase13.4-multipass-tower-solver-2026-05-14
+  v8.6.65-phase14.0-subjectivity-intelligence-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.64-phase13.4-multipass-tower-solver-2026-05-14';
+window.STM_BUILD = 'v8.6.65-phase14.0-subjectivity-intelligence-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -366,6 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     applyForeignALCoverageFromActiveSubmission(data);
                     // FIX-PHASE-12-EXCESS-TOWER-2026-05-14
                     applyExcessTowerFromActiveSubmission(data);
+                    // FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14
+                    applySubjectivityIntelligenceFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -1191,6 +1193,89 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('[workbench] Excess tower (legacy) apply:',
                 layers.length, 'layer(s) · lead', layer1Filled, 'fields ·',
                 clonesAdded, 'clones.');
+        }
+
+        // FIX-PHASE-14.0-SUBJECTIVITY-INTELLIGENCE-2026-05-14
+        // Reads recommendSubjectivities() and applies it to the
+        // #form-subjectivities panel:
+        //   • mode 'auto'    → check the box (deterministic consequence
+        //                      of a known fact — Option A parity with
+        //                      the tower's computed-but-confident fill).
+        //   • mode 'suggest' → DO NOT check; add a visible "suggested"
+        //                      hint + reason tooltip so the underwriter
+        //                      decides (subjectivity analogue of ????).
+        // Fully guarded: absent rules/panel → silent no-op, panel
+        // unchanged. Matches subjectivities by normalized label text.
+        function applySubjectivityIntelligenceFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.recommendSubjectivities !== 'function') return;
+
+            let rec;
+            try { rec = rules.recommendSubjectivities(submission); }
+            catch (e) {
+                console.warn('[workbench] Phase 14.0 subjectivity: skipped —', e && e.message);
+                return;
+            }
+            if (!rec || !Array.isArray(rec.recommendations) || !rec.recommendations.length) {
+                console.log('[workbench] Phase 14.0 subjectivity: no recommendations',
+                    rec && rec.towerBlocked ? '(tower blocked — correct, no contamination).' : '.');
+                return;
+            }
+
+            const panel = document.getElementById('form-subjectivities');
+            if (!panel) return;
+            const entries = Array.from(panel.querySelectorAll('.subjectivity-entry'));
+            const norm = (s) => String(s || '')
+                .replace(/&amp;/g, '&')
+                .toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+            let autoChecked = 0, suggested = 0, unmatched = 0;
+            for (const r of rec.recommendations) {
+                const want = norm(r.label);
+                const entry = entries.find(e => {
+                    const lbl = e.querySelector('.checkbox-label');
+                    if (!lbl) return false;
+                    const txt = norm(lbl.textContent);
+                    return txt === want || (want.length >= 12 && txt.indexOf(want) === 0)
+                        || (want.length >= 12 && want.indexOf(txt) === 0 && txt.length >= 12);
+                });
+                if (!entry) { unmatched++; continue; }
+                const cb = entry.querySelector('input[type="checkbox"]');
+                if (!cb) { unmatched++; continue; }
+
+                if (r.mode === 'auto') {
+                    if (!cb.checked) { cb.checked = true;
+                        cb.dispatchEvent(new Event('change', { bubbles: true })); }
+                    entry.classList.add('subjectivity-auto');
+                    entry.setAttribute('title',
+                        'Auto-applied by Speed to Market AI — ' + (r.reason || ''));
+                    autoChecked++;
+                } else { // 'suggest' — never auto-check
+                    entry.classList.add('subjectivity-suggested');
+                    entry.setAttribute('title',
+                        'Suggested (your call) — ' + (r.reason || ''));
+                    if (!entry.querySelector('.subjectivity-suggest-chip')) {
+                        const chip = document.createElement('span');
+                        chip.className = 'subjectivity-suggest-chip';
+                        chip.textContent = 'SUGGESTED';
+                        const lbl = entry.querySelector('.checkbox-label');
+                        if (lbl) lbl.appendChild(chip);
+                    }
+                    suggested++;
+                }
+            }
+
+            console.log(
+                '[workbench] Phase 14.0 subjectivity intelligence:',
+                autoChecked, 'auto-checked (deterministic) ·',
+                suggested, 'suggested (underwriter decides) ·',
+                unmatched, 'unmatched ·',
+                'anySuggest=' + rec.anySuggest +
+                (rec.towerBlocked ? ' · towerBlocked' : '')
+            );
+            console.log('[workbench] Phase 14.0 recommendations:',
+                rec.recommendations.map(r => ({ mode: r.mode, label: r.label,
+                    fact: r.factSource })));
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
