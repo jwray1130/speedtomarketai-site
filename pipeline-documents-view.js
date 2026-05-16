@@ -697,6 +697,30 @@ window.initDocumentsView = function() {
       }
     } else {
       empty.style.display = 'none';
+      // FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14
+      // Compute tower annotations once per render. Fully guarded: if the
+      // active submission snapshot, WorkbenchRules, or the excess module
+      // is absent this is a silent no-op and the File Manager renders
+      // exactly as before. Annotations map docId → {towerLabel, color,
+      // isUncertain}; applied per-row in buildDocItem.
+      state._towerAnnotations = {};
+      try {
+        const WR = window.WorkbenchRules;
+        const sub = window.workbenchActiveSubmission || null;
+        if (WR && typeof WR.buildTowerView === 'function' && sub) {
+          const inScope = (state.submissionFilter && state.submissionFilter !== 'all')
+            ? state.docs.filter(d => d.submissionId === state.submissionFilter)
+            : state.docs;
+          const view = WR.buildTowerView(sub, inScope);
+          if (view && view.docAnnotations) {
+            state._towerAnnotations = view.docAnnotations;
+            state._towerView = view;   // summary panel (13.3 UI) can read this
+          }
+        }
+      } catch (e) {
+        // Never let tower annotation break the doc list.
+        console.warn('[docs-view] tower annotation skipped:', e && e.message);
+      }
       docs.forEach(doc => list.appendChild(buildDocItem(doc)));
     }
 
@@ -718,7 +742,20 @@ window.initDocumentsView = function() {
     item.className = 'doc-item';
     item.dataset.docId = doc.id;
     if (state.selectedIds.has(doc.id)) item.classList.add('selected');
-    if (doc.color) { item.classList.add('has-color', 'tag-' + doc.color); }
+    // FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14
+    // In-tower docs are colored the Underlying color ('yellow') and,
+    // when their rung is unresolved, flagged for the user to relabel.
+    // The tower annotation OVERRIDES the doc's default color so a tower
+    // doc always groups visually with its tower. Guarded: absent
+    // annotation → original behavior unchanged.
+    const towerAnn = (state._towerAnnotations && state._towerAnnotations[doc.id]) || null;
+    const effColor = towerAnn ? towerAnn.color : doc.color;
+    if (effColor) { item.classList.add('has-color', 'tag-' + effColor); }
+    if (towerAnn) {
+      item.classList.add('is-tower-doc');
+      if (towerAnn.isUncertain) item.classList.add('is-tower-uncertain');
+      item.dataset.towerRungId = towerAnn.rungSourceId || '';
+    }
 
     const colorBar = document.createElement('div');
     colorBar.className = 'doc-color-bar';
@@ -738,13 +775,19 @@ window.initDocumentsView = function() {
     // chip text and avoid showing the chip on pages > 1 (best effort —
     // we don't know the section start without pipelineTag).
     const isFirstPageOfDoc = (doc.pageNumber || 1) === 1;
-    const showChip = !!doc.pipelineTag || (doc.pipelineClassification && isFirstPageOfDoc);
+    // FIX-PHASE-13.3: an in-tower doc always shows its tower chip, even
+    // if the classifier never assigned a pipelineTag.
+    const showChip = !!towerAnn || !!doc.pipelineTag || (doc.pipelineClassification && isFirstPageOfDoc);
     if (showChip) {
       const badge = document.createElement('div');
       badge.className = 'pipeline-badge';
       // Strip any "page N" suffix the classifier or filename might have
       // injected — chip text is the tag, never the page reference.
-      const rawText = doc.pipelineTag || 'AUTO';
+      // FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14: an in-tower
+      // doc's chip is its computed tower position (LEAD $5M / $5M xs $5M
+      // / ????), which supersedes the generic pipeline tag.
+      const rawText = (towerAnn && towerAnn.towerLabel) ? towerAnn.towerLabel
+                    : (doc.pipelineTag || 'AUTO');
       const chipText = String(rawText)
         .replace(/\s*[—–-]?\s*page\s+\d+\s*(of\s*\d+)?\s*$/i, '')
         .replace(/\s+page\s+\d+\b/gi, '')

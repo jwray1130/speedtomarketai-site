@@ -1252,6 +1252,7 @@ STRUCTURED TOWER DATA — emit this EXACT JSON block last, after the human-reada
     {
       "id": "layer-1",
       "name": "Lead Umbrella — [carrier]",
+      "sourceDocName": "[the exact source file name this layer was read from, as it appears in the input documents — used to label that file in the File Manager]",
       "carrier": "[carrier name]",
       "decLimit": 5000000,
       "statedAttachment": 0,

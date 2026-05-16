@@ -3260,3 +3260,24 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 #docs-view-root .docs-list[data-view="list"] .doc-thumb.doc-thumb-media {
   padding: 0;
 }
+
+/* FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14
+   In-tower documents are colored the Underlying color (yellow) via the
+   existing .has-color.tag-yellow path. An unresolved rung (????) is
+   additionally highlighted so the user immediately sees it needs a
+   relabel — pulsing amber ring, distinct from the steady tower color. */
+#docs-view-root .doc-item.is-tower-uncertain {
+  box-shadow: 0 0 0 2px var(--tag-yellow, #EAB308),
+              0 0 0 5px rgba(var(--tag-yellow-rgb, 234, 179, 8), 0.28);
+  animation: stmTowerUncertainPulse 2.4s ease-in-out infinite;
+}
+@keyframes stmTowerUncertainPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--tag-yellow, #EAB308),
+                          0 0 0 5px rgba(var(--tag-yellow-rgb, 234, 179, 8), 0.28); }
+  50%      { box-shadow: 0 0 0 2px var(--tag-yellow, #EAB308),
+                          0 0 0 8px rgba(var(--tag-yellow-rgb, 234, 179, 8), 0.12); }
+}
+#docs-view-root .doc-item.is-tower-doc .pipeline-badge {
+  background: rgba(var(--tag-yellow-rgb, 234, 179, 8), 0.16);
+  border-color: var(--tag-yellow, #EAB308);
+}

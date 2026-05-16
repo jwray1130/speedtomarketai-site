@@ -1640,6 +1640,7 @@
     const docs = list.map((d, i) => ({
       id:                  (d.id != null ? String(d.id) : ('tower-doc-' + i)),
       name:                (d.name != null ? String(d.name) : ('Layer ' + (i + 1))),
+      sourceDocName:       d.sourceDocName != null ? String(d.sourceDocName) : null,
       carrier:             d.carrier != null ? String(d.carrier) : null,
       decLimit:            d.decLimit,
       statedAttachment:    d.statedAttachment,
@@ -1673,6 +1674,108 @@
     return Object.assign({ blocked: false, reason: 'assembled', docs: pt.docs }, tower);
   }
 
+  // ─── Phase 13.3 — File Manager tower view ───
+  // FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14
+  //
+  // buildTowerView produces everything the File Manager needs to label
+  // and color in-tower documents WITHOUT the File Manager knowing any
+  // tower math. It:
+  //   1. assembles the tower (with persisted relabels) from the excess
+  //      module via buildTowerFromExcessModule
+  //   2. best-effort matches each uploaded document to a rung by
+  //      sourceDocName ↔ file name (normalized, fuzzy-contains both ways)
+  //   3. returns per-doc annotations { docId, towerLabel, color,
+  //      isUncertain, rungSourceId } AND the full ordered tower so the
+  //      File Manager can also render a tower summary panel.
+  //
+  // Color rule (locked with Justin): in-tower docs use the Underlying
+  // color. The File Manager's tag-color system maps 'yellow' →
+  // 'Underlying' (see pipeline-documents-view tagColorLabels). So every
+  // in-tower doc — lead, excess, OR ???? — is colored 'yellow'. ????
+  // docs additionally carry isUncertain:true so the UI highlights them
+  // for the user to relabel. Nothing in the tower is left uncolored;
+  // an unresolved rung is still visually grouped with its tower.
+  //
+  // Unmatched rungs (no uploaded file confidently matched) are NOT
+  // dropped — they appear in the returned tower[] with matchedDocId:null
+  // so the summary panel can still show them as ???? for relabeling.
+  const TOWER_UNDERLYING_COLOR = 'yellow';
+
+  function _normName(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/\.[a-z0-9]+$/i, '')          // drop extension
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  function _nameMatch(a, b) {
+    const na = _normName(a), nb = _normName(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    // fuzzy contains both directions, min length guard avoids junk hits
+    const shorter = na.length <= nb.length ? na : nb;
+    const longer  = na.length <= nb.length ? nb : na;
+    return shorter.length >= 5 && longer.includes(shorter);
+  }
+
+  function buildTowerView(submission, uploadedDocs) {
+    const built = buildTowerFromExcessModule(submission);
+    const out = {
+      blocked: !!built.blocked,
+      reason: built.reason,
+      statedInsured: built.statedInsured || null,
+      anyUncertain: !!built.anyUncertain,
+      totalTowerLimit: built.totalTowerLimit || 0,
+      tower: [],          // ordered rungs, each annotated for the summary panel
+      docAnnotations: {}  // docId -> { towerLabel, color, isUncertain, rungSourceId }
+    };
+    if (built.blocked || !built.rungs || built.rungs.length === 0) {
+      return out;
+    }
+    const docs = Array.isArray(uploadedDocs) ? uploadedDocs : [];
+    // Map rung.sources[0] (the tower-doc id) → its sourceDocName via the
+    // parsed docs list (built.docs carries sourceDocName from 13.2/13.3).
+    const srcNameById = {};
+    (built.docs || []).forEach(d => { srcNameById[d.id] = d.sourceDocName || d.name || null; });
+
+    built.rungs.forEach((r, idx) => {
+      const rungSourceId = (r.sources && r.sources[0]) || ('rung-' + idx);
+      const isUncertain = r.status === '????';
+      // Find the uploaded doc whose name matches this rung's source name.
+      const srcName = srcNameById[rungSourceId];
+      let matchedDocId = null;
+      if (srcName) {
+        const hit = docs.find(dc => _nameMatch(srcName, dc.name || dc.fileName || dc.filename));
+        if (hit) matchedDocId = hit.id;
+      }
+      const towerLabel = r.label || (isUncertain ? '????' : '');
+      out.tower.push({
+        order: idx,
+        kind: r.kind,
+        label: towerLabel,
+        status: r.status,
+        uncertaintyReason: r.uncertaintyReason || null,
+        shared: !!r.shared,
+        participants: r.participants || [],
+        limit: r.limit,
+        attachment: r.attachment,
+        rungSourceId: rungSourceId,
+        matchedDocId: matchedDocId,
+        sourceDocName: srcName || null
+      });
+      if (matchedDocId) {
+        out.docAnnotations[matchedDocId] = {
+          towerLabel: towerLabel,
+          color: TOWER_UNDERLYING_COLOR,   // 'yellow' = Underlying
+          isUncertain: isUncertain,
+          rungSourceId: rungSourceId
+        };
+      }
+    });
+    return out;
+  }
+
   root.WorkbenchRules = {
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
@@ -1696,10 +1799,12 @@
     getTowerRelabels,
     parseTowerDocuments,
     buildTowerFromExcessModule,
+    buildTowerView,
+    TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase13.2-excess-structured-tower',
-    fixTag: 'FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14'
+    version: 'phase13.3-filemanager-tower-labels',
+    fixTag: 'FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
