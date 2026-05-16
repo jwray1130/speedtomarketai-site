@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.54.1-phase7.1-acord-verbatim-insured-fallback-2026-05-14
+  v8.6.55-phase8-employers-liability-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.54.1-phase7.1-acord-verbatim-insured-fallback-2026-05-14';
+window.STM_BUILD = 'v8.6.55-phase8-employers-liability-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -350,6 +350,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     // resolver's sentinel/structural filters reject —
                     // AL fields stay empty rather than wrong.
                     applyALCoverageFromActiveSubmission(data);
+                    // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+                    // EL after AL. Source priority el_quote → gl_quote
+                    // (Option B). Clones+enables the EL panel only if EL
+                    // data actually resolved; otherwise EL doesn't appear.
+                    applyELCoverageFromActiveSubmission(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                 }
@@ -559,9 +564,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!anyResolved) {
                 console.log(
                     '[workbench] Phase 4 GL coverage apply: 0 fields resolved.',
-                    'Likely cause: gl_quote module gated by cross-applicant',
-                    'defense (Phase 3.5), or pattern misses across all 8 fields.',
-                    '#details-gl panel left empty.'
+                    'Blocked by one of three defense layers:',
+                    '(1) Phase 6.1 pipeline two-pass applicant gate,',
+                    '(2) Phase 3.5 workbench cross-applicant defense,',
+                    'or (3) sentinel/structural-validity pattern misses',
+                    'across all 8 fields. #details-gl panel left empty.'
                 );
                 return;
             }
@@ -633,9 +640,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!anyResolved) {
                 console.log(
                     '[workbench] Phase 7 AL coverage apply: 0 fields resolved.',
-                    'Likely cause: al_quote module gated by Phase 6.1',
-                    'two-pass applicant gate, or pattern misses across all',
-                    '5 fields. #details-al panel left empty.'
+                    'Blocked by one of three defense layers:',
+                    '(1) Phase 6.1 pipeline two-pass applicant gate,',
+                    '(2) Phase 3.5 workbench cross-applicant defense,',
+                    'or (3) sentinel/structural-validity pattern misses',
+                    'across all 5 fields. #details-al panel left empty.'
                 );
                 return;
             }
@@ -652,6 +661,109 @@ document.addEventListener('DOMContentLoaded', () => {
                 'panel checkbox auto-checked'
             );
             console.log('[workbench] Phase 7 AL filled:', resolvedSummary);
+        }
+
+        // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+        // Apply resolved Employers Liability coverage to the EL panel.
+        //
+        // KEY DIFFERENCE vs GL/AL: #details-el is NOT a default-rendered
+        // panel. It exists only as a clonable template
+        // (data-template-key="el") in .limit-templates. So the applier
+        // must clone+enable the panel via addCoverageEntry('el', ...),
+        // which produces a panel with a DYNAMIC unique id
+        // (details-el-{ts}-{seq}) — we then fill that specific clone.
+        //
+        // Source priority (Option B): el_quote first (standalone WC/EL
+        // quote doc), gl_quote fallback (EL line inside a GL package
+        // quote). Handled by SOURCE_AUTHORITY; this applier is source-
+        // agnostic — it just resolves the 7 fields and fills.
+        //
+        // If zero fields resolve (no EL data, or cross-applicant gate
+        // blocked the source module) we do NOT clone an empty EL panel —
+        // EL simply doesn't appear, which is the correct UI outcome.
+        function applyELCoverageFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+
+            // Order MUST match the visible column order of the EL panel:
+            // carrier, eff, exp, BI-by-accident, BI-by-disease,
+            // disease-policy-limit, premium.
+            const fieldOrder = [
+                'el_carrier',
+                'el_effective_date',
+                'el_expiration_date',
+                'el_bi_accident',
+                'el_bi_disease',
+                'el_disease_policy_limit',
+                'el_premium'
+            ];
+
+            const resolvedSummary = [];
+            const valuesByPosition = [];
+            let anyResolved = false;
+
+            for (const field of fieldOrder) {
+                const r = rules.resolveField(field, submission);
+                if (r && r.value != null && r.value !== '') {
+                    valuesByPosition.push(r.value);
+                    resolvedSummary.push({
+                        field: field,
+                        value: String(r.value).slice(0, 40),
+                        source: r.source,
+                        tier: r.tier,
+                        confidence: Number(r.confidence || 0).toFixed(3)
+                    });
+                    anyResolved = true;
+                } else {
+                    valuesByPosition.push(null);
+                }
+            }
+
+            if (!anyResolved) {
+                console.log(
+                    '[workbench] Phase 8 EL coverage apply: 0 fields resolved.',
+                    'No standalone EL quote and no EL line in the GL package',
+                    'quote, or blocked by one of three defense layers:',
+                    '(1) Phase 6.1 pipeline gate, (2) Phase 3.5 workbench',
+                    'cross-applicant defense, (3) sentinel/structural misses.',
+                    'EL panel not added (correct — no empty clone).'
+                );
+                return;
+            }
+
+            // Clone + enable the EL panel. addCoverageEntry returns the
+            // freshly-cloned entry (Phase 8 made it return newEntry).
+            const primaryList = document.getElementById('primary-limits-list');
+            if (!primaryList || typeof addCoverageEntry !== 'function') {
+                console.warn('[workbench] Phase 8 EL: primary-limits-list or',
+                    'addCoverageEntry unavailable — cannot add EL panel.');
+                return;
+            }
+            const elEntry = addCoverageEntry('el', primaryList);
+            if (!elEntry) {
+                console.warn('[workbench] Phase 8 EL: clone failed.');
+                return;
+            }
+            // The cloned panel has a dynamic id; target it by element,
+            // not by a static selector.
+            const elPanel = elEntry.querySelector('.limit-details-panel');
+            if (!elPanel || !elPanel.id) {
+                console.warn('[workbench] Phase 8 EL: cloned panel missing id.');
+                return;
+            }
+            const fillResult = fillCoveragePanelByPosition('#' + elPanel.id, valuesByPosition);
+
+            // Check the cloned entry's checkbox so EL is marked active.
+            const elCheck = elEntry.querySelector('input[type="checkbox"][data-target]');
+            if (elCheck && !elCheck.checked) elCheck.click();
+
+            console.log(
+                '[workbench] Phase 8 EL coverage apply:',
+                fillResult.filled, 'positions filled ·',
+                fillResult.missed, 'positions skipped ·',
+                'EL panel cloned, enabled, checkbox auto-checked'
+            );
+            console.log('[workbench] Phase 8 EL filled:', resolvedSummary);
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
@@ -1627,6 +1739,11 @@ document.addEventListener('DOMContentLoaded', () => {
             initLimitDateInputs(newEntry);
             recordHistory('Coverage added', getCoverageName(newEntry));
             recalcMEP();
+            // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14: return the clone
+            // so programmatic callers (applyELCoverageFromActiveSubmission)
+            // can fill it. Existing dropdown callers ignore the return —
+            // non-breaking.
+            return newEntry;
         }
 
         function setupAddCoverageDropdowns() {

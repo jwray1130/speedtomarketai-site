@@ -61,7 +61,10 @@
     'gl_expiration_date',
     // FIX-PHASE-7-AL-PRIMARY-COVERAGE-2026-05-14
     'al_effective_date',
-    'al_expiration_date'
+    'al_expiration_date',
+    // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+    'el_effective_date',
+    'el_expiration_date'
   ]);
 
   // Accepts: ISO YYYY-MM-DD, ISO datetime with time portion,
@@ -262,6 +265,48 @@
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Auto\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Annual\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.75 }
+    ],
+
+    // ─── Phase 8 — Employers Liability labels ───
+    // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+    // Two source shapes: el_quote uses bare labels ("Carrier:", "Bodily
+    // Injury by Accident:"); gl_quote uses "EL "-prefixed labels ("EL
+    // Carrier:", "EL Bodily Injury by Accident:") so they don't collide
+    // with the GL coverage fields in the same extraction. Patterns cover
+    // both. el_quote is tried first per SOURCE_AUTHORITY, so its bare
+    // labels win when a standalone WC/EL doc exists.
+    el_carrier: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Carrier\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.90 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insurer\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 }
+    ],
+    el_effective_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
+    el_expiration_date: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*[\d\/\-\.]+\s*(?:[-–—]|to\b|thru\b|through\b)\s*([\d\/\-\.]+)/im, conf: 0.85 }
+    ],
+    el_bi_accident: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Bodily\s+Injury\s+by\s+Accident\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Bodily\s+Injury\s+by\s+Accident\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:E\.?L\.?\s+)?Each\s+Accident\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    el_bi_disease: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Bodily\s+Injury\s+by\s+Disease\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Bodily\s+Injury\s+by\s+Disease\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Disease\s*[-–—]\s*Each\s+Employee\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    el_disease_policy_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Disease\s*[-–—]\s*Policy\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Disease\s*[-–—]\s*Policy\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Disease\s+Policy\s+Limit\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 }
+    ],
+    el_premium: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*EL\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Total\s+Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Premium\**\s*:\s*\**\s*\$?\s*([\d,]+(?:\.\d+)?)/im, conf: 0.70 }
     ]
   };
 
@@ -426,35 +471,51 @@
       }
     }
     // FIX-PHASE-7.1-ACORD-VERBATIM-INSURED-FALLBACK-2026-05-14
-    // CRITICAL: not every coverage module's prompt emits a labeled
-    // "Named Insured:" field. gl_quote does; al_quote / excess / losses
-    // historically do NOT. When the labeled patterns above all miss, the
-    // insured still appears in the verbatim ACORD text as a company name
-    // immediately followed by a street address, e.g.:
-    //   "CARROLL COUNTY COOP, INC   505 E. Stuart Dr.   Hillsville VA 24343"
+    // (Phase 8 hardening: the v7.1 pattern only matched company-name and
+    // street-address ON THE SAME LINE — overfit to Carroll County's
+    // specific ACORD layout. Real ACORDs also place the name on line 1
+    // and the address on line 2, use Title-Case not ALL-CAPS, and have
+    // DBA lines. We now try three layouts in priority order.)
     //
-    // Carriers do NOT appear with the insured's mailing address in this
-    // position (carriers appear as a labeled "Carrier:" field with no
-    // trailing street address), so this pattern reliably isolates the
-    // insured. We additionally skip any candidate that looks like an
-    // insurance carrier (Insurance/Casualty/Indemnity/Underwriters/etc.)
-    // as a second-line defense against false positives.
-    //
-    // Without this fallback, the Phase 3.5 cross-applicant defense
-    // silently lets contaminated al_quote/excess/losses extractions
-    // through (confirmed leak: Carroll County AL data surfaced on the
-    // Anahuac AL panel in Phase 7 testing).
-    const addrRe = /([A-Z][A-Za-z0-9&.,'\- ]{2,60}?(?:,?\s*(?:INC|LLC|CORP|CORPORATION|CO|COMPANY|COOP|COOPERATIVE|LP|LLP|LTD))\b\.?)\s+\d{1,6}\s+[A-Z][A-Za-z0-9.\- ]/g;
-    let m2;
-    while ((m2 = addrRe.exec(text)) !== null) {
-      const candidate = m2[1].trim().replace(/\s+/g, ' ');
-      // Skip insurance-carrier-looking names — they're not the insured
-      if (/\b(insurance|casualty|indemnity|underwriters?|assurance|surplus\s+lines?|reinsurance|mutual|specialty\s+insurance|E&S)\b/i.test(candidate)) {
-        continue;
+    // When labeled patterns all miss, the insured still appears in the
+    // verbatim ACORD text. Carriers do NOT appear with the insured's
+    // mailing address, and we additionally skip carrier-looking names.
+    const carrierLike = /\b(insurance|casualty|indemnity|underwriters?|assurance|surplus\s+lines?|reinsurance|mutual|specialty\s+insurance|E&S)\b/i;
+    const suffixGroup = '(?:INC|LLC|L\\.L\\.C|CORP|CORPORATION|CO|COMPANY|COOP|CO-OP|COOPERATIVE|LP|LLP|LTD|PLLC|PC|PA)';
+
+    // Layout 1: company name + street address on the SAME line
+    //   "CARROLL COUNTY COOP, INC   505 E. Stuart Dr.   Hillsville VA"
+    const sameLineRe = new RegExp(
+      '([A-Z][A-Za-z0-9&.,\'\\- ]{2,60}?(?:,?\\s*' + suffixGroup + ')\\b\\.?)\\s+\\d{1,6}\\s+[A-Z][A-Za-z0-9.\\- ]',
+      'g'
+    );
+    // Layout 2: company name on its own line, address on the NEXT line
+    //   "Carroll County Coop, Inc.\n505 E. Stuart Dr., Hillsville VA 24343"
+    const twoLineRe = new RegExp(
+      '(?:^|\\n)\\s*([A-Z][A-Za-z0-9&.,\'\\- ]{2,60}?(?:,?\\s*' + suffixGroup + ')\\b\\.?)\\s*\\n\\s*\\d{1,6}\\s+[A-Za-z]',
+      'gi'
+    );
+    // Layout 3: DBA — "ABC Holdings LLC dba Carroll County Coop" → take
+    // the dba operating name (what appears on the policy as the insured)
+    const dbaRe = /\bd\/?b\/?a\.?\s+([A-Z][A-Za-z0-9&.,'\- ]{2,60}?)(?:\n|,|$)/i;
+
+    const tryPattern = (re) => {
+      let m;
+      // reset lastIndex for global regexes reused across calls
+      re.lastIndex = 0;
+      while ((m = re.exec(text)) !== null) {
+        const candidate = (m[1] || '').trim().replace(/\s+/g, ' ').replace(/[,]+$/, '').trim();
+        if (!candidate) { if (!re.global) break; else continue; }
+        if (carrierLike.test(candidate)) { if (!re.global) break; else continue; }
+        return candidate;
       }
-      return candidate;
-    }
-    return null;
+      return null;
+    };
+
+    return tryPattern(sameLineRe)
+        || tryPattern(twoLineRe)
+        || tryPattern(dbaRe)
+        || null;
   }
 
   function normalizeCompanyName(name) {
@@ -618,7 +679,25 @@
     al_effective_date:          ['al_quote:json', 'al_quote'],
     al_expiration_date:         ['al_quote:json', 'al_quote'],
     al_combined_single_limit:   ['al_quote:json', 'al_quote'],
-    al_premium:                 ['al_quote:json', 'al_quote']
+    al_premium:                 ['al_quote:json', 'al_quote'],
+
+    // ─── Phase 8 — Employers Liability Coverage ───
+    // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+    // OPTION B source priority: a dedicated standalone WC/EL quote
+    // (el_quote) is the authoritative source; when EL appears only as a
+    // coverage line inside a GL package quote, gl_quote also emits the
+    // EL fields and serves as the fallback. Resolver tries el_quote
+    // first, gl_quote second. The #details-el panel is 7 fields:
+    // carrier, eff, exp, BI-by-accident, BI-by-disease, disease-policy
+    // -limit, premium. (#details-el-clone is a CLONABLE template, not a
+    // default-rendered panel — workbench applier clones+enables it.)
+    el_carrier:                 ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_effective_date:          ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_expiration_date:         ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_bi_accident:             ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_bi_disease:              ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_disease_policy_limit:    ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote'],
+    el_premium:                 ['el_quote:json', 'el_quote', 'gl_quote:json', 'gl_quote']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -865,7 +944,7 @@
     normalizeCompanyName,
     applicantsMatch,
     formatIso,
-    version: 'phase7.1-acord-verbatim-insured-fallback',
+    version: 'phase8-employers-liability',
     fixTag: 'FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14'
   };
 

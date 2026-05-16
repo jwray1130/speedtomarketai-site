@@ -865,6 +865,13 @@ This is a hard refusal contract. Do NOT extract from non-matching documents even
 **Classifications:**
 - Code [XXXXX] - [Description] - [Basis/%]
 
+**Employers Liability (if this GL package quote includes a WC/EL coverage part — otherwise omit this whole section):**
+- EL Carrier: [name if different from GL carrier, else "same"]
+- EL Bodily Injury by Accident: [$ each accident]
+- EL Bodily Injury by Disease: [$ each employee]
+- EL Disease - Policy Limit: [$ policy limit]
+- EL Premium: [$]
+
 **Key Endorsements Affecting Excess:**
 - [Form] - [Description] - [Excess impact: narrows/aligns/concerning/positive]
 
@@ -913,6 +920,55 @@ Do NOT extract from non-matching documents even if they are the only documents a
 
 **Key Endorsements:**
 - [Form] - [Description]
+
+QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+
+  // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
+  // el_quote handles STANDALONE Workers Comp / Employers Liability quote
+  // documents. (When EL appears only as a coverage line inside a GL
+  // package quote, gl_quote also emits the EL fields — see gl_quote
+  // template — and the resolver checks el_quote first, gl_quote as
+  // fallback. This is "Option B": robust to how E&S casualty packets
+  // actually arrive.)
+  //
+  // PROCESS IMPROVEMENT (locked Phase 8): every new coverage module's
+  // prompt emits "Named Insured: [name]" from day one — no asymmetry
+  // like the al_quote gap that caused the Phase 7 cross-applicant leak.
+  el_quote: `ROLE: Excess casualty underwriter extracting Employers Liability data from a Workers Compensation / Employers Liability quote or policy. Strict. Silent = "No information provided."
+
+APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
+This submission's named insured: "\${account_name}".
+
+Before extracting ANY coverage data, perform these steps IN ORDER:
+1. Identify every named insured stated in the input documents.
+2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
+3. Extract data ONLY from documents whose stated insured matches.
+4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+   **No matching Employers Liability quote found for this insured.**
+   — nothing else. No template, no QC, no caveats. Refusal is the correct answer here.
+5. If "\${account_name}" is "(unknown)", proceed normally.
+
+Do NOT extract from non-matching documents even if they are the only documents available.
+
+**Employers Liability Summary**
+
+**Carrier & Administrative:**
+- Carrier: [name]
+- AM Best: [rating]
+- Form: [WC policy form / state]
+- Period: [dates]
+- Named Insured: [name]
+- Premium: [$]
+
+**Employers Liability Limits:**
+- Bodily Injury by Accident: [$ each accident]
+- Bodily Injury by Disease: [$ each employee]
+- Disease - Policy Limit: [$ policy limit]
+
+**Workers Compensation Context (if present):**
+- States covered: [list]
+- Class codes: [codes + descriptions]
+- Experience mod: [mod factor]
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
