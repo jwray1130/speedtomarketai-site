@@ -1225,9 +1225,11 @@
         idx,
         id: d.id || ('doc-' + idx),
         name: d.name || ('doc-' + idx),
+        sourceDocName: d.sourceDocName || null,
         carrier: d.carrier || null,
         decLimit: _num(ov.limit != null ? ov.limit : d.decLimit),
         statedAttachment: _num(ov.attachment != null ? ov.attachment : d.statedAttachment),
+        _attFromUser: (ov.attachment != null),   // provenance: user relabel
         schedulesPrimary: !!d.schedulesPrimary,
         sharedGroupKey: d.sharedGroupKey || null,
         sharedCombinedLimit: _num(d.sharedCombinedLimit),
@@ -1266,7 +1268,8 @@
         shared: false,
         status: 'ok',
         sources: [it.id],
-        _statedAttachment: it.statedAttachment
+        _statedAttachment: it.statedAttachment,
+        _userRelabelAttachment: !!it._attFromUser
       });
     }
     for (const [key, parts] of groups.entries()) {
@@ -1281,89 +1284,311 @@
         kind: anyLead ? 'lead' : 'excess',
         limit: combined,                       // FULL combined — counted once
         attachment: anyLead ? 0 : (att == null ? null : att),
-        participants: parts.map(p => ({ carrier: p.carrier, participation: p.decLimit })),
+        // FIX-PHASE-13.4: every participant carries its own carrier +
+        // sourceDocName so the File Manager can label ALL participant
+        // docs in a shared rung (extension-flagged QS gap, 13.3).
+        participants: parts.map(p => ({
+          carrier: p.carrier,
+          participation: p.decLimit,
+          sourceDocName: p.sourceDocName || null,
+          sourceId: p.id
+        })),
         shared: true,
         sharedGroupKey: key,
         status: 'ok',
         sources: parts.map(p => p.id),
-        _statedAttachment: att
+        _statedAttachment: att,
+        _userRelabelAttachment: parts.some(p => p._attFromUser)
       });
     }
 
-    // 4. Order: lead(s) first (attachment 0), then by attachment ascending.
-    //    Unknown attachment sinks to the end and will be flagged.
-    rungs.sort((a, b) => {
-      const aa = a.attachment == null ? Infinity : a.attachment;
-      const bb = b.attachment == null ? Infinity : b.attachment;
-      if (a.kind === 'lead' && b.kind !== 'lead') return -1;
-      if (b.kind === 'lead' && a.kind !== 'lead') return 1;
-      return aa - bb;
-    });
+    // ── Phase 13.4 — MULTI-PASS TOWER SOLVER ──
+    // FIX-PHASE-13.4-MULTIPASS-SOLVER-2026-05-14
+    //
+    // Replaces the old single bottom-up walk-up. The old logic let one
+    // unresolved rung poison every rung above it, and flagged any
+    // computed (not document-stated) attachment as ????. Per Justin's
+    // spec, the solver instead:
+    //   • NEVER blocks — best-effort places everything determinable.
+    //   • A ???? is an ISLAND: it does not poison rungs above it.
+    //   • Resolves rungs from BELOW (running sum) AND from ABOVE
+    //     (backfill: if rung N+1's attachment is known and the rungs
+    //     between are known, rung N's position falls out by subtraction).
+    //   • Iterates passes until the tower stops changing — a fix or a
+    //     newly-read rung can cascade and unlock others.
+    //   • computed-but-confident → status 'ok' and FILLS (Option A); only
+    //     genuinely undeterminable rungs stay '????'.
+    //   • CONFLICT GUARDRAIL: if below-says ≠ above-says for the same
+    //     rung, it stays '????' reason 'conflict' — backfill resolves
+    //     MISSING info, never silently chooses between CONTRADICTORY docs.
+    //   • PROVENANCE: every placed rung records how its attachment was
+    //     determined — 'stated' | 'computed_below' | 'computed_above' |
+    //     'user_relabel' | 'lead_base' — so the later train/gap-find loop
+    //     can see exactly why each layer landed where it did.
 
-    // 5. Continuity walk-up. Each rung's attachment must equal the
-    //    running sum of full limits beneath it (shared counted once).
-    //    Mismatch / missing → status '????'.
-    let cursor = 0;          // expected attachment of the next rung
-    let anyUncertain = false;
+    // Lead handling first — anchors the base.
     let leadCount = 0;
-    for (let i = 0; i < rungs.length; i++) {
-      const r = rungs[i];
+    rungs.forEach(r => {
       if (r.kind === 'lead') {
         leadCount++;
         r.attachment = 0;
-        if (r.limit == null || r.limit <= 0) { r.status = '????'; anyUncertain = true; }
-        cursor = (r.limit || 0);
+        r._attSource = 'lead_base';
+        if (r._statedAttachment != null && _num(r._statedAttachment) !== 0) {
+          // doc said non-zero but we classified lead → still base, note it
+          r._attSource = 'lead_base';
+        }
+      }
+    });
+
+    // Sort: leads first, then by best-known attachment, unknowns last.
+    rungs.sort((a, b) => {
+      if (a.kind === 'lead' && b.kind !== 'lead') return -1;
+      if (b.kind === 'lead' && a.kind !== 'lead') return 1;
+      const aa = a.attachment == null ? Infinity : a.attachment;
+      const bb = b.attachment == null ? Infinity : b.attachment;
+      return aa - bb;
+    });
+
+    // ── Phase 13.4 — SEQUENCE TOWER SOLVER ──
+    // A tower is a SEQUENCE: the lead sits at 0, and each excess rung
+    // sits exactly on the top of the one below it (contiguous, no gaps
+    // in a valid tower). We solve it as a sequence walk, not generic
+    // graph neighbor-finding:
+    //   • cursor starts at the lead's top (= lead.limit).
+    //   • STATED attachment is an anchor. A rung whose stated attachment
+    //     == cursor confirms (provenance 'stated'); cursor advances.
+    //   • A rung with NO stated attachment but a known limit, sitting at
+    //     the frontier, takes attachment = cursor (provenance
+    //     'computed_below'); cursor advances by its limit.
+    //   • BACKFILL: a still-unresolved limit-bearing rung whose top must
+    //     equal a known anchor above (next stated/user/resolved rung)
+    //     gets attachment = thatAnchor - limit (provenance
+    //     'computed_above').
+    //   • CONFLICT GUARDRAIL: if from-below and from-above both apply
+    //     and disagree → '????' reason 'conflict', records both; never
+    //     silently chooses.
+    //   • ISLAND: a rung with NO limit is undeterminable; it BREAKS the
+    //     cursor chain. Rungs above an island keep their OWN stated
+    //     attachment (status ok — they stand alone) but cannot be
+    //     computed_below across the break.
+    //   • A stated rung is authoritative for its own position and is
+    //     only flagged gap/overlap when the contiguous chain genuinely
+    //     reaches a contradicting value adjacent to it.
+    const EPS = 0.5;
+
+    const lead = rungs.find(r => r.kind === 'lead');
+    const leadTop = (lead && lead.limit != null && lead.limit > 0) ? lead.limit : null;
+    if (lead) { lead.attachment = 0; lead._resolved = true; lead._attSource = 'lead_base'; }
+
+    // Seed stated / user rungs.
+    rungs.forEach(r => {
+      if (r.kind === 'lead') return;
+      if (r._userRelabelAttachment === true && r._statedAttachment != null) {
+        r.attachment = _num(r._statedAttachment);
+        r._attSource = 'user_relabel'; r._resolved = true;
+      } else if (r._statedAttachment != null) {
+        r.attachment = _num(r._statedAttachment);
+        r._attSource = 'stated'; r._resolved = true;
+      } else {
+        r.attachment = null; r._resolved = false;
+      }
+    });
+
+    const excess = rungs.filter(r => r.kind !== 'lead');
+
+    // Helper: nearest known anchor attachment strictly above a level,
+    // among rungs that have an attachment (stated/user/resolved).
+    function anchorAbove(level) {
+      let best = null;
+      for (const o of excess) {
+        const a = (o._statedAttachment != null) ? _num(o._statedAttachment)
+                : (o._resolved ? o.attachment : null);
+        if (a == null) continue;
+        if (a <= level + EPS) continue;
+        if (best == null || a < best) best = a;
+      }
+      return best;
+    }
+
+    // ITERATE: walk the cursor up from the lead, resolving the frontier
+    // rung each pass; repeat until the tower stops changing (so a
+    // backfill or a user fix can cascade).
+    let progressed = true, guard = 0;
+    while (progressed && guard < excess.length + 6) {
+      progressed = false; guard++;
+      if (leadTop == null) break;
+
+      // Build the contiguous cursor chain from the lead.
+      let cursor = leadTop;
+      let chainBroken = false;
+      // Working order: a rung's sort key is its stated/resolved
+      // attachment if known, else the live cursor (so an unplaced
+      // limit-only rung is tried AT the frontier, before any higher
+      // stated anchor). Ties broken by stable source id.
+      const ordered = excess.slice().sort((a, b) => {
+        const ak = (a._resolved && a.attachment != null) ? a.attachment
+                 : (a._statedAttachment != null ? _num(a._statedAttachment) : cursor);
+        const bk = (b._resolved && b.attachment != null) ? b.attachment
+                 : (b._statedAttachment != null ? _num(b._statedAttachment) : cursor);
+        if (ak !== bk) return ak - bk;
+        return a.sources[0] < b.sources[0] ? -1 : 1;
+      });
+
+      for (let i = 0; i < ordered.length; i++) {
+        const r = ordered[i];
+
+        if (r.limit == null || r.limit <= 0) {
+          // Island: undeterminable height. Breaks the chain for
+          // computed_below, but rungs with their own stated attachment
+          // above remain valid.
+          chainBroken = true;
+          continue;
+        }
+
+        if (r._resolved) {
+          // Resolved (stated/user/computed). Advance the cursor through
+          // it. Gap/overlap flagging for STATED rungs is done by the
+          // post-convergence validation walk, not here — doing it in the
+          // resolve loop conflates "chain broken by undeterminable
+          // island" (rung stands alone) with "chain computable but
+          // contradictory" (flag it), which need different handling.
+          if (Math.abs(r.attachment - cursor) <= EPS) {
+            cursor = r.attachment + r.limit;
+          } else if (r.attachment > cursor) {
+            cursor = r.attachment + r.limit; // don't cascade past it
+          } else {
+            cursor = Math.max(cursor, r.attachment + r.limit);
+          }
+          continue;
+        }
+
+        // UNRESOLVED rung with a known limit.
+        const fromBelow = chainBroken ? null : cursor;
+        const aAbove = anchorAbove(chainBroken ? -Infinity : cursor);
+        const fromAbove = (aAbove != null) ? (aAbove - r.limit) : null;
+
+        if (fromBelow != null && fromAbove != null) {
+          if (Math.abs(fromBelow - fromAbove) <= EPS) {
+            r.attachment = fromBelow; r._attSource = 'computed_below';
+            r._resolved = true; r.status = 'ok'; progressed = true;
+            cursor = r.attachment + r.limit;
+          } else {
+            r.status = '????'; r.uncertaintyReason = 'conflict';
+            r.conflictBelow = fromBelow; r.conflictAbove = fromAbove;
+            if (r._lastConflict !== fromBelow + '/' + fromAbove) {
+              r._lastConflict = fromBelow + '/' + fromAbove; progressed = true;
+            }
+            chainBroken = true; // unresolved → chain can't continue past
+          }
+        } else if (fromBelow != null) {
+          r.attachment = fromBelow; r._attSource = 'computed_below';
+          r._resolved = true; r.status = 'ok'; progressed = true;
+          cursor = r.attachment + r.limit;
+        } else if (fromAbove != null) {
+          r.attachment = fromAbove; r._attSource = 'computed_above';
+          r._resolved = true; r.status = 'ok'; progressed = true;
+          // do not move the (broken) cursor
+        } else {
+          chainBroken = true; // can't place it this pass; blocks chain
+        }
+      }
+    }
+
+    // ── Post-convergence VALIDATION WALK ──
+    // Walk rungs in tower order summing limits from the lead. For each
+    // STATED rung, the expected attachment is the running sum beneath
+    // it. If its stated attachment disagrees → gap (stated too high) or
+    // overlap (stated too low). A rung with NO limit is an undeterminable
+    // ISLAND: it breaks the walk, and rungs above the break are NOT
+    // validated against the chain (they stand on their own stated
+    // attachment — an island must not poison them). Conflict rungs have
+    // a limit, so the walk continues through them and still flags a
+    // contradicting stated rung above.
+    (function validationWalk() {
+      if (leadTop == null) return;
+      // Order by best-known position. A no-limit / unresolved rung with
+      // no stated attachment has no natural sort key; place it just
+      // below the nearest stated rung above it so it sits in the right
+      // tower position (an island between lead and a $10M-xs-$10M rung
+      // must sort BELOW that rung, not at the end).
+      const ex = rungs.filter(r => r.kind !== 'lead');
+      const keyOf = (r) => {
+        if (r.attachment != null) return r.attachment;
+        if (r._statedAttachment != null) return _num(r._statedAttachment);
+        return null; // unknown — positioned relative to neighbors below
+      };
+      const seq = ex.slice().sort((a, b) => {
+        const ak = keyOf(a), bk = keyOf(b);
+        const av = ak == null ? Infinity : ak;
+        const bv = bk == null ? Infinity : bk;
+        if (av !== bv) return av - bv;
+        return a.sources[0] < b.sources[0] ? -1 : 1;
+      });
+      // Is there an undeterminable island (no limit AND no stated
+      // attachment) anywhere in the program? If so, the chain is not
+      // globally trustworthy and STATED rungs stand on their own — we do
+      // not gap/overlap-flag them (per spec: a ???? island must not
+      // poison independently-stated rungs).
+      const hasUndeterminableIsland = ex.some(r =>
+        (r.limit == null || r.limit <= 0) && r._statedAttachment == null && !r._resolved);
+
+      let running = leadTop;
+      let broken = false;
+      for (const r of seq) {
+        if (r.limit == null || r.limit <= 0) { broken = true; continue; }
+        if (!broken && !hasUndeterminableIsland && r._attSource === 'stated') {
+          if (r.attachment > running + EPS) {
+            if (r.status !== '????') {
+              r.status = '????'; r.uncertaintyReason = 'gap';
+              r.expectedAttachment = running;
+            }
+          } else if (r.attachment < running - EPS) {
+            if (r.status !== '????') {
+              r.status = '????'; r.uncertaintyReason = 'overlap';
+              r.expectedAttachment = running;
+            }
+          }
+        }
+        const base = (r.attachment != null) ? r.attachment : running;
+        running = base + r.limit;
+      }
+    })();
+
+    // Final classification of anything still unresolved.
+    let anyUncertain = false;
+    for (const r of rungs) {
+      if (r.kind === 'lead') {
+        if (r.limit == null || r.limit <= 0) { r.status = '????'; r.uncertaintyReason = 'unreadable_limit'; anyUncertain = true; }
+        else r.status = (r.status === '????') ? r.status : 'ok';
+        if (r.status === '????') anyUncertain = true;
         continue;
       }
-      // excess rung
       if (r.limit == null || r.limit <= 0) {
-        r.status = '????'; anyUncertain = true;
-        // can't advance cursor reliably; leave cursor, flag and continue
-        continue;
+        r.status = '????'; r.uncertaintyReason = 'unreadable_limit'; anyUncertain = true; continue;
       }
-      if (r.attachment == null) {
-        // No stated attachment — adopt the computed cursor but flag for
-        // user confirmation (we inferred position).
-        r.attachment = cursor;
+      if (!r._resolved || r.attachment == null) {
         r.status = '????';
-        r.uncertaintyReason = 'attachment_inferred';
+        if (!r.uncertaintyReason) r.uncertaintyReason = 'attachment_undeterminable';
         anyUncertain = true;
-        cursor = cursor + r.limit;
         continue;
       }
-      // Stated attachment present — must agree with computed cursor.
-      if (Math.abs(r.attachment - cursor) > 0.5) {
-        r.status = '????';
-        r.uncertaintyReason = (r.attachment > cursor) ? 'gap' : 'overlap';
-        r.expectedAttachment = cursor;
-        anyUncertain = true;
-        // Trust the stated attachment for the label but do NOT silently
-        // heal the chain — advance cursor from the stated value so we
-        // don't cascade one error into all rungs above.
-        cursor = r.attachment + r.limit;
-        continue;
-      }
-      // Clean rung
+      if (r.status === '????') { anyUncertain = true; continue; } // conflict/gap/overlap kept
       r.status = 'ok';
-      cursor = r.attachment + r.limit;
     }
 
     if (leadCount > 1) {
-      // More than one lead is structurally impossible — flag all leads.
       anyUncertain = true;
       rungs.filter(r => r.kind === 'lead').forEach(r => {
-        r.status = '????';
-        r.uncertaintyReason = 'multiple_leads';
+        r.status = '????'; r.uncertaintyReason = 'multiple_leads';
       });
     }
     if (leadCount === 0 && rungs.length > 0) {
-      // No lead identified — the bottom rung is suspect.
       anyUncertain = true;
       rungs[0].status = '????';
       rungs[0].uncertaintyReason = 'no_lead';
     }
 
-    // 6. Human-readable label per rung (Phase 13.3 File Manager uses it).
+    // Human-readable label + expose provenance per rung.
     const fmtM = (n) => {
       if (n == null) return '?';
       if (n >= 1e6 && n % 1e6 === 0) return '$' + (n / 1e6) + 'M';
@@ -1371,6 +1596,7 @@
       return '$' + n.toLocaleString();
     };
     for (const r of rungs) {
+      r.attachmentProvenance = r._attSource || (r.kind === 'lead' ? 'lead_base' : null);
       if (r.status === '????') {
         r.label = '????';
       } else if (r.kind === 'lead') {
@@ -1481,6 +1707,7 @@
       contract: {
         id:                  'string  — stable doc id',
         name:                'string  — display name',
+        sourceDocName:       'string|null — exact source file name this layer was read from; used by buildTowerView to label that file in the File Manager',
         carrier:             'string  — carrier on this policy',
         decLimit:            'number  — this policy\'s OWN Dec Page limit (e.g. 5000000)',
         statedAttachment:    'number|null — attachment from its Schedule of Underlying; 0 or null for the lead',
@@ -1490,15 +1717,18 @@
         override:            '{limit?:number, attachment?:number, kind?:"lead"|"excess"} — user relabel; wins over parsed values'
       },
       exampleLead: {
-        id: 'lead', name: 'Lead Umbrella', carrier: 'Lead Co',
+        id: 'lead', name: 'Lead Umbrella', sourceDocName: 'Lead Umbrella Policy.pdf',
+        carrier: 'Lead Co',
         decLimit: 5000000, statedAttachment: 0, schedulesPrimary: true
       },
       exampleExcess: {
-        id: 'r1', name: '$5M xs $5M layer', carrier: 'Carrier One',
+        id: 'r1', name: '$5M xs $5M layer', sourceDocName: 'First Excess 5x5.pdf',
+        carrier: 'Carrier One',
         decLimit: 5000000, statedAttachment: 5000000, schedulesPrimary: false
       },
       exampleQuotaShareParticipation: {
-        id: 'r2a', name: 'Insurer A 50% of $10M xs $10M', carrier: 'Insurer A',
+        id: 'r2a', name: 'Insurer A 50% of $10M xs $10M', sourceDocName: 'Insurer A Quote.pdf',
+        carrier: 'Insurer A',
         decLimit: 5000000, statedAttachment: 10000000,
         sharedGroupKey: 'g10', sharedCombinedLimit: 10000000
       },
@@ -1742,13 +1972,6 @@
     built.rungs.forEach((r, idx) => {
       const rungSourceId = (r.sources && r.sources[0]) || ('rung-' + idx);
       const isUncertain = r.status === '????';
-      // Find the uploaded doc whose name matches this rung's source name.
-      const srcName = srcNameById[rungSourceId];
-      let matchedDocId = null;
-      if (srcName) {
-        const hit = docs.find(dc => _nameMatch(srcName, dc.name || dc.fileName || dc.filename));
-        if (hit) matchedDocId = hit.id;
-      }
       const towerLabel = r.label || (isUncertain ? '????' : '');
       out.tower.push({
         order: idx,
@@ -1756,21 +1979,43 @@
         label: towerLabel,
         status: r.status,
         uncertaintyReason: r.uncertaintyReason || null,
+        attachmentProvenance: r.attachmentProvenance || null,
         shared: !!r.shared,
         participants: r.participants || [],
         limit: r.limit,
         attachment: r.attachment,
         rungSourceId: rungSourceId,
-        matchedDocId: matchedDocId,
-        sourceDocName: srcName || null
+        sourceDocName: srcNameById[rungSourceId] || null
       });
-      if (matchedDocId) {
-        out.docAnnotations[matchedDocId] = {
-          towerLabel: towerLabel,
+      // FIX-PHASE-13.4: annotate EVERY participant doc in the rung, not
+      // just the first. A shared rung exposes participants[] each with
+      // its own sourceDocName/sourceId — match and label them all so a
+      // 60/40 quota-share shows the tower label on BOTH carrier docs.
+      const partList = (r.shared && Array.isArray(r.participants) && r.participants.length)
+        ? r.participants.map(p => ({ srcName: p.sourceDocName, srcId: p.sourceId }))
+        : [{ srcName: srcNameById[rungSourceId], srcId: rungSourceId }];
+
+      let participationIdx = 0;
+      for (const part of partList) {
+        const srcName = part.srcName || srcNameById[part.srcId] || null;
+        if (!srcName) { participationIdx++; continue; }
+        const hit = docs.find(dc => _nameMatch(srcName, dc.name || dc.fileName || dc.filename));
+        if (!hit) { participationIdx++; continue; }
+        // Shared rungs get a participation hint on the chip so the user
+        // can tell the two carrier docs apart at a glance.
+        let docLabel = towerLabel;
+        if (r.shared && r.participants && r.participants.length > 1 && !isUncertain) {
+          const pc = r.participants[participationIdx];
+          if (pc && pc.carrier) docLabel = towerLabel + ' (' + pc.carrier + ')';
+        }
+        out.docAnnotations[hit.id] = {
+          towerLabel: docLabel,
           color: TOWER_UNDERLYING_COLOR,   // 'yellow' = Underlying
           isUncertain: isUncertain,
-          rungSourceId: rungSourceId
+          rungSourceId: rungSourceId,
+          shared: !!r.shared
         };
+        participationIdx++;
       }
     });
     return out;
@@ -1803,8 +2048,8 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase13.3-filemanager-tower-labels',
-    fixTag: 'FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14'
+    version: 'phase13.4-multipass-tower-solver',
+    fixTag: 'FIX-PHASE-13.4-MULTIPASS-SOLVER-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

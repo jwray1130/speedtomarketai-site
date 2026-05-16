@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.63-phase13.3-filemanager-tower-labels-2026-05-14
+  v8.6.64-phase13.4-multipass-tower-solver-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.63-phase13.3-filemanager-tower-labels-2026-05-14';
+window.STM_BUILD = 'v8.6.64-phase13.4-multipass-tower-solver-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1050,90 +1050,147 @@ document.addEventListener('DOMContentLoaded', () => {
         //   underwriter fills manually; we never touch them.
         function applyExcessTowerFromActiveSubmission(submission) {
             const rules = window.WorkbenchRules;
-            if (!rules || typeof rules.parseExcessTower !== 'function') return;
+            // FIX-PHASE-13.4-MULTIPASS-SOLVER-2026-05-14
+            // Prefer the resolved structured tower (13.2 JSON + 13.0/13.4
+            // multi-pass solver + 13.1 persisted relabels). Fall back to
+            // the legacy flat parseExcessTower only if the structured
+            // path is unavailable (older excess output with no JSON
+            // block) — never regress.
+            const haveStructured = rules && typeof rules.buildTowerFromExcessModule === 'function';
 
+            if (haveStructured) {
+                const built = rules.buildTowerFromExcessModule(submission);
+                if (built.blocked) {
+                    console.log(
+                        '[workbench] Phase 13.4 Excess tower: blocked (' + built.reason + ').',
+                        built.reason === 'cross_applicant'
+                            ? 'Excess docs reference "' + (built.statedInsured || '?') +
+                              '" not this submission\'s insured.'
+                            : 'Refusal diagnostic from Phase 6.1 gate or prompt-level refusal.',
+                        'Tower left empty (correct — no contamination).'
+                    );
+                    return;
+                }
+                if (built.rungs && built.rungs.length > 0) {
+                    // Each rung's panel columns: carrier, eff, exp, limit,
+                    // aggregate, premium. The solver supplies limit +
+                    // attachment + provenance; carrier from participants.
+                    const rungToPositions = (r) => {
+                        const carrier = (r.participants && r.participants.length === 1)
+                            ? r.participants[0].carrier
+                            : (r.participants || []).map(p => p.carrier).filter(Boolean).join(' / ');
+                        // limit column = this rung's own limit; aggregate
+                        // left blank (underwriter fills); premium blank
+                        // unless a single participant carried one.
+                        return [carrier || null, null, null,
+                                r.limit != null ? r.limit : null, null, null];
+                    };
+
+                    const ordered = built.rungs;     // already attachment-ordered
+                    let leadFilled = 0, clonesAdded = 0, skippedUncertain = 0;
+
+                    // Lead → default #details-lead-excess. If the lead
+                    // itself is ???? we still skip filling it (partial
+                    // tower, never wrong data).
+                    const lead = ordered.find(r => r.kind === 'lead');
+                    if (lead && lead.status !== '????') {
+                        const f1 = fillCoveragePanelByPosition('#details-lead-excess', rungToPositions(lead));
+                        leadFilled = f1.filled;
+                        const leadCb = document.querySelector('input[data-target="details-lead-excess"]');
+                        if (leadCb && !leadCb.checked) leadCb.click();
+                    } else if (lead) {
+                        skippedUncertain++;
+                    }
+
+                    // Excess rungs → clones, in attachment order. ????
+                    // rungs are SKIPPED (island) — every resolved rung
+                    // still fills, so a partial tower populates fully.
+                    const excessList = document.getElementById('excess-limits-list');
+                    const excessRungs = ordered.filter(r => r.kind !== 'lead');
+                    if (excessList && typeof addCoverageEntry === 'function') {
+                        for (const r of excessRungs) {
+                            if (r.status === '????') { skippedUncertain++; continue; }
+                            const entry = addCoverageEntry('lead-excess', excessList);
+                            if (!entry) continue;
+                            const panel = entry.querySelector('.limit-details-panel');
+                            if (!panel || !panel.id) continue;
+                            fillCoveragePanelByPosition('#' + panel.id, rungToPositions(r));
+                            const cb = entry.querySelector('input[type="checkbox"][data-target]');
+                            if (cb && !cb.checked) cb.click();
+                            clonesAdded++;
+                        }
+                    } else if (excessRungs.length) {
+                        console.warn('[workbench] Phase 13.4: excess-limits-list',
+                            'or addCoverageEntry unavailable —', excessRungs.length,
+                            'excess rung(s) could not be added.');
+                    }
+
+                    console.log(
+                        '[workbench] Phase 13.4 Excess tower apply:',
+                        ordered.length, 'rung(s) ·',
+                        'lead filled (' + leadFilled + ' fields) ·',
+                        clonesAdded, 'excess rung(s) cloned+filled ·',
+                        skippedUncertain, '???? rung(s) skipped (await relabel) ·',
+                        'anyUncertain=' + built.anyUncertain
+                    );
+                    console.log('[workbench] Phase 13.4 tower:', ordered.map(r => ({
+                        label: r.label, status: r.status,
+                        provenance: r.attachmentProvenance,
+                        reason: r.uncertaintyReason || null
+                    })));
+                    return;
+                }
+                // No structured rungs — fall through to legacy path.
+                console.log('[workbench] Phase 13.4: no structured tower',
+                    '(reason ' + built.reason + ') — trying legacy parser.');
+            }
+
+            // ── Legacy fallback (pre-13.2 excess output, no JSON block) ──
+            if (!rules || typeof rules.parseExcessTower !== 'function') return;
             const extractions =
                 (submission && submission.snapshot && submission.snapshot.extractions) ||
                 (submission && submission.extractions) || null;
             const rec = extractions && extractions.excess;
             if (!rec || typeof rec.text !== 'string') {
-                console.log('[workbench] Phase 12 Excess tower: no excess',
-                    'extraction present. Tower left empty.');
+                console.log('[workbench] Excess tower: no excess extraction. Empty.');
                 return;
             }
-
             const accountName = (submission && submission.account_name) || null;
             const result = rules.parseExcessTower(rec.text, accountName);
-
             if (result.blocked) {
-                console.log(
-                    '[workbench] Phase 12 Excess tower: blocked (' + result.reason + ').',
-                    result.reason === 'cross_applicant'
-                        ? 'Excess docs reference "' + (result.statedInsured || '?') +
-                          '" not this submission\'s insured.'
-                        : 'Refusal diagnostic from Phase 6.1 pipeline gate or prompt-level refusal.',
-                    'Tower left empty (correct — no contamination).'
-                );
+                console.log('[workbench] Excess tower (legacy): blocked (' + result.reason + ').');
                 return;
             }
             if (!result.layers || result.layers.length === 0) {
-                console.log('[workbench] Phase 12 Excess tower: 0 layers parsed.',
-                    'No usable excess layer data, or all layers were sentinel/empty.',
-                    'Tower left empty.');
+                console.log('[workbench] Excess tower (legacy): 0 layers. Empty.');
                 return;
             }
-
             const toPositions = (layer) => ([
                 layer.carrier, layer.effective_date, layer.expiration_date,
                 layer.limit, layer.aggregate, layer.premium
             ]);
-
             const layers = result.layers;
             let layer1Filled = 0, clonesAdded = 0;
-
-            // Layer 1 → default #details-lead-excess panel
             const f1 = fillCoveragePanelByPosition('#details-lead-excess', toPositions(layers[0]));
             layer1Filled = f1.filled;
             const leadCb = document.querySelector('input[data-target="details-lead-excess"]');
             if (leadCb && !leadCb.checked) leadCb.click();
-
-            // Layers 2..N → clone 'lead-excess' template into excess-limits-list
             const excessList = document.getElementById('excess-limits-list');
             if (excessList && typeof addCoverageEntry === 'function') {
                 for (let i = 1; i < layers.length; i++) {
                     const entry = addCoverageEntry('lead-excess', excessList);
-                    if (!entry) {
-                        console.warn('[workbench] Phase 12: clone failed for layer', i + 1);
-                        continue;
-                    }
+                    if (!entry) continue;
                     const panel = entry.querySelector('.limit-details-panel');
-                    if (!panel || !panel.id) {
-                        console.warn('[workbench] Phase 12: layer', i + 1, 'clone missing panel id');
-                        continue;
-                    }
+                    if (!panel || !panel.id) continue;
                     fillCoveragePanelByPosition('#' + panel.id, toPositions(layers[i]));
                     const cb = entry.querySelector('input[type="checkbox"][data-target]');
                     if (cb && !cb.checked) cb.click();
                     clonesAdded++;
                 }
-            } else if (layers.length > 1) {
-                console.warn('[workbench] Phase 12: excess-limits-list or',
-                    'addCoverageEntry unavailable —', (layers.length - 1),
-                    'additional layers could not be added.');
             }
-
-            console.log(
-                '[workbench] Phase 12 Excess tower apply:',
-                layers.length, 'layer(s) parsed ·',
-                'Layer 1 → default panel (' + layer1Filled + ' fields) ·',
-                clonesAdded, 'additional layer(s) cloned + filled.'
-            );
-            console.log('[workbench] Phase 12 Excess layers:', layers.map((l, idx) => ({
-                layer: idx + 1,
-                carrier: l.carrier,
-                limit: l.limit,
-                premium: l.premium
-            })));
+            console.log('[workbench] Excess tower (legacy) apply:',
+                layers.length, 'layer(s) · lead', layer1Filled, 'fields ·',
+                clonesAdded, 'clones.');
         }
 
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
