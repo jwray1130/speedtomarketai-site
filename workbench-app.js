@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.67-phase14.0.2-subjectivity-cross-applicant-gate-2026-05-14
+  v8.6.68-phase14.0.3-clean-demo-fixture-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.67-phase14.0.2-subjectivity-cross-applicant-gate-2026-05-14';
+window.STM_BUILD = 'v8.6.68-phase14.0.3-clean-demo-fixture-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -266,6 +266,92 @@ document.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams(window.location.search);
             const submissionId = params.get('submission');
             if (!submissionId) return;
+
+            // FIX-PHASE-14.0.3-CLEAN-DEMO-FIXTURE-2026-05-14
+            // Zero-spend clean acceptance-path fixture. The only seeded
+            // Supabase submission is the Anahuac adversarial packet, so
+            // the live phase pipeline (tower, subjectivities, coverage
+            // fill) has never run end-to-end on CLEAN matching data on a
+            // real page. When ?submission=DEMO-CLEAN-RIDGEWAY is used we
+            // seed a hardcoded clean snapshot in the EXACT shape the
+            // phase pipeline expects ({account_name, snapshot:{
+            // extractions:{...}}}) and run the identical apply chain —
+            // NO Supabase fetch, NO API spend, NO new DB rows. This
+            // closes the acceptance-path DOM validation gap for free.
+            if (submissionId === 'DEMO-CLEAN-RIDGEWAY') {
+                const acct = 'Ridgeway Utility Contractors, Inc.';
+                const clean = {
+                    id: 'DEMO-CLEAN-RIDGEWAY',
+                    account_name: acct,
+                    confidence: 0.89,
+                    status: 'demo_clean',
+                    snapshot: { extractions: {
+                        gl_quote: { confidence: 0.92, text:
+                            '- Named Insured: ' + acct + '\n' +
+                            '- Carrier: Crestline E&S Insurance Company\n' +
+                            '- Each Occurrence: $1,000,000\n' +
+                            '- General Aggregate: $2,000,000\n' +
+                            '- Products/Completed Ops Aggregate: $2,000,000\n' +
+                            '- Effective: 2026-06-01  Expiration: 2027-06-01\n' +
+                            '- Premium: $48,500' },
+                        al_quote: { confidence: 0.90, text:
+                            '- Named Insured: ' + acct + '\n' +
+                            '- Carrier: Crestline E&S Insurance Company\n' +
+                            '- Combined Single Limit: $1,000,000\n' +
+                            '- Effective: 2026-06-01  Expiration: 2027-06-01\n' +
+                            '- Premium: $22,000' },
+                        excess: { confidence: 0.91, text:
+                            '**Underlying Excess Program Tower**\n' +
+                            '- Named Insured: ' + acct + '\n\n' +
+                            '**Layer 1:**\n- Carrier: Steadfast Insurance Company\n' +
+                            '- Layer Limit: $5,000,000\n- Premium: $61,000\n\n' +
+                            '**Tower Summary:** continuous\n\n' +
+                            '```json\n' +
+                            '{ "tower_documents": [\n' +
+                            '  { "id":"lead","name":"Lead Umbrella — Steadfast",' +
+                            '"sourceDocName":"Steadfast Lead Umbrella Policy.pdf",' +
+                            '"carrier":"Steadfast Insurance Company","decLimit":5000000,' +
+                            '"statedAttachment":0,"schedulesPrimary":true,' +
+                            '"sharedGroupKey":null,"sharedCombinedLimit":null },\n' +
+                            '  { "id":"x1","name":"$5M xs $5M — Crestline",' +
+                            '"sourceDocName":"Crestline First Excess Policy.pdf",' +
+                            '"carrier":"Crestline E&S Insurance Company","decLimit":5000000,' +
+                            '"statedAttachment":5000000,"schedulesPrimary":false,' +
+                            '"sharedGroupKey":null,"sharedCombinedLimit":null }\n' +
+                            '] }\n' +
+                            '```' }
+                    } }
+                };
+                window.workbenchActiveSubmission = clean;
+                console.log('[workbench] CLEAN DEMO FIXTURE loaded (zero-spend):',
+                    clean.id, '·', clean.account_name,
+                    '· extractions:', Object.keys(clean.snapshot.extractions).length,
+                    '· NO Supabase fetch, NO API spend');
+                const badge = document.getElementById('workbenchSubmissionBadge');
+                if (badge) {
+                    const value = badge.querySelector('.submission-badge-value');
+                    if (value) value.textContent = clean.account_name;
+                    badge.classList.add('is-visible');
+                }
+                if (window.WorkbenchRules
+                    && typeof window.WorkbenchRules.resolveField === 'function') {
+                    applyDealInfoFromActiveSubmission(clean);
+                    applyGLCoverageFromActiveSubmission(clean);
+                    applyALCoverageFromActiveSubmission(clean);
+                    applyELCoverageFromActiveSubmission(clean);
+                    applyEBLCoverageFromActiveSubmission(clean);
+                    applyAircraftCoverageFromActiveSubmission(clean);
+                    applyGarageCoverageFromActiveSubmission(clean);
+                    applyLiquorCoverageFromActiveSubmission(clean);
+                    applyForeignGLCoverageFromActiveSubmission(clean);
+                    applyForeignALCoverageFromActiveSubmission(clean);
+                    applyExcessTowerFromActiveSubmission(clean);
+                    applySubjectivityIntelligenceFromActiveSubmission(clean);
+                    console.log('[workbench] CLEAN DEMO FIXTURE: full phase',
+                        'pipeline applied on clean matching data (acceptance path).');
+                }
+                return; // never touch Supabase for the clean fixture
+            }
 
             // Poll for sb client + currentUser (set by platform-auth.js
             // after successful magic-link session check). 5-second cap.

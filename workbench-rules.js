@@ -2193,8 +2193,8 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.0.2-subjectivity-cross-applicant-gate',
-    fixTag: 'FIX-PHASE-14.0.2-SUBJECTIVITY-CROSS-APPLICANT-GATE-2026-05-14'
+    version: 'phase14.0.3-clean-demo-fixture',
+    fixTag: 'FIX-PHASE-14.0.3-CLEAN-DEMO-FIXTURE-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
