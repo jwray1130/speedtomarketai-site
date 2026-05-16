@@ -5373,3 +5373,25 @@ html[data-theme="dark"] .subjectivity-suggest-chip {
 html[data-theme="dark"] .subjectivity-suggest-chip--strong {
   color: #fff;
 }
+
+/* FIX-PHASE-14.2-FORMS-EMPHASIS-DOM-2026-05-14
+   Forms the deal's facts make high-relevance get a blue INDICATED cue.
+   The form set is never auto-changed — this is emphasis only, matching
+   the suggest-only subjectivity model. */
+.form-row.form-row--indicated {
+  border-left: 3px solid var(--signal, #0e46a3);
+  background: rgba(14, 70, 163, 0.05);
+}
+.form-indicated-chip {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: var(--signal, #0e46a3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}

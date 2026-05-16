@@ -2284,8 +2284,8 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'phase14.1-forms-intelligence',
-    fixTag: 'FIX-PHASE-14.1-FORMS-INTELLIGENCE-2026-05-14'
+    version: 'phase14.2-forms-emphasis-dom',
+    fixTag: 'FIX-PHASE-14.2-FORMS-EMPHASIS-DOM-2026-05-14'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

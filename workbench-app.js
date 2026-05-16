@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.70-phase14.1-forms-intelligence-2026-05-14
+  v8.6.71-phase14.2-forms-emphasis-dom-2026-05-14
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.70-phase14.1-forms-intelligence-2026-05-14';
+window.STM_BUILD = 'v8.6.71-phase14.2-forms-emphasis-dom-2026-05-14';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3395,6 +3395,59 @@ document.addEventListener('DOMContentLoaded', () => {
                 wireFormRowEvents();
                 updateSelectAllState();
                 recordHistory('Forms loaded', `${layerType} form set loaded`);
+                // FIX-PHASE-14.2-FORMS-EMPHASIS-DOM-2026-05-14
+                // Decorate (do NOT add/remove) the forms this deal's
+                // facts make high-relevance. Suggest-only parity with
+                // subjectivities: an INDICATED chip + reason tooltip on
+                // matching rows; the form set itself is untouched.
+                // Guarded: no rules / no submission → silent no-op.
+                try { applyFormsEmphasis(list); }
+                catch (e) { console.warn('[workbench] Phase 14.2 forms emphasis skipped —', e && e.message); }
+            }
+
+            function applyFormsEmphasis(listEl) {
+                const W = window;
+                if (!listEl || !W.WorkbenchRules
+                    || typeof W.WorkbenchRules.recommendForms !== 'function') return;
+                const sub = W.workbenchActiveSubmission || null;
+                if (!sub) return;
+                const rec = W.WorkbenchRules.recommendForms(sub);
+                if (!rec || !Array.isArray(rec.emphases) || !rec.emphases.length) {
+                    console.log('[workbench] Phase 14.2 forms emphasis: 0 emphasized',
+                        rec && rec.towerBlocked ? '(tower blocked — correct).' : '.');
+                    return;
+                }
+                const norm = (s) => String(s || '')
+                    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+                const rows = Array.from(listEl.querySelectorAll('.form-row'));
+                let decorated = 0;
+                for (const emp of rec.emphases) {
+                    const want = norm(emp.formName);
+                    const row = rows.find(r => {
+                        const nm = r.querySelector('.form-name');
+                        if (!nm) return false;
+                        const t = norm(nm.childNodes && nm.childNodes[0]
+                            ? nm.childNodes[0].nodeValue : nm.textContent);
+                        return t === want || (want.length >= 10 && t.indexOf(want) === 0)
+                            || (want.length >= 10 && t.indexOf(want) !== -1);
+                    });
+                    if (!row) continue;
+                    row.classList.add('form-row--indicated');
+                    row.setAttribute('title',
+                        'Indicated by this deal\u2019s facts — ' + (emp.reason || ''));
+                    const nameEl = row.querySelector('.form-name');
+                    if (nameEl && !nameEl.querySelector('.form-indicated-chip')) {
+                        const chip = document.createElement('span');
+                        chip.className = 'form-indicated-chip';
+                        chip.textContent = 'INDICATED';
+                        nameEl.appendChild(chip);
+                    }
+                    decorated++;
+                }
+                console.log('[workbench] Phase 14.2 forms emphasis:',
+                    decorated, 'of', rec.emphases.length,
+                    'emphasis(es) decorated · form set UNCHANGED (suggest-only)' +
+                    (rec.towerBlocked ? ' · towerBlocked' : ''));
             }
 
             function wireFormRowEvents() {
