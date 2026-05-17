@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.88-visible-lead-excess-header-fix-2026-05-17';
+window.STM_BUILD = 'v8.6.89-premium-exposure-loss-polish-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,7 +1471,53 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.88 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.89 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+        }
+
+
+        // v8.6.89 - parse all GL class rows from quote / ACORD page text and
+        // populate the GL exposure rater with every class, not just the primary.
+        function collectSnapshotFileTexts89(submission, matcher) {
+            const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
+            const out = [];
+            for (const f of files) {
+                const hay = [f?.name, f?.classification, f?.primaryTag, f?.subType]
+                    .concat(Array.isArray(f?.classifications) ? f.classifications.map(c => [c?.tag, c?.subType, c?.section_hint].join(' ')) : [])
+                    .join(' ');
+                if (matcher && !matcher.test(hay)) continue;
+                const pts = f?.extractMeta && Array.isArray(f.extractMeta.pageTexts) ? f.extractMeta.pageTexts : [];
+                for (const p of pts) out.push(typeof p === 'string' ? p : String(p?.text || p?.content || p?.pageText || ''));
+            }
+            return out.join('\n\n');
+        }
+        function stateZipFromSubmission89(submission) {
+            const text = [submission?.mailing_address, submission?.controlling_address, submission?.address, JSON.stringify(submission?.snapshot?.handoff || {})].filter(Boolean).join(' ')
+                + '\n' + collectSnapshotFileTexts89(submission, /acord|application|quote|supp/i);
+            const m = /\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/.exec(text);
+            return { state: m ? m[1] : (r85('home_state', submission) || 'VA'), zip: m ? m[2] : '' };
+        }
+        function parseGLClassRows89(submission) {
+            const text = collectSnapshotFileTexts89(submission, /quote|acord|application|gl|exposure|supp/i);
+            const rows = [];
+            const seen = new Set();
+            const mapDesc = d => String(d || '').replace(/\s+/g, ' ').replace(/[-–—]\s*$/, '').trim();
+            const add = (desc, code, exposure) => {
+                const n = Number(String(exposure || '').replace(/[^0-9]/g, '')) || 0;
+                if (!/^\d{4,5}$/.test(String(code || '')) || n <= 0) return;
+                if (n < 100000) return;
+                const key = code + ':' + n;
+                if (seen.has(key)) return;
+                seen.add(key);
+                rows.push({ code:String(code), desc:mapDesc(desc), exposure:n.toLocaleString('en-US'), base:'1000' });
+            };
+            const lines = String(text || '').split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+            for (const line of lines) {
+                let m = /^(.{3,90}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?\b/i.exec(line);
+                if (m) { add(m[1], m[2], m[3]); continue; }
+                m = /\b(\d{4,5})\b\s+(.{3,90}?)\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d{5,})\b/i.exec(line);
+                if (m && !/Premium|Limit|Deductible/i.test(line)) add(m[2], m[1], m[3]);
+            }
+            return rows.slice(0, 8);
         }
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
@@ -1479,22 +1525,31 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.resolveField !== 'function') return;
             const tbl = document.getElementById('classTerritoryTable');
             const tbody = tbl && tbl.querySelector('tbody');
-            const row = tbody && tbody.querySelector('tr');
-            if (!row) return;
+            if (!tbody) return;
+            const classRows = parseGLClassRows89(submission);
+            const stateZip = stateZipFromSubmission89(submission);
+            const ensureRows = (n) => {
+                const addBtn = document.getElementById('glRaterAddRow');
+                while (tbody.querySelectorAll('tr').length < n && addBtn) addBtn.click();
+            };
             const get = (field) => {
                 const r = rules.resolveField(field, submission);
                 return r && r.value != null && r.value !== '' ? r : null;
             };
-            const vals = {
-                code: get('iso_class_code'),
-                desc: get('iso_description'),
-                state: get('home_state'),
-                exposures: get('exposure_amount'),
-                base: get('exposure_basis')
-            };
+            const fallback = [{
+                code: get('iso_class_code')?.value,
+                desc: get('iso_description')?.value,
+                state: get('home_state')?.value || stateZip.state,
+                zip: stateZip.zip,
+                exposure: get('exposure_amount')?.value,
+                base: normalizeBasisForSelect(get('exposure_basis')?.value)
+            }].filter(x => x.code && x.exposure);
+            const rowsToApply = classRows.length ? classRows.map(x => ({...x, state: stateZip.state, zip: stateZip.zip})) : fallback;
+            ensureRows(Math.max(rowsToApply.length, 1));
+            const domRows = Array.from(tbody.querySelectorAll('tr'));
             let filled = 0;
-            const put = (df, val) => {
-                const el = row.querySelector('[data-f="' + df + '"]');
+            const put = (row, df, val) => {
+                const el = row && row.querySelector('[data-f="' + df + '"]');
                 if (!el || val == null || val === '') return;
                 el.value = val;
                 el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1502,14 +1557,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.classList.add('autofilled-from-platform');
                 filled++;
             };
-            put('code', vals.code && vals.code.value);
-            put('desc', vals.desc && vals.desc.value);
-            put('state', vals.state && vals.state.value);
-            put('exposures', vals.exposures && vals.exposures.value);
-            put('base', vals.base && normalizeBasisForSelect(vals.base.value));
-            // Force rater recalculation through existing listeners.
-            row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
-            console.log('[workbench] v8.6.88 GL exposure rater apply:', filled, 'cells filled', vals);
+            rowsToApply.forEach((r, i) => {
+                const row = domRows[i];
+                if (!row) return;
+                put(row, 'code', r.code);
+                put(row, 'desc', r.desc);
+                put(row, 'state', r.state || stateZip.state);
+                put(row, 'zip', r.zip || stateZip.zip);
+                put(row, 'exposures', r.exposure);
+                put(row, 'base', r.base || '1000');
+                row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
+            });
+            console.log('[workbench] v8.6.89 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -1605,7 +1664,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.88 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.89 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1635,7 +1694,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.88 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.89 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1685,7 +1744,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.88 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.89 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
 
@@ -1743,7 +1802,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     el.classList.add('autofilled-from-platform');
                     return true;
                 } catch (e) {
-                    console.warn('[workbench] v8.6.88 Lead Excess card field skipped:', field, e && e.message);
+                    console.warn('[workbench] v8.6.89 Lead Excess card field skipped:', field, e && e.message);
                     return false;
                 }
             };
@@ -1768,16 +1827,16 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.style.display = '';
             const header = row.querySelector('.limit-entry-header');
             header?.querySelector('.collapse-arrow')?.classList.add('expanded');
-            row.dataset.hydratedFromResolver = 'v8.6.88';
-            console.log('[workbench] v8.6.88 Lead Excess card hydrate:', filled, 'fields', valueMap);
+            row.dataset.hydratedFromResolver = 'v8.6.89';
+            console.log('[workbench] v8.6.89 Lead Excess card hydrate:', filled, 'fields', valueMap);
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 rater skipped:', e.message); }
-            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.88 lead-excess card skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 rater skipped:', e.message); }
+            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.89 lead-excess card skipped:', e.message); }
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1785,7 +1844,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.88 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.89 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 

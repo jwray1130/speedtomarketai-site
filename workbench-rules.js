@@ -1542,6 +1542,48 @@
     return m ? m[1].trim() : null;
   }
 
+
+  // v8.6.89 - quote premium allocation helpers.
+  // Do NOT use package total premium or full Business Auto premium for primary GL/AL.
+  // GL should use the Commercial General Liability line item. AL should use the
+  // Business Auto LIABILITY line item only, excluding physical damage and APD charges.
+  function premiumLineToDisplay89(v) {
+    const n = moneyToNumberFor85(v);
+    return n == null ? null : n.toLocaleString('en-US');
+  }
+
+  function findCoverageSummaryPremium89(clean, labelRe) {
+    if (!clean) return null;
+    const lines = String(clean).split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    for (const line of lines) {
+      if (!labelRe.test(line)) continue;
+      const m = /\$\s*([0-9][0-9,]*(?:\.\d+)?)/.exec(line) || /\b([0-9]{2,3}(?:,[0-9]{3})+(?:\.\d+)?)\b/.exec(line);
+      if (m) return premiumLineToDisplay89(m[1]);
+    }
+    return null;
+  }
+
+  function quotePremiumByCoverage89(clean, kind) {
+    const c = clean || '';
+    if (kind === 'gl') {
+      return findCoverageSummaryPremium89(c, /\bCOMMERCIAL\s+GENERAL\s+LIABILITY\b/i)
+          || findCoverageSummaryPremium89(c, /\bGENERAL\s+LIABILITY\b/i);
+    }
+    if (kind === 'al') {
+      const lines = String(c).split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      for (const line of lines) {
+        if (!/^LIABILITY\b/i.test(line)) continue;
+        if (/HIRED|NON[-\s]*OWNED|PHYSICAL|COMPREHENSIVE|COLLISION/i.test(line)) continue;
+        const dollars = Array.from(line.matchAll(/\$\s*([0-9][0-9,]*(?:\.\d+)?)/g)).map(m => m[1]);
+        if (dollars.length) return premiumLineToDisplay89(dollars[dollars.length - 1]);
+      }
+      const m = /(?:^|\n)\s*LIABILITY\s+1\s+\$?\s*1,000,000[\s\S]{0,80}?\$\s*([0-9][0-9,]*(?:\.\d+)?)/i.exec(c);
+      if (m) return premiumLineToDisplay89(m[1]);
+      return null;
+    }
+    return null;
+  }
+
   // v8.6.86 - fleet classification engine.
   // Priority order per Justin's rule:
   //   1) Official auto class/stat codes when present. The first three
@@ -1822,6 +1864,18 @@
       return { value, parser_confidence: conf || 0.80, reason: reason || 'adapter' };
     };
 
+    // v8.6.89: premium source authority. Quote page line items beat generic
+    // LLM prose labels like Total Premium/Annual Premium, which caused package
+    // totals or full Business Auto premium to be applied to GL/AL liability.
+    if (fieldName === 'gl_premium' && (moduleKey === 'gl_quote' || moduleKey === 'excess' || moduleKey === 'tower')) {
+      const glPrem = quotePremiumByCoverage89(quoteFileClean || cleanPlusQuote, 'gl');
+      if (glPrem) return hit(glPrem, 0.93, 'quote_coverage_line_commercial_general_liability');
+    }
+    if (fieldName === 'al_premium' && (moduleKey === 'al_quote' || moduleKey === 'excess' || moduleKey === 'tower')) {
+      const alPrem = quotePremiumByCoverage89(quoteFileClean || cleanPlusQuote, 'al');
+      if (alPrem) return hit(alPrem, 0.93, 'quote_auto_liability_line_only');
+    }
+
     // v8.6.85: generic no-cost adapters used across modules.
     if ((fieldName === 'gl_carrier' || fieldName === 'al_carrier') && (moduleKey === 'gl_quote' || moduleKey === 'al_quote' || moduleKey === 'excess' || moduleKey === 'tower')) {
       const carr = extractCarrier85(cleanPlusQuote);
@@ -1903,9 +1957,9 @@
       if (fieldName === 'gl_general_aggregate') return hit(moneyLine(['General Aggregate','Aggregate Limit','Aggregate']), 0.80, 'gl_aggregate');
       if (fieldName === 'gl_products_ops_aggregate') return hit(moneyLine(['Products\\/Completed Operations Aggregate','Products.*Aggregate','Products\\s*Comp.*Agg']), 0.75, 'gl_products_aggregate');
       if (fieldName === 'gl_personal_adv_injury') return hit(moneyLine(['Personal.*Advertising Injury','Personal and Adv Injury','PI.*Adv']), 0.75, 'gl_pai');
-      if (fieldName === 'gl_premium') return hit(moneyLine(['GL Premium','Total Premium','Annual Premium','Premium']), 0.75, 'gl_premium');
+      if (fieldName === 'gl_premium') return hit(moneyLine(['GL Premium','Commercial General Liability']), 0.75, 'gl_premium_specific');
       if (fieldName === 'al_combined_single_limit') return hit(moneyLine(['Combined Single Limit','CSL','Each Accident']), 0.80, 'al_csl');
-      if (fieldName === 'al_premium') return hit(moneyLine(['AL Premium','Auto Premium','Total Premium','Annual Premium','Premium']), 0.75, 'al_premium');
+      if (fieldName === 'al_premium') return hit(moneyLine(['AL Premium','Auto Liability Premium']), 0.75, 'al_premium_specific');
       if (fieldName === 'exposure_amount') return hit(moneyLine(['Exposure','Sales','Receipts','Revenue']), 0.65, 'quote_exposure_amount');
       if (fieldName === 'exposure_basis') {
         if (/sales|revenue|receipts/i.test(clean)) return hit('Gross Sales/Revenues', 0.75, 'quote_sales_basis');
@@ -3677,7 +3731,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.88-visible-lead-excess-header-fix',
+    version: 'v8.6.89-premium-exposure-loss-polish',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
