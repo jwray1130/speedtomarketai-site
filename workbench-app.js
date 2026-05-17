@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.81-workbench-fill-reliability-2026-05-17';
+window.STM_BUILD = 'v8.6.82-workbench-fill-reliability-actual-extraction-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

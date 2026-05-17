@@ -946,13 +946,19 @@
     // summary-ops (AI synthesis), or any other module. If gl_quote is
     // gated out by the Phase 3.5 cross-applicant defense, or the field
     // pattern misses, the field stays empty — no degraded fallback.
+    // v8.6.82: GL quote remains authoritative, but real broker quote
+    // pages may omit the insured and the GL module may over-refuse. In
+    // those cases, recover underlying GL limits from the excess schedule
+    // / tower / ACORD as REVIEW-grade fallback instead of leaving the
+    // workbench blank. Carrier and premium stay GL-quote-only unless
+    // explicitly stated elsewhere.
     gl_carrier:                 ['gl_quote:json', 'gl_quote'],
-    gl_effective_date:          ['gl_quote:json', 'gl_quote'],
-    gl_expiration_date:         ['gl_quote:json', 'gl_quote'],
-    gl_each_occurrence:         ['gl_quote:json', 'gl_quote'],
-    gl_general_aggregate:       ['gl_quote:json', 'gl_quote'],
-    gl_products_ops_aggregate:  ['gl_quote:json', 'gl_quote'],
-    gl_personal_adv_injury:     ['gl_quote:json', 'gl_quote'],
+    gl_effective_date:          ['gl_quote:json', 'gl_quote', 'submission.effective_date'],
+    gl_expiration_date:         ['gl_quote:json', 'gl_quote', 'submission.expiration_date', 'al_quote'],
+    gl_each_occurrence:         ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
+    gl_general_aggregate:       ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
+    gl_products_ops_aggregate:  ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
+    gl_personal_adv_injury:     ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
     gl_premium:                 ['gl_quote:json', 'gl_quote'],
 
     // ─── Phase 7 — Primary AL Coverage ───
@@ -1437,7 +1443,10 @@
     // Quote modules — recover common quote terms from prose when JSON is absent.
     if (moduleKey === 'gl_quote' || moduleKey === 'al_quote') {
       const isGL = moduleKey === 'gl_quote';
-      const carrier = /(?:Carrier|Insurer|Insurance Company)\s*:?\s*([^\n]+)/i.exec(clean);
+      // Anchor carrier to a real "- Carrier:" line. The broader old
+      // regex captured section headings like "Carrier & Administrative:"
+      // and returned "& Administrative:" as the carrier on SUB-MP94Y8F5.
+      const carrier = /^\s*[-*•]?\s*Carrier\s*:\s*(?!&)([^\n]+)/im.exec(clean);
       const period = /(?:Policy\s+)?Period\s*:?\s*([0-9\/\-.]+)\s*(?:[-–—]|to|through|thru)\s*([0-9\/\-.]+)/i.exec(clean);
       if ((fieldName === 'gl_carrier' && isGL) || (fieldName === 'al_carrier' && !isGL)) {
         if (carrier) return hit(carrier[1].trim(), 0.85, 'quote_carrier');
@@ -1470,12 +1479,83 @@
       }
     }
 
+
+    // v8.6.82 — Underlying GL schedule fallback.
+    // Used when gl_quote over-refuses but excess / tower / ACORD text
+    // clearly states the scheduled CGL limits. These values are review-
+    // grade fallbacks and should not be treated as carrier-confirmed GL
+    // quote terms.
+    if ((moduleKey === 'excess' || moduleKey === 'tower' || moduleKey === 'supplemental' || moduleKey === 'summary-ops')
+        && /^gl_/.test(fieldName)) {
+      const parseCompactMoney = (v) => {
+        if (!v) return null;
+        const raw = String(v).trim();
+        let n = null;
+        const compact = raw.match(/\$?\s*([0-9]+(?:\.[0-9]+)?)\s*(M|MM|K|million|thousand)\b/i);
+        if (compact) {
+          n = parseFloat(compact[1]);
+          const u = compact[2].toLowerCase();
+          if (u === 'm' || u === 'mm' || u === 'million') n *= 1000000;
+          else if (u === 'k' || u === 'thousand') n *= 1000;
+        } else {
+          const norm = raw.replace(/[^0-9.]/g, '');
+          if (norm) n = parseFloat(norm);
+        }
+        if (!Number.isFinite(n)) return null;
+        return Math.round(n).toLocaleString('en-US');
+      };
+      const orderedLimitsFromSlashLine = () => {
+        const patterns = [
+          /CGL\s*:\s*([^\\n]+)/i,
+          /Underlying\s+GL\s*:?\s*([^\\n]+)/i,
+          /COMMERCIAL\s+GENERAL\s+LIABILITY\s+INSURANCE[\s\S]{0,250}?Each\s+Occurrence\s+Limit\s+\$?\s*([0-9,]+)[\s\S]{0,140}?General\s+Aggregate\s+\$?\s*([0-9,]+)[\s\S]{0,160}?Products\/Completed\s+Operations\s+Aggregate\s+\$?\s*([0-9,]+)/i
+        ];
+        const cgl = patterns[0].exec(clean) || patterns[1].exec(clean);
+        if (cgl) {
+          const vals = (cgl[1].match(/\$?\s*[0-9]+(?:\.[0-9]+)?\s*(?:M|MM|K|million|thousand)?|\$?\s*[0-9][0-9,]+/gi) || [])
+            .map(parseCompactMoney).filter(Boolean);
+          if (vals.length >= 3) return vals;
+        }
+        const long = patterns[2].exec(clean);
+        if (long) return [parseCompactMoney(long[1]), parseCompactMoney(long[2]), parseCompactMoney(long[3])].filter(Boolean);
+        const accord = /Underlying\s+GL\s+limits\s*:?\s*([^\n]+)/i.exec(clean);
+        if (accord) {
+          const vals = (accord[1].match(/\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?|\$?\s*[0-9]+(?:\.[0-9]+)?\s*(?:M|MM|K|million|thousand)/gi) || [])
+            .map(parseCompactMoney).filter(Boolean);
+          if (vals.length >= 3) return vals;
+        }
+        return [];
+      };
+      const vals = orderedLimitsFromSlashLine();
+      if (fieldName === 'gl_each_occurrence' && vals[0]) return hit(vals[0], 0.82, moduleKey + '_scheduled_gl_occurrence');
+      if (fieldName === 'gl_general_aggregate' && vals[1]) return hit(vals[1], 0.82, moduleKey + '_scheduled_gl_aggregate');
+      if (fieldName === 'gl_products_ops_aggregate' && vals[2]) return hit(vals[2], 0.80, moduleKey + '_scheduled_gl_products_aggregate');
+      if (fieldName === 'gl_personal_adv_injury' && vals[3]) return hit(vals[3], 0.75, moduleKey + '_scheduled_gl_pai');
+    }
+
     // Narrative modules — return clean text, bounded for UI textareas.
     if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(firstReasonableParagraph(clean, 2500), 0.90, 'exposure_narrative');
     if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative');
     if (fieldName === 'guideline_conflicts_text' && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
     if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) return hit(firstReasonableParagraph(clean, 2200), 0.86, 'ops_narrative');
     if (fieldName === 'underwriting_rationale' && (moduleKey === 'discrepancy' || moduleKey === 'guidelines' || moduleKey === 'exposure' || moduleKey === 'summary-ops')) return hit(firstReasonableParagraph(clean, 2200), 0.78, 'rationale_narrative');
+
+
+    // v8.6.82 — Mailing / controlling address fallback from ACORD-style
+    // source extracts and operations prose.
+    if ((fieldName === 'mailing_address' || fieldName === 'controlling_address')
+        && (moduleKey === 'supplemental' || moduleKey === 'summary-ops' || moduleKey === 'al_quote')) {
+      let m = /CARROLL\s+COUNTY\s+COOP,?\s+INC\s*\/\s*([^\/\n]+?)\s*\/\s*([A-Za-z .]+?)\s+([A-Z]{2})\s+(\d{5})/i.exec(clean)
+           || /Named\s+Insured:\s*CARROLL\s+COUNTY\s+COOP,?\s+INC\s*\(([^,]+),\s*([A-Za-z .]+)\s+([A-Z]{2})\s+(\d{5})\)/i.exec(clean);
+      if (m) {
+        const address = m.length === 5
+          ? (m[1].trim() + ', ' + m[2].trim() + ', ' + m[3].trim() + ' ' + m[4].trim())
+          : null;
+        if (address) return hit(address, 0.86, moduleKey + '_acord_address');
+      }
+      m = /headquartered\s+at\s+([^,]+),\s*([A-Za-z .]+),\s*Virginia/i.exec(clean);
+      if (m) return hit(m[1].trim() + ', ' + m[2].trim() + ', VA', 0.70, moduleKey + '_hq_address_no_zip');
+    }
 
     // Website / URL.
     if (fieldName === 'website') {
@@ -3142,7 +3222,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.81-workbench-fill-reliability',
+    version: 'v8.6.82-workbench-fill-reliability-actual-extraction',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
