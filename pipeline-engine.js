@@ -4787,6 +4787,47 @@ function buildLossFallbackExtraction96(sourceText, reason) {
   return '<div class="loss-output loss-fallback-output"><div class="loss-summary-block"><div class="loss-summary-label">Summary</div><p class="loss-summary-text"><strong>Fallback loss extraction used because A11 LLM output was truncated.</strong> Parsed ' + parsed.length + ' claim-like rows; total incurred ' + fmtMoney96(totalIncurred) + '. Review before binding.</p><div class="loss-summary-meta">Extraction mode: <strong>fallback after truncation retry</strong></div></div><div class="loss-section-title">General Liability Loss Information</div><table class="loss-tbl"><tbody>' + rowsHtml(gl) + '</tbody></table><div class="loss-section-title">Auto Liability Loss Information</div><table class="loss-tbl"><tbody>' + rowsHtml(auto) + '</tbody></table><div class="loss-section-title">Large Losses</div><table class="loss-tbl"><tbody>' + largeHtml + '</tbody></table></div>\n\n```json loss_history_structured\n' + JSON.stringify(structured, null, 2) + '\n```';
 }
 
+
+// v8.6.98 - archive A11 structured JSON on the extraction record so Workbench does not
+// have to re-discover it from rendered HTML.
+function parseLossStructuredForArchive98(text) {
+  if (!text || typeof text !== 'string') return null;
+  function tryJson(src) {
+    try { return JSON.parse(String(src || '').trim().replace(/,\s*([}\]])/g, '$1')); } catch (_) { return null; }
+  }
+  const fenceRe = /```(?:json)?\s*(?:loss_history_structured\s*)?([\s\S]*?)```/gi;
+  let m;
+  while ((m = fenceRe.exec(text)) !== null) {
+    const obj = tryJson(m[1]);
+    if (obj && (Array.isArray(obj.policy_years) || obj.coverage_totals || Array.isArray(obj.large_losses))) return obj;
+  }
+  const idx = text.search(/loss_history_structured/i);
+  const starts = [];
+  if (idx >= 0) starts.push(text.indexOf('{', idx));
+  starts.push(text.indexOf('{'));
+  for (const st of starts) {
+    if (st == null || st < 0) continue;
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = st; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+    }
+    if (end > st) {
+      const obj = tryJson(text.slice(st, end));
+      if (obj && (Array.isArray(obj.policy_years) || obj.coverage_totals || Array.isArray(obj.large_losses))) return obj;
+    }
+  }
+  return null;
+}
+
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
@@ -4891,6 +4932,18 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       fallback: !!result.fallback,
       stop_reason: result.stop_reason || null
     };
+    if (moduleId === 'losses') {
+      try {
+        const lossJson98 = parseLossStructuredForArchive98(text);
+        if (lossJson98) {
+          STATE.extractions[moduleId].loss_history_structured = lossJson98;
+          STATE.extractions[moduleId].json = lossJson98;
+          STATE.extractions[moduleId].structured_schema = 'loss_history_structured';
+        }
+      } catch (e) {
+        console.warn('[pipeline] v8.6.98 losses structured archive skipped:', e && e.message);
+      }
+    }
     // Track the running submission total so the sidebar can show it
     STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
     setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · ✓ QC');

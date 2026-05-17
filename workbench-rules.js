@@ -3814,7 +3814,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.97-loss-workbench-bridge-final',
+    version: 'v8.6.98-loss-workbench-structured-dedupe',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

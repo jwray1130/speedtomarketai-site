@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.97-loss-workbench-bridge-final-2026-05-17';
+window.STM_BUILD = 'v8.6.98-loss-workbench-structured-dedupe-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1715,6 +1715,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function parseLossTables85(submission) {
             const ex = submission?.snapshot?.extractions || submission?.extractions || {};
             const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
+            const submissionId = submission?.id || submission?.submission_id || submission?.snapshot?.id || '';
             const fileLossText = files
                 .filter(f => /loss|claim/i.test([f.name, f.fileName, f.filename, f.title, f.classification, f.primaryTag, f.routedTo, ...(Array.isArray(f.classifications) ? f.classifications.map(c => [c.tag, c.subType, c.section_hint].join(' ')) : [])].join(' ')))
                 .flatMap(f => (f.extractMeta && Array.isArray(f.extractMeta.pageTexts)) ? f.extractMeta.pageTexts : [])
@@ -1730,10 +1731,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const n = Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, '')) || 0;
                 return Math.round(n).toLocaleString('en-US');
             }
+            function num98(v) { return Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, '')) || 0; }
             function normPeriod(v) {
                 const s0 = String(v || '').trim();
                 if (!s0) return '';
-                // Examples: 5/1/2025-2026, 05/01/2019 to 02/28/2026, 25-26.
                 let m = s0.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*(?:[-–—]|to|through|thru)\s*(?:(\d{1,2})\/(\d{1,2})\/)?(\d{2,4})/i);
                 if (m) {
                     let y1 = parseInt(m[3], 10); if (y1 < 100) y1 += 2000;
@@ -1748,45 +1749,96 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return s0;
             }
-            function parseStructuredLoss97() {
-                // v8.6.97: A11 now emits a fenced block named
-                // ```json loss_history_structured. Workbench previously treated
-                // the HTML report as prose and ignored the JSON payload, so the
-                // pipeline panel showed losses while the Workbench loss table stayed blank.
-                const candidates = [];
-                if (lossRec && typeof lossRec === 'object') {
-                    candidates.push(lossRec.loss_history_structured, lossRec.structured, lossRec.json, lossRec.data);
-                    if (lossRec.policy_years || lossRec.coverage_totals || lossRec.large_losses) candidates.push(lossRec);
-                }
-                const textHay = rawTxt || '';
-                const fences = Array.from(textHay.matchAll(/```(?:json)?\s*(?:loss_history_structured\s*)?([\s\S]*?)```/gi));
-                fences.forEach(f => { try { candidates.push(JSON.parse((f[1] || '').trim())); } catch (_) {} });
-                const idx = textHay.indexOf('loss_history_structured');
-                if (idx >= 0) {
-                    const after = textHay.slice(idx);
-                    const start = after.indexOf('{');
-                    if (start >= 0) {
-                        const src = after.slice(start);
-                        let depth = 0, inStr = false, esc = false, end = -1;
-                        for (let i = 0; i < src.length; i++) {
-                            const ch = src[i];
-                            if (inStr) {
-                                if (esc) esc = false;
-                                else if (ch === '\\') esc = true;
-                                else if (ch === '"') inStr = false;
-                                continue;
-                            }
-                            if (ch === '"') inStr = true;
-                            else if (ch === '{') depth++;
-                            else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-                        }
-                        if (end > 0) { try { candidates.push(JSON.parse(src.slice(0, end))); } catch (_) {} }
+            function periodStart(period) {
+                const m = String(period || '').match(/(\d{2})\s*-\s*(\d{2})/);
+                return m ? 2000 + parseInt(m[1], 10) : null;
+            }
+            function fillMissingYears98(rows, maxYears) {
+                const existing = new Map((rows || []).filter(r => r.period).map(r => [r.period, r]));
+                const starts = Array.from(existing.keys()).map(periodStart).filter(Boolean);
+                if (!starts.length) return rows || [];
+                const maxStart = Math.max(...starts);
+                const minStart = Math.min(...starts);
+                for (let y = maxStart; y >= minStart; y--) {
+                    const key = String(y).slice(2) + '-' + String(y + 1).slice(2);
+                    if (!existing.has(key)) {
+                        existing.set(key, { period: key, claims: '0', exposure: '', paid: '0', reserve: '0', incurred: '0', valuation: '' });
                     }
                 }
-                const obj = candidates.find(x => x && typeof x === 'object' && (Array.isArray(x.policy_years) || x.coverage_totals || x.large_losses));
-                if (!obj || !Array.isArray(obj.policy_years)) return null;
+                return Array.from(existing.values()).sort((a,b) => String(b.period).localeCompare(String(a.period))).slice(0, maxYears || 8);
+            }
+            function parseJsonCandidate98(text) {
+                if (!text || typeof text !== 'string') return [];
+                const out = [];
+                const fenceRe = /```(?:json)?\s*(?:loss_history_structured\s*)?([\s\S]*?)```/gi;
+                let fm;
+                while ((fm = fenceRe.exec(text)) !== null) {
+                    try { out.push(JSON.parse((fm[1] || '').trim().replace(/,\s*([}\]])/g, '$1'))); } catch (_) {}
+                }
+                const labelIdx = text.search(/loss_history_structured/i);
+                const starts = [];
+                if (labelIdx >= 0) starts.push(text.indexOf('{', labelIdx));
+                starts.push(text.indexOf('{'));
+                for (const st of starts) {
+                    if (st == null || st < 0) continue;
+                    let depth = 0, inStr = false, esc = false, end = -1;
+                    for (let i = st; i < text.length; i++) {
+                        const ch = text[i];
+                        if (inStr) {
+                            if (esc) esc = false;
+                            else if (ch === '\\') esc = true;
+                            else if (ch === '"') inStr = false;
+                            continue;
+                        }
+                        if (ch === '"') inStr = true;
+                        else if (ch === '{') depth++;
+                        else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+                    }
+                    if (end > st) {
+                        try { out.push(JSON.parse(text.slice(st, end).replace(/,\s*([}\]])/g, '$1'))); } catch (_) {}
+                    }
+                }
+                return out;
+            }
+            function collectLossCandidates98(root) {
+                const textCandidates = [];
+                const objectCandidates = [];
+                const seen = new WeakSet();
+                function walk(x, key, depth) {
+                    if (x == null || depth > 7) return;
+                    if (typeof x === 'string') {
+                        if (/loss_history_structured|policy_years|gl_claims|al_claims|large_losses|General Liability Loss Information|Auto Liability Loss Information/i.test(x)) textCandidates.push(x);
+                        return;
+                    }
+                    if (typeof x !== 'object') return;
+                    if (seen.has(x)) return; seen.add(x);
+                    if (Array.isArray(x.policy_years) || Array.isArray(x.loss_history_by_year) || x.coverage_totals || Array.isArray(x.large_losses)) objectCandidates.push(x);
+                    if (/loss/i.test(String(key || '')) && (x.text || x.output || x.content || x.result)) {
+                        textCandidates.push(String(x.text || x.output || x.content || x.result || ''));
+                    }
+                    Object.entries(x).forEach(([k,v]) => {
+                        if (/loss/i.test(k) || depth < 3 || (typeof v === 'string' && /loss_history_structured|policy_years|gl_claims|al_claims/i.test(v))) walk(v, k, depth + 1);
+                    });
+                }
+                walk(root, 'root', 0);
+                try {
+                    [localStorage, sessionStorage].forEach(store => {
+                        Object.keys(store || {}).forEach(k => {
+                            if (submissionId && !k.includes(submissionId) && !/loss|pipeline|module|extract|submission/i.test(k)) return;
+                            const v = store.getItem(k) || '';
+                            if (/loss_history_structured|policy_years|gl_claims|al_claims|large_losses/i.test(v)) textCandidates.push(v);
+                        });
+                    });
+                } catch (_) {}
+                return { textCandidates, objectCandidates };
+            }
+            function normalizeStructured98(obj) {
+                if (!obj || typeof obj !== 'object') return null;
+                if (obj.loss_history_structured && typeof obj.loss_history_structured === 'object') obj = obj.loss_history_structured;
+                const years = Array.isArray(obj.policy_years) ? obj.policy_years : (Array.isArray(obj.loss_history_by_year) ? obj.loss_history_by_year : null);
+                if (!years) return null;
                 const rows = { gl: [], auto: [], largeGl: [], largeAuto: [] };
-                obj.policy_years.forEach(py => {
+                years.forEach(py => {
                     const period = normPeriod(py.policy_year || py.period || py.year);
                     if (!period) return;
                     rows.gl.push({
@@ -1808,23 +1860,33 @@ document.addEventListener('DOMContentLoaded', () => {
                         valuation: obj.valuation_date || ''
                     });
                 });
-                const sortDesc = (a,b) => String(b.period).localeCompare(String(a.period));
-                rows.gl = rows.gl.sort(sortDesc).slice(0, 6);
-                rows.auto = rows.auto.sort(sortDesc).slice(0, 6);
+                rows.gl = fillMissingYears98(rows.gl, 8);
+                rows.auto = fillMissingYears98(rows.auto, 8);
                 (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
-                    const r = { dol: x.dol || x.date || '', incurred: moneyFmt(x.incurred), paid: moneyFmt(x.paid), desc: x.description || x.notes || '' };
+                    const r = { dol: x.dol || x.date || '', incurred: moneyFmt(x.incurred), paid: moneyFmt(x.paid), status: x.status || 'Closed', desc: x.description || x.notes || '' };
                     if (/^A|auto/i.test(String(x.lob || x.coverage || ''))) rows.largeAuto.push(r);
                     else rows.largeGl.push(r);
                 });
                 rows.__source = 'loss_history_structured';
                 return rows;
             }
+            function parseStructuredLoss98() {
+                const c = collectLossCandidates98({ ex, lossRec, submission });
+                const objectCandidates = [...c.objectCandidates];
+                const textCandidates = [rawTxt, ...c.textCandidates].filter(Boolean);
+                textCandidates.forEach(t => parseJsonCandidate98(t).forEach(o => objectCandidates.push(o)));
+                for (const obj of objectCandidates) {
+                    const normalized = normalizeStructured98(obj);
+                    if (normalized) return normalized;
+                }
+                return null;
+            }
 
-            const structured = parseStructuredLoss97();
+            const structured = parseStructuredLoss98();
             if (structured) return structured;
 
             const txt = (!rawTxt || /No matching loss runs found/i.test(rawTxt)) ? fileLossText : rawTxt;
-            if (!txt) return { gl: [], auto: [], largeGl: [], largeAuto: [] };
+            if (!txt) return { gl: [], auto: [], largeGl: [], largeAuto: [], __source: 'none' };
             const clean = txt.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
             const out = { gl: [], auto: [], largeGl: [], largeAuto: [] };
             const compact = clean.split(/\n|\r/).map(x => x.trim()).filter(Boolean).join('\n');
@@ -1837,59 +1899,101 @@ document.addEventListener('DOMContentLoaded', () => {
                 const start = mo >= 5 ? y : y - 1;
                 return String(start).slice(2) + '-' + String(start + 1).slice(2);
             }
-            const n = v => Number(String(v || '0').replace(/[^0-9.-]/g, '')) || 0;
-            function addClaim(bucket, dol, paid, reserve, incurred) {
+            const seenClaims98 = new Set();
+            function addClaim(bucket, lob, claimNo, dol, paid, reserve, incurred, desc) {
                 const period = periodForDate(dol); if (!period) return;
+                const key = [lob, String(claimNo || '').trim(), String(dol || '').trim(), Math.round(num98(incurred)), String(desc || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0,80)].join('|');
+                if (seenClaims98.has(key)) return;
+                seenClaims98.add(key);
                 if (!bucket[period]) bucket[period] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
-                bucket[period].paid += n(paid); bucket[period].reserve += n(reserve); bucket[period].incurred += n(incurred); bucket[period].claims += 1;
+                bucket[period].paid += num98(paid); bucket[period].reserve += num98(reserve); bucket[period].incurred += num98(incurred); bucket[period].claims += 1;
+                if (num98(incurred) >= 500000 || (lob === 'gl' && num98(incurred) >= 450000)) {
+                    const r = { dol, incurred: moneyFmt(incurred), paid: moneyFmt(paid), status: 'Closed', desc: String(desc || '').trim() };
+                    if (lob === 'gl') out.largeGl.push(r); else out.largeAuto.push(r);
+                }
             }
             function rowsFromBucket(bucket) {
-                return Object.values(bucket).sort((a,b) => b.period.localeCompare(a.period)).slice(0,6).map(r => ({
+                return fillMissingYears98(Object.values(bucket).map(r => ({
                     period:r.period, claims:String(r.claims), exposure:'', paid:Math.round(r.paid).toLocaleString('en-US'), reserve:Math.round(r.reserve).toLocaleString('en-US'), incurred:Math.round(r.incurred).toLocaleString('en-US')
-                }));
+                })), 8);
             }
-            // Primary robust pass: each claim row with DOL and LOB at end.
+            // Robust pass: each claim row with DOL and LOB at end. De-duplicate by claim number/DOL/incurred/description
+            // because some loss runs repeat the same claim in detail and summary sections.
             const glBucket = {}, autoBucket = {};
-            const rowRe = /\b(\d{4,6})\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([^\n]{0,240}?)(?:Closed|CLOSED|Open|OPEN)\s+((?:General\s+Liability|Auto\s+Liability\s*\/\s*APD|Auto\s+Liability|Auto\s+Physical\s+Damage))\b/gi;
+            const rowRe = /\b(\d{4,6})\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([^\n]{0,260}?)(?:Closed|CLOSED|Open|OPEN)\s+((?:General\s+Liability|Auto\s+Liability\s*\/\s*APD|Auto\s+Liability|Auto\s+Physical\s+Damage))\b/gi;
             let m;
             while ((m = rowRe.exec(compact)) !== null) {
                 const lob = m[7].toLowerCase();
-                if (/general/.test(lob)) addClaim(glBucket, m[5], m[2], m[3], m[4]);
-                else if (/auto/.test(lob)) addClaim(autoBucket, m[5], m[2], m[3], m[4]);
+                if (/general/.test(lob)) addClaim(glBucket, 'gl', m[1], m[5], m[2], m[3], m[4], m[6]);
+                else if (/auto/.test(lob)) addClaim(autoBucket, 'auto', m[1], m[5], m[2], m[3], m[4], m[6]);
             }
             out.gl = rowsFromBucket(glBucket);
             out.auto = rowsFromBucket(autoBucket);
-            out.__source = 'loss_file_text_regex';
+            out.__source = 'loss_file_text_regex_dedup98';
             return out;
         }
 
 
+
         function applyLossHistoryFromActiveSubmission(submission) {
             const parsed = parseLossTables85(submission);
-            const fill = (rowsId, rows) => {
+            function ensureLossRows98(rowsId, needed) {
                 const wrap = document.getElementById(rowsId);
-                if (!wrap || !rows || !rows.length) return 0;
-                const domRows = Array.from(wrap.querySelectorAll('.loss-row'));
+                if (!wrap) return [];
+                const addBtnId = rowsId === 'glLossRows' ? 'addGlYear' : 'addAutoYear';
+                const addBtn = document.getElementById(addBtnId);
+                let guard = 0;
+                while (wrap.querySelectorAll('.loss-row').length < needed && addBtn && guard++ < 10) addBtn.click();
+                return Array.from(wrap.querySelectorAll('.loss-row'));
+            }
+            const fill = (rowsId, rows) => {
+                if (!rows || !rows.length) return 0;
+                const domRows = ensureLossRows98(rowsId, rows.length);
                 let count = 0;
                 rows.slice(0, domRows.length).forEach((r, i) => {
                     const row = domRows[i];
                     const inputs = row.querySelectorAll('input');
                     const sel = row.querySelector('select.policy-select');
                     const y = String(r.period || '').match(/(\d{2})\s*-\s*(\d{2})/);
-                    if (sel && y) sel.value = '20' + y[1];
-                    if (inputs[1]) set85(inputs[1], r.claims || '');
+                    if (sel && y) sel.value = String(2000 + parseInt(y[1], 10));
+                    if (inputs[1]) set85(inputs[1], r.claims || '0');
                     if (inputs[0]) set85(inputs[0], r.exposure || '');
-                    if (inputs[2]) set85(inputs[2], r.paid || '');
+                    if (inputs[2]) set85(inputs[2], r.paid || '0');
                     if (inputs[3]) set85(inputs[3], r.reserve || '0');
-                    if (inputs[4]) set85(inputs[4], r.incurred || '');
+                    if (inputs[4]) set85(inputs[4], r.incurred || '0');
+                    if (inputs[5] && r.valuation) set85(inputs[5], r.valuation);
                     count++;
                 });
                 return count;
             };
+            function fillLarge98(containerId, addBtnId, rows) {
+                if (!rows || !rows.length) return 0;
+                const container = document.getElementById(containerId);
+                const addBtn = document.getElementById(addBtnId);
+                if (!container || !addBtn) return 0;
+                let guard = 0;
+                while (container.querySelectorAll('.large-loss-row').length < rows.length && guard++ < 10) addBtn.click();
+                const domRows = Array.from(container.querySelectorAll('.large-loss-row'));
+                rows.slice(0, domRows.length).forEach((r, i) => {
+                    const row = domRows[i];
+                    const inputs = row.querySelectorAll('input');
+                    const sel = row.querySelector('select');
+                    const txt = row.querySelector('textarea');
+                    if (inputs[0]) set85(inputs[0], r.dol || '');
+                    if (inputs[1]) set85(inputs[1], r.incurred || '');
+                    if (inputs[2]) set85(inputs[2], r.paid || '');
+                    if (sel && r.status) sel.value = /open/i.test(r.status) ? 'Open' : 'Closed';
+                    if (txt) set85(txt, r.desc || '');
+                });
+                return Math.min(rows.length, domRows.length);
+            }
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.97 loss history apply:', gl, 'GL rows ·', au, 'Auto rows · source', parsed.__source || 'unknown');
+            const glLarge = fillLarge98('glLargeLossRows', 'addGlLargeLoss', parsed.largeGl);
+            const auLarge = fillLarge98('autoLargeLossRows', 'addAutoLargeLoss', parsed.largeAuto);
+            console.log('[workbench] v8.6.98 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
         }
+
 
         function applyALFleetFromActiveSubmission(submission) {
             const mapping = [
@@ -2066,7 +2170,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
             try { applyPrimaryCoverageCards91(submission); } catch (e) { console.warn('[workbench] v8.6.94 primary cards skipped:', e.message); }
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.97 losses skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.98 losses skipped:', e.message); }
             try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 fleet skipped:', e.message); }
             try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 rater skipped:', e.message); }
             try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.94 lead-excess card skipped:', e.message); }
