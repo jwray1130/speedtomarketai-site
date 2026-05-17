@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.77-input-money-guard-2026-05-16
+  v8.6.78-layerwarn-topbar-2026-05-16
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.77-input-money-guard-2026-05-16';
+window.STM_BUILD = 'v8.6.78-layerwarn-topbar-2026-05-16';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -442,20 +442,21 @@ document.addEventListener('DOMContentLoaded', () => {
                             // #layerType control instead (with the badge
                             // as a fallback), so it is visible wherever
                             // the layer type itself is visible.
-                            // FIX-PHASE-GO-LIVE-77-LAYERWARN-ALWAYS-VISIBLE-2026-05-16
-                            // v76 anchored this to #layerType, but that
-                            // <select> lives in the Deal Information tab
-                            // pane, which is display:none whenever another
-                            // tab (e.g. Risk & Coverage on the clean demo)
-                            // is active — so the badge was created but
-                            // still never seen. Extension v8.6.76b
-                            // confirmed it remained console-only. Anchor
-                            // to the deal-hero status pill instead: that
-                            // element is in the persistent header OUTSIDE
-                            // all tab panes, so it is visible on every
-                            // tab and every path (demo and real). Keep a
-                            // resilient fallback chain so it always lands
-                            // somewhere visible.
+                            // FIX-PHASE-GO-LIVE-78-LAYERWARN-TOPBAR-2026-05-16
+                            // FOURTH attempt — prior three were wrong about
+                            // the DOM. Verified against workbench.html:
+                            //  - #layerType (v76 anchor) is in #page-deal
+                            //  - .deal-hero / #heroStatusPill (v77 anchor)
+                            //    are ALSO inside #page-deal (lines 161/173),
+                            //    NOT a persistent header — so both got
+                            //    display:none on every non-Deal tab.
+                            // The ONLY genuinely persistent region is
+                            // <header class="topbar"> (line 49), OUTSIDE
+                            // #pageContent, with .topbar-right holding
+                            // #workbenchSubmissionBadge. Anchor the warning
+                            // there and ensure that container is shown, so
+                            // the warning is visible on EVERY tab. Never
+                            // anchor inside #pageContent again.
                             let warn = document.getElementById('stmLayerTypeConflictWarn');
                             if (!warn) {
                                 warn = document.createElement('span');
@@ -463,24 +464,37 @@ document.addEventListener('DOMContentLoaded', () => {
                                 warn.style.cssText = 'display:inline-block;margin-left:10px;'
                                     + 'padding:2px 8px;border-radius:4px;background:#b54708;'
                                     + 'color:#fff;font-size:11px;font-weight:600;'
-                                    + 'vertical-align:middle;';
+                                    + 'vertical-align:middle;white-space:nowrap;';
                             }
-                            const heroPill = document.getElementById('heroStatusPill');
-                            const heroMeta = document.querySelector('.deal-hero-meta');
+                            const topbarRight = document.querySelector('.topbar .topbar-right')
+                                || document.querySelector('.topbar-right');
                             const subBadge = document.getElementById('workbenchSubmissionBadge');
-                            const anchor = heroPill || heroMeta || subBadge;
-                            if (anchor && warn.parentNode !== anchor.parentNode
-                                && warn.parentNode !== anchor) {
-                                if (heroPill && heroPill.parentNode) {
-                                    heroPill.parentNode.insertBefore(warn, heroPill.nextSibling);
-                                } else if (anchor) {
-                                    anchor.appendChild(warn);
-                                }
-                            } else if (anchor && !warn.parentNode) {
-                                if (heroPill && heroPill.parentNode) {
-                                    heroPill.parentNode.insertBefore(warn, heroPill.nextSibling);
-                                } else {
-                                    anchor.appendChild(warn);
+                            const topbar = document.querySelector('header.topbar');
+                            // Guard: the chosen anchor MUST NOT be inside
+                            // #pageContent (the tab-pane container). If it
+                            // is, fall back up the chain until it isn't.
+                            const pageContent = document.getElementById('pageContent');
+                            const isPersistent = (el) =>
+                                el && (!pageContent || !pageContent.contains(el));
+                            let host = null;
+                            if (isPersistent(topbarRight)) host = topbarRight;
+                            else if (isPersistent(subBadge) && subBadge) host = subBadge;
+                            else if (isPersistent(topbar)) host = topbar;
+                            if (host && warn.parentNode !== host) {
+                                host.appendChild(warn);
+                            }
+                            // If we landed on (or next to) the submission
+                            // badge container, make sure that container is
+                            // not display:none — it is hidden when no real
+                            // submission is loaded (e.g. clean demo), which
+                            // would re-hide the warning. Showing it for the
+                            // conflict case is correct: there IS something
+                            // the underwriter must see.
+                            if (subBadge && (host === subBadge
+                                || (host && (host === topbarRight || host === topbar)))) {
+                                const cs = window.getComputedStyle(subBadge);
+                                if (cs && cs.display === 'none') {
+                                    subBadge.style.display = 'inline-flex';
                                 }
                             }
                             warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';

@@ -2506,7 +2506,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.77-input-money-guard',
+    version: 'v8.6.78-layerwarn-topbar',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
