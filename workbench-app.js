@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.93-gl-class-manual-lookup-2026-05-17';
+window.STM_BUILD = 'v8.6.94-tower-date-ui-glrater-fix-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.93 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.94 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
 
@@ -1670,7 +1670,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'base', r.base || '1000');
                 row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
-            console.log('[workbench] v8.6.93 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
+            unlockGlRaterRows94(document);
+            console.log('[workbench] v8.6.94 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -1771,7 +1772,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.93 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.94 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1801,7 +1802,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.93 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.94 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1851,7 +1852,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.93 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.94 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
 
@@ -1909,7 +1910,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     el.classList.add('autofilled-from-platform');
                     return true;
                 } catch (e) {
-                    console.warn('[workbench] v8.6.93 Lead Excess card field skipped:', field, e && e.message);
+                    console.warn('[workbench] v8.6.94 Lead Excess card field skipped:', field, e && e.message);
                     return false;
                 }
             };
@@ -1934,25 +1935,25 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.style.display = '';
             const header = row.querySelector('.limit-entry-header');
             header?.querySelector('.collapse-arrow')?.classList.add('expanded');
-            row.dataset.hydratedFromResolver = 'v8.6.93';
-            console.log('[workbench] v8.6.93 Lead Excess card hydrate:', filled, 'fields', valueMap);
+            row.dataset.hydratedFromResolver = 'v8.6.94';
+            console.log('[workbench] v8.6.94 Lead Excess card hydrate:', filled, 'fields', valueMap);
         }
 
         function applyPrimaryCoverageCards91(submission) {
             // v8.6.91: second-pass binding for visible GL/AL cards. Some cards
             // are rebuilt after the initial Phase 4/7 appliers run; re-apply
             // resolver values late so visible inputs do not remain blank.
-            try { applyGLCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 GL visible card retry skipped:', e.message); }
-            try { applyALCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 AL visible card retry skipped:', e.message); }
+            try { applyGLCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 GL visible card retry skipped:', e.message); }
+            try { applyALCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 AL visible card retry skipped:', e.message); }
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyPrimaryCoverageCards91(submission); } catch (e) { console.warn('[workbench] v8.6.93 primary cards skipped:', e.message); }
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 rater skipped:', e.message); }
-            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.93 lead-excess card skipped:', e.message); }
+            try { applyPrimaryCoverageCards91(submission); } catch (e) { console.warn('[workbench] v8.6.94 primary cards skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 rater skipped:', e.message); }
+            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.94 lead-excess card skipped:', e.message); }
             // Retry after flatpickr/details panels finish initializing.
             setTimeout(() => { try { applyPrimaryCoverageCards91(submission); } catch (_) {} }, 250);
             setTimeout(() => { try { applyPrimaryCoverageCards91(submission); } catch (_) {} }, 900);
@@ -1963,7 +1964,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.93 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.94 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 
@@ -3163,6 +3164,62 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // v8.6.94 — universal coverage-date de-duplication.
+        // Applies to every Primary, Foreign, Lead Excess and Additional Excess
+        // coverage entry, including user-added clones.  Flatpickr creates a
+        // hidden canonical input plus a visible alt input; stale clones could
+        // show both.  This keeps exactly one visible date box per label.
+        function sanitizeLimitDateFields94(root = document) {
+            try {
+                (root || document).querySelectorAll('.limit-details-panel label').forEach(label => {
+                    const canonicalDates = Array.from(label.querySelectorAll('input.limit-date')).filter(inp => !inp.classList.contains('flatpickr-alt-input'));
+                    canonicalDates.forEach(canonical => {
+                        const instanceAlt = canonical._flatpickr && canonical._flatpickr.altInput;
+                        const siblingAlts = Array.from(label.querySelectorAll('input.flatpickr-alt-input'));
+                        const keepAlt = instanceAlt || siblingAlts[0] || null;
+                        siblingAlts.forEach(alt => { if (alt !== keepAlt) alt.remove(); });
+                        if (keepAlt) {
+                            canonical.style.display = 'none';
+                            canonical.setAttribute('aria-hidden', 'true');
+                            canonical.tabIndex = -1;
+                            keepAlt.classList.add('limit-date-visible');
+                            keepAlt.style.display = '';
+                            if (!keepAlt.placeholder && canonical.placeholder) keepAlt.placeholder = canonical.placeholder;
+                        } else {
+                            canonical.style.display = '';
+                            canonical.removeAttribute('aria-hidden');
+                            canonical.tabIndex = 0;
+                        }
+                    });
+                });
+            } catch (e) {
+                console.warn('[workbench] v8.6.94 date de-dupe skipped:', e && e.message);
+            }
+        }
+
+        // v8.6.94 — GL rater rows must remain editable even after AI/autofill.
+        // Autofill is a starting point, not a lock.  This removes any accidental
+        // readonly/disabled state from all class-code rows and keeps pointer
+        // interaction enabled for rows seeded by the AI and rows added manually.
+        function unlockGlRaterRows94(root = document) {
+            try {
+                const tbl = (root || document).querySelector ? (root || document).querySelector('#classTerritoryTable') : document.getElementById('classTerritoryTable');
+                if (!tbl) return;
+                tbl.querySelectorAll('input, select, textarea').forEach(el => {
+                    el.disabled = false;
+                    el.readOnly = false;
+                    el.removeAttribute('disabled');
+                    el.removeAttribute('readonly');
+                    el.style.pointerEvents = 'auto';
+                    el.tabIndex = 0;
+                    el.dataset.editable = 'true';
+                });
+                tbl.classList.add('gl-rater-editable');
+            } catch (e) {
+                console.warn('[workbench] v8.6.94 GL rater unlock skipped:', e && e.message);
+            }
+        }
+
         function isHidden(el) {
             for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
                 if (n.classList?.contains('is-hidden')) return true;
@@ -3285,6 +3342,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             initLimitDateInputs(newEntry);
+            sanitizeLimitDateFields94(newEntry);
             recordHistory('Coverage added', getCoverageName(newEntry));
             recalcMEP();
             // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14: return the clone
@@ -3338,6 +3396,7 @@ document.addEventListener('DOMContentLoaded', () => {
             riskLimitsSection.dataset.limitsWired = '1';
 
             initLimitDateInputs(riskLimitsSection);
+            sanitizeLimitDateFields94(riskLimitsSection);
 
             riskLimitsSection.addEventListener('click', e => {
                 const collapseArrow = e.target.closest('.collapse-arrow');
@@ -3473,6 +3532,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupAddCoverageDropdowns();
         applyLayerTypeToLimits();
         setupLayerTypeLimitsReset();
+        sanitizeLimitDateFields94(document);
 
         /* ============================================================
            PHASE 16 — GL EXPOSURE RATER (Class Territory Table)
@@ -3526,7 +3586,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 tbody.appendChild(tr);
 
-                // v8.6.93 — manual GL class-code lookup.
+                // v8.6.94 — manual GL class-code lookup.
                 // This makes the rater work both ways: AI can seed rows, and an
                 // underwriter can type a class code manually and get the stored
                 // description + exposure/rating basis without re-running the pipeline.
@@ -3608,11 +3668,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Build 5 default empty rows
             for (let i = 0; i < 5; i++) makeRow();
+            unlockGlRaterRows94(document);
 
             // Wire Add / Remove Row buttons
             const addBtn = document.getElementById('glRaterAddRow');
             const removeBtn = document.getElementById('glRaterRemoveRow');
-            if (addBtn) addBtn.addEventListener('click', () => { makeRow(); recalcGLRater(); });
+            if (addBtn) addBtn.addEventListener('click', () => { makeRow(); unlockGlRaterRows94(document); recalcGLRater(); });
             if (removeBtn) removeBtn.addEventListener('click', () => {
                 if (tbody.children.length > 1) {
                     tbody.lastElementChild.remove();
@@ -3626,6 +3687,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tbody.innerHTML = '';
                 rowSeq = 0;
                 for (let i = 0; i < 5; i++) makeRow();
+            unlockGlRaterRows94(document);
                 recalcGLRater();
             });
 
@@ -3704,7 +3766,7 @@ document.addEventListener('DOMContentLoaded', () => {
            This section ports the workbook's Rating Worksheet V2 behavior:
            - hazard grade populates the same GL/Other factor arrays used by VBA
            - primary policy DIL premiums feed the first $1M ground-up premium
-           - the ground-up curve follows the Excel row breakpoints through $110M
+           - the ground-up curve follows the Excel row breakpoints through $500M
            - tower layers price from the selected limit and attachment geometry
            - high excess rows activate for >$25M limits or >$100M top-of-stack
            ============================================================ */
@@ -3714,7 +3776,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!section || !document.getElementById('groundUpTbl')) return;
 
             const ONE_M = 1000000;
-            const MAX_GU = 110 * ONE_M;
+            const MAX_GU = 500 * ONE_M;
             const HIGH_EXCESS_THRESHOLD = 100 * ONE_M;
             const STANDARD_LIMIT_THRESHOLD = 25 * ONE_M;
 
@@ -3775,7 +3837,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 [16, 6], [21, 7], [26, 8], [51, 9], [76, 10], [101, 11]
             ]);
 
-            const highExcessFactors = [0.70, 0.70, 0.75, 0.75, 0.80, 0.80, 0.80, 0.80, 0.90, 0.90, 0.90, 0.90, 0.95, 0.95];
+            const highExcessFactors = [0.70, 0.70, 0.75, 0.75, 0.80, 0.80, 0.80, 0.80, 0.90, 0.90, 0.90, 0.90, 0.95, 0.95, 0.95, 0.95, 1.00, 1.00, 1.00, 1.00];
             const state = { groundRows: [], visibleGroundRows: [], groundByTop: new Map() };
 
             function getHazardKey() {
@@ -4161,9 +4223,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 highExcessTbody.innerHTML = '';
                 // VBA alignment: C207 = IF(D19>100M,100M,D19); C208:C220
                 // stack from the prior row's limit + attachment.
-                let attach = Math.min(cleanNumber(attachInput?.value), HIGH_EXCESS_THRESHOLD);
-                for (let i = 0; i < 14; i += 1) {
-                    addHighExcessRow(25 * ONE_M, attach, highExcessFactors[i] || 0.95, i < 4, false);
+                let attach = cleanNumber(attachInput?.value);
+                for (let i = 0; i < 20; i += 1) {
+                    addHighExcessRow(25 * ONE_M, attach, highExcessFactors[i] || 1.00, i < 4, false);
                     attach += 25 * ONE_M;
                 }
                 recalcInternalRater();
@@ -4172,7 +4234,7 @@ document.addEventListener('DOMContentLoaded', () => {
             function addHighExcessRow(limit = 25 * ONE_M, attachment = null, selectedFactor = null, active = true, doRecalc = true) {
                 const rowCount = highExcessTbody.querySelectorAll('tr').length;
                 const attach = attachment == null
-                    ? Math.min(cleanNumber(attachInput?.value), HIGH_EXCESS_THRESHOLD) + (rowCount * 25 * ONE_M)
+                    ? cleanNumber(attachInput?.value) + (rowCount * 25 * ONE_M)
                     : attachment;
                 const factor = selectedFactor == null ? (highExcessFactors[rowCount] || 0.95) : selectedFactor;
                 const tr = document.createElement('tr');
@@ -4210,7 +4272,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const show = shouldShowHighExcess();
                 if (highExcessCard) highExcessCard.style.display = show ? '' : 'none';
                 if (!show) return;
-                let stackedAttachment = Math.min(cleanNumber(attachInput?.value), HIGH_EXCESS_THRESHOLD);
+                let stackedAttachment = cleanNumber(attachInput?.value);
                 highExcessTbody.querySelectorAll('tr').forEach(tr => {
                     const active = tr.querySelector('[data-he="active"]')?.checked;
                     tr.classList.toggle('is-selected-layer', Boolean(active));

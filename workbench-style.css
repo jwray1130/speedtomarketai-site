@@ -5483,3 +5483,50 @@ header.topbar .brand-text {
     outline: 1px solid rgba(201, 168, 76, 0.45);
     box-shadow: 0 0 0 1px rgba(201, 168, 76, 0.18) inset;
 }
+
+
+/* v8.6.94 — coverage date de-duplication across every Primary / Foreign / Excess card.
+   If flatpickr creates an alt input, the canonical .limit-date must not also show. */
+.limit-details-panel input.limit-date.flatpickr-input:not(.flatpickr-alt-input),
+.limit-details-panel input.limit-date[aria-hidden="true"] {
+    display: none !important;
+}
+.limit-details-panel input.flatpickr-alt-input.limit-date-visible {
+    display: block !important;
+    width: 100%;
+}
+
+/* v8.6.94 — GL rater autofill remains editable. */
+#classTerritoryTable input,
+#classTerritoryTable select,
+#classTerritoryTable textarea {
+    pointer-events: auto !important;
+    user-select: text;
+}
+#classTerritoryTable .autofilled-from-platform {
+    pointer-events: auto !important;
+}
+#classTerritoryTable input:disabled,
+#classTerritoryTable select:disabled,
+#classTerritoryTable textarea:disabled,
+#classTerritoryTable input[readonly] {
+    opacity: 1;
+    cursor: text;
+}
+
+/* v8.6.94 — Summary sidebar paper value: readable multi-line text, no ugly autofill box. */
+#paperTxt {
+    display: block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    line-height: 1.35;
+    text-align: right;
+}
+#paperTxt.autofilled-from-platform {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    color: var(--text) !important;
+}

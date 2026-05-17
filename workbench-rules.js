@@ -3810,7 +3810,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.93-gl-class-manual-lookup',
+    version: 'v8.6.94-tower-date-ui-glrater-fix',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
