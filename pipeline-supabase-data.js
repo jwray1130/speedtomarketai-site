@@ -906,6 +906,17 @@ async function sbHydrate() {
     // when STATE was populated).
     if (typeof renderQueueTable === 'function') renderQueueTable();
     if (typeof updateQueueKpi === 'function') updateQueueKpi();
+    // v8.7.08: if this page load came from Workbench with
+    // /platform?submission=<id>#submission or #documents, hydrate that
+    // submission now that STATE.submissions is populated. This restores the
+    // exact Submission/File Manager context without requiring a manual row click.
+    try {
+      if (typeof window.applyPlatformRouteSubmission8708 === 'function') {
+        await window.applyPlatformRouteSubmission8708('sbHydrate');
+      }
+    } catch (routeErr) {
+      console.warn('[route] submission context restore failed:', routeErr);
+    }
 
     // Settings → carrier guideline + model prefs.
     const settings = await sbLoadSettings();

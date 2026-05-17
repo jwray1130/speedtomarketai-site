@@ -3814,7 +3814,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.06-universal-system-switcher',
+    version: 'v8.7.08-route-context-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

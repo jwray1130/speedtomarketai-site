@@ -5,13 +5,13 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.06-universal-system-switcher-2026-05-17';
+window.STM_BUILD = 'v8.7.08-route-context-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Start Helper Functions & Setup ---
 
-    // v8.7.06 — Universal System Switcher for Workbench.
+    // v8.7.08 — Universal System Switcher for Workbench.
     // Mirrors the Platform dropdown. It only navigates between shell systems;
     // it does not save, quote, bind, run pipeline, or mutate account data.
     function getWorkbenchSubmissionId8706() {
@@ -38,8 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
         if (target === 'workbench') return;
         if (target === 'queue')      { window.location.href = '/platform#queue'; return; }
-        if (target === 'submission' || target === 'pipeline') { window.location.href = '/platform#submission'; return; }
-        if (target === 'documents' || target === 'filemanager' || target === 'files') { window.location.href = '/platform#documents'; return; }
+        // v8.7.08: preserve the active submission when jumping back from
+        // Workbench to the Platform Submission or File Manager surfaces.  In
+        // v8.7.06/v8.7.07 the suffix was computed but never used, so a fresh
+        // /platform load could open File Manager with no active submission
+        // context and show all documents or a blank pipeline until the user
+        // manually selected the row again.
+        if (target === 'submission' || target === 'pipeline') { window.location.href = '/platform' + suffix + '#submission'; return; }
+        if (target === 'documents' || target === 'filemanager' || target === 'files') { window.location.href = '/platform' + suffix + '#documents'; return; }
         if (target === 'admin')      { window.location.href = '/platform#admin'; return; }
     }
     function wireUniversalSystemNav8706() {

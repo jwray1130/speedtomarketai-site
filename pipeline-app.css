@@ -3899,7 +3899,7 @@ body:not(.docs-fullwidth) main {
 }
 
 
-/* v8.7.06 — Universal System Switcher
+/* v8.7.08 — Universal System Switcher
    One cross-system control in the same topbar location on Platform,
    Document Workspace, and Workbench. Scoped class names avoid touching
    File Manager tags/classification or Workbench form controls. */
@@ -3974,4 +3974,16 @@ body:not(.docs-fullwidth) main {
 @media (max-width: 1120px) {
   .stm-system-nav-label { display: none; }
   .stm-system-nav-btn { padding: 6px 10px; }
+}
+
+/* v8.7.08 — Universal switcher cleanup/performance
+   The Systems dropdown is now the only cross-system launcher. Hide legacy
+   one-off shortcut pills if an older cached DOM or copied template still
+   contains them, so Workbench/Platform does not appear twice in the topbar. */
+.topbar-workbench-btn,
+.topbar-platform-btn {
+  display: none !important;
+}
+.stm-system-nav-menu button {
+  will-change: background-color, color;
 }

@@ -248,7 +248,7 @@
     </div>
   </div>
   <div class="topbar-right">
-    <!-- v8.7.06 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
+    <!-- v8.7.08 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
     <div class="stm-system-nav" data-system-nav>
       <button type="button" class="stm-system-nav-btn" data-system-nav-toggle aria-haspopup="menu" aria-expanded="false" title="Switch Speed to Market AI system">
         <span class="stm-system-nav-icon">↔</span>
@@ -263,21 +263,7 @@
         <button type="button" role="menuitem" data-system-target="admin">Admin</button>
       </div>
     </div>
-    <!-- WORKBENCH LAUNCHER — jumps to the standalone /workbench surface so
-         Justin can iterate on quote/bind/issue UI without going through the
-         queue. Sits at the front of the right-side group so it reads as a
-         prominent action, not a peer of the Queue/Submission/Admin view
-         tabs on the left. Real platform→workbench data handoff doesn't
-         exist yet; this is purely a navigation shortcut while the bridge
-         is still demo-only. Removable in one line once a contextual
-         "Open in Workbench" button is added to the Decision pane. -->
-    <a href="/workbench" class="topbar-workbench-btn" title="Open the underwriting workbench">
-      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path d="M3 5h11M3 10h11M3 15h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        <path d="M14 12l4 3-4 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span>Workbench</span>
-    </a>
+    <!-- v8.7.08: Workbench is now reached only through the universal Systems dropdown. -->
     <!-- VERSION BADGE — always visible across all views. Populated at runtime
          by app.js from window.STM_BUILD. Click to copy the full build string.
          If this badge ever shows an unexpected version after a Vercel deploy,
@@ -709,7 +695,7 @@
           </div>
 
           <div class="topbar-right">
-            <!-- v8.7.06 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
+            <!-- v8.7.08 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
             <div class="stm-system-nav" data-system-nav>
               <button type="button" class="stm-system-nav-btn" data-system-nav-toggle aria-haspopup="menu" aria-expanded="false" title="Switch Speed to Market AI system">
                 <span class="stm-system-nav-icon">↔</span>

@@ -3321,7 +3321,7 @@ body:not(.docs-fullwidth) #docs-view-root .modal-backdrop {
 }
 
 
-/* v8.7.06 — Universal System Switcher in Document Workspace topbar */
+/* v8.7.08 — Universal System Switcher in Document Workspace topbar */
 #docs-view-root .stm-system-nav { position: relative; display: inline-flex; align-items: center; z-index: 120; }
 #docs-view-root .stm-system-nav-btn {
   display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px;

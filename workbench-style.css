@@ -5553,7 +5553,7 @@ header.topbar .brand-text {
 }
 
 
-/* v8.7.06 — Universal System Switcher
+/* v8.7.08 — Universal System Switcher
    One cross-system control in the same topbar location on Platform,
    Document Workspace, and Workbench. Scoped class names avoid touching
    File Manager tags/classification or Workbench form controls. */
@@ -5628,4 +5628,11 @@ header.topbar .brand-text {
 @media (max-width: 1120px) {
   .stm-system-nav-label { display: none; }
   .stm-system-nav-btn { padding: 6px 10px; }
+}
+
+/* v8.7.08 — Universal switcher cleanup. Systems dropdown replaces the
+   legacy Platform shortcut pill on the Workbench topbar. */
+.topbar-workbench-btn,
+.topbar-platform-btn {
+  display: none !important;
 }

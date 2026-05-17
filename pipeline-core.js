@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.06-universal-system-switcher-2026-05-17';
+window.STM_BUILD = 'v8.7.08-route-context-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -6732,7 +6732,7 @@ function normalizePlatformShell8705(reason) {
 
 
 
-// v8.7.06 — Universal System Switcher
+// v8.7.08 — Universal System Switcher
 // One dropdown in a consistent topbar location can move between Queue,
 // Submission Pipeline, File Manager, Workbench, and Admin. The function is
 // intentionally shell-only: it does not run pipeline, upload, save, clear tags,
@@ -6754,11 +6754,51 @@ function openWorkbenchForActiveSubmission8706() {
   const sid = getActiveSubmissionId8706();
   window.location.href = sid ? '/workbench?submission=' + encodeURIComponent(sid) : '/workbench';
 }
+
+// v8.7.08 — platform route-context recovery.  When Workbench sends users back
+// to /platform?submission=<id>#submission or #documents, a full Platform page
+// load starts with STATE.activeSubmissionId empty until Supabase hydration
+// completes.  This helper is called after hydrate so the target submission is
+// rehydrated automatically before showing the Submission/File Manager surface.
+function getRouteSubmissionId8708() {
+  try {
+    const params = new URLSearchParams(location.search || '');
+    return params.get('submission') || params.get('submissionId') || '';
+  } catch (e) { return ''; }
+}
+async function applyPlatformRouteSubmission8708(reason) {
+  const sid = getRouteSubmissionId8708();
+  const h = String(location.hash || '').replace(/^#/, '').toLowerCase();
+  if (!sid || !['submission','documents','filemanager'].includes(h)) return false;
+  if (!Array.isArray(STATE.submissions) || !STATE.submissions.find(s => s.id === sid)) return false;
+  if (STATE.activeSubmissionId !== sid || !STATE.pipelineDone) {
+    if (typeof rehydrateSubmission === 'function') await rehydrateSubmission(sid);
+  }
+  if (h === 'documents' || h === 'filemanager') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('docs', { fastNav: true });
+  } else if (h === 'submission') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('pipe');
+  }
+  return true;
+}
+window.applyPlatformRouteSubmission8708 = applyPlatformRouteSubmission8708;
 function navigateSystem8706(target) {
+  // v8.7.08 — system switching should feel instantaneous.  This is still a
+  // shell-only navigation helper: it never runs pipeline, saves, uploads, clears
+  // tags, quotes, or binds.  We close the dropdown synchronously, then render
+  // the requested surface before any heavier document refresh/enrichment work.
   target = String(target || '').toLowerCase();
   try { closeUniversalSystemNav8706(); } catch (e) {}
+
+  const current = document.body.classList.contains('docs-fullwidth') ? 'documents'
+    : document.getElementById('view-admin')?.classList.contains('active') ? 'admin'
+    : document.getElementById('view-submission')?.classList.contains('active') ? 'submission'
+    : 'queue';
+
   if (target === 'queue') {
-    if (typeof switchView === 'function') switchView('queue');
+    if (current !== 'queue' && typeof switchView === 'function') switchView('queue');
     history.replaceState(null, '', '/platform#queue');
     return;
   }
@@ -6770,12 +6810,12 @@ function navigateSystem8706(target) {
   }
   if (target === 'documents' || target === 'filemanager' || target === 'files') {
     if (typeof switchView === 'function') switchView('submission');
-    if (typeof showStage === 'function') showStage('docs');
+    if (typeof showStage === 'function') showStage('docs', { fastNav: true });
     history.replaceState(null, '', '/platform#documents');
     return;
   }
   if (target === 'admin') {
-    if (typeof switchView === 'function') switchView('admin');
+    if (current !== 'admin' && typeof switchView === 'function') switchView('admin');
     history.replaceState(null, '', '/platform#admin');
     return;
   }
@@ -7060,7 +7100,8 @@ async function startNewSubmission() {
   switchView('submission');
 }
 
-function showStage(stage) {
+function showStage(stage, opts) {
+  opts = opts || {};
   // Remove active state from all three stage tabs first; explicit assignment is
   // simpler than tracking which one is active. Same for the three stage containers.
   document.getElementById('stageTabPipe').classList.remove('active');
@@ -7099,32 +7140,39 @@ function showStage(stage) {
     // sees only that submission's docs, and any new uploads get linked.
     // If there's no active submission (cross-account browsing), we pass
     // (null, null) which clears scope and shows everything.
-    if (window.docsView && typeof window.docsView.setSubmissionContext === 'function') {
-      const sid = STATE && STATE.activeSubmissionId ? STATE.activeSubmissionId : null;
-      let title = null;
-      if (sid && STATE.submissions) {
-        const rec = STATE.submissions.find(s => s.id === sid);
-        if (rec) {
-          // Prefer account_name; fall back to title or broker. Keep it short.
-          title = rec.account_name || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
+    const activateDocumentsView8707 = () => {
+      if (window.docsView && typeof window.docsView.setSubmissionContext === 'function') {
+        const sid = STATE && STATE.activeSubmissionId ? STATE.activeSubmissionId : null;
+        let title = null;
+        if (sid && STATE.submissions) {
+          const rec = STATE.submissions.find(s => s.id === sid);
+          if (rec) {
+            // Prefer account_name; fall back to title or broker. Keep it short.
+            title = rec.account_name || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
+          }
+        }
+        window.docsView.setSubmissionContext(sid, title);
+        // v8.7.08: the Systems dropdown should switch surfaces first, then
+        // refresh cloud/document metadata.  Running the cloud refresh in the
+        // same click turn made the dropdown feel frozen on large accounts.
+        if (typeof window.docsView.refreshFromCloud === 'function') {
+          const doRefresh = () => window.docsView.refreshFromCloud({
+            reason: opts.fastNav ? 'showStage_docs_fastNav' : 'showStage_docs',
+            submissionId: sid,
+          }).catch(err => console.warn('[docs] showStage refresh failed:', err));
+          if (opts.fastNav) setTimeout(doRefresh, 75);
+          else doRefresh();
         }
       }
-      window.docsView.setSubmissionContext(sid, title);
-      // v8.5: explicitly trigger a cloud refresh on every showStage('docs').
-      // setSubmissionContext also triggers hydrate when local state is empty
-      // for the submission, but this is the belt-and-suspenders path: it
-      // also catches the cross-submission browse case (sid === null) and
-      // any case where local state is stale from edits made elsewhere.
-      if (typeof window.docsView.refreshFromCloud === 'function') {
-        window.docsView.refreshFromCloud({
-          reason: 'showStage_docs',
-          submissionId: sid,
-        }).catch(err => console.warn('[docs] showStage refresh failed:', err));
+      // Notify the docs view it's now visible (lets it lazy-init annotations,
+      // canvas resize, and re-measure thumb scaling for any docs already loaded).
+      if (typeof window.docsViewActivated === 'function') {
+        if (opts.fastNav) requestAnimationFrame(() => window.docsViewActivated());
+        else window.docsViewActivated();
       }
-    }
-    // Notify the docs view it's now visible (lets it lazy-init annotations,
-    // canvas resize, and re-measure thumb scaling for any docs already loaded).
-    if (typeof window.docsViewActivated === 'function') window.docsViewActivated();
+    };
+    if (opts.fastNav) setTimeout(activateDocumentsView8707, 0);
+    else activateDocumentsView8707();
   }
   // Refresh the workbench Documents-tab count badge whenever we navigate.
   // Counts surface the current number of doc rows scoped to the active
