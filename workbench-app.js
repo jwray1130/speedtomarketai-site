@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.78-layerwarn-topbar-2026-05-16
+  v8.6.79-qs-imbalance-guard-2026-05-16
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.78-layerwarn-topbar-2026-05-16';
+window.STM_BUILD = 'v8.6.79-qs-imbalance-guard-2026-05-16';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

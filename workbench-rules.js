@@ -1395,8 +1395,32 @@
     for (const [key, parts] of groups.entries()) {
       // Combined layer limit: prefer an explicit sharedCombinedLimit,
       // else sum the participations (P/O amounts).
-      const combined = parts.find(p => p.sharedCombinedLimit)?.sharedCombinedLimit
-        || parts.reduce((s, p) => s + (p.decLimit || 0), 0);
+      const _explicitCombined = parts.find(p => p.sharedCombinedLimit)?.sharedCombinedLimit;
+      const _sumParticipations = parts.reduce((s, p) => s + (p.decLimit || 0), 0);
+      const combined = _explicitCombined || _sumParticipations;
+      // FIX-PHASE-GO-LIVE-79-QS-IMBALANCE-2026-05-16
+      // Extension v8.6.78 audit (HIGH, F1): an explicit
+      // sharedCombinedLimit was trusted unconditionally even when it
+      // contradicted the sum of the group's participations (e.g.
+      // combined=15M but 5M+5M=10M participations, or combined=8M which
+      // is LESS than 10M of participations). Every other tower anomaly
+      // (gap, overlap, contradictory attachment, unreadable limit)
+      // raises status:'????' + anyUncertain so the underwriter verifies
+      // — QS imbalance was the one hole. A stated combined that does not
+      // reconcile with the participations is internally contradictory
+      // data (parser error, LLM hallucination, stale dec) and must be
+      // surfaced, not silently bound against. Tolerance: 1% of the
+      // larger magnitude (covers rounding) AND require >1 participant
+      // with a positive sum (a single-participant group has nothing to
+      // reconcile against — that is a legitimately stated combined).
+      let _qsImbalance = false;
+      if (_explicitCombined != null && isFinite(_explicitCombined)
+          && parts.length > 1 && _sumParticipations > 0) {
+        const _tol = Math.max(_explicitCombined, _sumParticipations) * 0.01;
+        if (Math.abs(_explicitCombined - _sumParticipations) > _tol) {
+          _qsImbalance = true;
+        }
+      }
       const att = parts.map(p => p.statedAttachment).find(a => a != null);
       const anyLead = parts.some(p => p.forcedKind === 'lead'
         || (p.forcedKind !== 'excess' && p.schedulesPrimary && (p.statedAttachment === 0 || p.statedAttachment == null)));
@@ -1415,7 +1439,8 @@
         })),
         shared: true,
         sharedGroupKey: key,
-        status: 'ok',
+        status: _qsImbalance ? '????' : 'ok',
+        uncertaintyReason: _qsImbalance ? 'qs_combined_mismatch' : undefined,
         sources: parts.map(p => p.id),
         // FIX-PHASE-GO-LIVE-73-TOWER-ECONOMICS-2026-05-16
         // Shared layer: dates from any participant that has them;
@@ -1688,6 +1713,24 @@
     // Final classification of anything still unresolved.
     let anyUncertain = false;
     for (const r of rungs) {
+      // FIX-PHASE-GO-LIVE-79-INVERTED-DATES-2026-05-16
+      // Extension v8.6.78 audit (MEDIUM, F2): a rung whose
+      // expirationDate precedes its effectiveDate was returned with
+      // status:'ok' / anyUncertain:false, while every other anomaly
+      // (gap, overlap, QS imbalance, unreadable limit) raises ????.
+      // Inverted dates are internally contradictory data — flag them
+      // the same way so the underwriter verifies. Only when BOTH dates
+      // parse to valid timestamps (don't penalize a missing date).
+      if (r.effectiveDate && r.expirationDate) {
+        const _ef = Date.parse(r.effectiveDate);
+        const _ex = Date.parse(r.expirationDate);
+        if (isFinite(_ef) && isFinite(_ex) && _ex < _ef) {
+          r.status = '????';
+          if (!r.uncertaintyReason) r.uncertaintyReason = 'inverted_dates';
+          anyUncertain = true;
+          continue;
+        }
+      }
       if (r.kind === 'lead') {
         if (r.limit == null || r.limit <= 0) { r.status = '????'; r.uncertaintyReason = 'unreadable_limit'; anyUncertain = true; }
         else r.status = (r.status === '????') ? r.status : 'ok';
@@ -2506,7 +2549,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.78-layerwarn-topbar',
+    version: 'v8.6.79-qs-imbalance-guard',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
