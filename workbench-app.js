@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.82-workbench-fill-reliability-actual-extraction-2026-05-17';
+window.STM_BUILD = 'v8.6.83-tower-recognition-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -357,6 +357,22 @@ document.addEventListener('DOMContentLoaded', () => {
             initFlatpickr(el);
         });
 
+
+        function updateRealSubmissionBanner(submission) {
+            try {
+                const banner = document.querySelector('.demo-mode-banner');
+                if (!banner || !submission) return;
+                const hasRealSnapshot = !!(submission.snapshot && Object.keys(submission.snapshot.extractions || {}).length);
+                const hasSubmissionId = !!submission.id;
+                if (hasSubmissionId || hasRealSnapshot) {
+                    banner.classList.add('is-real-submission');
+                    banner.innerHTML = '<strong>Live submission loaded from Platform:</strong> values may be extracted, inferred, or review-required. Use badges and the fill report to confirm before quoting.';
+                }
+            } catch (e) {
+                console.warn('[workbench] real-submission banner update skipped:', e && e.message);
+            }
+        }
+
         // FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
         // If the workbench was opened with ?submission=<id> in the URL,
         // wait for the Supabase client + signed-in session to be ready
@@ -566,6 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 window.workbenchActiveSubmission = data;
+                updateRealSubmissionBanner(data);
                 const extractionCount = data.snapshot?.extractions
                     ? Object.keys(data.snapshot.extractions).length
                     : 0;

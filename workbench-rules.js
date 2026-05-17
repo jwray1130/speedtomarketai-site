@@ -3222,7 +3222,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.82-workbench-fill-reliability-actual-extraction',
+    version: 'v8.6.83-tower-recognition-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

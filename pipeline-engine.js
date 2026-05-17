@@ -91,7 +91,7 @@ const FILE_AND_FORGET_TAGS = new Set([
   'Premium Summary', 'Premium Recap', 'Pricing Summary', 'Rate Summary', 'Quote Proposal',
   'PCAR Report', 'CAB Report', 'Crime Score Report', 'Crime Score',
   'SAFER Snapshot', 'SAFER', 'Site Inspection',
-  '???',
+  '???', '????',
 ]);
 
 // ============================================================================
@@ -114,6 +114,7 @@ const FILE_AND_FORGET_TAGS = new Set([
 function classifierToRoute(classifierType, subType, tag) {
   if (!classifierType) return null;
   const t = String(classifierType).trim();
+  if (/^\?{3,4}$/.test(t)) return null;
 
   // File-and-forget: chip-only, no extraction
   if (FILE_AND_FORGET_TAGS.has(t)) return null;
@@ -727,6 +728,7 @@ const CLASSIFIER_TYPES = [
 
   // ── SPECIAL ──────────────────────────────────────────────────────────
   { value: '__no_tag__',        label: 'Don\'t tag (file only, no chip)', bucket: 'SPECIAL' },
+  { value: '????',              label: '???? — needs UW relabel',      bucket: 'SPECIAL' },
   { value: 'unknown',           label: 'Unknown / skip this file',    bucket: 'SPECIAL' },
 ];
 
@@ -2983,6 +2985,208 @@ function detectSubcontractAgreement(file) {
 // in the firing rules below.
 const KNOWN_GL_CLASS_CODES = new Set(['01205','01206','01207','01235','01350','01352','01355','01356','01357','01360','01380','01381','01391','01411','01412','01415','01418','01901','01905','01906','01907','02995','02996','02997','03210','03320','03909','04122','04601','04602','04603','04604','04605','04606','04607','04608','04609','04610','04621','04622','05113','05114','05117','05118','05123','05124','05125','05135','05213','05223','05224','07106','07230','07990','07995','10010','10015','10020','10026','10036','10040','10042','10052','10054','10060','10065','10066','10070','10071','10072','10073','10075','10100','10101','10105','10107','10110','10111','10113','10115','10117','10119','10120','10130','10132','10133','10135','10140','10141','10145','10146','10150','10151','10160','10204','10205','10220','10255','10256','10257','10309','10315','10331','10332','10352','10367','10368','10375','10378','10379','10380','10381','11007','11020','11039','11052','11101','11120','11126','11127','11128','11138','11155','11160','11167','11168','11201','11202','11203','11204','11205','11206','11207','11208','11209','11210','11211','11212','11213','11214','11222','11234','11248','11258','11259','11273','11274','11288','12014','12356','12361','12362','12373','12374','12375','12391','12393','12467','12509','12510','12583','12651','12683','12707','12797','12805','12841','12927','13049','13111','13112','13201','13204','13205','13314','13351','13352','13410','13411','13412','13453','13454','13455','13506','13507','13590','13591','13621','13670','13673','13715','13716','13720','13759','13930','14068','14101','14279','14401','14405','14527','14655','14731','14732','14733','14734','14855','14913','15060','15061','15062','15063','15070','15119','15120','15123','15124','15188','15191','15192','15223','15224','15300','15314','15404','15405','15406','15407','15408','15409','15488','15538','15600','15607','15608','15656','15699','15733','15734','15839','15991','15993','16005','16009','16292','16402','16403','16404','16471','16501','16527','16588','16604','16670','16676','16694','16705','16722','16723','16750','16751','16819','16820','16881','16890','16891','16892','16900','16901','16902','16910','16911','16915','16916','16920','16921','16930','16931','16940','16941','18078','18109','18110','18200','18205','18206','18335','18435','18436','18437','18438','18501','18506','18507','18570','18575','18616','18707','18708','18833','18834','18911','18912','18920','18991','19007','19051','19061','19795','19796','40005','40006','40010','40015','40020','40026','40031','40032','40040','40041','40042','40045','40046','40047','40059','40061','40063','40064','40066','40067','40069','40072','40075','40101','40102','40111','40115','40117','40140','41001','41210','41421','41422','41510','41603','41604','41620','41650','41664','41665','41666','41667','41668','41669','41670','41672','41673','41675','41677','41678','41679','41680','41696','41697','41700','41715','41716','43007','43117','43151','43152','43200','43215','43421','43422','43424','43470','43517','43518','43550','43551','43626','43628','43629','43754','43760','43822','43840','43860','43889','43945','43946','43990','43991','44009','44010','44069','44070','44071','44072','44100','44101','44102','44103','44104','44105','44106','44108','44109','44110','44111','44112','44113','44193','44194','44222','44276','44277','44280','44311','44315','44427','44428','44429','44430','44431','44432','44433','44434','44435','44436','44437','44438','44439','44440','44444','44451','44452','44453','44454','44455','44456','44457','44458','44459','44460','44461','44462','44463','44464','44465','44466','44467','44468','44469','44470','44471','44472','44500','44501','45190','45191','45192','45193','45194','45195','45196','45197','45210','45224','45225','45334','45380','45381','45450','45523','45524','45539','45678','45771','45819','45900','45901','45937','45993','46004','46005','46112','46202','46203','46362','46426','46427','46510','46590','46603','46604','46606','46607','46622','46671','46700','46773','46822','46881','46882','46911','46912','46913','46914','46915','46916','47050','47051','47052','47103','47146','47147','47148','47149','47221','47253','47254','47318','47366','47367','47420','47468','47469','47471','47473','47474','47475','47476','47477','47478','47600','47610','48039','48177','48178','48206','48252','48441','48557','48558','48600','48610','48636','48637','48638','48727','48808','48924','48925','49005','49111','49181','49183','49184','49185','49239','49292','49305','49333','49451','49452','49617','49618','49619','49763','49800','49801','49802','49803','49840','49870','49890','49891','49902','49903','49904','49905','49910','49913','49920','49950','50010','50015','50017','50045','50047','51001','51005','51029','51098','51116','51201','51205','51206','51210','51211','51220','51221','51222','51224','51230','51240','51241','51250','51251','51252','51253','51254','51255','51300','51305','51315','51330','51333','51340','51350','51351','51352','51355','51356','51357','51358','51359','51370','51380','51400','51401','51500','51516','51517','51550','51551','51552','51553','51554','51575','51576','51600','51613','51625','51666','51702','51703','51734','51741','51752','51767','51777','51790','51796','51808','51809','51833','51850','51851','51852','51853','51854','51855','51856','51857','51869','51877','51889','51896','51900','51909','51910','51919','51926','51927','51934','51941','51942','51956','51957','51958','51959','51960','51970','51982','51985','51986','51999','52002','52075','52076','52109','52134','52137','52150','52315','52341','52342','52343','52401','52402','52432','52433','52435','52438','52440','52467','52469','52505','52547','52581','52619','52660','52744','52767','52876','52911','52967','53001','53077','53078','53095','53096','53121','53147','53229','53271','53333','53374','53375','53376','53377','53403','53425','53426','53565','53631','53632','53731','53732','53733','53734','53803','53901','53902','53903','53904','53905','53907','53951','54012','54077','54426','54444','55010','55011','55012','55013','55214','55371','55410','55426','55597','55647','55648','55649','55715','55716','55717','55718','55802','55918','55919','56040','56041','56042','56170','56171','56172','56202','56390','56391','56427','56428','56488','56567','56650','56651','56652','56653','56654','56690','56699','56758','56759','56760','56805','56806','56807','56808','56900','56901','56910','56911','56912','56913','56915','56916','56917','56918','56919','56920','56921','56922','56923','56924','56980','57001','57002','57090','57146','57202','57257','57401','57403','57410','57411','57572','57600','57611','57612','57625','57651','57690','57716','57725','57726','57798','57800','57808','57809','57810','57871','57913','57997','57998','57999','58009','58010','58020','58056','58057','58058','58095','58096','58301','58302','58397','58408','58409','58456','58457','58458','58459','58503','58532','58559','58560','58561','58575','58627','58663','58682','58713','58737','58755','58756','58757','58758','58759','58802','58813','58822','58837','58840','58873','58874','58903','58904','58922','59005','59057','59058','59188','59189','59223','59257','59306','59378','59481','59482','59537','59538','59601','59647','59660','59661','59693','59695','59701','59713','59722','59723','59724','59725','59726','59738','59750','59751','59773','59774','59775','59781','59782','59783','59784','59790','59798','59806','59867','59886','59889','59892','59904','59905','59914','59915','59917','59923','59925','59926','59927','59931','59932','59941','59947','59955','59963','59964','59970','59973','59975','59977','59984','59985','59986','59988','59989','60010','60011','60012','60013','60015','60016','60035','61000','61212','61216','61217','61218','61223','61224','61225','61226','61227','62000','62001','62002','62003','63010','63011','63012','63013','63215','63216','63217','63218','63219','63220','64074','64075','64500','65007','65210','66122','66123','66309','66561','67017','67508','67509','67510','67511','67512','67513','67634','67635','68001','68439','68500','68604','68606','68607','68702','68703','68706','68707','90089','91111','91125','91127','91130','91135','91150','91155','91160','91175','91177','91179','91190','91200','91210','91235','91250','91265','91266','91280','91302','91315','91324','91325','91340','91341','91342','91343','91405','91436','91481','91507','91523','91547','91551','91555','91560','91562','91577','91580','91581','91582','91583','91584','91585','91586','91587','91588','91589','91590','91591','91600','91606','91618','91629','91636','91641','91666','91722','91746','91805','92053','92054','92055','92101','92102','92215','92338','92445','92446','92447','92451','92453','92478','92593','92663','93166','93167','93169','94007','94099','94225','94276','94304','94381','94404','94444','94569','94590','94617','94638','95124','95233','95305','95306','95310','95357','95358','95410','95455','95487','95505','95620','95625','95630','95647','95648','96053','96317','96408','96409','96410','96611','96702','96703','96816','96872','96930','97002','97003','97047','97050','97111','97219','97220','97221','97222','97223','97308','97447','97501','97650','97651','97652','97653','97654','97655','98001','98002','98003','98004','98090','98091','98092','98111','98150','98151','98152','98153','98154','98155','98156','98157','98158','98159','98160','98161','98162','98163','98164','98257','98303','98304','98305','98306','98307','98308','98309','98344','98405','98413','98414','98415','98423','98424','98425','98426','98427','98428','98429','98430','98449','98482','98483','98502','98555','98597','98598','98601','98622','98623','98624','98636','98640','98658','98659','98677','98678','98698','98699','98705','98710','98751','98805','98806','98810','98813','98820','98871','98884','98914','98949','98967','98993','99003','99004','99080','99111','99160','99163','99165','99220','99221','99222','99223','99303','99310','99315','99321','99445','99471','99505','99506','99507','99570','99571','99572','99573','99600','99613','99614','99620','99650','99709','99718','99746','99760','99777','99793','99798','99803','99826','99827','99851','99917','99938','99943','99946','99948','99952','99953','99954','99955','99963','99969','99975','99986','99987','99988']);
 
+// ----------------------------------------------------------------------------
+// Tower-position detector helpers (v8.6.83)
+// ----------------------------------------------------------------------------
+// These utilities make the File Manager recognize lead vs higher excess from
+// the document language itself, not from a test-file name or account-specific
+// facts. Core rules mirror Justin's tower diagram:
+//   * Primary policies generally do not have a Schedule of Underlying.
+//   * In-tower umbrella/excess policies do have a Schedule of Underlying.
+//   * A lead umbrella schedules primary coverages directly and attaches at
+//     the base (0 over primary) -> label "Lead $X".
+//   * A higher excess layer schedules the immediately underlying lead/excess
+//     layer -> label "$X xs $Y" where X is this dec-page limit and Y is the
+//     attachment derived from the underlying schedule.
+//   * If the math cannot be resolved to a clean tower position, label "????"
+//     and color it as Underlying for human relabeling.
+function stmParseMoneyToNumber(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  let s = String(v).trim().toLowerCase();
+  if (!s) return null;
+  s = s.replace(/[,$]/g, '').replace(/\s+/g, ' ').trim();
+  let m = s.match(/^([0-9]*\.?[0-9]+)\s*(billion|million|thousand)\b/);
+  if (m) {
+    const base = parseFloat(m[1]);
+    if (!isFinite(base)) return null;
+    return base * (m[2] === 'billion' ? 1e9 : m[2] === 'million' ? 1e6 : 1e3);
+  }
+  m = s.match(/^([0-9]*\.?[0-9]+)\s*(mm|m|k|b)\b/);
+  if (m) {
+    const base = parseFloat(m[1]);
+    if (!isFinite(base)) return null;
+    const mult = m[2] === 'b' ? 1e9 : (m[2] === 'm' || m[2] === 'mm') ? 1e6 : 1e3;
+    return base * mult;
+  }
+  if (/[a-z]/.test(s)) return null;
+  const n = parseFloat(s.replace(/[^0-9.]/g, ''));
+  return isFinite(n) ? n : null;
+}
+
+function stmFormatLayerMoney(n) {
+  n = stmParseMoneyToNumber(n);
+  if (n == null) return null;
+  const abs = Math.abs(n);
+  let val, suffix;
+  if (abs >= 1e9) { val = n / 1e9; suffix = 'B'; }
+  else if (abs >= 1e6) { val = n / 1e6; suffix = 'M'; }
+  else if (abs >= 1e3) { val = n / 1e3; suffix = 'K'; }
+  else { val = n; suffix = ''; }
+  const str = (Math.round(val * 100) / 100).toString()
+    .replace(/\.0+$/, '')
+    .replace(/(\.\d*[1-9])0+$/, '$1');
+  return '$' + str + suffix;
+}
+
+function stmFindFirstMoneyAfter(text, patterns) {
+  const src = String(text || '');
+  for (const pat of patterns) {
+    const re = new RegExp(pat + '[^$0-9]{0,160}(\\$\\s*[0-9][0-9,]*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]+)?\\s*(?:m|mm|million|k|thousand|b|billion)\\b)', 'i');
+    const m = src.match(re);
+    if (m) {
+      const n = stmParseMoneyToNumber(m[1]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+function stmExtractScheduleOfUnderlyingText(pageText) {
+  const txt = String(pageText || '');
+  const m = txt.match(/SCHEDULE\s+OF\s+UNDERLYING(?:\s+INSURANCE|\s+POLICIES|\s+COVERAGES)?[\s\S]*/i);
+  if (!m) return '';
+  let sched = m[0];
+  const stops = [
+    /ENDORSEMENTS?\s+WITH\s+SCHEDULE\s+INFORMATION/i,
+    /APPLICABLE\s+(?:POLICY\s+)?FORMS/i,
+    /TITLES?\s+OF\s+APPLICABLE\s+FORMS/i,
+    /\n\s*Quote\s+\d/i
+  ];
+  let cut = sched.length;
+  for (const re of stops) {
+    const sm = sched.search(re);
+    if (sm > 0 && sm < cut) cut = sm;
+  }
+  return sched.slice(0, cut);
+}
+
+function stmDetectUnderlyingScheduleKinds(scheduleText) {
+  const s = String(scheduleText || '');
+  const primaryHits = [];
+  if (/COMMERCIAL\s+GENERAL\s+LIABILITY|\bCGL\b|GENERAL\s+LIABILITY\s+INSURANCE/i.test(s)) primaryHits.push('GL');
+  if (/COMMERCIAL\s+AUTOMOBILE|BUSINESS\s+AUTO|AUTO(?:MOBILE)?\s+LIABILITY/i.test(s)) primaryHits.push('AL');
+  if (/EMPLOYERS?\s+LIABILITY|WORKERS?\s+COMP/i.test(s)) primaryHits.push('EL');
+  if (/EMPLOYEE\s+BENEFITS?\s+LIABILITY|\bEBL\b/i.test(s)) primaryHits.push('EBL');
+  if (/AIRCRAFT\s+LIABILITY|AVIATION/i.test(s)) primaryHits.push('Aircraft');
+  if (/LIQUOR\s+LIABILITY|DRAM\s+SHOP/i.test(s)) primaryHits.push('Liquor');
+  if (/GARAGE\s+LIABILITY|GARAGEKEEPERS/i.test(s)) primaryHits.push('Garage');
+  if (/STOP\s+GAP/i.test(s)) primaryHits.push('Stop Gap');
+  if (/FOREIGN\s+(?:GENERAL|AUTO|EMPLOYERS?)\s+LIABILITY|FOREIGN\s+GL|FOREIGN\s+AL|FOREIGN\s+EL/i.test(s)) primaryHits.push('Foreign');
+  const excessHits = [];
+  if (/COMMERCIAL\s+LIABILITY\s+UMBRELLA|COMMERCIAL\s+UMBRELLA|LEAD\s+UMBRELLA|UMBRELLA\s+LIABILITY/i.test(s)) excessHits.push('Umbrella');
+  if (/EXCESS\s+(?:LIABILITY|POLICY)|FOLLOW(?:ING)?[-\s]*FORM\s+EXCESS|\bxs\b/i.test(s)) excessHits.push('Excess');
+  return { primaryHits, excessHits };
+}
+
+function stmExtractLayerLimitFromUmbrellaPage(pageText) {
+  const txt = String(pageText || '');
+  // Prefer the dec-page's own umbrella limit. Do NOT use aggregate, premium,
+  // underlying GL/AL limits, or total premium.
+  return stmFindFirstMoneyAfter(txt, [
+    'Each\\s+Occurrence\\s+Limit\\s*\\(\\s*Liability\\s+Coverage\\s*\\)',
+    'Each\\s+Occurrence\\s+Limit',
+    'Limit\\s+of\\s+Liability',
+    'Liability\\s+Coverage\\s+Limit',
+    'Policy\\s+Limit',
+    'Umbrella\\s+Limit',
+    'Excess\\s+Limit'
+  ]);
+}
+
+function stmExtractAttachmentFromUnderlyingSchedule(scheduleText) {
+  const sched = String(scheduleText || '');
+  if (!sched) return null;
+  // Immediate underlying written as "$5M xs $85M" means the current layer
+  // attaches at $90M (underlying attachment + underlying full limit).
+  const xs = sched.match(/(\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?\s*(?:m|mm|million|k|thousand|b|billion)?|[0-9]+(?:\.[0-9]+)?\s*(?:m|mm|million|k|thousand|b|billion)\b)\s*(?:xs|x\/s|excess\s+of)\s*(\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?\s*(?:m|mm|million|k|thousand|b|billion)?|[0-9]+(?:\.[0-9]+)?\s*(?:m|mm|million|k|thousand|b|billion)\b)/i);
+  if (xs) {
+    const underlyingLimit = stmParseMoneyToNumber(xs[1]);
+    const underlyingAttach = stmParseMoneyToNumber(xs[2]);
+    if (underlyingLimit != null && underlyingAttach != null) return underlyingLimit + underlyingAttach;
+  }
+  // Underlying written as "Lead $5M" or "Umbrella Limit $5,000,000"
+  // without an xs attachment means current layer attaches over that lead.
+  const lead = sched.match(/(?:Lead\s+)?(?:Umbrella|Commercial\s+Umbrella|Commercial\s+Liability\s+Umbrella|Excess\s+Liability)[^$0-9]{0,160}(\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?\s*(?:m|mm|million|k|thousand|b|billion)?|[0-9]+(?:\.[0-9]+)?\s*(?:m|mm|million|k|thousand|b|billion)\b)/i);
+  if (lead) return stmParseMoneyToNumber(lead[1]);
+  return null;
+}
+
+function stmClassifyUmbrellaTowerPosition(pageText) {
+  const txt = String(pageText || '');
+  const hasUmbrellaMarker = /\b(?:COMMERCIAL\s+LIABILITY\s+UMBRELLA|COMMERCIAL\s+UMBRELLA|UMBRELLA\s+(?:LIABILITY|POLICY|DECLARATIONS|COVERAGE)|EXCESS\s+(?:LIABILITY|DECLARATIONS|POLICY)|FOLLOWING\s+FORM\s+EXCESS|FOLLOW(?:-|\s+)FORM)\b/i.test(txt.slice(0, 2500));
+  const schedule = stmExtractScheduleOfUnderlyingText(txt);
+  if (!hasUmbrellaMarker && !schedule) return null;
+
+  const limit = stmExtractLayerLimitFromUmbrellaPage(txt);
+  const kinds = stmDetectUnderlyingScheduleKinds(schedule);
+  const schedulesPrimary = kinds.primaryHits.length > 0;
+  const schedulesExcess = kinds.excessHits.length > 0;
+  const signals = [];
+  if (hasUmbrellaMarker) signals.push('umbrella_or_excess_declarations');
+  if (schedule) signals.push('schedule_of_underlying');
+  if (schedulesPrimary) signals.push('schedules_primary_' + kinds.primaryHits.join('_'));
+  if (schedulesExcess) signals.push('schedules_excess_' + kinds.excessHits.join('_'));
+  if (limit != null) signals.push('dec_limit_' + stmFormatLayerMoney(limit));
+
+  if (limit == null || !schedule) {
+    return {
+      tag: '????', subType: 'EXCESS_UNKNOWN', confidence: 0.66,
+      signals: signals.concat(limit == null ? ['missing_dec_limit'] : [], !schedule ? ['missing_schedule_of_underlying'] : []),
+      reasoning: 'Umbrella/excess language present but layer limit or Schedule of Underlying could not be resolved.'
+    };
+  }
+
+  // Lead: schedules primary coverages directly and no underlying excess.
+  if (schedulesPrimary && !schedulesExcess) {
+    return {
+      tag: 'Lead ' + stmFormatLayerMoney(limit),
+      subType: 'LEAD',
+      confidence: 0.99,
+      signals: signals.concat(['lead_schedules_primary_coverages']),
+      limit, attachment: 0, schedulesPrimary: true,
+      reasoning: 'Lead umbrella/excess: dec page shows own limit and Schedule of Underlying lists primary coverages directly.'
+    };
+  }
+
+  // Higher excess: schedules another excess/umbrella beneath. Attachment is
+  // derived from the immediately underlying layer shown on the Schedule.
+  if (schedulesExcess) {
+    const attachment = stmExtractAttachmentFromUnderlyingSchedule(schedule);
+    if (attachment != null) {
+      return {
+        tag: stmFormatLayerMoney(limit) + ' xs ' + stmFormatLayerMoney(attachment),
+        subType: 'EXCESS',
+        confidence: 0.97,
+        signals: signals.concat(['attachment_' + stmFormatLayerMoney(attachment)]),
+        limit, attachment, schedulesPrimary: false,
+        reasoning: 'Higher excess: Schedule of Underlying lists the immediately underlying excess/umbrella layer.'
+      };
+    }
+    return {
+      tag: '????', subType: 'EXCESS_UNKNOWN', confidence: 0.68,
+      signals: signals.concat(['unable_to_compute_attachment_from_schedule']),
+      reasoning: 'Excess/umbrella schedule present but attachment could not be derived cleanly from the immediately underlying layer.'
+    };
+  }
+
+  return {
+    tag: '????', subType: 'EXCESS_UNKNOWN', confidence: 0.60,
+    signals: signals.concat(['schedule_does_not_identify_primary_or_excess_underlying']),
+    reasoning: 'Schedule of Underlying exists but does not clearly identify primary coverages or an immediately underlying excess/umbrella layer.'
+  };
+}
+
 function detectLiabilityDecPages(file) {
   const pageTexts = file && file.pageTexts;
   if (!Array.isArray(pageTexts) || pageTexts.length === 0) return null;
@@ -3011,8 +3215,10 @@ function detectLiabilityDecPages(file) {
     const pageNum = i + 1;
     const headerZone = pageText.slice(0, 1500);
 
-    // Convenience flag — what's already been detected
+    // Convenience flags — what's already been detected
     const has = (t) => detected.some(d => d.tag === t);
+    const hasTowerLayer = () => detected.some(d => /^(?:Lead\s+\$|\$.*\s+xs\s+\$|\?\?\?\?)$/i.test(d.tag || '') ||
+      ['LEAD','EXCESS','EXCESS_UNKNOWN','QUOTA_SHARE'].includes(String(d.subType || '').toUpperCase()));
 
     // ── DEC PAGE CHECKS (priority — these have highest info content) ──
     //
@@ -3050,16 +3256,36 @@ function detectLiabilityDecPages(file) {
     const signals = [];
 
     if (isDecPage && !isCoverageSummaryPage) {
-      if (hasUmbrella && !has('Excess T&C')) {
-        tag = 'Excess T&C';
-        subType = 'EXCESS';
-        signals.push('umbrella_or_excess_in_header');
-        if (hasUnderlying) signals.push('schedule_of_underlying');
-      } else if (hasUnderlying && (hasGL || hasAL) && !has('Excess T&C')) {
-        tag = 'Excess T&C';
-        subType = 'EXCESS';
-        signals.push('schedule_of_underlying_disambiguates');
-        signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
+      if (hasUmbrella && !hasTowerLayer()) {
+        const towerPos = stmClassifyUmbrellaTowerPosition(pageText);
+        if (towerPos) {
+          tag = towerPos.tag;
+          subType = towerPos.subType;
+          signals.push.apply(signals, towerPos.signals || []);
+          if (towerPos.reasoning) signals.push('tower_position_resolved');
+          var pageTowerConfidence = towerPos.confidence;
+        } else {
+          tag = '????';
+          subType = 'EXCESS_UNKNOWN';
+          signals.push('umbrella_or_excess_in_header');
+          signals.push('tower_position_unresolved');
+          var pageTowerConfidence = 0.60;
+        }
+      } else if (hasUnderlying && (hasGL || hasAL) && !hasTowerLayer()) {
+        const towerPos = stmClassifyUmbrellaTowerPosition(pageText);
+        if (towerPos) {
+          tag = towerPos.tag;
+          subType = towerPos.subType;
+          signals.push.apply(signals, towerPos.signals || []);
+          signals.push('schedule_of_underlying_disambiguates');
+          var pageTowerConfidence = towerPos.confidence;
+        } else {
+          tag = '????';
+          subType = 'EXCESS_UNKNOWN';
+          signals.push('schedule_of_underlying_disambiguates');
+          signals.push(hasGL ? 'gl_marker_in_header' : 'al_marker_in_header');
+          var pageTowerConfidence = 0.60;
+        }
       } else if (hasGL && !has('GL Quote')) {
         tag = 'GL Quote';
         subType = 'GL';
@@ -3270,6 +3496,7 @@ function detectLiabilityDecPages(file) {
       subType: subType,
       startPage: pageNum,
       signals: signals,
+      confidence: (typeof pageTowerConfidence === 'number' ? pageTowerConfidence : undefined),
     });
   }
 
@@ -3293,7 +3520,7 @@ function detectLiabilityDecPages(file) {
       subType: d.subType,
       primary_bucket: 'QUOTES_UNDERLYING',
       section_hint: sectionHint,
-      confidence: 0.92,
+      confidence: d.confidence || 0.92,
       reasoning: 'Per-page scan: ' + d.tag + ' page found at page ' + d.startPage + ' (' + d.signals.join(' + ') + ').',
       _detectedSignals: d.signals,
       _startPage: d.startPage,
@@ -5389,4 +5616,7 @@ window.ROUTING = ROUTING;
 window.MODEL_PRICING = MODEL_PRICING;
 window.CLASSIFIER_TYPES = CLASSIFIER_TYPES;
 window.CLASSIFY_CONFIG = CLASSIFY_CONFIG;
+window.detectDocumentSignature = detectDocumentSignature;
+window.stmClassifyUmbrellaTowerPosition = stmClassifyUmbrellaTowerPosition;
+window.stmExtractScheduleOfUnderlyingText = stmExtractScheduleOfUnderlyingText;
 window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;

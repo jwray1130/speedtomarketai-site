@@ -174,20 +174,37 @@ LEAD vs EXCESS — THE HARDEST DISCRIMINATION
 ═══════════════════════════════════════════════════════════════════════════════
 This is critical. Both look like "umbrella" docs. Use these signatures:
 
-LEAD signatures (PRIMARY excess layer):
-  • Policy form says "Lead Umbrella" or "Umbrella Liability" (NOT "Excess")
-  • Has self-insured retention (SIR) — usually $10K-$25K
-  • Underlying schedule lists PRIMARY coverages (GL/AL/EL)
-  • Limit position language like "first $5,000,000"
-  • Direct claims-handling responsibilities (drops down to defend)
+LEAD signatures (FIRST excess/umbrella layer above primary):
+  • Policy form says "Umbrella Liability", "Commercial Umbrella", "Commercial
+    Liability Umbrella", or "Lead Umbrella".
+  • It has a Schedule of Underlying Insurance.
+  • Its Schedule of Underlying lists PRIMARY coverages directly: GL / AL / EL /
+    EBL / Aircraft / Liquor / Garage / Stop Gap / Foreign GL-AL-EL.
+  • The label is "Lead $XM", where X is the layer's own dec-page limit.
+  • Do not confuse SIR with attachment. A $0 or $10K SIR can appear on a lead;
+    the lead still sits directly above primary.
 
 EXCESS signatures (ABOVE the lead):
-  • Policy form says "Excess Liability" or "Following Form Excess"
-  • "Follow form" / "Follows the terms and conditions of the underlying"
-  • Has an attachment point ("attaches above $5,000,000")
-  • Underlying schedule lists ANOTHER UMBRELLA (the lead) above the primary
-  • Tower position language like "$10,000,000 excess of $5,000,000"
-  • No SIR (sits on top of the lead's defense)
+  • Policy form says "Excess Liability" or "Following Form Excess", OR its
+    Schedule of Underlying lists another umbrella/excess/lead layer beneath it.
+  • A higher excess typically schedules ONLY the immediately underlying lead or
+    excess layer, not the whole primary program.
+  • If the Schedule of Underlying shows an underlying layer as "$A xs $B", the
+    current layer's attachment is A + B. Example: dec page limit $10M and SoU
+    "$5M xs $85M" → classify/tag as "$10M xs $90M".
+  • If it simply states "excess of $Y", tag "$XM xs $Y" using this layer's dec
+    page limit X.
+
+STRICT TOWER TAGGING RULE:
+  • Primary policy = no Schedule of Underlying → not in the excess tower.
+  • In-tower policy = has Schedule of Underlying.
+  • Lead = Schedule of Underlying lists primary coverages → tag "Lead $X".
+  • Higher excess = Schedule of Underlying lists immediately underlying excess/
+    lead → tag "$X xs $Y".
+  • Quota-share = tag "$X P/O $Y xs $Z" when the document states part-of /
+    participation / percent share. Count the full shared layer once.
+  • If you cannot resolve the label with 100% confidence, emit "????" with
+    needs_review=true. Never guess a tower position.
 
 If you see BOTH — e.g., a tower diagram showing $5M lead + $10M excess in
 one PDF — return both as separate classifications with is_combined=true.
@@ -272,12 +289,16 @@ If you cannot confidently match the content to a tag in the finite list:
   • Set confidence < 0.5
   • Put your best guess in reasoning so the UW can relabel quickly
 
-For excess layers specifically:
-  • If you can identify the limit + attachment, emit "Lead $XM" (for
-    the first layer above primary) or "$XM xs $YM" (for higher layers)
-  • Never emit a layer tag based on document headings; the limit comes
-    from the dec page or quote summary, not from heading text
-  • If the limit/attachment is unclear, emit "???" — DO NOT guess
+For excess/umbrella layers specifically:
+  • Lead: if the Schedule of Underlying lists primary coverages directly,
+    emit "Lead $XM" using the layer's own dec-page limit.
+  • Higher excess: emit "$XM xs $YM" using the layer's own dec-page limit X
+    and the attachment Y derived from the immediately underlying schedule.
+  • Quota-share: emit "$XM P/O $YM xs $ZM" where X is the participant's
+    share, Y is the full shared layer limit, and Z is the attachment.
+  • Never emit a layer tag based on document headings alone; the limit comes
+    from the dec page and the attachment comes from the Schedule of Underlying.
+  • If the limit/attachment/lead-vs-excess position is unclear, emit "????" — DO NOT guess.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT — STRICT JSON only, no prose, no markdown
@@ -1241,12 +1262,13 @@ Do NOT include layers from policies for different insureds, even if they are the
 
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 
-TOWER RECONSTRUCTION METHOD (FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14):
+TOWER RECONSTRUCTION METHOD (FIX-PHASE-13.2-EXCESS-STRUCTURED-TOWER-2026-05-14, expanded v8.6.83):
 Each excess/umbrella policy describes ITSELF plus what is directly beneath it. No single document contains the whole tower. For EACH policy, read:
   • Its DEC PAGE → the policy's OWN limit (its capacity / "Layer Limit").
   • Its SCHEDULE OF UNDERLYING → what it sits on top of. The sum of the underlying = this policy's ATTACHMENT point.
   • Whether its Schedule of Underlying lists PRIMARY coverages (GL / AL / EL / EBL / Aircraft / Liquor / Garage / Stop Gap / Foreign GL-AL-EL). A policy whose schedule lists primary coverages is the LEAD — but ONLY if its attachment is at the base ($0 over primary). A policy that schedules primary AND excess but attaches up the tower is an EXCESS layer, classified by its attachment, NOT by the fact it lists primary.
   • QUOTA-SHARE / SHARED LAYER: if a layer is split across carriers ("part of" / "P/O" / "participation" / "X%"), every participant shares ONE combined layer limit at ONE attachment. The next layer's attachment = this attachment + the FULL combined limit (never + a single participation).
+  • FILE MANAGER LABEL: Lead policies must be labeled "Lead $X" where X is the dec-page limit. Higher excess policies must be labeled "$X xs $Y" where Y is the attachment derived from the immediately underlying schedule. If the layer cannot be resolved to 100% confidence, label it "????" and explain exactly what is missing/conflicting.
 
 **Underlying Excess Program Tower**
 
