@@ -1552,32 +1552,62 @@
     return n == null ? null : n.toLocaleString('en-US');
   }
 
-  function findCoverageSummaryPremium89(clean, labelRe) {
-    if (!clean) return null;
-    const lines = String(clean).split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  function premiumLineToDisplay89(v) {
+    const n = moneyToNumberFor85(v);
+    return n == null ? null : n.toLocaleString('en-US');
+  }
+
+  // v8.6.90 - strict premium source authority.
+  // The prior v8.6.89 line scanner would see a page/table line that contained
+  // multiple coverages and return the FIRST dollar on that line. On package
+  // quotes this could pick Agribusiness Property ($36,752) for GL. This version
+  // only accepts a dollar amount AFTER the target coverage label and rejects
+  // coverage totals that are not liability-only.
+  function firstDollarAfterLabel90(text, labelPattern, maxChars) {
+    const src = String(text || '').replace(/\u00a0/g, ' ');
+    const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const findIn = (chunk) => {
+      const re = new RegExp(labelPattern.source, labelPattern.flags.includes('i') ? 'i' : '');
+      const m = re.exec(chunk);
+      if (!m) return null;
+      const after = chunk.slice(m.index + m[0].length, m.index + m[0].length + (maxChars || 140));
+      const dollars = Array.from(after.matchAll(/\$\s*([0-9][0-9,]*(?:\.\d+)?)/g)).map(x => x[1]);
+      if (dollars.length) return premiumLineToDisplay89(dollars[0]);
+      // Some OCR/table text drops the dollar sign but keeps comma-grouping.
+      const bare = /\b([0-9]{2,3}(?:,[0-9]{3})+(?:\.\d+)?)\b/.exec(after);
+      return bare ? premiumLineToDisplay89(bare[1]) : null;
+    };
     for (const line of lines) {
-      if (!labelRe.test(line)) continue;
-      const m = /\$\s*([0-9][0-9,]*(?:\.\d+)?)/.exec(line) || /\b([0-9]{2,3}(?:,[0-9]{3})+(?:\.\d+)?)\b/.exec(line);
-      if (m) return premiumLineToDisplay89(m[1]);
+      if (!labelPattern.test(line)) continue;
+      const v = findIn(line);
+      if (v) return v;
     }
-    return null;
+    // Fallback for flattened tables where coverage rows were concatenated.
+    const flat = lines.join('  ');
+    return findIn(flat);
   }
 
   function quotePremiumByCoverage89(clean, kind) {
     const c = clean || '';
     if (kind === 'gl') {
-      return findCoverageSummaryPremium89(c, /\bCOMMERCIAL\s+GENERAL\s+LIABILITY\b/i)
-          || findCoverageSummaryPremium89(c, /\bGENERAL\s+LIABILITY\b/i);
+      return firstDollarAfterLabel90(c, /\bCOMMERCIAL\s+GENERAL\s+LIABILITY\b/i, 90)
+          || firstDollarAfterLabel90(c, /\bGENERAL\s+LIABILITY\b/i, 90);
     }
     if (kind === 'al') {
-      const lines = String(c).split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      // Liability-only Business Auto premium. Exclude total Business Auto and
+      // physical damage / hired auto / non-owned auto lines. Prefer rows whose
+      // label is exactly LIABILITY with covered auto symbol and limit nearby.
+      const src = String(c || '').replace(/\u00a0/g, ' ');
+      const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
       for (const line of lines) {
         if (!/^LIABILITY\b/i.test(line)) continue;
-        if (/HIRED|NON[-\s]*OWNED|PHYSICAL|COMPREHENSIVE|COLLISION/i.test(line)) continue;
+        if (/HIRED|NON[-\s]*OWNED|PHYSICAL|COMPREHENSIVE|COLLISION|UMBRELLA|GENERAL/i.test(line)) continue;
         const dollars = Array.from(line.matchAll(/\$\s*([0-9][0-9,]*(?:\.\d+)?)/g)).map(m => m[1]);
         if (dollars.length) return premiumLineToDisplay89(dollars[dollars.length - 1]);
+        const bare = Array.from(line.matchAll(/\b([0-9]{2,3}(?:,[0-9]{3})+(?:\.\d+)?)\b/g)).map(m => m[1]);
+        if (bare.length) return premiumLineToDisplay89(bare[bare.length - 1]);
       }
-      const m = /(?:^|\n)\s*LIABILITY\s+1\s+\$?\s*1,000,000[\s\S]{0,80}?\$\s*([0-9][0-9,]*(?:\.\d+)?)/i.exec(c);
+      const m = /(?:^|\n|\s)LIABILITY\s+1\s+\$?\s*1,000,000[\s\S]{0,120}?\$\s*([0-9][0-9,]*(?:\.\d+)?)/i.exec(src);
       if (m) return premiumLineToDisplay89(m[1]);
       return null;
     }
@@ -3731,7 +3761,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.89-premium-exposure-loss-polish',
+    version: 'v8.6.90-premium-authority-exposure-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

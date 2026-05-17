@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.89-premium-exposure-loss-polish-2026-05-17';
+window.STM_BUILD = 'v8.6.90-premium-authority-exposure-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,11 +1471,11 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.89 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.90 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
 
-        // v8.6.89 - parse all GL class rows from quote / ACORD page text and
+        // v8.6.90 - parse all GL class rows from quote / ACORD page text and
         // populate the GL exposure rater with every class, not just the primary.
         function collectSnapshotFileTexts89(submission, matcher) {
             const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
@@ -1491,10 +1491,27 @@ document.addEventListener('DOMContentLoaded', () => {
             return out.join('\n\n');
         }
         function stateZipFromSubmission89(submission) {
-            const text = [submission?.mailing_address, submission?.controlling_address, submission?.address, JSON.stringify(submission?.snapshot?.handoff || {})].filter(Boolean).join(' ')
-                + '\n' + collectSnapshotFileTexts89(submission, /acord|application|quote|supp/i);
-            const m = /\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/.exec(text);
-            return { state: m ? m[1] : (r85('home_state', submission) || 'VA'), zip: m ? m[2] : '' };
+            const home = (r85('home_state', submission) || submission?.home_state || '').toString().trim().toUpperCase();
+            const corpus = [
+                submission?.mailing_address,
+                submission?.controlling_address,
+                submission?.address,
+                JSON.stringify(submission?.snapshot?.handoff || {}),
+                collectSnapshotFileTexts89(submission, /acord|application|quote|supp/i)
+            ].filter(Boolean).join('\n');
+            const clean = corpus.replace(/\u00a0/g, ' ');
+            // Prefer an address ZIP in the resolved/home state. This prevents
+            // issuer header ZIPs (e.g. Penn Millers PA 18773) from contaminating
+            // the GL exposure rater for a VA insured.
+            if (home) {
+                const reHome = new RegExp('\\b' + home.replace(/[^A-Z]/g,'') + '\\s+(\\d{5})(?:-\\d{4})?\\b', 'i');
+                const mh = reHome.exec(clean);
+                if (mh) return { state: home, zip: mh[1] };
+            }
+            const mMail = /(?:Mailing\s+Address|Named\s+Insured)[\s\S]{0,220}?\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/i.exec(clean);
+            if (mMail) return { state: mMail[1].toUpperCase(), zip: mMail[2] };
+            const m = /\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/.exec(clean);
+            return { state: home || (m ? m[1] : 'VA'), zip: m ? m[2] : '' };
         }
         function parseGLClassRows89(submission) {
             const text = collectSnapshotFileTexts89(submission, /quote|acord|application|gl|exposure|supp/i);
@@ -1505,20 +1522,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const n = Number(String(exposure || '').replace(/[^0-9]/g, '')) || 0;
                 if (!/^\d{4,5}$/.test(String(code || '')) || n <= 0) return;
                 if (n < 100000) return;
+                const cleanDesc = mapDesc(desc);
+                if (/premium|limit|deductible|rate basis|coverage|annual/i.test(cleanDesc)) return;
                 const key = code + ':' + n;
                 if (seen.has(key)) return;
                 seen.add(key);
-                rows.push({ code:String(code), desc:mapDesc(desc), exposure:n.toLocaleString('en-US'), base:'1000' });
+                rows.push({ code:String(code), desc:cleanDesc, exposure:n.toLocaleString('en-US'), base:'1000' });
             };
-            const lines = String(text || '').split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+            const clean = String(text || '').replace(/\u00a0/g, ' ');
+            const lines = clean.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
             for (const line of lines) {
-                let m = /^(.{3,90}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?\b/i.exec(line);
+                let m = /^(.{3,110}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?\b/i.exec(line);
                 if (m) { add(m[1], m[2], m[3]); continue; }
-                m = /\b(\d{4,5})\b\s+(.{3,90}?)\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d{5,})\b/i.exec(line);
-                if (m && !/Premium|Limit|Deductible/i.test(line)) add(m[2], m[1], m[3]);
+                m = /\b(\d{4,5})\b\s+(.{3,100}?)\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d{5,})\b/i.exec(line);
+                if (m) add(m[2], m[1], m[3]);
             }
+            // Flattened-table fallback for OCR that joins class rows into one paragraph.
+            const flat = lines.join('  ');
+            const rowRe = /([A-Z][A-Z0-9 ,.&\/\-'()]{3,110}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?/gi;
+            let m;
+            while ((m = rowRe.exec(flat)) !== null) add(m[1], m[2], m[3]);
             return rows.slice(0, 8);
         }
+
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
             const rules = window.WorkbenchRules;
@@ -1568,7 +1594,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'base', r.base || '1000');
                 row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
-            console.log('[workbench] v8.6.89 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
+            console.log('[workbench] v8.6.90 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -1619,26 +1645,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 const start = mo >= 5 ? y : y - 1;
                 return String(start).slice(2) + '-' + String(start + 1).slice(2);
             }
-            function addClaim(bucket, dol, paid, reserve, incurred, lob, desc) {
+            const n = v => Number(String(v || '0').replace(/[^0-9.-]/g, '')) || 0;
+            function addClaim(bucket, dol, paid, reserve, incurred) {
                 const period = periodForDate(dol); if (!period) return;
-                const key = period;
-                if (!bucket[key]) bucket[key] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
-                const n = v => Number(String(v || '0').replace(/[^0-9.-]/g, '')) || 0;
-                bucket[key].paid += n(paid); bucket[key].reserve += n(reserve); bucket[key].incurred += n(incurred); bucket[key].claims += 1;
+                if (!bucket[period]) bucket[period] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
+                bucket[period].paid += n(paid); bucket[period].reserve += n(reserve); bucket[period].incurred += n(incurred); bucket[period].claims += 1;
             }
-            function collectClaims(sectionRe) {
-                const sec = (sectionRe.exec(compact) || [''])[0];
-                const bucket = {};
-                const rowRe = /\b(\d{4,6})\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([^\n]{0,220}?)(?:Closed|CLOSED|Open|OPEN)\s+([^\n]+)/gi;
-                let m; while ((m = rowRe.exec(sec)) !== null) addClaim(bucket, m[5], m[2], m[3], m[4], m[7], m[6]);
+            function rowsFromBucket(bucket) {
                 return Object.values(bucket).sort((a,b) => b.period.localeCompare(a.period)).slice(0,5).map(r => ({
                     period:r.period, claims:String(r.claims), exposure:'', paid:Math.round(r.paid).toLocaleString('en-US'), reserve:Math.round(r.reserve).toLocaleString('en-US'), incurred:Math.round(r.incurred).toLocaleString('en-US')
                 }));
             }
-            out.gl = collectClaims(/General\s+Liability\s+Claims[\s\S]*?(?:Property\s+Claims|Workers\s+Comp|$)/i);
-            out.auto = collectClaims(/Commercial\s+Auto\s+Claims[\s\S]*?(?:General\s+Liability\s+Claims|Property\s+Claims|$)/i);
+            // Primary robust pass: each claim row with DOL and LOB at end.
+            const glBucket = {}, autoBucket = {};
+            const rowRe = /\b(\d{4,6})\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([^\n]{0,240}?)(?:Closed|CLOSED|Open|OPEN)\s+((?:General\s+Liability|Auto\s+Liability\s*\/\s*APD|Auto\s+Liability|Auto\s+Physical\s+Damage))\b/gi;
+            let m;
+            while ((m = rowRe.exec(compact)) !== null) {
+                const lob = m[7].toLowerCase();
+                if (/general/.test(lob)) addClaim(glBucket, m[5], m[2], m[3], m[4]);
+                else if (/auto/.test(lob)) addClaim(autoBucket, m[5], m[2], m[3], m[4]);
+            }
+            out.gl = rowsFromBucket(glBucket);
+            out.auto = rowsFromBucket(autoBucket);
             return out;
         }
+
 
         function applyLossHistoryFromActiveSubmission(submission) {
             const parsed = parseLossTables85(submission);
@@ -1664,7 +1695,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.89 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.90 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1694,7 +1725,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.89 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.90 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1744,7 +1775,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.89 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.90 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
 
@@ -1802,7 +1833,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     el.classList.add('autofilled-from-platform');
                     return true;
                 } catch (e) {
-                    console.warn('[workbench] v8.6.89 Lead Excess card field skipped:', field, e && e.message);
+                    console.warn('[workbench] v8.6.90 Lead Excess card field skipped:', field, e && e.message);
                     return false;
                 }
             };
@@ -1827,16 +1858,16 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.style.display = '';
             const header = row.querySelector('.limit-entry-header');
             header?.querySelector('.collapse-arrow')?.classList.add('expanded');
-            row.dataset.hydratedFromResolver = 'v8.6.89';
-            console.log('[workbench] v8.6.89 Lead Excess card hydrate:', filled, 'fields', valueMap);
+            row.dataset.hydratedFromResolver = 'v8.6.90';
+            console.log('[workbench] v8.6.90 Lead Excess card hydrate:', filled, 'fields', valueMap);
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.89 rater skipped:', e.message); }
-            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.89 lead-excess card skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 rater skipped:', e.message); }
+            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.90 lead-excess card skipped:', e.message); }
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1844,7 +1875,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.89 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.90 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 
