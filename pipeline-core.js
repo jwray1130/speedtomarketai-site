@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.98-loss-workbench-structured-dedupe-2026-05-17';
+window.STM_BUILD = 'v8.7.00-prompt-orchestration-clean-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -5847,6 +5847,48 @@ function renderSummaryCards() {
   updateDecisionPane();
 }
 
+
+// v8.7.00 visible-output cleanup. Preserve raw STATE.extractions text for
+// Workbench/exports, but hide prompt-QC artifacts and machine JSON blocks from
+// the pipeline summary cards.
+function cleanVisibleExtractionText99(mid, text) {
+  let t = String(text || '');
+  // Hide machine-readable structured JSON fences from the visible module card.
+  // The raw text still remains in STATE.extractions for archive/Workbench parsing.
+  t = t.replace(/```(?:json)?\s*loss_history_structured[\s\S]*?```/gi, '');
+  t = t.replace(/```(?:json)?\s*class_codes_structured[\s\S]*?```/gi, '');
+  t = t.replace(/```json\s*\{[\s\S]*?"policy_years"[\s\S]*?```/gi, '');
+
+  // Hide visible prompt-QC/checklist/source-verbatim sections that were useful
+  // during prompt engineering but clutter the underwriting UI.
+  const cleanupModules = new Set([
+    'summary-ops','supplemental','subcontract','vendor','safety','website',
+    'gl_quote','al_quote','el_quote','ebl_quote','liquor_quote','garage_quote',
+    'foreign_gl_quote','foreign_al_quote','excess','classcode','email_intel'
+  ]);
+  if (cleanupModules.has(mid)) {
+    const patterns = [
+      /\n?\*\*Source Products & Services \(verbatim\):\*\*[\s\S]*?(?=\n\s*\*\*[^\n]+\*\*|\n\s*#{1,6}\s|$)/gi,
+      /\n?\*\*Source Extracts \(verbatim\)\*\*[\s\S]*?(?=\n\s*\*\*[^\n]+\*\*|\n\s*#{1,6}\s|$)/gi,
+      /\n?\*\*Source Extracts\*\*[\s\S]*?(?=\n\s*\*\*[^\n]+\*\*|\n\s*#{1,6}\s|$)/gi,
+      /\n?\*\*Checklist\b[\s\S]*$/gi,
+      /\n?\*\*Checklist\s*[–-][\s\S]*$/gi,
+      /\n?Checklist\s*[–-][\s\S]*$/gi,
+      /\n?QUALITY[-\s]*CONTROL CHECKLIST[\s\S]*$/gi,
+      /\n?\|\s*ITEM\s*\|\s*STATUS\s*\|[\s\S]*$/gi,
+      /\n?All items\s*[✔✓][\s\S]*$/gi
+    ];
+    patterns.forEach(function(re){ t = t.replace(re, ''); });
+  }
+
+  if (mid === 'classcode') {
+    // If a previous run produced a wide table including exposure/premium basis,
+    // collapse it from visible output. New prompt is concise; this is a safety net.
+    t = t.replace(/\n?\|\s*#\s*\|\s*SOURCE CODE[\s\S]*?(?=\n\s*\*\*|$)/gi, '');
+  }
+  return t.trim();
+}
+
 function renderExtractionCard(mid) {
   const m = MODULES[mid];
   const ext = STATE.extractions[mid];
@@ -5867,10 +5909,11 @@ function renderExtractionCard(mid) {
   // injection so a prompt-injected broker document can't slip in <script>, onerror=,
   // javascript: links, or other XSS vectors. The renderMarkdown() path is already safe
   // because it escapes everything by default.
-  const isPreRenderedHtml = !isEdited && ext.text && /^\s*<div class="(loss-output|tower-output|discrepancy-output)">/.test(ext.text);
+  const visibleText99 = cleanVisibleExtractionText99(mid, ext.text);
+  const isPreRenderedHtml = !isEdited && visibleText99 && /^\s*<div class="(loss-output|tower-output|discrepancy-output)">/.test(visibleText99);
   const bodyHtml = isEdited
     ? sanitizeModelHtml(edit.htmlOverride)
-    : (isPreRenderedHtml ? sanitizeModelHtml(ext.text) : renderMarkdown(ext.text));
+    : (isPreRenderedHtml ? sanitizeModelHtml(visibleText99) : renderMarkdown(visibleText99));
   const editedBadge = isEdited ? '<span style="font-family:var(--font-mono); font-size: 9.5px; color: var(--warning); padding-left: 6px; font-weight: 700; letter-spacing: 0.08em;">· EDITED</span>' : '';
   const updatedBadge = ext.wasUpdated ? '<span class="sc-updated-badge" title="Refreshed by incremental update">UPDATED</span>' : '';
   const revertBtn = isEdited ? `<button class="sc-act" onclick="event.stopPropagation(); revertCard('${mid}')" title="Revert to original AI output">⟲</button>` : '';

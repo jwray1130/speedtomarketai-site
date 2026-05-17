@@ -3814,7 +3814,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.98-loss-workbench-structured-dedupe',
+    version: 'v8.7.00-prompt-orchestration-clean',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

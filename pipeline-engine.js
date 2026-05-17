@@ -1,3 +1,4 @@
+// v8.7.00-prompt-orchestration-clean: visible-output cleanup; A11 archive logic retained.
 // ============================================================================
 // pipeline.js — Altitude / Speed to Market AI
 // ============================================================================
@@ -570,7 +571,7 @@ const MODULES = {
   excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
   email_intel:   { code: 'A16', name: 'Email Intel',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 1, deps: ['supplemental'], inputsFrom: 'extraction',   model: 'claude-opus-4-7'    },
+  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 3, deps: ['summary-ops'], optionalDeps: ['gl_quote','supplemental'], inputsFrom: 'extractions', model: 'claude-opus-4-7'    },
   // WAVE 2 — synthesize Summary of Ops from intake extractions + Excess Tower viz.
   // Email intel is an OPTIONAL dep: if present, its claims are used to fill gaps
   // the supplemental/website/docs leave open — never to override authoritative sources.
@@ -4941,7 +4942,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
           STATE.extractions[moduleId].structured_schema = 'loss_history_structured';
         }
       } catch (e) {
-        console.warn('[pipeline] v8.6.98 losses structured archive skipped:', e && e.message);
+        console.warn('[pipeline] v8.6.99 losses structured archive skipped:', e && e.message);
       }
     }
     // Track the running submission total so the sidebar can show it
@@ -5700,6 +5701,20 @@ async function runPipeline() {
   const wave3Tasks = [];
   if (STATE.extractions['summary-ops']) {
     const soText = STATE.extractions['summary-ops'].text;
+
+    // v8.7.00 prompt-orchestration: run Class Code Expert AFTER Summary
+    // of Operations so it can use the correct source authority order:
+    // GL Quote first, ACORD 126/supplemental second, Summary of Ops third.
+    const classSources = ['gl_quote', 'supplemental', 'summary-ops']
+      .filter(mid => STATE.extractions[mid])
+      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+      .join('\n\n');
+    if (classSources) {
+      wave3Tasks.push(runModule('classcode', PROMPTS.classcode, classSources, 'GL quote + ACORD/Supp + A6', pipelineContext));
+    } else {
+      skipModule('classcode', 'no class-code source data');
+    }
+
     const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
     wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines', pipelineContext));
     wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6', pipelineContext));

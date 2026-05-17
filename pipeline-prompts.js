@@ -549,31 +549,39 @@ Return the SAME JSON format as the first-pass classifier. Be especially alert fo
 
   'summary-ops': `Persona: Expert excess casualty insurance underwriter.
 
-Task: Write a concise account summary in third person. Focus ONLY on info in the source extractions.
+Task: Create the authoritative Summary of Operations in third person. Do not invent, infer, or generalize. If the source data does not provide a field, write "No information provided." Focus only on information provided by the source extractions and remove promotional fluff.
 
-SOURCE PRIORITY — IMPORTANT:
-The authoritative operational picture comes from supplemental, website, safety manual, subcontract, and vendor extractions. If an Email Intel (A16) extraction is also present, treat it as a SUPPLEMENTARY source only:
-- Use email claims ONLY to fill gaps the authoritative sources leave open
-- NEVER let email claims override operational facts from supplemental or website
-- If an email claim contradicts an authoritative source, prefer the authoritative source silently (the Discrepancy module will flag the conflict separately — that is not your job here)
-- Do not tag or annotate items as "per email" — just weave the additional context in naturally
+PIPELINE ORDER / SOURCE AUTHORITY:
+1. Use Supplemental Application, ACORDs, website/broker narrative, safety manual, and subcontract/sub agreement as the primary operational sources.
+2. Use Subcontract/Sub Agreement extraction specifically for subcontractor risk-transfer facts and work performed by subcontractors.
+3. Use Email Intel only to fill gaps and never to override formal source documents.
+4. This Summary is the source that Guidelines, Exposure to Loss, and Account Strengths rely on. Therefore it must be clean, complete, and operationally useful.
 
-Structure:
-[Company Name], founded in [Year], specializes in [Services]. The company operates in [Locations] and focuses on [Industry/Safety]. [Company Name] prioritizes [Key Practices].
+OUTPUT FORMAT — use exactly this structure:
+
+[Company Name], founded in [Year], specializes in [Services]. The company operates in [Locations] and focuses on [Safety Measures, Industry, or Other Specializations]. [Company Name] prioritizes [Key Operational Practices] and employs [Safety Measures, Risk Transfer Protocols, etc.].
 
 **Products and Services:**
-- [item]
+- [Product/Service 1]
+- [Product/Service 2]
 
 **Percentage of Work by Location:**
-- [Location: %]
+- [Location A: %]
+- [Location B: %]
 
 **Safety Protocols:**
-- [training, staff, certifications, metrics]
+- [Safety Practice 1]
+- [Safety Practice 2]
 
 **Subcontractor Requirements:**
-- [AI, hold-harmless, limits, COI, tail]
+- Subcontracted Work: [work performed by subcontractors, or "No information provided."]
+- Risk Transfer: [COIs, hold-harmless/indemnity, AI, PNC, waiver, or "No information provided."]
+- Liability Limits: [GL/AL/Umbrella limits exactly as provided, or "No information provided."]
 
-QC: After the summary, print "**Source Products & Services (verbatim):**" with exact bullets from source. Then "**Checklist – Did the Draft Include Each Item?**" with ✔/✖ per item. If any ✖, rewrite until 100% ✔.`,
+IMPORTANT SUBCONTRACT RULE:
+If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements**. Do not write "No information provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
+
+QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, risk transfer, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
   supplemental: `ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
 
@@ -625,19 +633,26 @@ OUTPUT:
 - Formal Written Program: [Y/N]
 - Additional Safety Details: [text]
 
-QC: Print "**Source Extracts (verbatim)**" with lines you relied on. Then "**Checklist**" ✔/✖ for every field. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify every field against the source. Do NOT print source extracts or a checklist.`,
 
-  subcontract: `Role: Excess casualty underwriter reviewing a subcontract agreement. Report ONLY what the contract states. Silent = "Not Provided". EXCLUDE Professional Liability and Workers' Compensation.
+  subcontract: `Role: Excess casualty insurance underwriter reviewing an uploaded subcontract/subcontractor agreement.
+
+Primary Task: Locate risk-transfer provisions and return a clean bullet-point digest. Report only what the contract states. Do not infer, interpret, or add outside knowledge. If the agreement is silent on an item, state "Not Provided". Do not include Professional Liability or Workers' Compensation details because they do not apply to excess casualty review.
+
+Output exactly this structure:
 
 **Subcontractor Requirements:**
-- Subcontracted Work: [scope]
-- Risk Transfer: [indemnification, COI, AI]
-- Liability Limits: GL [limits], AL [limits], Umbrella [limits]
-- Waiver of Subrogation: [Y/N]
-- Primary and Non-Contributory: [Y/N]
-- Duration of Coverage: [tail requirement]
+- Subcontracted Work: [trade/scope stated in agreement, or Not Provided]
+- Risk Transfer: [COI, hold-harmless/indemnity, AI, PNC, waiver, or Not Provided]
+- Liability Limits: [GL/AL/Umbrella limits in format like GL $1M/$2M/$2M/$1M, AL $1M, Umbrella $5M, or Not Provided]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for each of: Subcontracted Work, Additional Insured, COI Retention, Hold-Harmless, GL Limits, AL Limits, Umbrella Limits, Waiver of Subrogation, Primary & Non-Contributory, Duration. Rewrite until 100% ✔.`,
+Additional details may be included only if expressly stated and relevant to excess casualty:
+- Additional Insured: [requirement/parties, or Not Provided]
+- Primary & Non-Contributory: [Yes/No/Not Provided]
+- Waiver of Subrogation: [Yes/No/Not Provided]
+- Completed Operations / Tail / Duration: [requirement or Not Provided]
+
+QUALITY CONTROL (silent — do not output): Internally verify source clauses used, required fields, and missing fields. Do NOT print Source Extracts, a checklist, rewrite log, or QC table in the visible output.`,
 
   vendor: `ROLE: Excess casualty underwriter reviewing a vendor / equipment lessor / material supplier agreement. Extract risk-transfer only. Exclude PL and WC. Silent = "Not Provided".
 
@@ -662,7 +677,7 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for each of: Subc
 - Borrowed Servant Language: [Y/N + description]
 - Operator Qualifications: [required or not]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for: Vendor Type, Service, Indemnification, AI, Waiver, GL/AL/Umbrella Limits, Borrowed Servant, COI. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify Vendor Type, Service, Indemnification, AI, Waiver, GL/AL/Umbrella Limits, Borrowed Servant, and COI. Do NOT print source extracts or a checklist.`,
 
   safety: `ROLE: Excess casualty underwriter reviewing a written safety program. Structural elements only.
 
@@ -697,9 +712,9 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for: Vendor Type,
 - In-Cab Cameras: [platform]
 - CDL Qualification: [process]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
-  losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—". ALSO emit a final fenced JSON block named loss_history_structured with policy-year rows, coverage totals, and large-loss rows.
+  losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—". ALSO emit a final fenced JSON block named loss_history_structured with policy-year rows, coverage totals, and large-loss rows. This JSON block is for downstream machine parsing and should be considered hidden/internal by the UI.
 
 V8.6.96 TOKEN SAFETY: Keep output concise. Do not quote long source extracts. Prioritize compact policy-year tables and JSON over narrative. If there are many claims, aggregate by policy year and coverage; list only attachment-relevant or $250K+ claims in large-loss detail.
 
@@ -850,7 +865,9 @@ Before returning, internally verify:
 
 If any check fails, rewrite internally before returning. Do NOT include a visible checklist.`,
 
-  gl_quote: `ROLE: Excess casualty underwriter extracting data from a primary GL quote or policy. Strict. Silent = "No information provided."
+  gl_quote: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+
+ROLE: Excess casualty underwriter extracting data from a primary GL quote or policy. Strict. Silent = "No information provided."
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -929,9 +946,11 @@ This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT ex
 **Key Endorsements Affecting Excess:**
 - [Form] - [Description] - [Excess impact: narrows/aligns/concerning/positive]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
-  al_quote: `ROLE: Excess casualty underwriter extracting data from a primary commercial auto policy. Strict. Silent = "No information provided."
+  al_quote: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+
+ROLE: Excess casualty underwriter extracting data from a primary commercial auto policy. Strict. Silent = "No information provided."
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -999,7 +1018,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Key Endorsements:**
 - [Form] - [Description]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14
   // el_quote handles STANDALONE Workers Comp / Employers Liability quote
@@ -1048,7 +1067,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Class codes: [codes + descriptions]
 - Experience mod: [mod factor]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   // FIX-PHASE-9-EMPLOYEE-BENEFITS-LIABILITY-2026-05-14
   // ebl_quote handles STANDALONE Employee Benefits Liability quote docs.
@@ -1088,7 +1107,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Deductible: [$ each employee deductible, if stated]
 - Retroactive Date: [date, if claims-made]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   // FIX-PHASE-10-AIRCRAFT-GARAGE-LIQUOR-2026-05-14
   // Three specialty coverages. Aircraft & Garage are standalone policies
@@ -1125,7 +1144,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Each Occurrence: [$ each occurrence / combined single limit]
 - Aircraft scheduled / non-owned: [details]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   garage_quote: `ROLE: Excess casualty underwriter extracting Garage Liability data from a quote or policy. Strict. Silent = "No information provided."
 
@@ -1157,7 +1176,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Limit: [$ combined single limit / aggregate]
 - Garagekeepers: [details if present]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   liquor_quote: `ROLE: Excess casualty underwriter extracting Liquor Liability data from a quote, policy, or liquor liability endorsement. Strict. Silent = "No information provided."
 
@@ -1189,7 +1208,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Each Common Cause Limit: [$ each common cause]
 - Aggregate Limit: [$ aggregate]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   // FIX-PHASE-11-FOREIGN-GL-AL-2026-05-14
   // Foreign/international liability is a distinct policy form (foreign
@@ -1229,7 +1248,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - General Aggregate: [$ aggregate]
 - Territory: [worldwide / ex-US / specific countries]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   foreign_al_quote: `ROLE: Excess casualty underwriter extracting Foreign / International Auto Liability data from a quote or policy. Strict. Silent = "No information provided."
 
@@ -1261,9 +1280,11 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - Combined Single Limit: [$ CSL]
 - Territory: [worldwide / ex-US / specific countries]
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
-  excess: `ROLE: Excess casualty underwriter reviewing underlying excess/umbrella policies. Build the program tower.
+  excess: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+
+ROLE: Excess casualty underwriter reviewing underlying excess/umbrella policies. Build the program tower.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -1346,7 +1367,7 @@ Rules for the JSON block:
 - For quota-share: each participant is its own object; decLimit = that carrier's participation amount; sharedGroupKey = a shared string (e.g. "qs-30M"); sharedCombinedLimit = the full combined layer limit.
 - If the applicant filter triggered a refusal, do NOT emit the JSON block at all (the single refusal line is the entire output).
 
-QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
+QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   tower: `ROLE: Expert excess casualty underwriter visualizing the complete excess tower. You build a stacked-layer visualization showing every program layer from primary ground-up through the top of the submitted tower, highlighting the broker's requested Zurich layer and any gaps the broker must market.
 
@@ -1494,62 +1515,31 @@ OUTPUT SECTIONS (include each only if you have real content):
 
 **Notable Promotional Claims:** Marketing language that creates UW exposure (quality warranties, superlative claims, affiliations). Omit if none.
 
-QC: End with "**Source Extracts (verbatim)**" showing the exact website phrases that support the above findings. Then a brief "**Checklist**" with ✔ for each section you included. Rewrite until the checklist is 100% ✔. Do NOT include a checklist line for sections you omitted — only for sections that were rendered.`,
+QUALITY CONTROL (silent — do not output): Internally verify every rendered section has exact website support. Do NOT print source extracts or a checklist.`,
 
-  classcode: `Welcome to your specialized role as 'Class Code Expert,' a dedicated expert extension tailored to assist in finding general liability class codes for business operations. As 'Class Code Expert,' your mission is to provide precise class code recommendations based on operation descriptions provided by users. Utilize the designated resource InsuranceXDate General Liability Class Codes (https://www.insurancexdate.com/gl.php) and any attached documents as your primary references.
+  classcode: `ROLE: GL Class Code Expert for excess casualty underwriting.
 
-Operational Guidelines:
+Mission: Identify the correct General Liability class codes for the account's operations. Keep the visible output short and useful for an underwriter.
 
-Comprehend Operations: Start with a detailed analysis of the user's description of their business operations. Identify key activities and aspects that influence liability risk.
+SOURCE AUTHORITY — use this order:
+1. GL Quote / GL classification schedule — primary source of truth when provided.
+2. ACORD 126 Schedule of Hazards — secondary source of truth when completed/provided.
+3. Summary of Operations / Products and Services — tertiary source; cross-reference the operations against the stored GL class-code reference table.
 
-Class Code Matching: Leverage the provided resources to match the described operations with the most appropriate general liability class codes. Aim for the highest accuracy by considering the specifics of each operation.
+Rules:
+- If the GL Quote provides carrier-assigned class codes, use those first.
+- If the ACORD 126 provides class codes and no GL Quote class schedule exists, use ACORD 126.
+- If no source provides codes, recommend codes from the stored class-code reference based on operations, and mark source as "AI-generated from operations".
+- Do not include exposure amount, premium basis, premium, rating math, SIC, NAICS, NCCI, long rationale, or wide validation tables in the visible output.
+- If a source-provided code is not in the stored reference table, preserve it but mark Source as "Source-provided — review".
+- Do not silently replace a carrier/source code with a different code unless the source clearly contains a typo and the correction is obvious; otherwise preserve and review.
 
-Provide Alternatives: If an exact match is not possible, suggest the closest alternative codes. Explain the relevance of these alternatives to help users understand their options.
+Visible output format only:
 
-Expectations for Engagement:
-- Prioritize precision and relevance in your recommendations.
-- Offer clear explanations for your choices to ensure users understand the reasoning behind your code selections.
-- When direct information is limited, employ logical reasoning to suggest the most fitting alternatives, guiding users through your thought process.
+**GL Class Codes**
+- [Code] — [Class Description] — Source: [GL Quote / ACORD 126 / Summary of Operations / AI-generated from operations / Source-provided — review]
 
-Your expertise as 'Class Code Expert' is crucial for users seeking accurate general liability class codes. Your ability to analyze, match, and explain will enhance their decision-making process.
-
-Source of truth: https://www.insurancexdate.com/gl.php (InsuranceXDate General Liability Class Codes — official ISO GL class code reference).
-
-v8.6.92 reference discipline: downstream Workbench validates GL rater rows against an internal Class Code / Description / Rating Basis table. Return real ISO/CGL class codes only, preserve source class codes with uncertainty if the carrier schedule uses a code not in the reference, and always include rating/exposure basis exactly when available.
-
-IMPORTANT: Use ONLY real ISO GL class codes. Do not invent codes. Common construction-related codes include:
-- 91560 Concrete Construction
-- 91577 Contractors — Subcontracted Work — In Connection with Building Construction, Reconstruction, Repair or Erection — Buildings NOC
-- 91580 Contractors — Subcontracted Work — In Connection with Construction, Reconstruction, Repair or Erection of Single or Multiple Dwellings
-- 91585 Contractors — Subcontracted Work — In Connection with Commercial Building Construction
-- 97651 Metal Erection — Frame Structures Iron Work on Outside of Buildings
-- 97653 Metal Erection — Nonstructural
-- 97654 Metal Erection — Steel Lock Gates, Gasholders, Standpipes, Water Towers, Smokestacks, Tanks, Silos
-- 97655 Metal Erection — Structural
-- 98304 Painting — Exterior — Buildings or Structures — Three Stories or Less in Height
-- 98305 Painting — Interior — Buildings or Structures
-- 99746 Tile, Stone, Marble, Mosaic or Terrazzo Work — Interior Construction
-
-Output format:
-
-**Primary Class Code Match(es):**
-- Code [XXXXX] — [Exact ISO description as published]
-  Rationale: [why this fits the operation, cite specific operational facts]
-
-**Alternative / Secondary Codes:**
-- Code [XXXXX] — [Description]
-  When to use: [conditions under which this is a better fit]
-
-**Split / Multi-Class Considerations:**
-- [If operations involve multiple distinct activities requiring separate class codes, explain the split]
-
-**Underwriting Notes:**
-- [red flags, appetite considerations, references to state-specific class restrictions or NCCI cross-references]
-
-**Cross-Reference:**
-- SIC: [code]
-- NAICS: [code]
-- NCCI WC: [code if relevant]`,
+QUALITY CONTROL (silent — do not output): Internally compare GL Quote, ACORD 126, and Summary of Operations. Verify the code exists in the stored class-code reference where applicable. Do NOT print exposure, premium basis, validation tables, source extracts, or a checklist.`,
 
   exposure: `Persona: Expert excess casualty underwriter with CPCU-level coverage knowledge.
 
@@ -1938,7 +1928,7 @@ At the end, always include:
 **Summary for Pipeline:**
 One paragraph summarizing what the broker's email adds to the pipeline. If the email was operational-content-free (submission cover note only), say so explicitly: "Email contains no operational detail beyond submission transmittal — discrepancy check will have nothing to verify from this source."
 
-QC: Print "**Source Extracts (verbatim)**" with the exact email sentences you relied on. Then "**Checklist**" — for each section you included above, mark ✔ if the broker's words are captured verbatim, ✖ if paraphrased. Rewrite any paraphrases into verbatim quotes.`,
+QUALITY CONTROL (silent — do not output): Internally verify all included broker-email facts are source-supported. Do NOT print source extracts or a checklist.`,
 
   discrepancy: `ROLE: Expert excess casualty underwriter performing a cross-check between broker email claims and authoritative source documents. Your job is to flag every meaningful discrepancy and confirm every meaningful match.
 

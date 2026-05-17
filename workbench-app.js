@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.98-loss-workbench-structured-dedupe-2026-05-17';
+window.STM_BUILD = 'v8.7.00-prompt-orchestration-clean-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
