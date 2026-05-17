@@ -586,6 +586,21 @@ const MODULES = {
   discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-7' }
 };
 
+
+// v8.6.96 - module-specific token budgets and retry policy.
+// A11 Loss History can exceed the global token ceiling because it emits
+// tables plus structured JSON. Give it a larger budget and a retry path.
+const MODULE_MAX_TOKENS = { losses: 12000 };
+const MODULE_RETRY_MAX_TOKENS = { losses: 20000 };
+function moduleMaxTokens(moduleId, retry) {
+  const globalMax = Number(STATE && STATE.api && STATE.api.maxTokens) || 4096;
+  const map = retry ? MODULE_RETRY_MAX_TOKENS : MODULE_MAX_TOKENS;
+  return Math.max(globalMax, map[moduleId] || globalMax);
+}
+function isModelTruncationError(err) {
+  return err && (err.category === 'MODEL_TRUNCATED' || /max_tokens|truncated/i.test(String(err.message || '')));
+}
+
 // ============================================================================
 // LLM CLIENT — routes every call through the Supabase Edge Function proxy.
 // The Anthropic API key lives server-side only; browser never sees it.
@@ -593,8 +608,9 @@ const MODULES = {
 // Phase 7 step 4: Prompt-injection hardening — moved to prompts.js (Phase 8 step 1).
 // PROMPT_INJECTION_DEFENSE is loaded onto window via <script src="prompts.js">.
 
-async function callLLM(systemPrompt, userContent, modelOverride) {
-  const maxTokens = STATE.api.maxTokens || 4096;
+async function callLLM(systemPrompt, userContent, modelOverride, options) {
+  options = options || {};
+  const maxTokens = options.maxTokens || STATE.api.maxTokens || 4096;
   // Round 5 fix #1: 'forceGlobal' replaces the old admin-only override.
   // When STATE.api.forceGlobal is true, every callLLM (including classifier
   // and verifier callsites that hardcode their own modelOverride) gets routed
@@ -4703,6 +4719,74 @@ window.detectNamedInsureds = detectNamedInsureds;
 window.gateModuleByApplicant = gateModuleByApplicant;
 window.APPLICANT_GATED_MODULES = APPLICANT_GATED_MODULES;
 
+
+// v8.6.96 - deterministic fallback for A11 if both LLM attempts truncate.
+// This prevents a red module failure and preserves reviewable loss rows.
+function htmlEscapeLoss96(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(ch) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+  });
+}
+function moneyNumber96(v) {
+  const n = Number(String(v == null ? '' : v).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function fmtMoney96(n) { return '$' + Math.round(Number(n) || 0).toLocaleString(); }
+function inferCoverage96(line) {
+  const l = String(line || '').toLowerCase();
+  if (/(auto|vehicle|truck|fleet|collision|motor)/.test(l)) return 'Auto';
+  if (/(workers|workcomp|wc|employee)/.test(l)) return 'WC';
+  if (/(property|fire|hurricane|cooler|building|grain bin|loader)/.test(l)) return 'Property';
+  if (/(general liability|\bgl\b|liability|premises|fall|slip|injury|spray|guardrail|misapplied|line broke)/.test(l)) return 'GL';
+  return 'Other';
+}
+function policyYear96(dateText) {
+  const m = String(dateText || '').match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (!m) return '';
+  let y = Number(m[3]);
+  if (y < 100) y += 2000;
+  return String(y);
+}
+function parseLossLinesFallback96(src) {
+  const rows = [];
+  const lines = String(src || '').replace(/\r/g, '\n').split(/\n+/).map(function(x){ return x.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
+  lines.forEach(function(line) {
+    const dm = line.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/);
+    if (!dm) return;
+    if (!/\$|\b[0-9]{1,3}(?:,[0-9]{3})+\b/.test(line)) return;
+    const amounts = Array.from(line.matchAll(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.\d{2})?/g)).map(function(m){ return moneyNumber96(m[0]); }).filter(function(n){ return n > 0; });
+    const incurred = amounts.length ? Math.max.apply(null, amounts) : 0;
+    if (!incurred) return;
+    rows.push({ coverage: inferCoverage96(line), year: policyYear96(dm[0]), dol: dm[0], incurred: incurred, paid: 0, reserve: 0, description: line.slice(0,240), status: /closed/i.test(line) ? 'Closed' : '' });
+  });
+  return rows;
+}
+function aggregateLossRows96(rows, coverage) {
+  const map = new Map();
+  rows.filter(function(r){ return r.coverage === coverage; }).forEach(function(r) {
+    const key = r.year || 'Unknown';
+    const cur = map.get(key) || { policy_year: key, claims: 0, incurred: 0, paid: 0, reserve: 0, valuation_date: '', exposure: '' };
+    cur.claims += 1; cur.incurred += r.incurred || 0; cur.paid += r.paid || 0; cur.reserve += r.reserve || 0;
+    map.set(key, cur);
+  });
+  return Array.from(map.values()).sort(function(a,b){ return String(a.policy_year).localeCompare(String(b.policy_year)); });
+}
+function buildLossFallbackExtraction96(sourceText, reason) {
+  const parsed = parseLossLinesFallback96(sourceText);
+  const gl = aggregateLossRows96(parsed, 'GL');
+  const auto = aggregateLossRows96(parsed, 'Auto');
+  const byYear = gl.concat(auto);
+  const large = parsed.filter(function(r){ return (r.incurred || 0) >= 250000; }).map(function(r){ return { coverage:r.coverage, dol:r.dol, incurred:r.incurred, paid:r.paid, reserve:r.reserve, description:r.description, status:r.status }; });
+  const totalIncurred = parsed.reduce(function(sum,r){ return sum + (r.incurred || 0); }, 0);
+  function rowsHtml(rows) {
+    if (!rows.length) return '<tr><td colspan="6" class="loss-empty-row">No structured rows parsed; review source loss run manually.</td></tr>';
+    return rows.map(function(r){ return '<tr><td class="yr">' + htmlEscapeLoss96(r.policy_year) + '</td><td class="num">' + r.claims + '</td><td class="num">' + fmtMoney96(r.incurred) + '</td><td class="num">' + fmtMoney96(r.paid) + '</td><td class="num">' + (r.valuation_date || '-') + '</td><td>' + (r.exposure || '-') + '</td></tr>'; }).join('');
+  }
+  const largeHtml = large.length ? large.map(function(r){ return '<tr><td class="num">' + htmlEscapeLoss96(r.dol) + '</td><td class="num">' + fmtMoney96(r.incurred) + '</td><td class="num">' + fmtMoney96(r.paid) + '</td><td>' + htmlEscapeLoss96(r.coverage + ' - ' + r.description) + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="loss-empty-row">No large losses parsed by fallback; verify source.</td></tr>';
+  const structured = { loss_history_gl: gl, loss_history_auto: auto, loss_history_by_year: byYear, large_losses: large, fallback: true, fallback_reason: reason || 'MODEL_TRUNCATED', parsed_claim_rows: parsed.length };
+  return '<div class="loss-output loss-fallback-output"><div class="loss-summary-block"><div class="loss-summary-label">Summary</div><p class="loss-summary-text"><strong>Fallback loss extraction used because A11 LLM output was truncated.</strong> Parsed ' + parsed.length + ' claim-like rows; total incurred ' + fmtMoney96(totalIncurred) + '. Review before binding.</p><div class="loss-summary-meta">Extraction mode: <strong>fallback after truncation retry</strong></div></div><div class="loss-section-title">General Liability Loss Information</div><table class="loss-tbl"><tbody>' + rowsHtml(gl) + '</tbody></table><div class="loss-section-title">Auto Liability Loss Information</div><table class="loss-tbl"><tbody>' + rowsHtml(auto) + '</tbody></table><div class="loss-section-title">Large Losses</div><table class="loss-tbl"><tbody>' + largeHtml + '</tbody></table></div>\n\n```json loss_history_structured\n' + JSON.stringify(structured, null, 2) + '\n```';
+}
+
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
@@ -4762,7 +4846,34 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     const effectivePrompt = enrichedContext
       ? substitutePromptVars(systemPrompt, enrichedContext)
       : systemPrompt;
-    const result = await callLLM(effectivePrompt, userContent, moduleModel);
+    let result;
+    try {
+      result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
+    } catch (err) {
+      if (moduleId === 'losses' && isModelTruncationError(err)) {
+        const retryPrompt = effectivePrompt + '\n\nV8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.';
+        logAudit('Pipeline', 'Retrying A11 Loss History with higher token budget after truncation', 'warn');
+        try {
+          result = await callLLM(retryPrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, true) });
+          result.retry_attempt = 1;
+        } catch (retryErr) {
+          if (isModelTruncationError(retryErr)) {
+            result = {
+              text: buildLossFallbackExtraction96(userContent, retryErr.message || err.message),
+              stop_reason: 'fallback_after_truncation',
+              usage: retryErr.usage || err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model },
+              fallback: true,
+              retry_attempt: 1
+            };
+            logAudit('Pipeline', 'A11 Loss History used deterministic fallback after retry truncation', 'warn');
+          } else {
+            throw retryErr;
+          }
+        }
+      } else {
+        throw err;
+      }
+    }
     const elapsed = (Date.now() - t0) / 1000;
     const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
     const hasQc = /checklist|source extracts/i.test(text);
@@ -4775,7 +4886,10 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       mode: result.mock ? 'mock' : 'live',
       sourceInfo: sourceInfo,
       usage: usage,
-      cost: cost
+      cost: cost,
+      retry_attempt: result.retry_attempt || 0,
+      fallback: !!result.fallback,
+      stop_reason: result.stop_reason || null
     };
     // Track the running submission total so the sidebar can show it
     STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;

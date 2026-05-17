@@ -3810,7 +3810,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.94-tower-date-ui-glrater-fix',
+    version: 'v8.6.96-loss-history-retry-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

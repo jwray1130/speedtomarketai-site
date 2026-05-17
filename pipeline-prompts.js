@@ -701,6 +701,8 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 10
 
   losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—". ALSO emit a final fenced JSON block named loss_history_structured with policy-year rows, coverage totals, and large-loss rows.
 
+V8.6.96 TOKEN SAFETY: Keep output concise. Do not quote long source extracts. Prioritize compact policy-year tables and JSON over narrative. If there are many claims, aggregate by policy year and coverage; list only attachment-relevant or $250K+ claims in large-loss detail.
+
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
 
