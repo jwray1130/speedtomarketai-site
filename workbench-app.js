@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.86-fleet-code-engine-2026-05-17';
+window.STM_BUILD = 'v8.6.87-final-prepaid-fix-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.86 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.87 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
@@ -1509,11 +1509,11 @@ document.addEventListener('DOMContentLoaded', () => {
             put('base', vals.base && normalizeBasisForSelect(vals.base.value));
             // Force rater recalculation through existing listeners.
             row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
-            console.log('[workbench] v8.6.86 GL exposure rater apply:', filled, 'cells filled', vals);
+            console.log('[workbench] v8.6.87 GL exposure rater apply:', filled, 'cells filled', vals);
         }
 
 
-        // v8.6.86 — section population hardening. These are no-cost DOM writers
+        // v8.6.87 — section population hardening. These are no-cost DOM writers
         // that consume resolver/adapters. They prevent blank tables when data is
         // present in snapshot.extractions.
         function r85(field, submission) {
@@ -1539,25 +1539,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function parseLossTables85(submission) {
             const ex = submission?.snapshot?.extractions || submission?.extractions || {};
-            const txt = (ex.losses && ex.losses.text) || '';
-            if (!txt || /No matching loss runs found/i.test(txt)) return { gl: [], auto: [], largeGl: [], largeAuto: [] };
+            const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
+            const fileLossText = files
+                .filter(f => /loss|claim/i.test([f.name, f.classification, ...(Array.isArray(f.classifications) ? f.classifications.map(c => [c.tag, c.subType, c.section_hint].join(' ')) : [])].join(' ')))
+                .flatMap(f => (f.extractMeta && Array.isArray(f.extractMeta.pageTexts)) ? f.extractMeta.pageTexts : [])
+                .map(p => typeof p === 'string' ? p : String(p?.text || p?.content || p?.pageText || ''))
+                .join('\n\n');
+            const rawTxt = (ex.losses && ex.losses.text) || '';
+            const txt = (!rawTxt || /No matching loss runs found/i.test(rawTxt)) ? fileLossText : rawTxt;
+            if (!txt) return { gl: [], auto: [], largeGl: [], largeAuto: [] };
             const clean = txt.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
             const out = { gl: [], auto: [], largeGl: [], largeAuto: [] };
-            // HTML template rows: <td>5/1/25 - 26</td>...; use loose row extraction.
-            const rows = clean.split(/\n|\r/).map(x => x.trim()).filter(Boolean).join('\n');
-            const yearRe = /(5\/1\/\d{2}\s*-\s*\d{2}|\d{2}\s*-\s*\d{2})[\s\S]{0,120}?\$?\s*([0-9,]+)[\s\S]{0,80}?\$?\s*([0-9,]+)[\s\S]{0,80}?\$?\s*([0-9,]+)/gi;
-            // If the generated HTML follows the prompt, sections are separated by titles.
-            const glSec = (rows.match(/General Liability Loss Information[\s\S]*?(?:General Liability Large Losses|Auto Liability Loss Information|$)/i) || [''])[0];
-            const alSec = (rows.match(/Auto Liability Loss Information[\s\S]*?(?:Auto Liability Large Losses|Analyst Notes|$)/i) || [''])[0];
-            const collect = (sec) => {
-                const arr = []; let m;
-                while ((m = yearRe.exec(sec)) !== null) {
-                    arr.push({ period: m[1], paid: m[2], reserve: '0', incurred: m[4] || m[3], claims: '' });
-                }
-                return arr.slice(0, 5);
-            };
-            out.gl = collect(glSec);
-            out.auto = collect(alSec);
+            const compact = clean.split(/\n|\r/).map(x => x.trim()).filter(Boolean).join('\n');
+
+            function periodForDate(dol) {
+                const m = String(dol || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+                if (!m) return null;
+                let y = parseInt(m[3], 10); if (y < 100) y += 2000;
+                const mo = parseInt(m[1], 10);
+                const start = mo >= 5 ? y : y - 1;
+                return String(start).slice(2) + '-' + String(start + 1).slice(2);
+            }
+            function addClaim(bucket, dol, paid, reserve, incurred, lob, desc) {
+                const period = periodForDate(dol); if (!period) return;
+                const key = period;
+                if (!bucket[key]) bucket[key] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
+                const n = v => Number(String(v || '0').replace(/[^0-9.-]/g, '')) || 0;
+                bucket[key].paid += n(paid); bucket[key].reserve += n(reserve); bucket[key].incurred += n(incurred); bucket[key].claims += 1;
+            }
+            function collectClaims(sectionRe) {
+                const sec = (sectionRe.exec(compact) || [''])[0];
+                const bucket = {};
+                const rowRe = /\b(\d{4,6})\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+\$?([0-9,]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([^\n]{0,220}?)(?:Closed|CLOSED|Open|OPEN)\s+([^\n]+)/gi;
+                let m; while ((m = rowRe.exec(sec)) !== null) addClaim(bucket, m[5], m[2], m[3], m[4], m[7], m[6]);
+                return Object.values(bucket).sort((a,b) => b.period.localeCompare(a.period)).slice(0,5).map(r => ({
+                    period:r.period, claims:String(r.claims), exposure:'', paid:Math.round(r.paid).toLocaleString('en-US'), reserve:Math.round(r.reserve).toLocaleString('en-US'), incurred:Math.round(r.incurred).toLocaleString('en-US')
+                }));
+            }
+            out.gl = collectClaims(/General\s+Liability\s+Claims[\s\S]*?(?:Property\s+Claims|Workers\s+Comp|$)/i);
+            out.auto = collectClaims(/Commercial\s+Auto\s+Claims[\s\S]*?(?:General\s+Liability\s+Claims|Property\s+Claims|$)/i);
             return out;
         }
 
@@ -1585,7 +1605,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.86 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.87 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1615,7 +1635,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.86 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.87 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1665,14 +1685,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.86 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.87 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 rater skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 rater skipped:', e.message); }
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1680,7 +1700,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.86 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.87 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 
