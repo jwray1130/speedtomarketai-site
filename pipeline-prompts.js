@@ -1513,6 +1513,8 @@ Your expertise as 'Class Code Expert' is crucial for users seeking accurate gene
 
 Source of truth: https://www.insurancexdate.com/gl.php (InsuranceXDate General Liability Class Codes — official ISO GL class code reference).
 
+v8.6.92 reference discipline: downstream Workbench validates GL rater rows against an internal Class Code / Description / Rating Basis table. Return real ISO/CGL class codes only, preserve source class codes with uncertainty if the carrier schedule uses a code not in the reference, and always include rating/exposure basis exactly when available.
+
 IMPORTANT: Use ONLY real ISO GL class codes. Do not invent codes. Common construction-related codes include:
 - 91560 Concrete Construction
 - 91577 Contractors — Subcontracted Work — In Connection with Building Construction, Reconstruction, Repair or Erection — Buildings NOC

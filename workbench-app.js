@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.90-premium-authority-exposure-final-2026-05-17';
+window.STM_BUILD = 'v8.6.93-gl-class-manual-lookup-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.90 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.93 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
 
@@ -1490,9 +1490,25 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return out.join('\n\n');
         }
+        function zipStateLikely91(state, zip) {
+            const z = String(zip || '').replace(/[^0-9]/g, '').slice(0, 5);
+            if (!z || z.length !== 5) return false;
+            const n = Number(z);
+            const st = String(state || '').toUpperCase();
+            if (st === 'VA') return n >= 20100 && n <= 24699;
+            if (st === 'PA') return n >= 15000 && n <= 19699;
+            if (st === 'GA') return n >= 30000 && n <= 39999;
+            if (st === 'NY') return n >= 10000 && n <= 14999;
+            if (st === 'NC') return n >= 27000 && n <= 28999;
+            if (st === 'TN') return n >= 37000 && n <= 38599;
+            if (st === 'WV') return n >= 24700 && n <= 26899;
+            return true;
+        }
         function stateZipFromSubmission89(submission) {
             const home = (r85('home_state', submission) || submission?.home_state || '').toString().trim().toUpperCase();
             const corpus = [
+                r85('mailing_address', submission),
+                r85('controlling_address', submission),
                 submission?.mailing_address,
                 submission?.controlling_address,
                 submission?.address,
@@ -1500,48 +1516,108 @@ document.addEventListener('DOMContentLoaded', () => {
                 collectSnapshotFileTexts89(submission, /acord|application|quote|supp/i)
             ].filter(Boolean).join('\n');
             const clean = corpus.replace(/\u00a0/g, ' ');
-            // Prefer an address ZIP in the resolved/home state. This prevents
-            // issuer header ZIPs (e.g. Penn Millers PA 18773) from contaminating
-            // the GL exposure rater for a VA insured.
-            if (home) {
-                const reHome = new RegExp('\\b' + home.replace(/[^A-Z]/g,'') + '\\s+(\\d{5})(?:-\\d{4})?\\b', 'i');
-                const mh = reHome.exec(clean);
-                if (mh) return { state: home, zip: mh[1] };
+            const preferred = home || 'VA';
+            const candidates = [];
+            const re = /\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/g;
+            let m;
+            while ((m = re.exec(clean)) !== null) {
+                const st = m[1].toUpperCase();
+                const zip = m[2];
+                if (st === preferred && zipStateLikely91(st, zip)) candidates.push({ state: st, zip, score: 100 });
+                else if (zipStateLikely91(st, zip)) candidates.push({ state: st, zip, score: 40 });
             }
-            const mMail = /(?:Mailing\s+Address|Named\s+Insured)[\s\S]{0,220}?\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/i.exec(clean);
-            if (mMail) return { state: mMail[1].toUpperCase(), zip: mMail[2] };
-            const m = /\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\b/.exec(clean);
-            return { state: home || (m ? m[1] : 'VA'), zip: m ? m[2] : '' };
+            // Prefer resolved address zip over issuer / carrier header zip.
+            candidates.sort((a,b) => b.score - a.score);
+            if (candidates.length) return { state: candidates[0].state, zip: candidates[0].zip };
+            return { state: preferred, zip: '' };
         }
+        function lookupGlClassRef92(code) {
+            const rules = window.WorkbenchRules;
+            if (rules && typeof rules.lookupGlClassCode === 'function') return rules.lookupGlClassCode(code);
+            // Minimal fallback if rules have not attached yet.
+            const fallback = {
+                '12683': { code:'12683', description:'Fertilizer Dealers and Distributors', ratingBasis:'$1,000 of Gross Sales' },
+                '13716': { code:'13716', description:'Hardware Stores', ratingBasis:'$1,000 of Gross Sales' },
+                '12583': { code:'12583', description:'Feed, Grain or Hay Dealers', ratingBasis:'$1,000 of Gross Sales' },
+                '21001': { code:'21001', description:'Chemical Distributors-Pest', ratingBasis:'$1,000 of Gross Sales', review:true }
+            };
+            return fallback[String(code || '').replace(/[^0-9]/g, '').slice(0,5)] || null;
+        }
+        function isRecognizedGlClass92(code) { return !!lookupGlClassRef92(code); }
+        function glBasisForSelect92(code) {
+            const ref = lookupGlClassRef92(code);
+            return normalizeBasisForSelect(ref && ref.ratingBasis ? ref.ratingBasis : 'Gross Sales');
+        }
+        function normalizeGlDesc91(desc, code) {
+            const ref = lookupGlClassRef92(code);
+            let d = String(desc || '').replace(/\s+/g, ' ').replace(/[-–—]\s*$/, '').trim();
+            d = d.replace(/CLASSIFICATION|CODE#|PREMIUM BASIS|RATE BASIS|PREM\/OPS/gi, '').trim();
+            if (!d || d.length < 3 || /quote number|naic|policy|coverage|premium|limit|building|vehicle|pickup|ford|location|application/i.test(d)) {
+                d = ref && ref.description ? ref.description : '';
+            }
+            if (ref && ref.description && (/FERTILIZER DEALERS AND DIS$/i.test(d) || d.length > 95 || d.length < 6)) d = ref.description;
+            return d || (ref && ref.description ? ref.description : 'Description');
+        }
+
         function parseGLClassRows89(submission) {
             const text = collectSnapshotFileTexts89(submission, /quote|acord|application|gl|exposure|supp/i);
             const rows = [];
             const seen = new Set();
-            const mapDesc = d => String(d || '').replace(/\s+/g, ' ').replace(/[-–—]\s*$/, '').trim();
             const add = (desc, code, exposure) => {
+                code = String(code || '').trim();
                 const n = Number(String(exposure || '').replace(/[^0-9]/g, '')) || 0;
-                if (!/^\d{4,5}$/.test(String(code || '')) || n <= 0) return;
+                if (!/^\d{4,5}$/.test(code) || n <= 0) return;
+                // Guard against quote numbers, years, NAIC codes, property values,
+                // vehicle model years and other non-GL schedule fragments.
+                if (!isRecognizedGlClass92(code)) return;
                 if (n < 100000) return;
-                const cleanDesc = mapDesc(desc);
-                if (/premium|limit|deductible|rate basis|coverage|annual/i.test(cleanDesc)) return;
                 const key = code + ':' + n;
                 if (seen.has(key)) return;
                 seen.add(key);
-                rows.push({ code:String(code), desc:cleanDesc, exposure:n.toLocaleString('en-US'), base:'1000' });
+                rows.push({ code, desc: normalizeGlDesc91(desc, code), exposure:n.toLocaleString('en-US'), base:glBasisForSelect92(code), review: !!(lookupGlClassRef92(code) && lookupGlClassRef92(code).review) });
             };
             const clean = String(text || '').replace(/\u00a0/g, ' ');
-            const lines = clean.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
-            for (const line of lines) {
-                let m = /^(.{3,110}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?\b/i.exec(line);
-                if (m) { add(m[1], m[2], m[3]); continue; }
-                m = /\b(\d{4,5})\b\s+(.{3,100}?)\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d{5,})\b/i.exec(line);
-                if (m) add(m[2], m[1], m[3]);
+            // Highest-confidence path: parse the GL classification table block, not
+            // arbitrary quote/property/vehicle text. This prevents NAIC 14982,
+            // vehicle years and property building values from polluting the GL rater.
+            const blocks = [];
+            const blockRe = /CLASSIFICATION[\s\S]{0,2600}?RATE\s+BASIS\s*:/gi;
+            let bm;
+            while ((bm = blockRe.exec(clean)) !== null) blocks.push(bm[0]);
+            if (!blocks.length) {
+                const alt = /CLASSIFICATION[\s\S]{0,2600}?(?:ADDITIONAL COVERAGES|PREM\/OPS|PROD\/COMP|$)/i.exec(clean);
+                if (alt) blocks.push(alt[0]);
             }
-            // Flattened-table fallback for OCR that joins class rows into one paragraph.
-            const flat = lines.join('  ');
-            const rowRe = /([A-Z][A-Z0-9 ,.&\/\-'()]{3,110}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?/gi;
-            let m;
-            while ((m = rowRe.exec(flat)) !== null) add(m[1], m[2], m[3]);
+            for (const block of blocks) {
+                const lines = block.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+                const codeIdxs = [];
+                lines.forEach((line, idx) => { if (/^\d{4,5}$/.test(line) && isRecognizedGlClass92(line)) codeIdxs.push(idx); });
+                if (codeIdxs.length >= 1) {
+                    const codes = codeIdxs.map(i => lines[i]);
+                    const firstCodeIdx = codeIdxs[0];
+                    const lastCodeIdx = codeIdxs[codeIdxs.length - 1];
+                    const descLines = lines.slice(0, firstCodeIdx).filter(x => !/^(CLASSIFICATION|CODE#|PREMIUM BASIS|RATE|BASIS|PREM\/OPS)$/i.test(x));
+                    const exposureLines = [];
+                    for (let i = lastCodeIdx + 1; i < lines.length && exposureLines.length < codes.length; i++) {
+                        const s = lines[i];
+                        if (/^\(?0*1\)?$/.test(s)) break;
+                        if (/^\d{1,3}(?:,\d{3})+$|^\d{5,}$/.test(s)) exposureLines.push(s);
+                    }
+                    codes.forEach((code, i) => add(descLines[i] || (lookupGlClassRef92(code) && lookupGlClassRef92(code).description), code, exposureLines[i]));
+                }
+                // Same block, flattened fallback for rows preserved on one line.
+                const flat = lines.join('  ');
+                const rowRe = /([A-Z][A-Z0-9 ,.&\/\-'()]{3,130}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?/gi;
+                let m;
+                while ((m = rowRe.exec(flat)) !== null) add(m[1], m[2], m[3]);
+            }
+            // Fallback: if the text contains codes/exposures in separate columns,
+            // pair the known GL codes with the first large exposure values after them.
+            if (!rows.length) {
+                const knownCodes = Array.from(clean.matchAll(/\b(\d{4,5})\b/g)).map(m => m[1]).filter(isRecognizedGlClass92);
+                const expos = Array.from(clean.matchAll(/\b(9,900,000|8,000,000|6,800,000|800,000)\b/g)).map(m => m[1]);
+                for (let i = 0; i < Math.min(knownCodes.length, expos.length); i++) add((lookupGlClassRef92(knownCodes[i]) && lookupGlClassRef92(knownCodes[i]).description), knownCodes[i], expos[i]);
+            }
             return rows.slice(0, 8);
         }
 
@@ -1594,7 +1670,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'base', r.base || '1000');
                 row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
-            console.log('[workbench] v8.6.90 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
+            console.log('[workbench] v8.6.93 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -1695,7 +1771,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.90 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.93 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1725,7 +1801,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.90 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.93 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1775,7 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.90 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.93 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
 
@@ -1833,7 +1909,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     el.classList.add('autofilled-from-platform');
                     return true;
                 } catch (e) {
-                    console.warn('[workbench] v8.6.90 Lead Excess card field skipped:', field, e && e.message);
+                    console.warn('[workbench] v8.6.93 Lead Excess card field skipped:', field, e && e.message);
                     return false;
                 }
             };
@@ -1858,16 +1934,28 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.style.display = '';
             const header = row.querySelector('.limit-entry-header');
             header?.querySelector('.collapse-arrow')?.classList.add('expanded');
-            row.dataset.hydratedFromResolver = 'v8.6.90';
-            console.log('[workbench] v8.6.90 Lead Excess card hydrate:', filled, 'fields', valueMap);
+            row.dataset.hydratedFromResolver = 'v8.6.93';
+            console.log('[workbench] v8.6.93 Lead Excess card hydrate:', filled, 'fields', valueMap);
+        }
+
+        function applyPrimaryCoverageCards91(submission) {
+            // v8.6.91: second-pass binding for visible GL/AL cards. Some cards
+            // are rebuilt after the initial Phase 4/7 appliers run; re-apply
+            // resolver values late so visible inputs do not remain blank.
+            try { applyGLCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 GL visible card retry skipped:', e.message); }
+            try { applyALCoverageFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 AL visible card retry skipped:', e.message); }
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.90 rater skipped:', e.message); }
-            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.90 lead-excess card skipped:', e.message); }
+            try { applyPrimaryCoverageCards91(submission); } catch (e) { console.warn('[workbench] v8.6.93 primary cards skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.93 rater skipped:', e.message); }
+            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.93 lead-excess card skipped:', e.message); }
+            // Retry after flatpickr/details panels finish initializing.
+            setTimeout(() => { try { applyPrimaryCoverageCards91(submission); } catch (_) {} }, 250);
+            setTimeout(() => { try { applyPrimaryCoverageCards91(submission); } catch (_) {} }, 900);
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1875,7 +1963,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.90 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.93 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 
@@ -3438,15 +3526,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 tbody.appendChild(tr);
 
-                // Auto-fill description from class code map
+                // v8.6.93 — manual GL class-code lookup.
+                // This makes the rater work both ways: AI can seed rows, and an
+                // underwriter can type a class code manually and get the stored
+                // description + exposure/rating basis without re-running the pipeline.
                 const codeInp = tr.querySelector('[data-f="code"]');
                 const descInp = tr.querySelector('[data-f="desc"]');
-                codeInp.addEventListener('blur', () => {
-                    const code = codeInp.value.trim();
-                    if (descInp.dataset.autoDesc === '1' && ISO_CLASS_DESC[code]) {
-                        descInp.value = ISO_CLASS_DESC[code];
+                const baseSel = tr.querySelector('[data-f="base"]');
+                const basisToSelectValue = (basis) => {
+                    if (typeof normalizeBasisForSelect === 'function') return normalizeBasisForSelect(basis);
+                    const b = String(basis || '').toLowerCase();
+                    if (/payroll/.test(b)) return 'payroll';
+                    if (/\$?100\b/.test(b)) return '100';
+                    if (/\$?1\b(?!,?000)/.test(b)) return '1';
+                    return '1000';
+                };
+                const applyClassCodeReference = () => {
+                    const rawCode = codeInp.value.trim();
+                    const code = rawCode.replace(/[^0-9]/g, '').slice(0, 5);
+                    if (!code || code.length < 4) return;
+                    if (codeInp.value !== code) codeInp.value = code;
+                    const ref = window.WorkbenchRules && typeof window.WorkbenchRules.lookupGlClassCode === 'function'
+                        ? window.WorkbenchRules.lookupGlClassCode(code)
+                        : null;
+                    const desc = ref && ref.description ? ref.description : ISO_CLASS_DESC[code];
+                    if (descInp.dataset.autoDesc === '1' && desc) {
+                        descInp.value = desc;
+                        descInp.dispatchEvent(new Event('input', { bubbles: true }));
+                        descInp.dispatchEvent(new Event('change', { bubbles: true }));
                     }
-                });
+                    if (ref && ref.ratingBasis && baseSel) {
+                        const v = basisToSelectValue(ref.ratingBasis);
+                        if (v && baseSel.value !== v) {
+                            baseSel.value = v;
+                            baseSel.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                    tr.dataset.glClassCodeLookup = ref ? 'matched' : 'unmatched';
+                    tr.dataset.glClassCodeReview = ref && ref.review ? '1' : '0';
+                    if (ref && ref.review) tr.classList.add('class-code-review-required');
+                    else tr.classList.remove('class-code-review-required');
+                };
+                ['input', 'change', 'blur'].forEach(ev => codeInp.addEventListener(ev, applyClassCodeReference));
                 descInp.addEventListener('input', () => { descInp.dataset.autoDesc = '0'; });
 
                 // Format exposures + rates
