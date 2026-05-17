@@ -528,8 +528,12 @@
   // Returns the parsed object on success, null on miss.
   function parseJsonBlock(text) {
     if (!text || typeof text !== 'string') return null;
-    // Try fenced JSON block first
-    const fencedMatch = /```json\s*([\s\S]*?)```/i.exec(text);
+    // Try fenced JSON block first. v8.6.97: pipeline modules may emit
+    // labeled fences like: ```json loss_history_structured ... ```
+    // Older parsing captured the label as part of the JSON payload and
+    // failed, so Workbench saw no structured losses even though A11 had
+    // produced them. Accept an optional single-word label after json.
+    const fencedMatch = /```(?:json)?\s*(?:[A-Za-z0-9_-]+\s*)?([\s\S]*?)```/i.exec(text);
     if (fencedMatch) {
       try { return JSON.parse(fencedMatch[1].trim()); }
       catch (e) { /* fall through */ }
@@ -3810,7 +3814,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.96-loss-history-retry-final',
+    version: 'v8.6.97-loss-workbench-bridge-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

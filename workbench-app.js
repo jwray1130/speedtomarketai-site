@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.96-loss-history-retry-final-2026-05-17';
+window.STM_BUILD = 'v8.6.97-loss-workbench-bridge-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1716,11 +1716,113 @@ document.addEventListener('DOMContentLoaded', () => {
             const ex = submission?.snapshot?.extractions || submission?.extractions || {};
             const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
             const fileLossText = files
-                .filter(f => /loss|claim/i.test([f.name, f.classification, ...(Array.isArray(f.classifications) ? f.classifications.map(c => [c.tag, c.subType, c.section_hint].join(' ')) : [])].join(' ')))
+                .filter(f => /loss|claim/i.test([f.name, f.fileName, f.filename, f.title, f.classification, f.primaryTag, f.routedTo, ...(Array.isArray(f.classifications) ? f.classifications.map(c => [c.tag, c.subType, c.section_hint].join(' ')) : [])].join(' ')))
                 .flatMap(f => (f.extractMeta && Array.isArray(f.extractMeta.pageTexts)) ? f.extractMeta.pageTexts : [])
                 .map(p => typeof p === 'string' ? p : String(p?.text || p?.content || p?.pageText || ''))
                 .join('\n\n');
-            const rawTxt = (ex.losses && ex.losses.text) || '';
+
+            const lossRec = ex.losses || ex.loss_history || ex.loss_history_structured || null;
+            const rawTxt = typeof lossRec === 'string'
+                ? lossRec
+                : String(lossRec?.text || lossRec?.output || lossRec?.content || lossRec?.result || '');
+
+            function moneyFmt(v) {
+                const n = Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, '')) || 0;
+                return Math.round(n).toLocaleString('en-US');
+            }
+            function normPeriod(v) {
+                const s0 = String(v || '').trim();
+                if (!s0) return '';
+                // Examples: 5/1/2025-2026, 05/01/2019 to 02/28/2026, 25-26.
+                let m = s0.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*(?:[-–—]|to|through|thru)\s*(?:(\d{1,2})\/(\d{1,2})\/)?(\d{2,4})/i);
+                if (m) {
+                    let y1 = parseInt(m[3], 10); if (y1 < 100) y1 += 2000;
+                    let y2 = parseInt(m[6], 10); if (y2 < 100) y2 += 2000;
+                    return String(y1).slice(2) + '-' + String(y2).slice(2);
+                }
+                m = s0.match(/(\d{2,4})\s*[-–—]\s*(\d{2,4})/);
+                if (m) {
+                    let y1 = parseInt(m[1], 10); if (y1 < 100) y1 += 2000;
+                    let y2 = parseInt(m[2], 10); if (y2 < 100) y2 += 2000;
+                    return String(y1).slice(2) + '-' + String(y2).slice(2);
+                }
+                return s0;
+            }
+            function parseStructuredLoss97() {
+                // v8.6.97: A11 now emits a fenced block named
+                // ```json loss_history_structured. Workbench previously treated
+                // the HTML report as prose and ignored the JSON payload, so the
+                // pipeline panel showed losses while the Workbench loss table stayed blank.
+                const candidates = [];
+                if (lossRec && typeof lossRec === 'object') {
+                    candidates.push(lossRec.loss_history_structured, lossRec.structured, lossRec.json, lossRec.data);
+                    if (lossRec.policy_years || lossRec.coverage_totals || lossRec.large_losses) candidates.push(lossRec);
+                }
+                const textHay = rawTxt || '';
+                const fences = Array.from(textHay.matchAll(/```(?:json)?\s*(?:loss_history_structured\s*)?([\s\S]*?)```/gi));
+                fences.forEach(f => { try { candidates.push(JSON.parse((f[1] || '').trim())); } catch (_) {} });
+                const idx = textHay.indexOf('loss_history_structured');
+                if (idx >= 0) {
+                    const after = textHay.slice(idx);
+                    const start = after.indexOf('{');
+                    if (start >= 0) {
+                        const src = after.slice(start);
+                        let depth = 0, inStr = false, esc = false, end = -1;
+                        for (let i = 0; i < src.length; i++) {
+                            const ch = src[i];
+                            if (inStr) {
+                                if (esc) esc = false;
+                                else if (ch === '\\') esc = true;
+                                else if (ch === '"') inStr = false;
+                                continue;
+                            }
+                            if (ch === '"') inStr = true;
+                            else if (ch === '{') depth++;
+                            else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+                        }
+                        if (end > 0) { try { candidates.push(JSON.parse(src.slice(0, end))); } catch (_) {} }
+                    }
+                }
+                const obj = candidates.find(x => x && typeof x === 'object' && (Array.isArray(x.policy_years) || x.coverage_totals || x.large_losses));
+                if (!obj || !Array.isArray(obj.policy_years)) return null;
+                const rows = { gl: [], auto: [], largeGl: [], largeAuto: [] };
+                obj.policy_years.forEach(py => {
+                    const period = normPeriod(py.policy_year || py.period || py.year);
+                    if (!period) return;
+                    rows.gl.push({
+                        period,
+                        claims: String(py.gl_claims ?? py.gl_count ?? py.general_liability_claims ?? 0),
+                        exposure: '',
+                        paid: moneyFmt(py.gl_paid ?? py.general_liability_paid ?? py.paid_gl ?? 0),
+                        reserve: moneyFmt(py.gl_reserve ?? py.general_liability_reserve ?? 0),
+                        incurred: moneyFmt(py.gl_incurred ?? py.general_liability_incurred ?? py.incurred_gl ?? 0),
+                        valuation: obj.valuation_date || ''
+                    });
+                    rows.auto.push({
+                        period,
+                        claims: String(py.al_claims ?? py.auto_claims ?? py.automobile_claims ?? 0),
+                        exposure: '',
+                        paid: moneyFmt(py.al_paid ?? py.auto_paid ?? py.automobile_paid ?? py.paid_al ?? 0),
+                        reserve: moneyFmt(py.al_reserve ?? py.auto_reserve ?? py.automobile_reserve ?? 0),
+                        incurred: moneyFmt(py.al_incurred ?? py.auto_incurred ?? py.automobile_incurred ?? py.incurred_al ?? 0),
+                        valuation: obj.valuation_date || ''
+                    });
+                });
+                const sortDesc = (a,b) => String(b.period).localeCompare(String(a.period));
+                rows.gl = rows.gl.sort(sortDesc).slice(0, 6);
+                rows.auto = rows.auto.sort(sortDesc).slice(0, 6);
+                (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
+                    const r = { dol: x.dol || x.date || '', incurred: moneyFmt(x.incurred), paid: moneyFmt(x.paid), desc: x.description || x.notes || '' };
+                    if (/^A|auto/i.test(String(x.lob || x.coverage || ''))) rows.largeAuto.push(r);
+                    else rows.largeGl.push(r);
+                });
+                rows.__source = 'loss_history_structured';
+                return rows;
+            }
+
+            const structured = parseStructuredLoss97();
+            if (structured) return structured;
+
             const txt = (!rawTxt || /No matching loss runs found/i.test(rawTxt)) ? fileLossText : rawTxt;
             if (!txt) return { gl: [], auto: [], largeGl: [], largeAuto: [] };
             const clean = txt.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
@@ -1742,7 +1844,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 bucket[period].paid += n(paid); bucket[period].reserve += n(reserve); bucket[period].incurred += n(incurred); bucket[period].claims += 1;
             }
             function rowsFromBucket(bucket) {
-                return Object.values(bucket).sort((a,b) => b.period.localeCompare(a.period)).slice(0,5).map(r => ({
+                return Object.values(bucket).sort((a,b) => b.period.localeCompare(a.period)).slice(0,6).map(r => ({
                     period:r.period, claims:String(r.claims), exposure:'', paid:Math.round(r.paid).toLocaleString('en-US'), reserve:Math.round(r.reserve).toLocaleString('en-US'), incurred:Math.round(r.incurred).toLocaleString('en-US')
                 }));
             }
@@ -1757,6 +1859,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             out.gl = rowsFromBucket(glBucket);
             out.auto = rowsFromBucket(autoBucket);
+            out.__source = 'loss_file_text_regex';
             return out;
         }
 
@@ -1785,7 +1888,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.94 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.97 loss history apply:', gl, 'GL rows ·', au, 'Auto rows · source', parsed.__source || 'unknown');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1963,7 +2066,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
             try { applyPrimaryCoverageCards91(submission); } catch (e) { console.warn('[workbench] v8.6.94 primary cards skipped:', e.message); }
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 losses skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.97 losses skipped:', e.message); }
             try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 fleet skipped:', e.message); }
             try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.94 rater skipped:', e.message); }
             try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.94 lead-excess card skipped:', e.message); }
