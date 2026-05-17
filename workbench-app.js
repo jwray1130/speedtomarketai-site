@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.76b-idempotent-coverage-datefix-2026-05-16
+  v8.6.77-input-money-guard-2026-05-16
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.76b-idempotent-coverage-datefix-2026-05-16';
+window.STM_BUILD = 'v8.6.77-input-money-guard-2026-05-16';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,10 +14,115 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = q => document.querySelector(q);
     const $$ = q => document.querySelectorAll(q);
 
-    /* helper: add commas to integer strings */
+    /* helper: add commas to integer strings.
+       FIX-PHASE-GO-LIVE-77-INPUT-MONEY-MAGNITUDE-2026-05-16
+       Extension v8.6.76b combinatorial audit (HIGH): the old body was
+         const v = input.value.replace(/[^0-9]/g, "");
+         input.value = v ? parseInt(v,10).toLocaleString("en-US") : "";
+       which SILENTLY collapsed magnitude: "$5M" -> "5", "5e100" ->
+       "5100", "-1000" -> "1000", with no warning and the wrong value
+       persisted on Save. The user-facing input was strictly dumber than
+       the internal tower parser (_num), which is exactly backward — an
+       underwriter types "$5M" meaning $5,000,000. This now mirrors the
+       hardened _num multiplier logic (k/m/mm/b, "million"/"thousand"/
+       "billion") so "$5M" -> 5,000,000, and gives VISIBLE feedback when
+       the raw input contained non-digit content that was coerced, and
+       REJECTS (clears + flags) ambiguous/dangerous tokens (scientific
+       notation, negatives, trailing junk) instead of silently keeping a
+       wrong in-range number. */
+    function _parseMoneyInput(raw) {
+        if (raw == null) return { value: null, coerced: false, rejected: false };
+        let s = String(raw).trim();
+        if (!s) return { value: null, coerced: false, rejected: false };
+        const hadNonDigit = /[^0-9]/.test(s);
+        // Reject scientific notation and explicit negatives outright —
+        // these are never valid limit/premium entry and the old code
+        // turned them into plausible-looking in-range numbers.
+        if (/[eE]\s*[-+]?\d/.test(s) || /^\s*-/.test(s)) {
+            return { value: null, coerced: false, rejected: true };
+        }
+        // Normalize: drop currency symbols, spaces, thousands commas;
+        // keep digits, decimal point, and multiplier letters/words.
+        let t = s.replace(/[,$\s]/g, '');
+        let mult = 1;
+        let m = t.match(/^([0-9]*\.?[0-9]+)(mm|m|k|b)?$/i);
+        let w = t.match(/^([0-9]*\.?[0-9]+)(million|thousand|billion)$/i);
+        let baseStr = null;
+        if (w) {
+            baseStr = w[1];
+            const word = w[2].toLowerCase();
+            mult = word === 'billion' ? 1e9 : word === 'million' ? 1e6 : 1e3;
+        } else if (m) {
+            baseStr = m[1];
+            const suf = (m[2] || '').toLowerCase();
+            mult = suf === 'b' ? 1e9
+                 : (suf === 'm' || suf === 'mm') ? 1e6
+                 : suf === 'k' ? 1e3 : 1;
+        } else {
+            // Anything else (letters mid-number, multiple dots, junk) is
+            // ambiguous — reject rather than silently truncate.
+            return { value: null, coerced: false, rejected: true };
+        }
+        const base = parseFloat(baseStr);
+        if (!isFinite(base)) return { value: null, coerced: false, rejected: true };
+        const val = Math.round(base * mult);
+        if (!isFinite(val) || val < 0) return { value: null, coerced: false, rejected: true };
+        return { value: val, coerced: hadNonDigit && mult === 1 ? false : hadNonDigit, rejected: false };
+    }
+
+    function _flagMoneyInput(input, kind) {
+        // Visible, non-blocking feedback so coercion/rejection is never
+        // silent. kind: 'coerced' (amber, shows canonical value) or
+        // 'rejected' (red, value cleared).
+        try {
+            input.classList.remove('money-input-coerced', 'money-input-rejected');
+            let tip = input.parentNode &&
+                input.parentNode.querySelector('.money-input-note');
+            if (kind) {
+                input.classList.add(kind === 'rejected'
+                    ? 'money-input-rejected' : 'money-input-coerced');
+                if (!tip && input.parentNode) {
+                    tip = document.createElement('span');
+                    tip.className = 'money-input-note';
+                    tip.style.cssText = 'display:block;font-size:11px;font-weight:600;'
+                        + 'margin-top:2px;'
+                        + (kind === 'rejected'
+                            ? 'color:#b42318;' : 'color:#b54708;');
+                    input.parentNode.appendChild(tip);
+                }
+                if (tip) {
+                    tip.textContent = kind === 'rejected'
+                        ? 'Not a valid amount — cleared. Enter digits or e.g. $5M.'
+                        : 'Interpreted as ' + input.value;
+                    tip.style.display = 'block';
+                }
+                if (kind === 'rejected') {
+                    input.style.borderColor = '#b42318';
+                } else {
+                    input.style.borderColor = '#b54708';
+                }
+            } else {
+                if (tip) tip.style.display = 'none';
+                input.style.borderColor = '';
+            }
+        } catch (e) { /* feedback is best-effort, never throw */ }
+    }
+
     function formatCurrency(input) {
-        const v = input.value.replace(/[^0-9]/g, "");
-        input.value = v ? parseInt(v, 10).toLocaleString("en-US") : "";
+        const raw = input.value;
+        const r = _parseMoneyInput(raw);
+        if (r.rejected) {
+            input.value = '';
+            _flagMoneyInput(input, 'rejected');
+            return;
+        }
+        if (r.value == null) {
+            input.value = '';
+            _flagMoneyInput(input, null);
+            return;
+        }
+        input.value = r.value.toLocaleString('en-US');
+        _flagMoneyInput(input, r.coerced ? 'coerced' : null);
     }
 
     /* Renewal helper functions */
@@ -337,6 +442,20 @@ document.addEventListener('DOMContentLoaded', () => {
                             // #layerType control instead (with the badge
                             // as a fallback), so it is visible wherever
                             // the layer type itself is visible.
+                            // FIX-PHASE-GO-LIVE-77-LAYERWARN-ALWAYS-VISIBLE-2026-05-16
+                            // v76 anchored this to #layerType, but that
+                            // <select> lives in the Deal Information tab
+                            // pane, which is display:none whenever another
+                            // tab (e.g. Risk & Coverage on the clean demo)
+                            // is active — so the badge was created but
+                            // still never seen. Extension v8.6.76b
+                            // confirmed it remained console-only. Anchor
+                            // to the deal-hero status pill instead: that
+                            // element is in the persistent header OUTSIDE
+                            // all tab panes, so it is visible on every
+                            // tab and every path (demo and real). Keep a
+                            // resilient fallback chain so it always lands
+                            // somewhere visible.
                             let warn = document.getElementById('stmLayerTypeConflictWarn');
                             if (!warn) {
                                 warn = document.createElement('span');
@@ -345,15 +464,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                     + 'padding:2px 8px;border-radius:4px;background:#b54708;'
                                     + 'color:#fff;font-size:11px;font-weight:600;'
                                     + 'vertical-align:middle;';
-                                const ltCtrl = document.querySelector('#layerType');
-                                const anchor = (ltCtrl && (ltCtrl.closest('.field, .form-row, label') || ltCtrl.parentNode))
-                                    || document.getElementById('workbenchSubmissionBadge');
-                                if (anchor) {
-                                    if (ltCtrl && ltCtrl.parentNode === anchor) {
-                                        anchor.insertBefore(warn, ltCtrl.nextSibling);
-                                    } else {
-                                        anchor.appendChild(warn);
-                                    }
+                            }
+                            const heroPill = document.getElementById('heroStatusPill');
+                            const heroMeta = document.querySelector('.deal-hero-meta');
+                            const subBadge = document.getElementById('workbenchSubmissionBadge');
+                            const anchor = heroPill || heroMeta || subBadge;
+                            if (anchor && warn.parentNode !== anchor.parentNode
+                                && warn.parentNode !== anchor) {
+                                if (heroPill && heroPill.parentNode) {
+                                    heroPill.parentNode.insertBefore(warn, heroPill.nextSibling);
+                                } else if (anchor) {
+                                    anchor.appendChild(warn);
+                                }
+                            } else if (anchor && !warn.parentNode) {
+                                if (heroPill && heroPill.parentNode) {
+                                    heroPill.parentNode.insertBefore(warn, heroPill.nextSibling);
+                                } else {
+                                    anchor.appendChild(warn);
                                 }
                             }
                             warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';
