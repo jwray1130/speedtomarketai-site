@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.6.83-tower-recognition-final-2026-05-17';
+window.STM_BUILD = 'v8.6.86-fleet-code-engine-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2619,20 +2619,25 @@ function renderFileList() {
     }
     else if (f.state === 'classified') {
       stateClass = 'classified';
-      // Helper to render a classifier type as a compact file-list label.
-      // Turns "supplemental_contractors" into "SUPP · CONTRACTORS", leaves simple types uppercased.
+      // Helper to render a classifier tag as a compact file-list label.
+      // v8.6.84: show granular tags (GL Quote, AL Fleet, Lead $2M) rather
+      // than generic bucket names (QUOTES_UNDERLYING). This is the Platform
+      // File Manager surface, so the UW should see the actual document role.
       const prettyType = (t) => {
         if (!t) return '';
-        if (t.startsWith('supplemental_')) return 'SUPP · ' + t.slice('supplemental_'.length).toUpperCase();
-        if (t === 'supplemental') return 'SUPP · GENERIC';
-        return t.toUpperCase();
+        const raw = String(t);
+        if (raw.startsWith('supplemental_')) return 'SUPP · ' + raw.slice('supplemental_'.length).toUpperCase();
+        if (raw === 'supplemental') return 'SUPP · GENERIC';
+        if (/^[A-Z_]{4,}$/.test(raw)) return raw;
+        return raw;
       };
-      // Show combined-doc info
+      const classLabel = (c) => prettyType((c && (c.tag || c.subType || c.type)) || '');
+      // Show combined-doc info using the actual section tags, not c.type.
       if (f.isCombined && f.classifications && f.classifications.length > 1) {
-        stateText = f.classifications.map(c => prettyType(c.type)).join(' + ');
+        stateText = f.classifications.map(classLabel).filter(Boolean).join(' + ');
         extraBadge = '<span style="display:inline-block; margin-left: 4px; font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; background: var(--warning); color: #0A2540; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em;">COMBINED</span>';
       } else {
-        stateText = prettyType(f.classification);
+        stateText = prettyType(f.tag || f.subType || f.classification);
       }
       if (f.needsReview) {
         stateClass = 'unknown';  // use the amber border

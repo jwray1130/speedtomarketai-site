@@ -952,7 +952,7 @@
     // / tower / ACORD as REVIEW-grade fallback instead of leaving the
     // workbench blank. Carrier and premium stay GL-quote-only unless
     // explicitly stated elsewhere.
-    gl_carrier:                 ['gl_quote:json', 'gl_quote'],
+    gl_carrier:                 ['gl_quote:json', 'gl_quote', 'excess', 'tower'],
     gl_effective_date:          ['gl_quote:json', 'gl_quote', 'submission.effective_date'],
     gl_expiration_date:         ['gl_quote:json', 'gl_quote', 'submission.expiration_date', 'al_quote'],
     gl_each_occurrence:         ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
@@ -966,7 +966,7 @@
     // STRICT SOURCE RULE per Justin's spec (same as GL): AL coverage data
     // comes ONLY from the al_quote module. No fallbacks. The #details-al
     // panel is 5 fields: carrier, eff, exp, CSL, premium (no split limits).
-    al_carrier:                 ['al_quote:json', 'al_quote'],
+    al_carrier:                 ['al_quote:json', 'al_quote', 'excess', 'tower'],
     al_effective_date:          ['al_quote:json', 'al_quote'],
     al_expiration_date:         ['al_quote:json', 'al_quote'],
     al_combined_single_limit:   ['al_quote:json', 'al_quote'],
@@ -1057,14 +1057,42 @@
     iso_class_code:             ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
     iso_description:            ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
     hazard_grade:               ['classcode:json', 'classcode', 'exposure:json', 'exposure', 'guidelines'],
-    exposure_amount:            ['gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure', 'supplemental'],
+    exposure_amount:            ['supplemental:json', 'supplemental', 'gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure'],
     exposure_basis:             ['gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure', 'supplemental'],
     website:                    ['website:json', 'website', 'summary-ops', 'supplemental'],
     exposure_to_loss:           ['exposure:json', 'exposure'],
     account_strengths:          ['strengths:json', 'strengths'],
     guideline_conflicts_text:   ['guidelines:json', 'guidelines'],
     description_operations:     ['summary-ops:json', 'summary-ops', 'supplemental:json', 'supplemental', 'website:json', 'website'],
-    underwriting_rationale:     ['discrepancy:json', 'discrepancy', 'guidelines:json', 'guidelines', 'exposure:json', 'exposure', 'summary-ops']
+    underwriting_rationale:     ['discrepancy:json', 'discrepancy', 'guidelines:json', 'guidelines', 'exposure:json', 'exposure', 'summary-ops'],
+
+    // v8.6.85 — section-specific population fields. These had no
+    // resolver rules, so tables stayed blank even when module text had
+    // usable data. All are no-cost adapter fields.
+    loss_history_gl:            ['losses:json', 'losses'],
+    loss_history_auto:          ['losses:json', 'losses'],
+    loss_history_by_year:       ['losses:json', 'losses'],
+    large_losses:               ['losses:json', 'losses'],
+    fleet_private_passenger:    ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_light:                ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_medium:               ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_heavy:                ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_extra_heavy:          ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_truck_tractors:       ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_heavy_local:          ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_heavy_other:          ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_extra_heavy_local:    ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_extra_heavy_intermediate: ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_extra_heavy_long:     ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_truck_tractors_local: ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_truck_tractors_intermediate: ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_truck_tractors_long:  ['al_quote:json', 'al_quote', 'supplemental'],
+    underlying_lead_limit:      ['excess:json', 'excess', 'tower:json', 'tower'],
+    underlying_lead_carrier:    ['excess:json', 'excess', 'tower:json', 'tower'],
+    underlying_lead_premium:    ['excess:json', 'excess', 'tower:json', 'tower'],
+    tower_role:                 ['excess:json', 'excess', 'tower:json', 'tower'],
+    requested_limit:            ['excess:json', 'excess', 'tower:json', 'tower'],
+    attachment_point:           ['excess:json', 'excess', 'tower:json', 'tower']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -1323,7 +1351,31 @@
     broker_name: ['broker_name','brokerName','producer_name','producerName'],
     broker_address: ['broker_address','brokerAddress','producer_address','producerAddress'],
     home_state: ['home_state','homeState','state','domicile_state','domicileState'],
-    website: ['website','url','site','web_site']
+    website: ['website','url','site','web_site'],
+    loss_history_gl: ['loss_history_gl','gl_losses','general_liability_losses'],
+    loss_history_auto: ['loss_history_auto','auto_losses','automobile_losses'],
+    loss_history_by_year: ['loss_history_by_year','policy_years','yearly_losses'],
+    large_losses: ['large_losses','large_loss_detail','claims_over_250k','claims_over_500k'],
+    fleet_private_passenger: ['fleet_private_passenger','private_passenger','pp_units'],
+    fleet_light: ['fleet_light','light','light_trucks','pickup'],
+    fleet_medium: ['fleet_medium','medium','medium_trucks'],
+    fleet_heavy: ['fleet_heavy','heavy','heavy_trucks'],
+    fleet_extra_heavy: ['fleet_extra_heavy','extra_heavy','extra_heavy_trucks'],
+    fleet_truck_tractors: ['fleet_truck_tractors','truck_tractors','tractors'],
+    fleet_heavy_local: ['fleet_heavy_local','heavy_local','heavy_trucks_local'],
+    fleet_heavy_other: ['fleet_heavy_other','heavy_other','heavy_nonlocal','heavy_trucks_other'],
+    fleet_extra_heavy_local: ['fleet_extra_heavy_local','extra_heavy_local','xht_local'],
+    fleet_extra_heavy_intermediate: ['fleet_extra_heavy_intermediate','extra_heavy_intermediate','xht_intermediate'],
+    fleet_extra_heavy_long: ['fleet_extra_heavy_long','extra_heavy_long','xht_long'],
+    fleet_truck_tractors_local: ['fleet_truck_tractors_local','truck_tractors_local','xhtt_local'],
+    fleet_truck_tractors_intermediate: ['fleet_truck_tractors_intermediate','truck_tractors_intermediate','xhtt_intermediate'],
+    fleet_truck_tractors_long: ['fleet_truck_tractors_long','truck_tractors_long','xhtt_long'],
+    underlying_lead_limit: ['underlying_lead_limit','lead_limit','underlying_limit'],
+    underlying_lead_carrier: ['underlying_lead_carrier','lead_carrier','underlying_carrier'],
+    underlying_lead_premium: ['underlying_lead_premium','lead_premium','underlying_premium'],
+    tower_role: ['tower_role','role','layer_role'],
+    requested_limit: ['requested_limit','our_limit','limit'],
+    attachment_point: ['attachment_point','attachment','xs']
   };
 
   function lookupJsonField(obj, fieldName) {
@@ -1405,6 +1457,271 @@
     return Math.round(n).toLocaleString('en-US');
   }
 
+
+  function primaryIsoCodeFromSubmission(submission) {
+    const cls = _moduleText(submission, 'classcode') || '';
+    let m = /\*\*Code\s+(\d{4,5})\s+—/i.exec(cls) || /\bCode\s+(\d{4,5})\b/i.exec(cls) || /\bISO\s+(?:Class\s+)?Code\s*:?\s*(\d{4,5})\b/i.exec(cls);
+    if (m) return m[1];
+    const q = _moduleText(submission, 'gl_quote') || '';
+    m = /\b(?:Class\s+Code|Code)\s*:?\s*(\d{4,5})\b/i.exec(q);
+    return m ? m[1] : null;
+  }
+
+  function moneyToNumberFor85(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v);
+    const raw = String(v).replace(/\u00a0/g, ' ').trim();
+    const m = raw.match(/\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)\s*(M|MM|K|million|thousand)?\b/i);
+    if (!m) return null;
+    let n = parseFloat(m[1].replace(/,/g, ''));
+    const u = (m[2] || '').toLowerCase();
+    if (u === 'm' || u === 'mm' || u === 'million') n *= 1000000;
+    if (u === 'k' || u === 'thousand') n *= 1000;
+    return Number.isFinite(n) ? Math.round(n) : null;
+  }
+
+  function displayMoney85(v) {
+    const n = moneyToNumberFor85(v);
+    return n == null ? null : n.toLocaleString('en-US');
+  }
+
+  function extractCarrier85(clean) {
+    if (!clean) return null;
+    const bad = /no information|not stated|unknown|not provided/i;
+    let m = /^\s*[-*•]?\s*Carrier\s*:\s*(?!&)([^\n]+)/im.exec(clean)
+         || /^\s*[-*•]?\s*Insurance\s+Company\s*:\s*([^\n]+)/im.exec(clean)
+         || /^\s*[-*•]?\s*Insurer\s*:\s*([^\n]+)/im.exec(clean);
+    if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
+    m = /\b([A-Z][A-Za-z& .'-]{2,80}\s+(?:Insurance\s+Company|Indemnity\s+Company|Casualty\s+Company|Mutual\s+Insurance\s+Company))\b/i.exec(clean);
+    if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
+    // Brand + issuing company pattern, e.g. CHUBB / Penn Millers.
+    m = /\b(Penn\s+Millers\s+Insurance\s+Company)\b/i.exec(clean)
+     || /\b(Steadfast\s+Insurance\s+Company)\b/i.exec(clean)
+     || /\b(Zurich\s+American\s+Insurance\s+Company)\b/i.exec(clean);
+    return m ? m[1].trim() : null;
+  }
+
+  // v8.6.86 - fleet classification engine.
+  // Priority order per Justin's rule:
+  //   1) Official auto class/stat codes when present. The first three
+  //      digits classify the unit's vehicle type and radius.
+  //   2) If codes are absent, quote schedule text (RADIUS / TRUCK SIZE).
+  //   3) If still missing, body type + GVW/GCW weight bands from the CAR
+  //      manual: light 0-10k, medium 10,001-20k, heavy 20,001-45k,
+  //      extra-heavy >45k; truck-tractors by tractor body/GCW.
+  const FLEET_CODE_TO_FIELD_86 = (() => {
+    const map = Object.create(null);
+    const add = (field, codes) => codes.forEach(c => { map[String(c).padStart(3,'0')] = field; });
+    add('fleet_private_passenger', ['739','007','073']);
+    add('fleet_light', ['000','001','011','012','013','014','015','016','021','022','023','024','025','026','031','032','033','034','035','036','100','110','115','120','130','140','145','148','150','155','158','160','168','180','210']);
+    add('fleet_medium', ['002','211','212','213','214','215','216','221','222','223','224','225','226','231','232','233','234','235','236']);
+    add('fleet_heavy_local', ['311','314','321','324','331','334']);
+    add('fleet_heavy_other', ['312','313','315','316','322','323','325','326','332','333','335','336']);
+    add('fleet_extra_heavy_local', ['401','404']);
+    add('fleet_extra_heavy_intermediate', ['402','405']);
+    add('fleet_extra_heavy_long', ['403','406']);
+    add('fleet_truck_tractors_local', ['341','344','351','354','361','364','501','504']);
+    add('fleet_truck_tractors_intermediate', ['342','345','352','355','362','365','502','505']);
+    add('fleet_truck_tractors_long', ['343','346','353','356','363','366','503','506']);
+    return map;
+  })();
+
+  const FLEET_FIELD_ALIASES_86 = {
+    fleet_heavy: ['fleet_heavy_local'],
+    fleet_extra_heavy: ['fleet_extra_heavy_local'],
+    fleet_truck_tractors: ['fleet_truck_tractors_local']
+  };
+
+  function emptyFleetCounts86() {
+    return {
+      fleet_private_passenger: 0,
+      fleet_light: 0,
+      fleet_medium: 0,
+      fleet_heavy_local: 0,
+      fleet_heavy_other: 0,
+      fleet_extra_heavy_local: 0,
+      fleet_extra_heavy_intermediate: 0,
+      fleet_extra_heavy_long: 0,
+      fleet_truck_tractors_local: 0,
+      fleet_truck_tractors_intermediate: 0,
+      fleet_truck_tractors_long: 0
+    };
+  }
+
+  function classifyVehicleCode86(code) {
+    if (code == null) return null;
+    const raw = String(code).replace(/[^0-9]/g, '');
+    if (raw.length < 3) return null;
+    return FLEET_CODE_TO_FIELD_86[raw.slice(0,3)] || null;
+  }
+
+  function countByClassCodes86(clean) {
+    const counts = emptyFleetCounts86();
+    let total = 0;
+    // Prefer five-digit class/stat codes such as 31499, 40499, 50699.
+    // Avoid six-digit NAICS/SIC values such as 541100 by using digit boundaries.
+    const re = /(^|\D)(\d{3})(\d{2})(?!\d)/g;
+    let m;
+    while ((m = re.exec(clean)) !== null) {
+      const field = classifyVehicleCode86(m[2]);
+      if (!field) continue;
+      counts[field] += 1;
+      total += 1;
+    }
+    if (!total) {
+      const re3 = /\b(?:class|stat(?:istical)?\s*code|vehicle\s*code|code)\D{0,12}(\d{3})\b/gi;
+      while ((m = re3.exec(clean)) !== null) {
+        const field = classifyVehicleCode86(m[1]);
+        if (!field) continue;
+        counts[field] += 1;
+        total += 1;
+      }
+    }
+    return total ? counts : null;
+  }
+
+  function radiusBucket86(line) {
+    if (/\b(long\s*(?:distance|haul)|over\s*200|200\s*\+|>\s*200)\b/i.test(line)) return 'long';
+    if (/\b(intermediate|51\s*[-–]\s*200|51\s*to\s*200)\b/i.test(line)) return 'intermediate';
+    if (/\b(local|up\s*to\s*50|0\s*[-–]\s*50|<\s*50|<\s*15|15\s*miles?\s*\+)\b/i.test(line)) return 'local';
+    return 'local';
+  }
+
+  function fieldFromBodyWeight86(line) {
+    const radius = radiusBucket86(line);
+    const tractor = /\b(truck[-\s]*tractor|trk[-\s]*tractor|tractor|day\s+cab|semi)\b/i.test(line);
+    const pickup = /\b(pickup|f\s*-?150|f\s*-?250|f\s*-?350|silverado|sierra|ram\s*1500|ram\s*2500|ram\s*3500)\b/i.test(line);
+    const explicitLight = /\blight\b/i.test(line);
+    const explicitMedium = /\bmedium\b/i.test(line);
+    const explicitHeavy = /\bheavy\b/i.test(line);
+    const explicitExtra = /\b(extra\s*heavy|extra\s*hvy|ex\s*hvy|xht)\b/i.test(line);
+    const moneyish = Array.from(line.matchAll(/(^|\D)(\d{1,3}(?:,\d{3})+|\d{5,6})(?!\d)/g))
+      .map(x => parseInt(String(x[2]).replace(/,/g,''),10))
+      .filter(Number.isFinite);
+    const gvw = moneyish.find(n => n >= 1000 && n <= 120000) || null;
+
+    if (tractor) {
+      if (radius === 'long') return 'fleet_truck_tractors_long';
+      if (radius === 'intermediate') return 'fleet_truck_tractors_intermediate';
+      return 'fleet_truck_tractors_local';
+    }
+    if (explicitExtra || (gvw && gvw > 45000)) {
+      if (radius === 'long') return 'fleet_extra_heavy_long';
+      if (radius === 'intermediate') return 'fleet_extra_heavy_intermediate';
+      return 'fleet_extra_heavy_local';
+    }
+    if (explicitHeavy || (gvw && gvw > 20000)) {
+      if (radius === 'local') return 'fleet_heavy_local';
+      return 'fleet_heavy_other';
+    }
+    if (explicitMedium || (gvw && gvw > 10000)) return 'fleet_medium';
+    if (pickup || explicitLight || (gvw && gvw <= 10000)) return 'fleet_light';
+    if (/\bprivate\s+passenger|passenger\s+vehicle\b/i.test(line)) return 'fleet_private_passenger';
+    return null;
+  }
+
+  function countByScheduleRows86(clean) {
+    const counts = emptyFleetCounts86();
+    let total = 0;
+    const lines = String(clean || '').split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    for (const line of lines) {
+      if (!/^\d{1,3}\s+/.test(line)) continue;
+      if (!/\b(local|intermediate|long|truck|pickup|tractor|medium|heavy|hvy|gvw|gcw|f\s*-?\d{3,4}|silverado|sierra)\b/i.test(line)) continue;
+      const field = fieldFromBodyWeight86(line);
+      if (!field) continue;
+      counts[field] += 1;
+      total += 1;
+    }
+    return total ? counts : null;
+  }
+
+  function countByNarrativeFleet86(clean) {
+    const counts = emptyFleetCounts86();
+    let total = 0;
+    const add = (field, patterns) => {
+      for (const re of patterns) {
+        const m = re.exec(clean);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (Number.isFinite(n)) { counts[field] += n; total += n; }
+          return;
+        }
+      }
+    };
+    add('fleet_private_passenger', [/Private\s+Passenger\s*:?\s*(\d+)/i, /Passenger\s+Vehicles?\s*:?\s*(\d+)/i]);
+    add('fleet_light', [/Light(?:\s*\/\s*Pickup)?\s*:?\s*(\d+)/i, /Pickup\s*:?\s*(\d+)/i]);
+    add('fleet_medium', [/Medium\s*:?\s*(\d+)/i]);
+    add('fleet_heavy_local', [/Heavy\s*\(\s*Local\s*\)\s*:?\s*(\d+)/i, /Heavy(?:\s+trucks?)?\s*:?\s*(\d+)/i]);
+    add('fleet_heavy_other', [/Heavy\s*\(\s*(?:Other\s+than\s+Local|Intermediate|Long(?:\s+Haul)?)\s*\)\s*:?\s*(\d+)/i]);
+    add('fleet_extra_heavy_local', [/Extra\s+Heavy\s*\(\s*Local\s*\)\s*:?\s*(\d+)/i, /Extra\s+Heavy(?:\s+trucks?)?\s*:?\s*(\d+)/i]);
+    add('fleet_extra_heavy_intermediate', [/Extra\s+Heavy\s*\(\s*Intermediate\s*\)\s*:?\s*(\d+)/i]);
+    add('fleet_extra_heavy_long', [/Extra\s+Heavy\s*\(\s*(?:Long\s+Haul|Long\s+Distance)\s*\)\s*:?\s*(\d+)/i]);
+    add('fleet_truck_tractors_local', [/Truck[-\s]*Tractors?\s*\(\s*Local\s*\)\s*:?\s*(\d+)/i, /Truck[-\s]*Tractors?\s*:?\s*(\d+)/i, /Tractors?\s*:?\s*(\d+)/i]);
+    add('fleet_truck_tractors_intermediate', [/Truck[-\s]*Tractors?\s*\(\s*Intermediate\s*\)\s*:?\s*(\d+)/i]);
+    add('fleet_truck_tractors_long', [/Truck[-\s]*Tractors?\s*\(\s*(?:Long\s+Haul|Long\s+Distance)\s*\)\s*:?\s*(\d+)/i]);
+    return total ? counts : null;
+  }
+
+  function parseFleetCounts86(clean) {
+    return countByClassCodes86(clean) || countByScheduleRows86(clean) || countByNarrativeFleet86(clean);
+  }
+
+  function parseFleetCount85(clean, fieldName) {
+    const counts = parseFleetCounts86(clean);
+    if (!counts) return null;
+    const aliases = FLEET_FIELD_ALIASES_86[fieldName] || [fieldName];
+    let n = 0;
+    for (const f of aliases) n += counts[f] || 0;
+    return n > 0 ? String(n) : null;
+  }
+
+  function parseUnderlyingLayer85(clean, fieldName) {
+    if (!clean) return null;
+    const lower = clean.toLowerCase();
+    const isLead = /lead\s+(?:umbrella|excess|\$)|lead layer/.test(lower) || /\$\s*2\s*(?:m|mm|million)?\s*xs\s*\$\s*1\s*(?:m|mm|million)?/i.test(clean);
+    const limitAttach = clean.match(/\$?\s*([0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million|K|thousand)?)\s*xs\s*\$?\s*([0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million|K|thousand)?)/i);
+    const leadLimit = (clean.match(/Lead\s+(?:Umbrella\s*)?[·:-]?\s*Lead\s*\$?\s*([0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million|K|thousand)?)/i) || [])[1]
+                   || (limitAttach && limitAttach[1]);
+    const attachment = limitAttach && limitAttach[2];
+    const carrier = extractCarrier85(clean);
+    const prem = (clean.match(/(?:Lead|Umbrella|Excess)?\s*Premium\s*:?\s*\$?\s*([0-9][0-9,]*(?:\.\d+)?)/i) || [])[1];
+    if (fieldName === 'tower_role' && isLead) return 'underlying_lead';
+    if (fieldName === 'underlying_lead_limit' && leadLimit) return displayMoney85(leadLimit);
+    if (fieldName === 'attachment_point' && attachment) return displayMoney85(attachment);
+    if (fieldName === 'underlying_lead_carrier' && carrier) return carrier;
+    if (fieldName === 'underlying_lead_premium' && prem) return displayMoney85(prem);
+    // The requested layer is OUR layer above the detected underlying lead. If not explicitly
+    // stated, leave blank; don't invent from requested field here.
+    return null;
+  }
+
+  function parseSupplementalExposure85(clean, fieldName, submission) {
+    if (fieldName !== 'exposure_amount' && fieldName !== 'exposure_basis' && fieldName !== 'home_state') return null;
+    if (fieldName === 'home_state') {
+      const m = /\b(?:VA|Virginia)\b/i.exec(clean);
+      if (m) return 'VA';
+      const st = /\b([A-Z]{2})\s+\d{5}\b/.exec(clean);
+      if (st) return st[1];
+    }
+    if (fieldName === 'exposure_basis') {
+      if (/sales|receipts|revenue/i.test(clean)) return 'Gross Sales/Revenues';
+    }
+    const code = primaryIsoCodeFromSubmission(submission);
+    if (!code) return null;
+    const around = new RegExp(code + '[\\s\\S]{0,160}?(\\$?\\s*[0-9]+(?:\\.[0-9]+)?\\s*(?:M|MM|million|K|thousand)|\\$?\\s*[0-9][0-9,]{3,})', 'i');
+    let m = around.exec(clean);
+    if (!m) {
+      const eq = new RegExp(code + '\\s*(?:=|:|-)\\s*\\$?\\s*([0-9]+(?:\\.[0-9]+)?\\s*(?:M|MM|million|K|thousand)|[0-9][0-9,]{3,})', 'i');
+      m = eq.exec(clean);
+    }
+    if (m) {
+      const n = moneyToNumberFor85(m[1]);
+      // Reject accidental class-code echoes such as "12,683".
+      if (n && n > 100000) return n.toLocaleString('en-US');
+    }
+    return null;
+  }
+
   function moduleSpecificFieldAdapter(moduleKey, text, fieldName, submission) {
     const raw = text || '';
     const clean = unmarkdown(raw);
@@ -1413,6 +1730,31 @@
       if (value == null || value === '' || isSentinelValue(value)) return null;
       return { value, parser_confidence: conf || 0.80, reason: reason || 'adapter' };
     };
+
+    // v8.6.85: generic no-cost adapters used across modules.
+    if ((fieldName === 'gl_carrier' || fieldName === 'al_carrier') && (moduleKey === 'gl_quote' || moduleKey === 'al_quote' || moduleKey === 'excess' || moduleKey === 'tower')) {
+      const carr = extractCarrier85(clean);
+      if (carr) return hit(carr, 0.82, moduleKey + '_header_carrier');
+    }
+    if (moduleKey === 'supplemental') {
+      const supVal = parseSupplementalExposure85(clean, fieldName, submission);
+      if (supVal) return hit(supVal, 0.84, 'supplemental_acord_schedule');
+    }
+    if (moduleKey === 'al_quote' || moduleKey === 'supplemental') {
+      const fleetVal = parseFleetCount85(clean, fieldName);
+      if (fleetVal != null) return hit(fleetVal, 0.86, moduleKey + '_fleet_count');
+    }
+    if (moduleKey === 'excess' || moduleKey === 'tower') {
+      const layerVal = parseUnderlyingLayer85(clean, fieldName);
+      if (layerVal != null) return hit(layerVal, 0.86, moduleKey + '_underlying_layer');
+    }
+    if (moduleKey === 'losses') {
+      if (/No matching loss runs found/i.test(clean)) return null;
+      if (fieldName === 'loss_history_gl') return hit('available', 0.75, 'losses_gl_available');
+      if (fieldName === 'loss_history_auto') return hit('available', 0.75, 'losses_auto_available');
+      if (fieldName === 'loss_history_by_year') return hit('available', 0.75, 'losses_years_available');
+      if (fieldName === 'large_losses') return hit('available', 0.75, 'losses_large_available');
+    }
 
     // Classcode module — anchor on the module's stated primary class code.
     if (moduleKey === 'classcode') {
@@ -1435,7 +1777,7 @@
       if (fieldName === 'exposure_amount') {
         m = /(?:sales|revenue|receipts|exposure)\D{0,40}(\$?\s*[0-9][0-9,\.]*\s*(?:million|thousand|m|mm|k)?)/i.exec(clean);
         const v = m && normalizeMoneyForDisplay(m[1]);
-        if (v) return hit(v, 0.70, 'classcode_exposure_amount');
+        if (v && moneyToNumberFor85(v) > 100000) return hit(v, 0.70, 'classcode_exposure_amount');
       }
       if (fieldName === 'description_operations') return hit(firstReasonableParagraph(clean, 1200), 0.80, 'classcode_ops_summary');
     }
@@ -1581,7 +1923,8 @@
       'Primary GL': ['gl_carrier','gl_effective_date','gl_expiration_date','gl_each_occurrence','gl_general_aggregate','gl_products_ops_aggregate','gl_personal_adv_injury','gl_premium'],
       'Primary AL': ['al_carrier','al_effective_date','al_expiration_date','al_combined_single_limit','al_premium'],
       'Risk Profile': ['iso_class_code','iso_description','hazard_grade','exposure_amount','exposure_basis','website'],
-      'Underwriting Narrative': ['description_operations','exposure_to_loss','account_strengths','guideline_conflicts_text','underwriting_rationale']
+      'Underwriting Narrative': ['description_operations','exposure_to_loss','account_strengths','guideline_conflicts_text','underwriting_rationale'],
+      'Losses / Fleet / Tower': ['loss_history_gl','loss_history_auto','loss_history_by_year','large_losses','fleet_private_passenger','fleet_light','fleet_medium','fleet_heavy_local','fleet_heavy_other','fleet_extra_heavy_local','fleet_extra_heavy_intermediate','fleet_extra_heavy_long','fleet_truck_tractors_local','fleet_truck_tractors_intermediate','fleet_truck_tractors_long','underlying_lead_limit','underlying_lead_carrier','underlying_lead_premium','tower_role','requested_limit','attachment_point']
     };
     const rows = [];
     let resolved = 0, missing = 0, review = 0;
@@ -3133,6 +3476,23 @@
     };
   }
 
+  function detectedUnderlyingLeadQuote(submission, towerInfo) {
+    try {
+      const files = (submission && submission.snapshot && submission.snapshot.files) || [];
+      if (Array.isArray(files) && files.some(f => {
+        const joined = [f.primaryTag, f.tag, f.subType, f.layerRole, f.classification].concat(f.sectionTags || []).concat((f.classifications || []).map(c => c && (c.tag || c.subType || c.type))).join(' ');
+        return /Lead\s+\$|Lead\s+Umbrella|Lead\s+Excess|\blead\b/i.test(joined) && /QUOTE|UNDERLYING|excess/i.test(joined + ' ' + (f.name || ''));
+      })) return true;
+      const ex = (submission && submission.snapshot && submission.snapshot.extractions) || (submission && submission.extractions) || {};
+      const blob = ['tower','excess'].map(k => ex[k] && ex[k].text || '').join('\n');
+      if (/Lead\s+Umbrella|Lead\s+Excess|Lead\s+\$\s*[0-9]/i.test(blob) && /\$?\s*[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?\s*xs\s*\$?\s*[0-9]+/i.test(blob)) return true;
+      if (towerInfo && Array.isArray(towerInfo.rungs)) {
+        return towerInfo.rungs.some(r => r && r.kind === 'lead' && r.status !== '????' && (r.limit > 0 || /Lead/i.test(r.label || '')));
+      }
+    } catch (_) {}
+    return false;
+  }
+
   function decideLayerType(submission) {
     // ---- Axis 1: Lead vs Excess, mechanical from the real tower ----
     let family = 'lead';            // safe default: we are first above primary
@@ -3153,12 +3513,15 @@
           // between primary and our attachment), → Excess.
           const resolved = tw.rungs.filter(r => r.status !== '????');
           const hasExcessBeneath = resolved.some(r => r.kind === 'excess');
-          if (hasExcessBeneath) {
+          const hasUnderlyingLeadQuote = detectedUnderlyingLeadQuote(submission, tw);
+          if (hasExcessBeneath || hasUnderlyingLeadQuote) {
             family = 'excess';
-            familyReason = 'resolved excess/umbrella layer(s) detected beneath our attachment → Excess';
+            familyReason = hasUnderlyingLeadQuote
+              ? 'lead umbrella / lead excess quote detected beneath our layer → Excess'
+              : 'resolved excess/umbrella layer(s) detected beneath our attachment → Excess';
           } else {
             family = 'lead';
-            familyReason = 'tower shows lead/underlying program only, nothing stacked above it → we are the lead excess layer';
+            familyReason = 'tower shows only primary coverages beneath us → we are the lead excess layer';
           }
         }
       }
@@ -3222,7 +3585,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.83-tower-recognition-final',
+    version: 'v8.6.86-fleet-code-engine',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

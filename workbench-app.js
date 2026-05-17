@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.83-tower-recognition-final-2026-05-17';
+window.STM_BUILD = 'v8.6.86-fleet-code-engine-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -537,6 +537,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // still needs review.
             applyUnderwritingFromActiveSubmission(data);
             applyGLExposureRaterFromActiveSubmission(data);
+            applyV8685PopulationPass(data);
+            setTimeout(() => applyV8685PopulationPass(window.workbenchActiveSubmission), 350);
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
@@ -1469,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.81 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.86 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
@@ -1507,7 +1509,170 @@ document.addEventListener('DOMContentLoaded', () => {
             put('base', vals.base && normalizeBasisForSelect(vals.base.value));
             // Force rater recalculation through existing listeners.
             row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
-            console.log('[workbench] v8.6.81 GL exposure rater apply:', filled, 'cells filled', vals);
+            console.log('[workbench] v8.6.86 GL exposure rater apply:', filled, 'cells filled', vals);
+        }
+
+
+        // v8.6.86 — section population hardening. These are no-cost DOM writers
+        // that consume resolver/adapters. They prevent blank tables when data is
+        // present in snapshot.extractions.
+        function r85(field, submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return null;
+            const x = rules.resolveField(field, submission);
+            return x && x.value != null && x.value !== '' ? x.value : null;
+        }
+        function n85(v) {
+            if (v == null || v === '') return 0;
+            const m = String(v).match(/[0-9][0-9,]*(?:\.[0-9]+)?/);
+            return m ? Number(m[0].replace(/,/g, '')) : 0;
+        }
+        function money85(n) { return n > 0 ? Math.round(n).toLocaleString('en-US') : ''; }
+        function set85(el, val) {
+            if (!el || val == null || val === '') return false;
+            el.value = String(val);
+            el.dispatchEvent(new Event('input', { bubbles:true }));
+            el.dispatchEvent(new Event('change', { bubbles:true }));
+            el.classList.add('autofilled-from-platform');
+            return true;
+        }
+
+        function parseLossTables85(submission) {
+            const ex = submission?.snapshot?.extractions || submission?.extractions || {};
+            const txt = (ex.losses && ex.losses.text) || '';
+            if (!txt || /No matching loss runs found/i.test(txt)) return { gl: [], auto: [], largeGl: [], largeAuto: [] };
+            const clean = txt.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+            const out = { gl: [], auto: [], largeGl: [], largeAuto: [] };
+            // HTML template rows: <td>5/1/25 - 26</td>...; use loose row extraction.
+            const rows = clean.split(/\n|\r/).map(x => x.trim()).filter(Boolean).join('\n');
+            const yearRe = /(5\/1\/\d{2}\s*-\s*\d{2}|\d{2}\s*-\s*\d{2})[\s\S]{0,120}?\$?\s*([0-9,]+)[\s\S]{0,80}?\$?\s*([0-9,]+)[\s\S]{0,80}?\$?\s*([0-9,]+)/gi;
+            // If the generated HTML follows the prompt, sections are separated by titles.
+            const glSec = (rows.match(/General Liability Loss Information[\s\S]*?(?:General Liability Large Losses|Auto Liability Loss Information|$)/i) || [''])[0];
+            const alSec = (rows.match(/Auto Liability Loss Information[\s\S]*?(?:Auto Liability Large Losses|Analyst Notes|$)/i) || [''])[0];
+            const collect = (sec) => {
+                const arr = []; let m;
+                while ((m = yearRe.exec(sec)) !== null) {
+                    arr.push({ period: m[1], paid: m[2], reserve: '0', incurred: m[4] || m[3], claims: '' });
+                }
+                return arr.slice(0, 5);
+            };
+            out.gl = collect(glSec);
+            out.auto = collect(alSec);
+            return out;
+        }
+
+        function applyLossHistoryFromActiveSubmission(submission) {
+            const parsed = parseLossTables85(submission);
+            const fill = (rowsId, rows) => {
+                const wrap = document.getElementById(rowsId);
+                if (!wrap || !rows || !rows.length) return 0;
+                const domRows = Array.from(wrap.querySelectorAll('.loss-row'));
+                let count = 0;
+                rows.slice(0, domRows.length).forEach((r, i) => {
+                    const row = domRows[i];
+                    const inputs = row.querySelectorAll('input');
+                    const sel = row.querySelector('select.policy-select');
+                    const y = String(r.period || '').match(/(\d{2})\s*-\s*(\d{2})/);
+                    if (sel && y) sel.value = '20' + y[1];
+                    if (inputs[1]) set85(inputs[1], r.claims || '');
+                    if (inputs[0]) set85(inputs[0], r.exposure || '');
+                    if (inputs[2]) set85(inputs[2], r.paid || '');
+                    if (inputs[3]) set85(inputs[3], r.reserve || '0');
+                    if (inputs[4]) set85(inputs[4], r.incurred || '');
+                    count++;
+                });
+                return count;
+            };
+            const gl = fill('glLossRows', parsed.gl);
+            const au = fill('autoLossRows', parsed.auto);
+            console.log('[workbench] v8.6.86 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+        }
+
+        function applyALFleetFromActiveSubmission(submission) {
+            const mapping = [
+                ['Private Passenger', 'fleet_private_passenger'],
+                ['Light', 'fleet_light'],
+                ['Medium', 'fleet_medium'],
+                ['Heavy (Local)', 'fleet_heavy_local'],
+                ['Heavy (Other than Local)', 'fleet_heavy_other'],
+                ['Extra Heavy (Local)', 'fleet_extra_heavy_local'],
+                ['Extra Heavy (Intermediate)', 'fleet_extra_heavy_intermediate'],
+                ['Extra Heavy (Long Haul)', 'fleet_extra_heavy_long'],
+                ['Truck Tractors (Local)', 'fleet_truck_tractors_local'],
+                ['Truck Tractor (Intermediate)', 'fleet_truck_tractors_intermediate'],
+                ['Truck Tractors (Long Haul)', 'fleet_truck_tractors_long']
+            ];
+            const tbl = document.getElementById('autoExposuresTbl');
+            const rows = tbl ? Array.from(tbl.querySelectorAll('tbody tr')) : [];
+            let filled = 0;
+            for (const [label, field] of mapping) {
+                const val = r85(field, submission);
+                if (val == null) continue;
+                const norm = x => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+                const labelNorm = norm(label);
+                const tr = rows.find(row => norm(row.cells[0]?.textContent) === labelNorm)
+                    || rows.find(row => norm(row.cells[0]?.textContent).includes(labelNorm));
+                const input = tr && tr.querySelector('[data-f="units"]');
+                if (set85(input, val)) filled++;
+            }
+            console.log('[workbench] v8.6.86 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+        }
+
+        function applyInternalRaterFromActiveSubmission(submission) {
+            const primaryTbody = document.querySelector('#primaryPoliciesTbl tbody');
+            const towerTbody = document.querySelector('#towerLimitsTable tbody');
+            const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85(el, val); };
+            const requested = n85(submission?.requested || r85('requested_limit', submission)) || 1000000;
+            const leadLimit = n85(r85('underlying_lead_limit', submission));
+            const leadAttach = n85(r85('attachment_point', submission));
+            const ourAttach = leadLimit > 0 ? leadAttach + leadLimit : leadAttach;
+            if (requested) setInput('#nonAdmittedLimit', money85(requested));
+            if (ourAttach) setInput('#nonAdmittedAttachment', money85(ourAttach));
+
+            if (primaryTbody) {
+                const rows = [
+                    { cov:'General Liability', carrier:r85('gl_carrier', submission) || 'TBD', limit:n85(r85('gl_each_occurrence', submission)) || 1000000, prem:n85(r85('gl_premium', submission)) },
+                    { cov:'Auto Liability', carrier:r85('al_carrier', submission) || 'TBD', limit:n85(r85('al_combined_single_limit', submission)) || 1000000, prem:n85(r85('al_premium', submission)) }
+                ];
+                primaryTbody.innerHTML = rows.map(x => `
+                    <tr>
+                      <td><select data-pp="coverage"><option${x.cov==='General Liability'?' selected':''}>General Liability</option><option${x.cov==='Auto Liability'?' selected':''}>Auto Liability</option><option>Employers Liability</option><option>Other</option></select></td>
+                      <td><input type="text" data-pp="carrier" value="${String(x.carrier).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></td>
+                      <td><div class="currency-wrap"><input type="text" data-pp="limit" class="convert-to-millions" value="${money85(x.limit)}"></div></td>
+                      <td><div class="currency-wrap"><input type="text" data-pp="ulPrem" value="${money85(x.prem)}"></div></td>
+                      <td><div class="currency-wrap"><input type="text" data-pp="manualPrem" value=""></div></td>
+                      <td><select data-pp="admit"><option>Admitted</option><option>Non-Admitted</option></select></td>
+                      <td><input type="text" data-pp="dilFactor" value="0.25"></td>
+                      <td class="computed" data-pp-out="dilPrem">$0</td><td class="computed" data-pp-out="firstMilPrem">$0</td><td><button type="button" class="btn-secondary btn-sm" data-pp-remove>Remove</button></td>
+                    </tr>`).join('');
+            }
+            if (towerTbody) {
+                const leadCarrier = r85('underlying_lead_carrier', submission) || r85('gl_carrier', submission) || 'Underlying Lead';
+                const rows = [];
+                if (leadLimit) rows.push({ limit:leadLimit, attach:leadAttach, carrier:leadCarrier, prem:n85(r85('underlying_lead_premium', submission)), target:'Underlying' });
+                if (requested) rows.push({ limit:requested, attach:ourAttach || leadLimit || 0, carrier:'Internal', prem:0, target:'Target' });
+                if (rows.length) {
+                    towerTbody.innerHTML = rows.map((x,i) => `
+                      <tr${i===rows.length-1?' class="is-internal-layer"':''}>
+                        <td><div class="currency-wrap"><input type="text" data-tw="limit" class="convert-to-millions" value="${money85(x.limit)}"></div></td>
+                        <td><div class="currency-wrap"><input type="text" data-tw="attach" class="convert-to-millions" value="${money85(x.attach)}"></div></td>
+                        <td class="computed" data-tw-out="internalPrem">$0</td><td class="computed" data-tw-out="internalPpm">$0</td>
+                        <td><input type="text" data-tw="carrier" value="${String(x.carrier).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></td>
+                        <td><div class="currency-wrap"><input type="text" data-tw="cPrem" value="${money85(x.prem)}"></div></td>
+                        <td class="computed" data-tw-out="cPpm">$0</td><td class="computed" data-tw-out="rel">-</td><td><input type="text" data-tw="target" value="${x.target}"></td>
+                        <td><button type="button" class="btn-secondary btn-sm" data-tw-remove>Remove</button></td>
+                      </tr>`).join('');
+                }
+            }
+            document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
+            console.log('[workbench] v8.6.86 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+        }
+
+        function applyV8685PopulationPass(submission) {
+            if (!submission) return;
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.86 rater skipped:', e.message); }
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1515,7 +1680,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.81 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.86 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 
@@ -3827,6 +3992,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         setupInternalRater();
+        setTimeout(() => { if (window.workbenchActiveSubmission) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
 
         /* ============================================================
            PHASE 18 — FORMS & ENDORSEMENTS

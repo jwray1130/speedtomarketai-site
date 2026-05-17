@@ -5038,29 +5038,51 @@ window.initDocumentsView = function() {
         return 0;
       }
       const fname = f.name || '';
-      // Match docs by source-file linkage
+      const baseName = fname.replace(/\.[^.]+$/, '');
+      // Match docs by source-file linkage. v8.6.84: PDF split docs are named
+      // "BaseName — Page N" (without extension), so match both the full
+      // source filename and the extensionless split prefix.
       const matches = state.docs.filter(d =>
         d.workbookFileName === fname ||
         d.nativeFileName === fname ||
-        (d.name && d.name.startsWith(fname + ' — Page'))
+        d.name === fname ||
+        d.name === baseName ||
+        (d.name && d.name.startsWith(baseName + ' — Page ')) ||
+        (d.name && d.name.startsWith(fname + ' — Page '))
       );
       if (matches.length === 0) return 0;
-      // For combined-PDF page tagging: only stamp pipelineTag on the first
-      // page of the doc (matching addDoc's section-start convention). Other
-      // pages keep null pipelineTag so they don't all get duplicate chips.
-      // For non-combined relabels the whole file gets one tag, applied to
-      // page 1 and propagated as the bucket/color across all pages.
+      // For combined-PDF page tagging: apply sectionClassifications when
+      // supplied so existing cloud rows are upgraded from stale generic chips
+      // (e.g., Excess T&C) to page-accurate chips (GL Quote, AL Fleet, Lead $2M).
+      const sections = Array.isArray(patch.sectionClassifications) ? patch.sectionClassifications : null;
       let count = 0;
       matches.forEach(d => {
-        const isFirst = (d.pageNumber || 1) === 1;
-        if (typeof patch.pipelineTag !== 'undefined') {
+        const pageNum = d.pageNumber || 1;
+        const totalPages = d.totalPages || matches.length || 1;
+        let sectionTag;
+        if (sections && sections.length) {
+          for (const sec of sections) {
+            const range = _parsePageRangeForChip(sec.section_hint, totalPages);
+            if (range && range[0] === pageNum) {
+              sectionTag = sec.tag || null;
+              break;
+            }
+          }
+        }
+        const isFirst = pageNum === 1;
+        if (sections && sections.length) {
+          d.pipelineTag = sectionTag || null;
+        } else if (typeof patch.pipelineTag !== 'undefined') {
           d.pipelineTag = isFirst ? patch.pipelineTag : null;
         }
         if (typeof patch.primaryBucket !== 'undefined') {
           d.primaryBucket = patch.primaryBucket;
         }
         if (typeof patch.color !== 'undefined') {
-          d.color = isFirst ? patch.color : null;
+          // Combined docs live in the same bucket/color across all pages, but
+          // only section starts receive a chip. Single relabels keep old page-1
+          // color behavior.
+          d.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
           d.tagged = !!d.color;
         }
         if (typeof patch.category !== 'undefined') {
@@ -5072,14 +5094,16 @@ window.initDocumentsView = function() {
         // Persist to cloud if available
         if (typeof window.sbUpdateDocumentPage === 'function') {
           const cloudPatch = {};
-          if (typeof patch.pipelineTag !== 'undefined') {
+          if (sections && sections.length) {
+            cloudPatch.pipeline_tag = sectionTag || null;
+          } else if (typeof patch.pipelineTag !== 'undefined') {
             cloudPatch.pipeline_tag = isFirst ? patch.pipelineTag : null;
           }
           if (typeof patch.primaryBucket !== 'undefined') {
             cloudPatch.primary_bucket = patch.primaryBucket;
           }
           if (typeof patch.color !== 'undefined') {
-            cloudPatch.color = isFirst ? patch.color : null;
+            cloudPatch.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
             cloudPatch.tagged = !!cloudPatch.color;
           }
           if (typeof patch.category !== 'undefined') {

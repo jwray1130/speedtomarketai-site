@@ -699,7 +699,7 @@ QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖ for: Vendor Type,
 
 QC: "**Source Extracts (verbatim)**" + "**Checklist**" ✔/✖. Rewrite until 100% ✔.`,
 
-  losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—".
+  losses: `ROLE: Expert excess casualty underwriter analyzing loss runs. Output a purpose-built HTML report with GL and AL as separate parallel tables, large-loss callouts per LOB, and a 4-paragraph Analyst Notes block. Strict extraction — no editorializing outside the notes block. Silent fields = "—". ALSO emit a final fenced JSON block named loss_history_structured with policy-year rows, coverage totals, and large-loss rows.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -708,9 +708,11 @@ Before processing ANY loss runs, perform these steps IN ORDER:
 1. Identify every named insured stated on the loss run documents (loss runs typically have an insured name in the header or are carrier-issued for a specific policy).
 2. For each loss run, check whether its insured matches "\${account_name}".
 3. Include claims ONLY from loss runs whose insured matches.
-4. If NO loss run names a matching insured, your ENTIRE output MUST be exactly:
+4. If the file has already been routed/classified as LOSS_HISTORY for this submission and the loss run does not state a conflicting insured, treat it as belonging to this submission even if the header uses a shortened/variant name (for example, commas, Inc., Co-op/Coop, Cooperative, County abbreviations, or account-number-only headers).
+5. If NO loss run names a matching/variant insured AND at least one loss run states a clearly different/conflicting insured, your ENTIRE output MUST be exactly:
    **No matching loss runs found for this insured.**
    — nothing else. No tables, no notes, no caveats.
+6. If the loss run states no insured or only a shortened account phrase but no conflicting insured, proceed under review and include the line: **Loss run insured not fully stated — extracted under review; verify named insured.**
 5. If "\${account_name}" is "(unknown)", proceed with whatever loss runs are present.
 
 Do NOT blend claims across insureds. Do NOT process loss runs for non-matching insureds even if they are the only loss runs available.
@@ -883,7 +885,7 @@ This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT ex
 **Primary GL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Policy Period: [dates]
@@ -955,7 +957,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Primary AL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -970,7 +972,22 @@ Do NOT extract from non-matching documents even if they are the only documents a
 - UM/UIM: [limit + state notes]
 
 **Fleet Composition:**
-- [class]: [count]
+- FIRST look for official auto statistical/classification codes in the auto quote or vehicle schedule. Use the first 3 digits of each vehicle code/class code to classify fleet units and radius. Emit both the raw codes seen and the summarized counts.
+- If codes are absent, use the quote's AUTO RADIUS / BUSINESS USE / TRUCK SIZE rows.
+- If both are absent, infer by vehicle body and GVW/GCW weight bands: Light 0-10,000 lbs.; Medium 10,001-20,000; Heavy 20,001-45,000; Extra Heavy over 45,000; Truck-Tractors by tractor body/GCW.
+- Required output lines, even if zero or No information provided:
+  - Private Passenger: [count]
+  - Light: [count]
+  - Medium: [count]
+  - Heavy (Local): [count]
+  - Heavy (Other than Local): [count]
+  - Extra Heavy (Local): [count]
+  - Extra Heavy (Intermediate): [count]
+  - Extra Heavy (Long Haul): [count]
+  - Truck Tractors (Local): [count]
+  - Truck Tractor (Intermediate): [count]
+  - Truck Tractors (Long Haul): [count]
+- Vehicle code evidence: [list class/stat codes or No information provided]
 
 **Garaging & Radius:**
 - Primary: [location]
@@ -1012,7 +1029,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employers Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [WC policy form / state]
 - Period: [dates]
@@ -1056,7 +1073,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employee Benefits Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1095,7 +1112,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Aircraft Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1127,7 +1144,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Garage Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1159,7 +1176,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Liquor Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1198,7 +1215,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign General Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]
@@ -1231,7 +1248,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign Auto Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]
