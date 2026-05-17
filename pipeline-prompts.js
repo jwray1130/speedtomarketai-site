@@ -834,12 +834,30 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents (look for "Named Insured", "Insured", "Applicant", "Company Name").
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants — e.g., "Anahuac Infrastructure" matches "Anahuac Infrastructure LLC").
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches "\${account_name}", your ENTIRE output MUST be exactly the single line:
+3a. NOT-STATED IS NOT A MISMATCH (FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16):
+   A document that does NOT state any named insured at all (e.g. a quote
+   page, dec page, or schedule of underlying that omits the insured —
+   very common in broker submissions) is NOT a conflicting insured.
+   Distinguish three cases:
+     • Document states an insured that MATCHES \${account_name} → extract normally.
+     • Document states a DIFFERENT, conflicting insured → exclude that
+       document (this is the wrong-applicant defense; keep it strict).
+     • Document states NO insured, and NO other document in the set
+       states a *different/conflicting* insured → treat the document as
+       belonging to this submission. Extract its data, but prepend the
+       single line: **Insured not stated on source — extracted under
+       review; verify named insured.** Then continue with the full
+       template. Do NOT hard-refuse merely because the quote page itself
+       is silent on the insured.
+4. Hard-refuse ONLY if EVERY document that states an insured states a
+   DIFFERENT, conflicting one (i.e. there is a positively wrong insured
+   and no matching or insured-silent document for this submission). In
+   that case your ENTIRE output MUST be exactly the single line:
    **No matching primary GL quote found for this insured.**
-   — nothing else. No coverage template. No QC checklist. No caveats. No partial extraction. The diagnostic line IS the complete and correct answer when documents don't match. An underwriter has explicitly instructed you to refuse rather than mix insureds.
+   — nothing else. No coverage template. No QC checklist. No caveats. No partial extraction. The diagnostic line IS the complete and correct answer when documents affirmatively belong to a different insured. An underwriter has explicitly instructed you to refuse rather than mix DIFFERENT insureds — but a document merely silent on the insured is not a different insured.
 5. If "\${account_name}" is literally "(unknown)", proceed normally — extract from whatever GL quote documents are present.
 
-This is a hard refusal contract. Do NOT extract from non-matching documents even if they are the only documents available. A refusal IS success when no documents match.
+This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT extract from documents that state a different/conflicting insured. A document that is silent on the insured is extracted under a review flag, not refused.
 
 **Primary GL Summary**
 
@@ -897,9 +915,18 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
+3a. NOT-STATED IS NOT A MISMATCH (FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16):
+   A document that states NO named insured (common for auto quote/dec
+   pages and schedules of underlying) is NOT a conflicting insured. If
+   the document is silent on the insured and no other document states a
+   DIFFERENT/conflicting insured, treat it as belonging to this
+   submission: prepend **Insured not stated on source — extracted under
+   review; verify named insured.** then continue the full template. Do
+   not refuse merely because the page is silent on the insured.
+4. Hard-refuse ONLY if EVERY document that states an insured states a
+   DIFFERENT, conflicting one. In that case your ENTIRE output MUST be exactly:
    **No matching primary AL quote found for this insured.**
-   — nothing else. No template, no QC, no caveats. Refusal is the correct answer here.
+   — nothing else. No template, no QC, no caveats. Refusal is correct only when documents affirmatively belong to a different insured — not when they are merely silent.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
 Do NOT extract from non-matching documents even if they are the only documents available.

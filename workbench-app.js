@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.79-qs-imbalance-guard-2026-05-16
+  v8.6.81-workbench-fill-reliability-2026-05-17
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.79-qs-imbalance-guard-2026-05-16';
+window.STM_BUILD = 'v8.6.81-workbench-fill-reliability-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -383,127 +383,125 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             applyDealInfoFromActiveSubmission(data);
-            // FIX-PHASE-GO-LIVE-73-LAYERTYPE-2026-05-16
-            // The real submission path never set #layerType, so coverage
-            // panels stayed hidden behind "Select a Layer Type" until
-            // the user manually picked one (the demo only worked because
-            // the bridge's applyCoverages indirectly triggered it).
-            // Infer from the assembled tower: a resolved lead rung → a
-            // Lead class; excess-only structure → an Excess class. We
-            // pick the generic "... Other" option (the underwriter
-            // refines the class); the point is to UNHIDE the panels.
+            // FIX-PHASE-GO-LIVE-80-LAYER-TYPE-ENGINE-2026-05-16
+            // Layer Type is the master UI gate. Prior versions used a
+            // crude hasLead?'Lead Other':'Excess Other' that left the
+            // field BLANK whenever no tower assembled → whole workbench
+            // locked (this is what the real paid run SUB-MP94Y8F5
+            // exposed). v8.6.80 replaces it with the proven
+            // WorkbenchRules.decideLayerType engine:
+            //   • mechanical Lead/Excess from the real tower
+            //   • ordered 7-bucket operational subtype from the
+            //     STRUCTURED class codes (not prose keyword soup)
+            //   • NEVER blank → the gate always opens
+            //   • inferred + visible review badge for forked cases
+            //     (per Q9 doctrine: never silently commit an ambiguous
+            //     underwriting classification)
+            //   • a user's deliberate manual selection stays authoritative
             try {
                 const lt = document.querySelector('#layerType');
-                if (lt
-                    && window.WorkbenchRules
-                    && typeof window.WorkbenchRules.buildTowerFromExcessModule === 'function') {
-                    const tw = window.WorkbenchRules.buildTowerFromExcessModule(data);
-                    let inferred = null, family = null;
-                    if (tw && !tw.blocked && Array.isArray(tw.rungs) && tw.rungs.length) {
-                        const hasLead = tw.rungs.some(r => r.kind === 'lead' && r.status !== '????');
-                        inferred = hasLead ? 'Lead Other' : 'Excess Other';
-                        family = hasLead ? 'lead' : 'excess';
-                    }
+                if (lt && window.WorkbenchRules
+                    && typeof window.WorkbenchRules.decideLayerType === 'function') {
+
+                    const decision = window.WorkbenchRules.decideLayerType(data);
                     const current = (lt.value || '').trim();
-                    if (inferred && !current) {
-                        // Field blank → set it (original behavior).
-                        const opt = Array.from(lt.options)
-                            .find(o => o.value === inferred || o.textContent.trim() === inferred);
+
+                    // Preserve a deliberate manual selection. We only
+                    // treat an existing value as "manual" if the user
+                    // actually changed it (tracked via a data flag the
+                    // change handler sets); a value left over from a
+                    // prior submission is NOT authoritative.
+                    const userLocked = lt.getAttribute('data-user-set') === '1';
+
+                    if (decision && decision.layerType && !userLocked) {
+                        const opt = Array.from(lt.options).find(o =>
+                            (o.value && o.value === decision.layerType)
+                            || o.textContent.trim() === decision.layerType);
                         if (opt) {
                             lt.value = opt.value || opt.textContent.trim();
+                            // Dispatch change → triggers the existing
+                            // gate-open cascade (Limits & Premiums, Forms,
+                            // subjectivities, rater all listen on this).
                             lt.dispatchEvent(new Event('change', { bubbles: true }));
-                            console.log('[workbench] Phase GL-73: layer type inferred from tower →',
-                                lt.value, '(coverage panels unhidden; underwriter refines class)');
+                            // This was an inference, not a user choice —
+                            // do NOT mark it user-set, so a later wave/
+                            // re-fill can still refine it.
+                            lt.removeAttribute('data-user-set');
+                            console.log('[workbench] Phase GL-80 Layer Type decided →',
+                                lt.value, '| family:', decision.family,
+                                '| reasons:', (decision.reasons || []).join(' · '));
+                        } else {
+                            console.warn('[workbench] Phase GL-80: decided "'
+                                + decision.layerType
+                                + '" has no matching #layerType <option> — gate NOT opened. '
+                                + 'Check option list vs LAYER_SUBTYPES.');
                         }
-                    } else if (inferred && current && family) {
-                        // FIX-PHASE-GO-LIVE-75-LAYERTYPE-STALE-GUARD-2026-05-16
-                        // A value is already present. Do NOT silently
-                        // overwrite (it may be the underwriter's deliberate
-                        // class choice) — but if it's a STALE value from a
-                        // prior submission whose family CONFLICTS with what
-                        // this submission's tower implies (e.g. field says
-                        // "Lead ..." but the tower is excess-only), keeping
-                        // it silently is the dangerous outcome. Warn loudly
-                        // and visibly so the underwriter reconciles it.
-                        const curFamily = /^lead/i.test(current) ? 'lead'
-                                        : /^excess/i.test(current) ? 'excess' : null;
-                        if (curFamily && curFamily !== family) {
-                            console.warn('[workbench] Phase GL-75 LAYER TYPE CONFLICT — field shows "'
-                                + current + '" but this submission\u2019s tower implies a '
-                                + family.toUpperCase() + ' structure. NOT auto-changed (could be a '
-                                + 'deliberate choice); verify the Layer Type is correct for this deal.');
-                            // FIX-PHASE-GO-LIVE-76-LAYERTYPE-WARN-VISIBILITY-2026-05-16
-                            // Extension v8.6.75 audit: the warning was
-                            // appended to #workbenchSubmissionBadge, which
-                            // has display:none on the clean-demo path (no
-                            // real submission loaded) — so the underwriter
-                            // never saw it on a path they actually use.
-                            // Attach it directly after the always-visible
-                            // #layerType control instead (with the badge
-                            // as a fallback), so it is visible wherever
-                            // the layer type itself is visible.
-                            // FIX-PHASE-GO-LIVE-78-LAYERWARN-TOPBAR-2026-05-16
-                            // FOURTH attempt — prior three were wrong about
-                            // the DOM. Verified against workbench.html:
-                            //  - #layerType (v76 anchor) is in #page-deal
-                            //  - .deal-hero / #heroStatusPill (v77 anchor)
-                            //    are ALSO inside #page-deal (lines 161/173),
-                            //    NOT a persistent header — so both got
-                            //    display:none on every non-Deal tab.
-                            // The ONLY genuinely persistent region is
-                            // <header class="topbar"> (line 49), OUTSIDE
-                            // #pageContent, with .topbar-right holding
-                            // #workbenchSubmissionBadge. Anchor the warning
-                            // there and ensure that container is shown, so
-                            // the warning is visible on EVERY tab. Never
-                            // anchor inside #pageContent again.
-                            let warn = document.getElementById('stmLayerTypeConflictWarn');
-                            if (!warn) {
-                                warn = document.createElement('span');
-                                warn.id = 'stmLayerTypeConflictWarn';
-                                warn.style.cssText = 'display:inline-block;margin-left:10px;'
-                                    + 'padding:2px 8px;border-radius:4px;background:#b54708;'
-                                    + 'color:#fff;font-size:11px;font-weight:600;'
-                                    + 'vertical-align:middle;white-space:nowrap;';
-                            }
-                            const topbarRight = document.querySelector('.topbar .topbar-right')
-                                || document.querySelector('.topbar-right');
-                            const subBadge = document.getElementById('workbenchSubmissionBadge');
-                            const topbar = document.querySelector('header.topbar');
-                            // Guard: the chosen anchor MUST NOT be inside
-                            // #pageContent (the tab-pane container). If it
-                            // is, fall back up the chain until it isn't.
-                            const pageContent = document.getElementById('pageContent');
-                            const isPersistent = (el) =>
-                                el && (!pageContent || !pageContent.contains(el));
-                            let host = null;
-                            if (isPersistent(topbarRight)) host = topbarRight;
-                            else if (isPersistent(subBadge) && subBadge) host = subBadge;
-                            else if (isPersistent(topbar)) host = topbar;
-                            if (host && warn.parentNode !== host) {
-                                host.appendChild(warn);
-                            }
-                            // If we landed on (or next to) the submission
-                            // badge container, make sure that container is
-                            // not display:none — it is hidden when no real
-                            // submission is loaded (e.g. clean demo), which
-                            // would re-hide the warning. Showing it for the
-                            // conflict case is correct: there IS something
-                            // the underwriter must see.
-                            if (subBadge && (host === subBadge
-                                || (host && (host === topbarRight || host === topbar)))) {
-                                const cs = window.getComputedStyle(subBadge);
-                                if (cs && cs.display === 'none') {
-                                    subBadge.style.display = 'inline-flex';
-                                }
-                            }
-                            warn.textContent = 'LAYER TYPE may be stale — verify (' + current + ')';
-                            warn.style.display = 'inline-block';
+                    } else if (userLocked) {
+                        console.log('[workbench] Phase GL-80: #layerType is a '
+                            + 'deliberate manual selection ("' + current
+                            + '") — engine inference ("'
+                            + (decision && decision.layerType)
+                            + '") NOT applied; user choice is authoritative.');
+                    }
+
+                    // ---- Review badge (inferred / conflict) ----
+                    // Reuse the v78-proven persistent-topbar anchor:
+                    // the ONLY region outside #pageContent (so the badge
+                    // is visible on every tab). Shows the engine's
+                    // conflict message verbatim when one exists.
+                    const conflict = decision && decision.conflict;
+                    let warn = document.getElementById('stmLayerTypeConflictWarn');
+                    if (conflict && conflict.message) {
+                        if (!warn) {
+                            warn = document.createElement('span');
+                            warn.id = 'stmLayerTypeConflictWarn';
+                            warn.style.cssText = 'display:inline-block;'
+                                + 'margin-left:10px;padding:2px 8px;border-radius:4px;'
+                                + 'background:#b54708;color:#fff;font-size:11px;'
+                                + 'font-weight:600;vertical-align:middle;'
+                                + 'white-space:nowrap;max-width:46ch;overflow:hidden;'
+                                + 'text-overflow:ellipsis;';
+                            warn.title = '';
                         }
+                        const topbarRight =
+                            document.querySelector('.topbar .topbar-right')
+                            || document.querySelector('.topbar-right');
+                        const subBadge =
+                            document.getElementById('workbenchSubmissionBadge');
+                        const topbar = document.querySelector('header.topbar');
+                        const pageContent =
+                            document.getElementById('pageContent');
+                        const isPersistent = (el) =>
+                            el && (!pageContent || !pageContent.contains(el));
+                        let host = null;
+                        if (isPersistent(topbarRight)) host = topbarRight;
+                        else if (isPersistent(subBadge) && subBadge) host = subBadge;
+                        else if (isPersistent(topbar)) host = topbar;
+                        if (host && warn.parentNode !== host) host.appendChild(warn);
+                        if (subBadge && host
+                            && (host === subBadge || host === topbarRight
+                                || host === topbar)) {
+                            const cs = window.getComputedStyle(subBadge);
+                            if (cs && cs.display === 'none') {
+                                subBadge.style.display = 'inline-flex';
+                            }
+                        }
+                        // Full message in tooltip; truncated pill text.
+                        warn.title = conflict.message;
+                        warn.textContent = '\u26A0 ' + conflict.message;
+                        warn.style.display = 'inline-block';
+                        console.warn('[workbench] Phase GL-80 LAYER TYPE REVIEW: '
+                            + conflict.message);
+                    } else if (warn) {
+                        // No conflict on this submission → clear any stale
+                        // badge from a previous one.
+                        warn.style.display = 'none';
+                        warn.textContent = '';
+                        warn.title = '';
                     }
                 }
             } catch (ltErr) {
-                console.warn('[workbench] Phase GL-73 layer-type inference skipped —',
+                console.warn('[workbench] Phase GL-80 layer-type engine skipped —',
                     ltErr && ltErr.message);
             }
             applyGLCoverageFromActiveSubmission(data);
@@ -516,6 +514,14 @@ document.addEventListener('DOMContentLoaded', () => {
             applyForeignGLCoverageFromActiveSubmission(data);
             applyForeignALCoverageFromActiveSubmission(data);
             applyExcessTowerFromActiveSubmission(data);
+            // v8.6.81: after Layer Type opens the gate, use no-cost
+            // adapters to fill the risk profile/rater/narrative fields
+            // from the already-paid extraction text. These functions do
+            // not call the API; they expose what was resolved and what
+            // still needs review.
+            applyUnderwritingFromActiveSubmission(data);
+            applyGLExposureRaterFromActiveSubmission(data);
+            renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
         // Exposed so the canonical clean demo (pipeline-bridge.js) runs
@@ -1376,6 +1382,146 @@ document.addEventListener('DOMContentLoaded', () => {
                 'fal_carrier', 'fal_effective_date', 'fal_expiration_date',
                 'fal_combined_single_limit', 'fal_premium'
             ]);
+        }
+
+        // ===================================================================
+        // v8.6.81 — Workbench fill reliability: risk profile, rater, report
+        // ===================================================================
+        function normalizeBasisForSelect(value) {
+            const s = String(value || '').toLowerCase();
+            if (/payroll/.test(s)) return 'payroll';
+            if (/per\s*\$?100\b|\/100/.test(s)) return '100';
+            if (/per\s*\$?1\b|\/1\b/.test(s)) return '1';
+            // Sales, receipts, revenue and most GL class exposures rate per $1,000.
+            if (/sales|revenue|receipts|gross|per\s*\$?1,?000|\/1000|1k/.test(s)) return '1000';
+            return '1000';
+        }
+
+        function normalizeExposureBasisOption(value) {
+            const s = String(value || '').toLowerCase();
+            if (/payroll/.test(s)) return 'Payroll';
+            if (/acre/.test(s)) return 'Acres';
+            if (/admission/.test(s)) return 'Admissions';
+            if (/area|square/.test(s)) return 'Area';
+            if (/gallon/.test(s)) return 'Gallons';
+            if (/cost/.test(s)) return 'Total Cost';
+            if (/operating/.test(s)) return 'Total Operating Expenses';
+            if (/student/.test(s)) return 'Students';
+            if (/unit/.test(s)) return 'Units';
+            if (/sales|revenue|receipt|gross/.test(s)) return 'Gross Sales/Revenues';
+            if (/flat/.test(s)) return 'Flat';
+            return 'Other';
+        }
+
+        function setInputValue(selector, value, kind = 'value') {
+            const el = document.querySelector(selector);
+            if (!el || value == null || value === '') return false;
+            const applied = applyResolvedToElement(el, kind, value);
+            if (applied) el.classList.add('autofilled-from-platform');
+            return applied;
+        }
+
+        function applyUnderwritingFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+            const targets = [
+                { field: 'iso_class_code',           sel: '#isoClass',             kind: 'value'  },
+                { field: 'iso_description',          sel: '#isoDesc',              kind: 'value'  },
+                { field: 'hazard_grade',             sel: '#hazardGrade',          kind: 'value'  },
+                { field: 'hazard_grade',             sel: '#hazardGradeSelect',    kind: 'select' },
+                { field: 'exposure_amount',          sel: '#exposureAmt',          kind: 'value'  },
+                { field: 'exposure_basis',           sel: '#exposureBasis',        kind: 'select' },
+                { field: 'website',                  sel: '#website',              kind: 'value'  },
+                { field: 'exposure_to_loss',         sel: '#expLoss',              kind: 'value'  },
+                { field: 'account_strengths',        sel: '#acctStrengths',        kind: 'value'  },
+                { field: 'guideline_conflicts_text', sel: '#guidelineConflicts',   kind: 'value'  },
+                { field: 'description_operations',   sel: '#descOps',              kind: 'value'  },
+                { field: 'underwriting_rationale',   sel: '#pricingRationale',     kind: 'value'  }
+            ];
+            const filled = [], missed = [];
+            for (const t of targets) {
+                const r = rules.resolveField(t.field, submission);
+                if (!r || r.value == null || r.value === '') { missed.push(t.field); continue; }
+                let v = r.value;
+                if (t.sel === '#exposureBasis') v = normalizeExposureBasisOption(v);
+                const ok = setInputValue(t.sel, v, t.kind);
+                if (ok) filled.push({ field: t.field, source: r.source, value: String(r.value).slice(0, 60), confidence: Number(r.confidence || 0).toFixed(3) });
+            }
+            // Trigger dependent static maps after ISO/state fills.
+            document.querySelector('#isoClass')?.dispatchEvent(new Event('input', { bubbles: true }));
+            document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
+            const hz = document.getElementById('hazardGradeSelect');
+            if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('[workbench] v8.6.81 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+        }
+
+        function applyGLExposureRaterFromActiveSubmission(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+            const tbl = document.getElementById('classTerritoryTable');
+            const tbody = tbl && tbl.querySelector('tbody');
+            const row = tbody && tbody.querySelector('tr');
+            if (!row) return;
+            const get = (field) => {
+                const r = rules.resolveField(field, submission);
+                return r && r.value != null && r.value !== '' ? r : null;
+            };
+            const vals = {
+                code: get('iso_class_code'),
+                desc: get('iso_description'),
+                state: get('home_state'),
+                exposures: get('exposure_amount'),
+                base: get('exposure_basis')
+            };
+            let filled = 0;
+            const put = (df, val) => {
+                const el = row.querySelector('[data-f="' + df + '"]');
+                if (!el || val == null || val === '') return;
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.classList.add('autofilled-from-platform');
+                filled++;
+            };
+            put('code', vals.code && vals.code.value);
+            put('desc', vals.desc && vals.desc.value);
+            put('state', vals.state && vals.state.value);
+            put('exposures', vals.exposures && vals.exposures.value);
+            put('base', vals.base && normalizeBasisForSelect(vals.base.value));
+            // Force rater recalculation through existing listeners.
+            row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
+            console.log('[workbench] v8.6.81 GL exposure rater apply:', filled, 'cells filled', vals);
+        }
+
+        function renderFieldCoverageReport(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
+            const report = rules.buildFieldCoverageReport(submission);
+            window.workbenchFieldCoverageReport = report;
+            console.log('[workbench] v8.6.81 field coverage report:', report.summary);
+            try { console.table(report.rows); } catch (_) {}
+            try { console.table(report.modules); } catch (_) {}
+
+            let box = document.getElementById('stmFieldCoverageReport');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'stmFieldCoverageReport';
+                box.style.cssText = 'margin:10px 18px 0;padding:10px 12px;border:1px solid rgba(181,71,8,.35);border-radius:8px;background:rgba(181,71,8,.08);font-size:12px;line-height:1.35;';
+                const topbar = document.querySelector('header.topbar');
+                if (topbar && topbar.parentNode) topbar.parentNode.insertBefore(box, topbar.nextSibling);
+                else document.body.insertBefore(box, document.body.firstChild);
+            }
+            const s = report.summary || {};
+            const layer = report.layerDecision || {};
+            const conflict = layer.conflict && layer.conflict.message ? '<br><strong>Layer review:</strong> ' + escapeHtml(layer.conflict.message) : '';
+            box.innerHTML = '<strong>Workbench fill report:</strong> '
+                + escapeHtml(String(s.resolved || 0)) + ' resolved, '
+                + escapeHtml(String(s.review || 0)) + ' review, '
+                + escapeHtml(String(s.missing || 0)) + ' missing of '
+                + escapeHtml(String(s.total || 0)) + '. '
+                + 'No API call was made. Details are in <code>window.workbenchFieldCoverageReport</code> and console tables.'
+                + conflict;
+            box.style.display = 'block';
         }
 
         // FIX-PHASE-12-EXCESS-TOWER-2026-05-14
@@ -2837,7 +2983,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return '';
             };
             previousLayerGroup = getGroup();
-            typeEl.addEventListener('change', () => {
+            typeEl.addEventListener('change', (ev) => {
+                // FIX-PHASE-GO-LIVE-80-USER-OVERRIDE-2026-05-16
+                // A genuine user selection (isTrusted) marks the field
+                // authoritative so the Layer Type engine will NOT
+                // overwrite it on a later wave/re-fill. Our own
+                // programmatic dispatch (new Event('change')) is
+                // isTrusted:false → it must NOT lock the field, so the
+                // engine can still refine an inference later.
+                if (ev && ev.isTrusted === true) {
+                    typeEl.setAttribute('data-user-set', '1');
+                }
                 const currentLayerGroup = getGroup();
                 if (currentLayerGroup && currentLayerGroup !== previousLayerGroup) {
                     resetCoverageListsForLayerSwitch();

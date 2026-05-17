@@ -766,6 +766,47 @@
     return false;
   }
 
+  // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16
+  // The real paid run (SUB-MP94Y8F5) exposed this: the excess module's
+  // extracted "insured" was the literal phrase "Not stated on the
+  // provided quote pages" (broker quote pages routinely omit the named
+  // insured). The cross-applicant guard fed that phrase into
+  // applicantsMatch, which returned false, which blocked the tower —
+  // treating "the page is silent" identically to "the page names a
+  // DIFFERENT company". Those are different and must be handled
+  // differently (GPT + underwriter both flagged this):
+  //   • silent on insured  → cannot confirm, ALLOW under review (null)
+  //   • different insured   → wrong applicant, BLOCK (false)  ← unchanged
+  // isSentinelValue intentionally NOT broadened (it gates 600+ lines of
+  // resolver logic; widening it risks regressions). This is a focused
+  // predicate used ONLY at the cross-applicant call sites.
+  function isInsuredNotStated(s) {
+    if (s == null) return true;
+    const t = String(s).trim().toLowerCase();
+    if (!t) return true;
+    if (isSentinelValue(t)) return true;          // reuse existing coverage
+    // Phrases that mean "the document does not state an insured" rather
+    // than naming one. Anchored to the start so a real company name that
+    // merely contains a word like "national" is unaffected.
+    if (/^(not\s+stated|none\s+stated|insured\s+not\s+stated|no\s+named\s+insured|not\s+shown|not\s+listed\s+on|not\s+on\s+(the\s+)?(extract|quote|provided)|\(?\s*unknown\s*\)?|not\s+identified|unnamed|blank)\b/.test(t)) {
+      return true;
+    }
+    if (/\bnot\s+stated\b/.test(t)) return true;  // "... not stated on the provided quote pages"
+    return false;
+  }
+
+  // Cross-applicant verdict that distinguishes the three cases. Returns
+  // 'match' | 'mismatch' | 'unverifiable'. The guards use this so a
+  // silent-on-insured document is extracted under review, while a
+  // genuinely different insured (Anahuac vs Carroll) is still blocked.
+  function applicantVerdict(extractedName, submissionAccountName) {
+    if (isInsuredNotStated(extractedName)) return 'unverifiable';
+    const m = applicantsMatch(extractedName, submissionAccountName);
+    if (m === true) return 'match';
+    if (m === false) return 'mismatch';     // wrong applicant — block (unchanged)
+    return 'unverifiable';
+  }
+
   function checkApplicantMatch(submission, moduleKey, moduleRec) {
     if (!submission || !submission.account_name) return null;
     if (!moduleRec || !moduleRec.text) return null;
@@ -778,7 +819,15 @@
       _applicantMatchCache[cacheKey] = null; // unknown — can't verify
       return null;
     }
-    const match = applicantsMatch(extracted, submission.account_name);
+    // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16
+    // Distinguish "document is silent on insured" (unverifiable →
+    // allow under review, return null) from "document names a DIFFERENT
+    // insured" (mismatch → block, return false — Anahuac defense
+    // UNCHANGED).
+    const verdict = applicantVerdict(extracted, submission.account_name);
+    const match = verdict === 'match' ? true
+                : verdict === 'mismatch' ? false
+                : null;                       // 'unverifiable'
     _applicantMatchCache[cacheKey] = match;
     if (match === false) {
       // Log once per (submission, module) so console isn't spammed.
@@ -787,6 +836,12 @@
         '" stated insured "' + extracted +
         '" does not match submission "' + submission.account_name +
         '". Skipping for this submission.'
+      );
+    } else if (verdict === 'unverifiable'
+               && isInsuredNotStated(extracted)) {
+      console.log(
+        '[WorkbenchRules] Module "' + moduleKey + '": insured not stated '
+        + 'on source — extracted under review (not blocked).'
       );
     }
     return match;
@@ -984,7 +1039,26 @@
     fal_effective_date:         ['foreign_al_quote:json', 'foreign_al_quote'],
     fal_expiration_date:        ['foreign_al_quote:json', 'foreign_al_quote'],
     fal_combined_single_limit:  ['foreign_al_quote:json', 'foreign_al_quote'],
-    fal_premium:                ['foreign_al_quote:json', 'foreign_al_quote']
+    fal_premium:                ['foreign_al_quote:json', 'foreign_al_quote'],
+
+    // ─── v8.6.81 — Workbench fill reliability fields ───
+    // These fields drove the paid-run disappointment: the modules had
+    // usable prose, but the workbench only filled fields that resolved
+    // through the older coverage/deal-info paths. These resolver entries
+    // are intentionally module-specific and are backed by adapter parsers
+    // below, so the existing SUB-MP94Y8F5 extraction can be repaired
+    // without a full paid rerun.
+    iso_class_code:             ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
+    iso_description:            ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
+    hazard_grade:               ['classcode:json', 'classcode', 'exposure:json', 'exposure', 'guidelines'],
+    exposure_amount:            ['gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure', 'supplemental'],
+    exposure_basis:             ['gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure', 'supplemental'],
+    website:                    ['website:json', 'website', 'summary-ops', 'supplemental'],
+    exposure_to_loss:           ['exposure:json', 'exposure'],
+    account_strengths:          ['strengths:json', 'strengths'],
+    guideline_conflicts_text:   ['guidelines:json', 'guidelines'],
+    description_operations:     ['summary-ops:json', 'summary-ops', 'supplemental:json', 'supplemental', 'website:json', 'website'],
+    underwriting_rationale:     ['discrepancy:json', 'discrepancy', 'guidelines:json', 'guidelines', 'exposure:json', 'exposure', 'summary-ops']
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -1164,19 +1238,11 @@
     if (tierHint === 'json') {
       const obj = parseJsonBlock(moduleRec.text);
       if (!obj) return null;
-      // Map fieldName to a plausible JSON key. Lowercase camelCase
-      // common variants; extend the variant list as needed when real
-      // JSON outputs land in Phase 3.5+.
-      const variants = [
-        fieldName,
-        camel(fieldName),
-        fieldName.replace(/_/g, ' '),
-        fieldName.replace(/_/g, '')
-      ];
-      let val = null;
-      for (const v of variants) {
-        if (obj[v] != null && obj[v] !== '') { val = obj[v]; break; }
-      }
+      // v8.6.81: JSON outputs may be wrapped under workbench_fields,
+      // fields, data, or module-specific objects, and arrays may contain
+      // objects with the desired key. Use a deep, synonym-aware lookup
+      // instead of only top-level exact keys.
+      let val = lookupJsonField(obj, fieldName);
       if (val == null || val === '') return null;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
       return {
@@ -1192,7 +1258,26 @@
       return null;
     }
 
-    // Plain module reference → Tier 2 markdown parse
+    // Plain module reference → v8.6.81 adapter first, then Tier 2
+    // markdown-label parsing. The adapter is module-specific and exists
+    // specifically because real paid-run outputs are heterogeneous
+    // (classcode markdown, tower HTML/JSON, prose narratives) and should
+    // not be treated as one generic label soup.
+    const adapted = moduleSpecificFieldAdapter(moduleKey, moduleRec.text, fieldName, submission);
+    if (adapted && adapted.value != null && adapted.value !== '') {
+      let val = adapted.value;
+      if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      return {
+        value: val,
+        source: descriptor + ':adapter',
+        tier: 2.5,
+        confidence: extractionConf * (adapted.parser_confidence || 0.85),
+        extraction_confidence: extractionConf,
+        parser_confidence: adapted.parser_confidence || 0.85,
+        reason: adapted.reason || null
+      };
+    }
+
     const parsed = parseMarkdown(moduleRec.text, fieldName);
     if (!parsed) return null;
     let val = parsed.value;
@@ -1206,6 +1291,257 @@
       extraction_confidence: extractionConf,
       parser_confidence: parsed.parser_confidence
     };
+  }
+
+  // ===================================================================
+  // v8.6.81 — Workbench fill reliability adapters
+  // ===================================================================
+  // These adapters do not call the API. They salvage the already-paid
+  // extraction text by parsing the actual module shapes seen in the live
+  // run: classcode markdown, narrative sections, and quote prose. This is
+  // deliberately module-specific; generic keyword scans caused false
+  // construction classifications and are not allowed for routing.
+
+  const JSON_FIELD_SYNONYMS = {
+    iso_class_code: ['iso_class_code','isoClassCode','class_code','classCode','code','iso_code','isoCode'],
+    iso_description: ['iso_description','isoDescription','class_description','classDescription','description','class_desc'],
+    hazard_grade: ['hazard_grade','hazardGrade','hazard','hg','risk_grade','riskGrade'],
+    exposure_amount: ['exposure_amount','exposureAmount','sales','gross_sales','grossSales','receipts','payroll','amount'],
+    exposure_basis: ['exposure_basis','exposureBasis','basis','rating_basis','ratingBasis','base'],
+    exposure_to_loss: ['exposure_to_loss','exposureToLoss','exposure','loss_exposure','lossExposure'],
+    account_strengths: ['account_strengths','accountStrengths','strengths','account_strength','strength'],
+    guideline_conflicts_text: ['guideline_conflicts_text','guidelineConflicts','guidelines','guideline_cross_reference','guidelineCrossReference'],
+    description_operations: ['description_operations','descriptionOfOperations','operations','summary_of_operations','summaryOfOperations','descOps'],
+    underwriting_rationale: ['underwriting_rationale','underwritingRationale','rationale','pricing_rationale','pricingRationale'],
+    broker_company: ['broker_company','brokerCompany','brokerage','producer_firm','producerFirm'],
+    broker_name: ['broker_name','brokerName','producer_name','producerName'],
+    broker_address: ['broker_address','brokerAddress','producer_address','producerAddress'],
+    home_state: ['home_state','homeState','state','domicile_state','domicileState'],
+    website: ['website','url','site','web_site']
+  };
+
+  function lookupJsonField(obj, fieldName) {
+    if (obj == null) return null;
+    const keys = [fieldName, camel(fieldName), fieldName.replace(/_/g, ' '), fieldName.replace(/_/g, '')]
+      .concat(JSON_FIELD_SYNONYMS[fieldName] || []);
+    const norm = (k) => String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const wanted = new Set(keys.map(norm));
+    const seen = new Set();
+    function walk(node) {
+      if (node == null) return null;
+      if (typeof node !== 'object') return null;
+      if (seen.has(node)) return null;
+      seen.add(node);
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const v = walk(item);
+          if (v != null && v !== '') return v;
+        }
+        return null;
+      }
+      for (const [k, v] of Object.entries(node)) {
+        if (wanted.has(norm(k)) && v != null && v !== '') return v;
+      }
+      // Favor common wrapper objects before arbitrary recursion.
+      for (const wrap of ['workbench_fields','workbenchFields','fields','data','extracted','extracted_fields','extractedFields']) {
+        if (node[wrap] && typeof node[wrap] === 'object') {
+          const v = walk(node[wrap]);
+          if (v != null && v !== '') return v;
+        }
+      }
+      for (const v of Object.values(node)) {
+        const out = walk(v);
+        if (out != null && out !== '') return out;
+      }
+      return null;
+    }
+    return walk(obj);
+  }
+
+  function stripMarkup(text) {
+    if (!text) return '';
+    return String(text)
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>|<\/div>|<\/li>|<\/tr>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function unmarkdown(text) {
+    return stripMarkup(text)
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+      .replace(/\*\*/g, '')
+      .replace(/^\s*[-*]\s+/gm, '')
+      .trim();
+  }
+
+  function firstReasonableParagraph(text, maxChars) {
+    const clean = unmarkdown(text);
+    const paras = clean.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+    let p = paras.find(x => x.length > 80) || paras[0] || clean;
+    // Strip a leading section heading such as "Summary of Operations:"
+    // or "Exposure to Loss:" while preserving the actual narrative.
+    p = p.replace(/^[A-Z][A-Za-z0-9 &\/\-]{2,90}:\s*/i, '').trim();
+    if (maxChars && p.length > maxChars) p = p.slice(0, maxChars).replace(/\s+\S*$/, '') + '…';
+    return p;
+  }
+
+  function normalizeMoneyForDisplay(v) {
+    const n = _num(v);
+    if (n == null) return null;
+    return Math.round(n).toLocaleString('en-US');
+  }
+
+  function moduleSpecificFieldAdapter(moduleKey, text, fieldName, submission) {
+    const raw = text || '';
+    const clean = unmarkdown(raw);
+    const lower = clean.toLowerCase();
+    const hit = (value, conf, reason) => {
+      if (value == null || value === '' || isSentinelValue(value)) return null;
+      return { value, parser_confidence: conf || 0.80, reason: reason || 'adapter' };
+    };
+
+    // Classcode module — anchor on the module's stated primary class code.
+    if (moduleKey === 'classcode') {
+      let m = /\*\*Code\s+(\d{4,5})\s+—\s+([^*]+?)\*\*/.exec(raw)
+           || /\bCode\s+(\d{4,5})\s+[—-]\s+([^\n]+)/i.exec(clean)
+           || /\bISO\s+(?:Class\s+)?Code\s*:?\s*(\d{4,5})\s*(?:[—-]\s*([^\n]+))?/i.exec(clean);
+      if (fieldName === 'iso_class_code' && m) return hit(m[1], 0.98, 'primary_classcode');
+      if (fieldName === 'iso_description' && m && m[2]) return hit(m[2].trim(), 0.95, 'primary_class_description');
+      if (fieldName === 'exposure_basis') {
+        if (/sales|revenue|receipts|merchant wholesaler|dealer|distributor|retail|wholesale/i.test(clean)) return hit('Gross Sales/Revenues', 0.85, 'classcode_sales_basis');
+        if (/payroll/i.test(clean)) return hit('Payroll', 0.80, 'classcode_payroll_basis');
+        if (/acre|acres/i.test(clean)) return hit('Acres', 0.80, 'classcode_acres_basis');
+      }
+      if (fieldName === 'hazard_grade') {
+        m = /Hazard\s+Grade\s*:?\s*(?:HG\s*)?([1-6]|Low|Moderate(?:\s+High)?|High)\b/i.exec(clean)
+         || /\bHG\s*([1-6])\b/i.exec(clean);
+        if (m) return hit(normalizeHazardGrade(m[1]), 0.85, 'classcode_hazard');
+        if (/fertilizer|chemical|hazardous|pollution|contamination/i.test(clean)) return hit('High', 0.65, 'classcode_severity_inferred');
+      }
+      if (fieldName === 'exposure_amount') {
+        m = /(?:sales|revenue|receipts|exposure)\D{0,40}(\$?\s*[0-9][0-9,\.]*\s*(?:million|thousand|m|mm|k)?)/i.exec(clean);
+        const v = m && normalizeMoneyForDisplay(m[1]);
+        if (v) return hit(v, 0.70, 'classcode_exposure_amount');
+      }
+      if (fieldName === 'description_operations') return hit(firstReasonableParagraph(clean, 1200), 0.80, 'classcode_ops_summary');
+    }
+
+    // Quote modules — recover common quote terms from prose when JSON is absent.
+    if (moduleKey === 'gl_quote' || moduleKey === 'al_quote') {
+      const isGL = moduleKey === 'gl_quote';
+      const carrier = /(?:Carrier|Insurer|Insurance Company)\s*:?\s*([^\n]+)/i.exec(clean);
+      const period = /(?:Policy\s+)?Period\s*:?\s*([0-9\/\-.]+)\s*(?:[-–—]|to|through|thru)\s*([0-9\/\-.]+)/i.exec(clean);
+      if ((fieldName === 'gl_carrier' && isGL) || (fieldName === 'al_carrier' && !isGL)) {
+        if (carrier) return hit(carrier[1].trim(), 0.85, 'quote_carrier');
+      }
+      if ((fieldName === 'gl_effective_date' && isGL) || (fieldName === 'al_effective_date' && !isGL)) {
+        if (period) return hit(period[1], 0.85, 'quote_period_start');
+      }
+      if ((fieldName === 'gl_expiration_date' && isGL) || (fieldName === 'al_expiration_date' && !isGL)) {
+        if (period) return hit(period[2], 0.85, 'quote_period_end');
+      }
+      const moneyLine = (labels) => {
+        for (const lab of labels) {
+          const re = new RegExp(lab + '\\s*:?\\s*\\$?\\s*([0-9][0-9,\\.]*\\s*(?:million|thousand|m|mm|k)?)', 'i');
+          const mm = re.exec(clean);
+          if (mm) return normalizeMoneyForDisplay(mm[1]);
+        }
+        return null;
+      };
+      if (fieldName === 'gl_each_occurrence') return hit(moneyLine(['Each Occurrence','Occurrence Limit','Each Occ']), 0.80, 'gl_each_occurrence');
+      if (fieldName === 'gl_general_aggregate') return hit(moneyLine(['General Aggregate','Aggregate Limit','Aggregate']), 0.80, 'gl_aggregate');
+      if (fieldName === 'gl_products_ops_aggregate') return hit(moneyLine(['Products\\/Completed Operations Aggregate','Products.*Aggregate','Products\\s*Comp.*Agg']), 0.75, 'gl_products_aggregate');
+      if (fieldName === 'gl_personal_adv_injury') return hit(moneyLine(['Personal.*Advertising Injury','Personal and Adv Injury','PI.*Adv']), 0.75, 'gl_pai');
+      if (fieldName === 'gl_premium') return hit(moneyLine(['GL Premium','Total Premium','Annual Premium','Premium']), 0.75, 'gl_premium');
+      if (fieldName === 'al_combined_single_limit') return hit(moneyLine(['Combined Single Limit','CSL','Each Accident']), 0.80, 'al_csl');
+      if (fieldName === 'al_premium') return hit(moneyLine(['AL Premium','Auto Premium','Total Premium','Annual Premium','Premium']), 0.75, 'al_premium');
+      if (fieldName === 'exposure_amount') return hit(moneyLine(['Exposure','Sales','Receipts','Revenue']), 0.65, 'quote_exposure_amount');
+      if (fieldName === 'exposure_basis') {
+        if (/sales|revenue|receipts/i.test(clean)) return hit('Gross Sales/Revenues', 0.75, 'quote_sales_basis');
+        if (/payroll/i.test(clean)) return hit('Payroll', 0.70, 'quote_payroll_basis');
+      }
+    }
+
+    // Narrative modules — return clean text, bounded for UI textareas.
+    if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(firstReasonableParagraph(clean, 2500), 0.90, 'exposure_narrative');
+    if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative');
+    if (fieldName === 'guideline_conflicts_text' && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
+    if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) return hit(firstReasonableParagraph(clean, 2200), 0.86, 'ops_narrative');
+    if (fieldName === 'underwriting_rationale' && (moduleKey === 'discrepancy' || moduleKey === 'guidelines' || moduleKey === 'exposure' || moduleKey === 'summary-ops')) return hit(firstReasonableParagraph(clean, 2200), 0.78, 'rationale_narrative');
+
+    // Website / URL.
+    if (fieldName === 'website') {
+      const m = /(https?:\/\/[^\s)]+|www\.[^\s)]+)/i.exec(clean);
+      if (m) return hit(m[1], 0.75, 'website_url');
+    }
+    return null;
+  }
+
+  function normalizeHazardGrade(v) {
+    const s = String(v || '').trim().toLowerCase();
+    if (s === '1' || s.includes('low')) return 'Low';
+    if (s === '2' || s === '3' || s === 'moderate') return 'Moderate';
+    if (s === '4' || s.includes('moderate high')) return 'Moderate High';
+    if (s === '5' || s === '6' || s.includes('high')) return 'High';
+    return String(v || '').trim();
+  }
+
+  function buildFieldCoverageReport(submission) {
+    const groups = {
+      'Deal Information': ['insured_name','policy_effective','policy_expiration','home_state','mailing_address','controlling_address','broker_company','broker_name','broker_address','broker_region','market','paper','underwriter','assistant'],
+      'Layer / Tower Gate': ['layer_type'],
+      'Primary GL': ['gl_carrier','gl_effective_date','gl_expiration_date','gl_each_occurrence','gl_general_aggregate','gl_products_ops_aggregate','gl_personal_adv_injury','gl_premium'],
+      'Primary AL': ['al_carrier','al_effective_date','al_expiration_date','al_combined_single_limit','al_premium'],
+      'Risk Profile': ['iso_class_code','iso_description','hazard_grade','exposure_amount','exposure_basis','website'],
+      'Underwriting Narrative': ['description_operations','exposure_to_loss','account_strengths','guideline_conflicts_text','underwriting_rationale']
+    };
+    const rows = [];
+    let resolved = 0, missing = 0, review = 0;
+    let ltDecision = null;
+    try { ltDecision = decideLayerType(submission); } catch (e) { ltDecision = null; }
+    for (const [group, fields] of Object.entries(groups)) {
+      for (const field of fields) {
+        let r = null;
+        if (field === 'layer_type' && ltDecision && ltDecision.layerType) {
+          r = { value: ltDecision.layerType, source: 'decideLayerType', tier: 'decision', confidence: ltDecision.conflict ? 0.80 : 0.95, reason: (ltDecision.reasons || []).join(' | ') };
+        } else {
+          r = resolveField(field, submission);
+        }
+        const status = r && r.value ? (ltDecision && field === 'layer_type' && ltDecision.conflict ? 'review' : 'resolved') : 'missing';
+        if (status === 'resolved') resolved++;
+        else if (status === 'review') review++;
+        else missing++;
+        rows.push({
+          group, field, status,
+          value: r && r.value != null ? String(r.value).slice(0, 160) : '',
+          source: r ? r.source : '',
+          tier: r ? r.tier : '',
+          confidence: r && r.confidence != null ? Number(r.confidence).toFixed(3) : '',
+          reason: r && r.reason ? r.reason : (status === 'missing' ? 'No authoritative source parsed' : '')
+        });
+      }
+    }
+    const ex = (submission && submission.snapshot && submission.snapshot.extractions) || (submission && submission.extractions) || {};
+    const modules = Object.keys(ex).sort().map(k => {
+      const rec = ex[k] || {};
+      const txt = typeof rec.text === 'string' ? rec.text : '';
+      const json = txt ? parseJsonBlock(txt) : null;
+      let applicant = 'unknown';
+      try {
+        const stated = extractNamedInsured(txt);
+        applicant = stated ? applicantVerdict(stated, submission && submission.account_name) : 'not_found';
+      } catch (e) { applicant = 'error'; }
+      return { module: k, hasText: !!txt, chars: txt.length, hasJson: !!json, applicant };
+    });
+    return { summary: { resolved, review, missing, total: resolved + review + missing }, rows, modules, layerDecision: ltDecision };
   }
 
   function camel(snake) {
@@ -1804,7 +2140,11 @@
     // 2. Cross-applicant gate — replicate the resolveField-level defense
     if (accountName && accountName !== '(unknown)') {
       const stated = extractNamedInsured(text);
-      if (stated && applicantsMatch(stated, accountName) === false) {
+      // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16: block only a
+      // genuinely DIFFERENT insured. "Not stated"/"(unknown)" on quote
+      // pages → unverifiable → allow tower under review (SUB-MP94Y8F5
+      // root cause). Anahuac wrong-applicant → still 'mismatch' → blocked.
+      if (stated && applicantVerdict(stated, accountName) === 'mismatch') {
         console.warn(
           '[WorkbenchRules] Cross-applicant defense: excess tower stated insured "' +
           stated + '" does not match submission "' + accountName +
@@ -2005,7 +2345,10 @@
     // Cross-applicant gate — replicate the resolveField-level defense
     if (accountName && accountName !== '(unknown)') {
       const stated = extractNamedInsured(excessText);
-      if (stated && applicantsMatch(stated, accountName) === false) {
+      // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16: block only a
+      // genuinely DIFFERENT insured. Silent-on-insured quote pages →
+      // unverifiable → allow under review. Anahuac → still blocked.
+      if (stated && applicantVerdict(stated, accountName) === 'mismatch') {
         console.warn(
           '[WorkbenchRules] Cross-applicant defense: excess tower_documents stated insured "' +
           stated + '" does not match submission "' + accountName +
@@ -2519,7 +2862,252 @@
     return out;
   }
 
+  // ===================================================================
+  // FIX-PHASE-GO-LIVE-80-LAYER-TYPE-DECISION-ENGINE-2026-05-16
+  // Layer Type is the master UI gate: until #layerType is set, Limits &
+  // Premiums, Forms, and rating sections render empty-state. The real
+  // paid run (SUB-MP94Y8F5) proved the prior crude logic
+  // (hasLead ? 'Lead Other' : 'Excess Other', only if a tower assembled)
+  // left it blank → whole workbench locked. This engine implements the
+  // underwriter's exact spec:
+  //   • Axis 1 (Lead vs Excess) — MECHANICAL from the real tower:
+  //     excess/umbrella detected BENEATH our attachment → Excess;
+  //     else (we are the first layer above primary) → Lead.
+  //   • Axis 2 (operational subtype) — ORDERED 7-bucket classifier over
+  //     the operations/class signals the pipeline already extracts.
+  //   • Distributor/dealer/wholesale ⇒ Mercantile (controlling-operation
+  //     wins). Blending/formulation/repackaging signals do NOT silently
+  //     promote to Manufacturing — they raise a REVIEW conflict, per the
+  //     "operational activity wins; severity → flags" rule.
+  //   • NEVER blank: always resolves to a concrete option so the gate
+  //     opens. Uncertainty → inferred + visible review badge, never a
+  //     silent commit (Q9 correctness doctrine).
+  // Pure function over the submission; returns the decision + reasoning
+  // + any review conflict. The workbench applies it and renders the
+  // badge; the user's manual selection remains authoritative.
+  // ===================================================================
+  const LAYER_SUBTYPES = [
+    'Hospitality', 'Manufacturing', 'Mercantile',
+    'Practice Construction', 'Project', 'Real Estate - Hab', 'Other'
+  ];
+
+  // Operational-activity verbs that move a distributor to Manufacturing
+  // ONLY when they are the controlling operation (per the tiebreaker:
+  // operational activity wins over product severity; presence alone is
+  // a review flag, not an automatic reclassification).
+  const MFG_TRIGGER_RE =
+    /\b(manufactur|blend|mix(?:er|ing)|formulat|repackag|re-?label|private[- ]label|material(?:ly)? alter|product spec|quality control like a manufacturer)/i;
+
+  function _moduleText(submission, key) {
+    const ex = submission && submission.snapshot && submission.snapshot.extractions;
+    const m = ex && ex[key];
+    return (m && typeof m.text === 'string') ? m.text : '';
+  }
+
+  // FIX-PHASE-GO-LIVE-80B-CONTAMINATION-GUARD-2026-05-16
+  // The offline proof against real SUB-MP94Y8F5 data caught this engine
+  // misclassifying a fertilizer CO-OP as a construction contractor,
+  // because the `subcontract` module text is 100% the EXCLUDED Anahuac
+  // bridge-construction questionnaire (wrong applicant — every other
+  // module correctly excluded it). The classifier must apply the SAME
+  // cross-applicant discipline as the rest of the system: do not treat
+  // a module's text as a signal if that text is about a different
+  // insured than the submission. Reuse extractNamedInsured +
+  // applicantsMatch (already proven). A module whose stated insured
+  // clearly mismatches is dropped from the classification corpus.
+  function _moduleTextIfApplicant(submission, key) {
+    const txt = _moduleText(submission, key);
+    if (!txt) return '';
+    try {
+      const acct = (submission && (submission.account_name || submission.accountName)) || '';
+      if (!acct) return txt; // nothing to compare against — keep
+      const stated = (typeof extractNamedInsured === 'function')
+        ? extractNamedInsured(txt) : null;
+      if (!stated) return txt; // module didn't state an insured — keep
+      if (typeof applicantsMatch === 'function'
+          && applicantsMatch(acct, stated) === false) {
+        // Explicit mismatch → contaminated/foreign content. Drop it.
+        return '';
+      }
+    } catch (e) { /* on any error, fail safe = keep original behavior */ }
+    return txt;
+  }
+
+  function _classifyOperationalSubtype(submission) {
+    // FIX-PHASE-GO-LIVE-80C-STRUCTURED-CLASS-2026-05-16
+    // The offline proof against real data caught a fundamental flaw:
+    // keyword-scanning 24KB of underwriting ANALYSIS prose for words
+    // like "contractor" produced a false "Practice Construction" — the
+    // word appears in pollution-endorsement recommendations, exclusion
+    // notes, and WC cross-references, none of which mean the insured is
+    // a contractor. The classcode module already did the real
+    // classification and stated it STRUCTURALLY: a list of primary ISO
+    // class codes and a primary NAICS. Anchor on THAT structured signal,
+    // not prose soup. Prose is consulted only for the blender/mixer
+    // Manufacturing-trigger review flag (per the user's exact ruling).
+    const clsTxt = _moduleText(submission, 'classcode');
+    const ops    = _moduleText(submission, 'summary-ops');
+    const reasons = [];
+
+    // ---- Extract the STRUCTURED class signal ----
+    // Primary ISO codes: "- **Code NNNNN — Description**"
+    const codeMatches = [];
+    const codeRe = /\*\*Code\s+(\d{4,5})\s+—\s+([^*]+?)\*\*/g;
+    let cm;
+    while ((cm = codeRe.exec(clsTxt)) !== null) {
+      codeMatches.push({ code: cm[1], desc: cm[2].trim() });
+    }
+    // Primary NAICS (the module marks the lead one "(primary)")
+    let naicsPrimary = '';
+    const naicsLine = (clsTxt.match(/NAICS:[^\n]*/i) || [''])[0];
+    const naicsPrim = naicsLine.match(/(\d{6})\s+—\s+([^;()]+?)\s*\(primary\)/i);
+    if (naicsPrim) naicsPrimary = naicsPrim[2].trim();
+
+    // The PRIMARY class is the first listed code (the module orders by
+    // dominance and says so in its rationale). Fall back to NAICS, then
+    // to a minimal ops scan only if there is no structured signal at all.
+    const primary = codeMatches.length ? codeMatches[0] : null;
+    const classCorpus = (
+      (primary ? primary.desc + ' ' : '') +
+      naicsPrimary + ' ' +
+      codeMatches.map(c => c.desc).join(' ')
+    ).toLowerCase();
+
+    // Bucket from the STRUCTURED class description(s), most-specific
+    // first. These match against class-code DESCRIPTIONS, not analysis
+    // prose, so incidental words in recommendations cannot poison it.
+    const has = re => re.test(classCorpus);
+
+    // PROJECT — only a real wrap/OCIP class context.
+    if (has(/\b(wrap[- ]?up|ocip|ccip|owner[- ]controlled insurance|project[- ]specific)\b/)) {
+      reasons.push('primary class indicates a single project / wrap-up placement');
+      return { subtype: 'Project', reasons, conflict: null };
+    }
+    // PRACTICE CONSTRUCTION — primary class is a CONTRACTOR class.
+    if (has(/\bcontractor\b|\bconstruction\b|carpentry|electrical work|plumbing|roofing|excavation|915\d\d|916\d\d/)) {
+      reasons.push('primary class code is a contractor/construction class ('
+        + (primary ? primary.code + ' ' + primary.desc : naicsPrimary) + ')');
+      return { subtype: 'Practice Construction', reasons, conflict: null };
+    }
+    // REAL ESTATE - HAB.
+    if (has(/habitational|apartment|dwelling|residential rental|lessor's risk|condominium/)) {
+      reasons.push('primary class is habitational/real-estate');
+      return { subtype: 'Real Estate - Hab', reasons, conflict: null };
+    }
+    // HOSPITALITY.
+    if (has(/hotel|motel|resort|restaurant|tavern|lodging|food service|catering|hospitality/)) {
+      reasons.push('primary class is hospitality (guest/patron exposure)');
+      return { subtype: 'Hospitality', reasons, conflict: null };
+    }
+    // MANUFACTURING vs MERCANTILE — the tiebreaker, on STRUCTURED class.
+    const distributorClass = has(/\bdealer|distributor|distribution|wholesale|wholesaler|retail|merchant|farm supply|supply store|store\b/);
+    // Manufacturing only if the PRIMARY class itself is a mfg class
+    // (e.g. "... Manufacturing", "... Mfg"), not merely that the word
+    // "blend" appears in the rationale prose.
+    const manufacturingClass = /\bmanufactur|\bmfg\b|processing plant|formulation plant/i.test(
+      (primary ? primary.desc : '') + ' ' + naicsPrimary);
+    // Blender/mixer Manufacturing-trigger — searched in the rationale
+    // PROSE (per the user's ruling: presence = review flag, not auto
+    // reclassification unless the class itself is mfg).
+    const blenderInProse = MFG_TRIGGER_RE.test(clsTxt + '\n' + ops);
+
+    if (distributorClass && !manufacturingClass) {
+      const out = {
+        subtype: 'Mercantile',
+        reasons: ['primary class code is dealer/distributor/wholesale ('
+          + (primary ? primary.code + ' ' + primary.desc : naicsPrimary)
+          + ') — controlling operation is mercantile'],
+        conflict: null
+      };
+      if (blenderInProse) {
+        const m = (clsTxt + '\n' + ops).match(MFG_TRIGGER_RE);
+        out.conflict = {
+          field: 'layerType', severity: 'review',
+          message: 'Inferred — review required: distributor/wholesale '
+            + 'operation supports Mercantile, but on-site '
+            + (m ? m[0] : 'blending/mixing')
+            + ' facility may indicate Manufacturing. Confirm Layer Type.'
+        };
+        out.reasons.push('manufacturing-trigger ("' + (m ? m[0] : 'blend')
+          + '") present in rationale but primary class is distributor → Mercantile + review flag');
+      }
+      return out;
+    }
+    if (manufacturingClass) {
+      reasons.push('primary class code is a manufacturing class');
+      return { subtype: 'Manufacturing', reasons, conflict: null };
+    }
+    if (distributorClass) {
+      reasons.push('mercantile (dealer/distributor/retail) primary class');
+      return { subtype: 'Mercantile', reasons, conflict: null };
+    }
+    // OTHER — no structured class resolved.
+    reasons.push('no decisive structured class signal — defaulted to Other; confirm');
+    return {
+      subtype: 'Other', reasons,
+      conflict: {
+        field: 'layerType', severity: 'review',
+        message: 'Inferred — review required: operations did not clearly '
+          + 'match a core class. Defaulted to Other; confirm Layer Type.'
+      }
+    };
+  }
+
+  function decideLayerType(submission) {
+    // ---- Axis 1: Lead vs Excess, mechanical from the real tower ----
+    let family = 'lead';            // safe default: we are first above primary
+    let familyReason = 'no tower assembled — treated as Lead (first layer above primary)';
+    let towerInfo = null;
+    try {
+      if (typeof buildTowerFromExcessModule === 'function') {
+        const tw = buildTowerFromExcessModule(submission);
+        towerInfo = tw;
+        if (tw && !tw.blocked && Array.isArray(tw.rungs) && tw.rungs.length) {
+          // "Excess detected beneath us" = a resolved underlying
+          // excess/umbrella layer attaches at/above primary but BELOW
+          // our position. The lead rung (statedAttachment 0 /
+          // schedulesPrimary) is the underlying program itself; if the
+          // ONLY rung(s) are that lead umbrella with nothing stacked
+          // above it, WE are the next layer → Lead. If there is a
+          // resolved excess rung above the lead (something already sits
+          // between primary and our attachment), → Excess.
+          const resolved = tw.rungs.filter(r => r.status !== '????');
+          const hasExcessBeneath = resolved.some(r => r.kind === 'excess');
+          if (hasExcessBeneath) {
+            family = 'excess';
+            familyReason = 'resolved excess/umbrella layer(s) detected beneath our attachment → Excess';
+          } else {
+            family = 'lead';
+            familyReason = 'tower shows lead/underlying program only, nothing stacked above it → we are the lead excess layer';
+          }
+        }
+      }
+    } catch (e) {
+      familyReason = 'tower read failed (' + (e && e.message) + ') — defaulted to Lead';
+    }
+
+    // ---- Axis 2: operational subtype ----
+    const cls = _classifyOperationalSubtype(submission);
+
+    // ---- Combine; never blank ----
+    const familyWord = family === 'excess' ? 'Excess' : 'Lead';
+    let subtype = cls.subtype;
+    if (LAYER_SUBTYPES.indexOf(subtype) === -1) subtype = 'Other';
+    const layerType = familyWord + ' ' + subtype;
+
+    return {
+      layerType,                    // e.g. "Lead Mercantile" — never blank
+      family,                       // 'lead' | 'excess'
+      subtype,                      // one of LAYER_SUBTYPES
+      reasons: [familyReason].concat(cls.reasons || []),
+      conflict: cls.conflict || null,   // {field,severity,message} or null
+      inferred: true,               // always an inference until user confirms
+      towerRungCount: towerInfo && towerInfo.rungs ? towerInfo.rungs.length : 0
+    };
+  }
+
   root.WorkbenchRules = {
+    decideLayerType,
     SOURCE_AUTHORITY,
     GUIDELINE_CAPS,
     DEFAULTS,
@@ -2527,6 +3115,9 @@
     DATE_FIELDS,
     LABEL_PATTERNS,
     resolveField,
+    buildFieldCoverageReport,
+    moduleSpecificFieldAdapter,
+    lookupJsonField,
     normalizeDateString,
     parseJsonBlock,
     parseMarkdown,
@@ -2535,6 +3126,8 @@
     extractNamedInsured,
     normalizeCompanyName,
     applicantsMatch,
+    applicantVerdict,
+    isInsuredNotStated,
     parseExcessTower,
     assembleTower,
     assembleTowerWithRelabels,
@@ -2549,7 +3142,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.79-qs-imbalance-guard',
+    version: 'v8.6.81-workbench-fill-reliability',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
