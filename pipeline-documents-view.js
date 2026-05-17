@@ -2953,19 +2953,46 @@ window.initDocumentsView = function() {
     return item;
   }
 
+  // v8.7.01: File Manager tagged-page navigation must lock the selected
+  // document/page card to the top of the Document Workspace viewer. The old
+  // scrollIntoView({ block: 'center', behavior: 'smooth' }) centered tall page
+  // cards inside a shorter viewer, which made the selected page settle between
+  // pages and also nudged the outer app scroller. Keep this scoped to #docsList
+  // only; do not touch tagging, classification, extraction, or Workbench state.
   function scrollToDoc(docId) {
     const doc = state.docs.find(d => d.id === docId);
     if (!doc) return;
     if (state.currentCategory !== 'all' && state.currentCategory !== doc.category) {
       selectCategory('all');
     }
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-doc-id="${docId}"]`);
+
+    const align = () => {
+      const scroller = document.getElementById('docsList');
+      if (!scroller) return;
+
+      const selectorId = (window.CSS && CSS.escape)
+        ? CSS.escape(String(docId))
+        : String(docId).replace(/\\/g, '\\\\').replace(/"/g, '\"');
+      const el = scroller.querySelector(`[data-doc-id="${selectorId}"]`);
       if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      const scrollerRect = scroller.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const targetTop = Math.max(0, scroller.scrollTop + (elRect.top - scrollerRect.top));
+
+      scroller.scrollTo({ top: targetTop, behavior: 'auto' });
       el.style.outline = '2px solid var(--signal)';
-      setTimeout(() => { el.style.outline = ''; }, 1500);
-    });
+      el.style.outlineOffset = '-2px';
+      setTimeout(() => {
+        el.style.outline = '';
+        el.style.outlineOffset = '';
+      }, 1500);
+    };
+
+    // Wait two frames so selectCategory('all') has time to re-render the docs
+    // list before measuring offsets. This avoids stale DOM and keeps the final
+    // landing position deterministic.
+    requestAnimationFrame(() => requestAnimationFrame(align));
   }
 
   // ══════ RENAME ══════

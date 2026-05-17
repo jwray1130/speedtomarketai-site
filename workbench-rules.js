@@ -1098,7 +1098,7 @@
     hazard_grade:               ['classcode:json', 'classcode', 'exposure:json', 'exposure', 'guidelines'],
     exposure_amount:            ['supplemental:json', 'supplemental', 'gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure'],
     exposure_basis:             ['gl_quote:json', 'gl_quote', 'classcode:json', 'classcode', 'exposure:json', 'exposure', 'supplemental'],
-    website:                    ['website:json', 'website', 'summary-ops', 'supplemental'],
+    website:                    ['submission.website', 'submission.website_url', 'submission.websiteUrl', 'submission.insured_website', 'website:json', 'website', 'summary-ops', 'supplemental'],
     exposure_to_loss:           ['exposure:json', 'exposure'],
     account_strengths:          ['strengths:json', 'strengths'],
     guideline_conflicts_text:   ['guidelines:json', 'guidelines'],
@@ -3814,7 +3814,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.00-prompt-orchestration-clean',
+    version: 'v8.7.03-state-guideposts-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

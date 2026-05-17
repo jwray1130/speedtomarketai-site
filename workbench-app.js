@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.00-prompt-orchestration-clean-2026-05-17';
+window.STM_BUILD = 'v8.7.03-state-guideposts-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -350,9 +350,121 @@ document.addEventListener('DOMContentLoaded', () => {
         const isoHazardGradeMap = { "95233": "5 - High" };
         const guidelineConflictsMap = { "95233": "Regardless of risk size, a $5M Minimum Attachment Point is required when there is exposure in the following classes: Concrete, and Waste Haulers - Level 4 Empowerment required for lower attachment" };
 
-        const stateReposeMap = { "AL": "10", "AK": "10", "AZ": "8", "AR": "5", "CA": "10", "CO": "6", "CT": "7", "DE": "6", "FL": "10", "GA": "8", "HI": "6", "ID": "6", "IL": "10", "IN": "10", "IA": "15", "KS": "10", "KY": "10", "LA": "10", "ME": "10", "MD": "20", "MA": "6", "MI": "6", "MN": "10", "MS": "6", "MO": "10", "MT": "10", "NE": "10", "NV": "10", "NH": "8", "NJ": "10", "NM": "10", "NY": "10", "NC": "6", "ND": "10", "OH": "10", "OK": "10", "OR": "10", "PA": "12", "RI": "10", "SC": "8", "SD": "10", "TN": "10", "TX": "10", "UT": "10", "VT": "6", "VA": "10", "WA": "6", "WV": "10", "WI": "10", "WY": "10" };
-        const dramScoreMap = { "AL": "Low", "AK": "Low", "AZ": "Medium", "AR": "Low", "CA": "High", "CO": "Medium", "CT": "Medium", "DE": "Low", "FL": "Medium", "GA": "Low", "HI": "Low", "ID": "Low", "IL": "High", "IN": "Low", "IA": "Low", "KS": "Low", "KY": "Low", "LA": "High", "ME": "Low", "MD": "Low", "MA": "Medium", "MI": "Medium", "MN": "Low", "MS": "Low", "MO": "Low", "MT": "Low", "NE": "Low", "NV": "High", "NH": "Medium", "NJ": "High", "NM": "Low", "NY": "High", "NC": "Low", "ND": "Low", "OH": "Medium", "OK": "Low", "OR": "Medium", "PA": "Medium", "RI": "High", "SC": "Low", "SD": "Low", "TN": "Low", "TX": "High", "UT": "Low", "VT": "Low", "VA": "Low", "WA": "Medium", "WV": "Low", "WI": "Medium", "WY": "Low" };
-        const states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"];
+        // v8.7.03 — state guidepost reference table.  These fields are
+        // underwriting guideposts, not LLM outputs.  They must update from the
+        // controlling state when available; if no controlling state is present,
+        // fall back to mailing state, then Home State.
+        const STATE_GUIDEPOSTS_8703 = Object.freeze({
+            "AK": { repose: "10", liquorGrade: "8", punitive: "Insurable for both Direct and Vicarious" },
+            "AL": { repose: "13", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "AR": { repose: "5 PD/4 PI", liquorGrade: "3", punitive: "Insurable for both Direct and Vicarious" },
+            "AZ": { repose: "8", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "CA": { repose: "10", liquorGrade: "3", punitive: "Insurable Only on Vicarious Basis" },
+            "CO": { repose: "6", liquorGrade: "3", punitive: "May be Insurable on Vicarious Basis" },
+            "CT": { repose: "7", liquorGrade: "5", punitive: "Insurable Only on Vicarious Basis" },
+            "DC": { repose: "10", liquorGrade: "5", punitive: "Insurability is Unknown" },
+            "DE": { repose: "6", liquorGrade: "0", punitive: "Insurable for both Direct and Vicarious" },
+            "FL": { repose: "7", liquorGrade: "3", punitive: "Insurable Only on Vicarious Basis" },
+            "GA": { repose: "8", liquorGrade: "4", punitive: "Insurable for both Direct and Vicarious" },
+            "HI": { repose: "10", liquorGrade: "7", punitive: "Insurable for both Direct and Vicarious" },
+            "IA": { repose: "15", liquorGrade: "4", punitive: "Insurable for both Direct and Vicarious" },
+            "ID": { repose: "6", liquorGrade: "4", punitive: "Insurable for both Direct and Vicarious" },
+            "IL": { repose: "10", liquorGrade: "3", punitive: "Insurable Only on Vicarious Basis" },
+            "IN": { repose: "6", liquorGrade: "5", punitive: "Insurable Only on Vicarious Basis" },
+            "KS": { repose: "10", liquorGrade: "0", punitive: "Insurable Only on Vicarious Basis" },
+            "KY": { repose: "10", liquorGrade: "3", punitive: "Insurable for both Direct and Vicarious" },
+            "LA": { repose: "5", liquorGrade: "3", punitive: "Insurable for both Direct and Vicarious" },
+            "MA": { repose: "6", liquorGrade: "6", punitive: "May be Insurable on Vicarious Basis" },
+            "MD": { repose: "10", liquorGrade: "0", punitive: "Insurable for both Direct and Vicarious" },
+            "ME": { repose: "10", liquorGrade: "4", punitive: "May be Insurable on Vicarious Basis" },
+            "MI": { repose: "10", liquorGrade: "5", punitive: "Not Awarded in State" },
+            "MN": { repose: "10", liquorGrade: "4", punitive: "Insurable Only on Vicarious Basis" },
+            "MO": { repose: "10", liquorGrade: "4", punitive: "Insurable Only on Vicarious Basis" },
+            "MS": { repose: "10", liquorGrade: "4", punitive: "Insurable for both Direct and Vicarious" },
+            "MT": { repose: "6", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "NC": { repose: "10", liquorGrade: "6", punitive: "Insurable for both Direct and Vicarious" },
+            "ND": { repose: "6", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "NE": { repose: "10", liquorGrade: "3", punitive: "Not Awarded in State" },
+            "NH": { repose: "10", liquorGrade: "7", punitive: "Insurable for both Direct and Vicarious" },
+            "NJ": { repose: "8", liquorGrade: "4", punitive: "Insurable Only on Vicarious Basis" },
+            "NM": { repose: "10", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "NV": { repose: "10", liquorGrade: "0", punitive: "Insurable for both Direct and Vicarious" },
+            "NY": { repose: "10", liquorGrade: "6", punitive: "Not Insurable" },
+            "OH": { repose: "6", liquorGrade: "4", punitive: "Insurable Only on Vicarious Basis" },
+            "OK": { repose: "10", liquorGrade: "5", punitive: "Insurable Only on Vicarious Basis" },
+            "OR": { repose: "10", liquorGrade: "4", punitive: "Insurable for both Direct and Vicarious" },
+            "PA": { repose: "10", liquorGrade: "7", punitive: "Insurable Only on Vicarious Basis" },
+            "PR": { repose: "12", liquorGrade: "6", punitive: "Not Awarded in State" },
+            "RI": { repose: "10", liquorGrade: "6", punitive: "May be Insurable on Vicarious Basis" },
+            "SC": { repose: "8", liquorGrade: "0", punitive: "Insurable for both Direct and Vicarious" },
+            "SD": { repose: "10", liquorGrade: "3", punitive: "Insurability is Unknown" },
+            "TN": { repose: "4", liquorGrade: "6", punitive: "Insurable for both Direct and Vicarious" },
+            "TX": { repose: "10", liquorGrade: "6", punitive: "Insurable on Vicarious Basis and Undecided on Direct Basis" },
+            "UT": { repose: "6 Con/12 Tort", liquorGrade: "0", punitive: "Not Insurable" },
+            "VA": { repose: "5", liquorGrade: "5", punitive: "Insurable Only on Direct Basis" },
+            "VT": { repose: "No Law", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "WA": { repose: "6", liquorGrade: "2", punitive: "Not Awarded in State" },
+            "WI": { repose: "10", liquorGrade: "7", punitive: "Insurable for both Direct and Vicarious" },
+            "WV": { repose: "10", liquorGrade: "5", punitive: "Insurable for both Direct and Vicarious" },
+            "WY": { repose: "", liquorGrade: "", punitive: "Insurable for both Direct and Vicarious" }
+        });
+        const stateReposeMap = Object.freeze(Object.fromEntries(Object.entries(STATE_GUIDEPOSTS_8703).map(([st, v]) => [st, v.repose])));
+        const dramScoreMap = Object.freeze(Object.fromEntries(Object.entries(STATE_GUIDEPOSTS_8703).map(([st, v]) => [st, v.liquorGrade])));
+        const punitiveDamagesMap = Object.freeze(Object.fromEntries(Object.entries(STATE_GUIDEPOSTS_8703).map(([st, v]) => [st, v.punitive])));
+        const states = ["AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI", "IA", "ID", "IL", "IN", "KS", "KY", "LA", "MA", "MD", "ME", "MI", "MN", "MO", "MS", "MT", "NC", "ND", "NE", "NH", "NJ", "NM", "NV", "NY", "OH", "OK", "OR", "PA", "PR", "RI", "SC", "SD", "TN", "TX", "UT", "VA", "VT", "WA", "WI", "WV", "WY"];
+
+        function normalizeState8703(v) {
+            const s = String(v || '').toUpperCase().replace(/[^A-Z]/g, '');
+            return s.length >= 2 ? s.slice(0, 2) : '';
+        }
+        function extractStateFromAddressText8703(text) {
+            const s = String(text || '').toUpperCase();
+            if (!s || s === '—' || s === '-') return '';
+            const m = s.match(/(?:,|\s)(AK|AL|AR|AZ|CA|CO|CT|DC|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY)(?:\s+\d{5}|\b)/);
+            return m ? m[1] : '';
+        }
+        function getControllingGuidepostState8703() {
+            const form = document.getElementById('insuredForm');
+            const riskState = normalizeState8703(form?.querySelector('[name="riskState"]')?.value);
+            if (riskState && STATE_GUIDEPOSTS_8703[riskState]) return { state: riskState, source: 'controlling_form' };
+            const controllingText = extractStateFromAddressText8703(document.getElementById('controllingTxt')?.textContent);
+            if (controllingText && STATE_GUIDEPOSTS_8703[controllingText]) return { state: controllingText, source: 'controlling_address' };
+            const mailState = normalizeState8703(form?.querySelector('[name="mailState"]')?.value);
+            if (mailState && STATE_GUIDEPOSTS_8703[mailState]) return { state: mailState, source: 'mailing_form' };
+            const mailingText = extractStateFromAddressText8703(document.getElementById('mailingTxt')?.textContent);
+            if (mailingText && STATE_GUIDEPOSTS_8703[mailingText]) return { state: mailingText, source: 'mailing_address' };
+            const homeState = normalizeState8703(document.getElementById('homeState')?.value);
+            if (homeState && STATE_GUIDEPOSTS_8703[homeState]) return { state: homeState, source: 'home_state' };
+            return { state: '', source: 'none' };
+        }
+        function applyStateGuideposts8703(reason) {
+            const pick = getControllingGuidepostState8703();
+            const gp = STATE_GUIDEPOSTS_8703[pick.state] || null;
+            const setGuide = (id, value) => {
+                const el = document.getElementById(id);
+                if (!el) return false;
+                const next = value == null ? '' : String(value);
+                if (el.value !== next) {
+                    el.value = next;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                if (next) el.classList.add('autofilled-from-platform');
+                el.dataset.guidepostState = pick.state || '';
+                el.dataset.guidepostSource = pick.source || '';
+                return true;
+            };
+            if (gp) {
+                setGuide('statRepose', gp.repose);
+                setGuide('dramScore', gp.liquorGrade);
+                setGuide('punitveDmg', gp.punitive);
+                console.log('[workbench] v8.7.03 state guideposts:', pick.state, pick.source, gp, reason || '');
+            } else {
+                ['statRepose', 'dramScore', 'punitveDmg'].forEach(id => setGuide(id, ''));
+                console.log('[workbench] v8.7.03 state guideposts: no state found', reason || '');
+            }
+            return pick;
+        }
 
         // BUG FIX (additional coverage duplicate date inputs): the prior call
         //   initFlatpickr(".date, .limit-date");
@@ -1453,6 +1565,118 @@ document.addEventListener('DOMContentLoaded', () => {
             return applied;
         }
 
+        // v8.7.02 — keep the Underwriting risk profile synchronized with the
+        // GL Exposure Rater. The GL rater may contain many classes; the
+        // risk-profile class should be the controlling/best-describing class,
+        // while the exposure amount should summarize the revenue class rows.
+        function normalizeGlCode8702(v) {
+            return String(v || '').replace(/[^0-9]/g, '').slice(0, 5);
+        }
+        function getGlClassRef8702(code) {
+            return window.WorkbenchRules && typeof window.WorkbenchRules.lookupGlClassCode === 'function'
+                ? window.WorkbenchRules.lookupGlClassCode(code)
+                : null;
+        }
+        function glClassDescription8702(code, fallback) {
+            const ref = getGlClassRef8702(code);
+            return (ref && ref.description) || fallback || '';
+        }
+        function glClassBasis8702(code, uiBase) {
+            const ref = getGlClassRef8702(code);
+            const rb = String((ref && ref.ratingBasis) || '').toLowerCase();
+            const base = String(uiBase || '').toLowerCase();
+            if (/payroll/.test(rb) || base === 'payroll') return 'Payroll';
+            if (/gross\s+sales|sales|revenue|receipt/.test(rb)) return 'Gross Sales/Revenues';
+            if (/area|square/.test(rb)) return 'Area';
+            if (/gallon/.test(rb)) return 'Gallons';
+            if (/acre/.test(rb)) return 'Acres';
+            if (/admission/.test(rb)) return 'Admissions';
+            if (/unit/.test(rb)) return 'Units';
+            if (/cost/.test(rb)) return 'Total Cost';
+            if (base === '1000') return 'Gross Sales/Revenues';
+            return 'Other';
+        }
+        function setField8702(id, value, opts = {}) {
+            const el = document.getElementById(id);
+            if (!el || value == null || value === '') return false;
+            const next = String(value);
+            if (el.value === next) return true;
+            el.value = next;
+            if (opts.autofill !== false) el.classList.add('autofilled-from-platform');
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        }
+        function setSelectByTextOrValue8702(id, value) {
+            const el = document.getElementById(id);
+            if (!el || value == null || value === '') return false;
+            const v = String(value);
+            let match = Array.from(el.options || []).find(o => o.value === v || o.textContent === v)
+                || Array.from(el.options || []).find(o => o.value.toLowerCase() === v.toLowerCase() || o.textContent.toLowerCase() === v.toLowerCase());
+            if (!match) return false;
+            el.value = match.value;
+            el.classList.add('autofilled-from-platform');
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        }
+        function directSubmissionWebsite8702(submission) {
+            const candidates = [
+                submission && submission.website,
+                submission && submission.website_url,
+                submission && submission.websiteUrl,
+                submission && submission.insured_website,
+                submission && submission.account_website,
+                submission && submission.url,
+                submission && submission.snapshot && submission.snapshot.website,
+                submission && submission.snapshot && submission.snapshot.website_url
+            ];
+            for (const c of candidates) {
+                const s = String(c || '').trim();
+                if (/^(https?:\/\/|www\.)/i.test(s)) return s;
+            }
+            return '';
+        }
+        function readGlRaterRows8702() {
+            const tbl = document.getElementById('classTerritoryTable');
+            if (!tbl) return [];
+            return Array.from(tbl.querySelectorAll('tbody tr')).map((tr, i) => {
+                const code = normalizeGlCode8702(tr.querySelector('[data-f="code"]')?.value || '');
+                const desc = (tr.querySelector('[data-f="desc"]')?.value || '').trim();
+                const exposure = parseNumber(tr.querySelector('[data-f="exposures"]')?.value || '');
+                const base = tr.querySelector('[data-f="base"]')?.value || '';
+                const ref = code ? getGlClassRef8702(code) : null;
+                const basis = glClassBasis8702(code, base);
+                return { row:i + 1, code, desc, exposure, base, ref, basis };
+            }).filter(r => r.code && r.exposure > 0 && !/^91580$/.test(r.code));
+        }
+        function syncUnderwritingRiskProfileFromGlRater8702(reason) {
+            const rows = readGlRaterRows8702();
+            if (!rows.length) return false;
+            const revenueRows = rows.filter(r => /Gross Sales|Revenue|Receipts/i.test(r.basis));
+            const rowsForExposure = revenueRows.length ? revenueRows : rows;
+            const totalExposure = rowsForExposure.reduce((sum, r) => sum + (Number(r.exposure) || 0), 0);
+            const controlling = rows.slice().sort((a,b) => (b.exposure || 0) - (a.exposure || 0))[0];
+            if (!controlling) return false;
+            const desc = glClassDescription8702(controlling.code, controlling.desc);
+            setField8702('isoClass', controlling.code);
+            if (desc) setField8702('isoDesc', desc);
+            if (totalExposure > 0) setField8702('exposureAmt', '$ ' + Math.round(totalExposure).toLocaleString('en-US'));
+            setSelectByTextOrValue8702('exposureBasis', glClassBasis8702(controlling.code, controlling.base));
+            const hz = document.getElementById('hazardGrade');
+            if (hz && !hz.value && typeof isoHazardGradeMap !== 'undefined') {
+                const h = isoHazardGradeMap[controlling.code] || '';
+                if (h) setField8702('hazardGrade', h);
+            }
+            console.log('[workbench] v8.7.03 underwriting risk profile sync:', reason || 'manual', {
+                controlling_class: controlling.code,
+                controlling_description: desc,
+                exposure_sum: totalExposure,
+                row_count: rows.length,
+                exposure_rows_count: rowsForExposure.length
+            });
+            return true;
+        }
+
         function applyUnderwritingFromActiveSubmission(submission) {
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
@@ -1464,11 +1688,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 { field: 'exposure_amount',          sel: '#exposureAmt',          kind: 'value'  },
                 { field: 'exposure_basis',           sel: '#exposureBasis',        kind: 'select' },
                 { field: 'website',                  sel: '#website',              kind: 'value'  },
-                { field: 'exposure_to_loss',         sel: '#expLoss',              kind: 'value'  },
-                { field: 'account_strengths',        sel: '#acctStrengths',        kind: 'value'  },
-                { field: 'guideline_conflicts_text', sel: '#guidelineConflicts',   kind: 'value'  },
                 { field: 'description_operations',   sel: '#descOps',              kind: 'value'  },
-                { field: 'underwriting_rationale',   sel: '#pricingRationale',     kind: 'value'  }
+                { field: 'guideline_conflicts_text', sel: '#guidelineConflicts',   kind: 'value'  },
+                { field: 'exposure_to_loss',         sel: '#expLoss',              kind: 'value'  },
+                { field: 'account_strengths',        sel: '#acctStrengths',        kind: 'value'  }
+                // pricingRationale is intentionally NOT auto-filled. It is the
+                // underwriter-owned pricing/rationale field.
             ];
             const filled = [], missed = [];
             for (const t of targets) {
@@ -1479,12 +1704,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ok = setInputValue(t.sel, v, t.kind);
                 if (ok) filled.push({ field: t.field, source: r.source, value: String(r.value).slice(0, 60), confidence: Number(r.confidence || 0).toFixed(3) });
             }
-            // Trigger dependent static maps after ISO/state fills.
+            // Direct website fallback for a URL entered on the platform / pipeline page.
+            const websiteDirect = directSubmissionWebsite8702(submission);
+            const websiteEl = document.getElementById('website');
+            if (websiteDirect && websiteEl && !websiteEl.value) setField8702('website', websiteDirect);
+
+            // Trigger dependent maps after ISO/state fills, then let the GL rater
+            // override the risk-profile class/exposure once its rows are applied.
             document.querySelector('#isoClass')?.dispatchEvent(new Event('input', { bubbles: true }));
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
+            applyStateGuideposts8703('underwriting-apply');
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.94 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            setTimeout(() => syncUnderwritingRiskProfileFromGlRater8702('post-underwriting-apply'), 550);
+            console.log('[workbench] v8.7.03 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
 
@@ -1684,7 +1917,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
             unlockGlRaterRows94(document);
-            console.log('[workbench] v8.6.94 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
+            syncUnderwritingRiskProfileFromGlRater8702('after-gl-rater-apply');
+            console.log('[workbench] v8.7.03 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -2732,22 +2966,29 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPolicyTermAnnualize();
 
         $("#isoClass").addEventListener('input', () => {
-            const code = $("#isoClass").value;
-            $("#isoDesc").value = isoDescMap[code] || "";
-            $("#hazardGrade").value = isoHazardGradeMap[code] || "";
-            $("#guidelineConflicts").value = guidelineConflictsMap[code] || "";
+            const raw = $("#isoClass").value;
+            const code = String(raw || '').replace(/[^0-9]/g, '').slice(0, 5);
+            if (code && raw !== code) $("#isoClass").value = code;
+            const ref = getGlClassRef8702(code);
+            const desc = (ref && ref.description) || isoDescMap[code] || "";
+            if (desc) $("#isoDesc").value = desc;
+            const hg = isoHazardGradeMap[code] || "";
+            if (hg) $("#hazardGrade").value = hg;
+            const conflict = guidelineConflictsMap[code] || "";
+            if (conflict) $("#guidelineConflicts").value = conflict;
         });
 
-        $("#homeState").addEventListener('change', () => {
-            const selectedState = $("#homeState").value;
-            $("#statRepose").value = stateReposeMap[selectedState] || "";
-            $("#dramScore").value = dramScoreMap[selectedState] || "";
-        });
+        const homeStateForGuideposts = $("#homeState");
+        if (homeStateForGuideposts) {
+            homeStateForGuideposts.addEventListener('change', () => applyStateGuideposts8703('homeState-change'));
+        }
 
         const homeStateSelect = $("#homeState");
         if (homeStateSelect && !homeStateSelect.options.length) {
             homeStateSelect.innerHTML = `<option value="" disabled selected>— Select —</option>` + states.map(st => `<option>${st}</option>`).join("");
         }
+
+        setTimeout(() => applyStateGuideposts8703('initial'), 250);
 
         $("#pageContent").addEventListener("input", e => {
             if (e.target.classList.contains("currency-input")) {
@@ -2792,7 +3033,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const f = new FormData($("#insuredForm")), v = n => f.get(n) || "";
             $("#mailingTxt").textContent = `${v("mailStreet")} ${v("mailSuite")}`.trim() + `, ${v("mailCity")}, ${v("mailState")} ${v("mailZip")}`;
             $("#controllingTxt").textContent = `${v("riskStreet")} ${v("riskSuite")}`.trim() + `, ${v("riskCity")}, ${v("riskState")} ${v("riskZip")}`;
+            applyStateGuideposts8703('insured-dialog-save');
         };
+        const insuredFormForGuideposts = $("#insuredForm");
+        if (insuredFormForGuideposts) {
+            insuredFormForGuideposts.addEventListener('input', e => {
+                if (e.target && /^(mailState|riskState|mailZip|riskZip)$/.test(e.target.name || '')) {
+                    setTimeout(() => applyStateGuideposts8703('insured-form-input'), 0);
+                }
+            });
+            insuredFormForGuideposts.addEventListener('change', e => {
+                if (e.target && /^(mailState|riskState|mailZip|riskZip)$/.test(e.target.name || '')) {
+                    setTimeout(() => applyStateGuideposts8703('insured-form-change'), 0);
+                }
+            });
+        }
+        ['mailingTxt', 'controllingTxt'].forEach(id => {
+            const node = document.getElementById(id);
+            if (node && window.MutationObserver) {
+                new MutationObserver(() => applyStateGuideposts8703(id + '-mutated'))
+                    .observe(node, { childList: true, characterData: true, subtree: true });
+            }
+        });
         $("#brokerSaveBtn").onclick = () => {
             const f = new FormData($("#brokerForm")), v = n => f.get(n) || "";
             $("#brokerCoTxt").textContent = v("brokerCo");
@@ -3954,6 +4216,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (totPremOpsEl) totPremOpsEl.innerHTML = `<strong>${fmt.money(totP)}</strong>`;
                 if (totProductsEl) totProductsEl.innerHTML = `<strong>${fmt.money(totG)}</strong>`;
                 if (totalDisplayEl) totalDisplayEl.textContent = fmt.money(totP + totG);
+                syncUnderwritingRiskProfileFromGlRater8702('gl-rater-edit');
             }
 
             // Build 5 default empty rows

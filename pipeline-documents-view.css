@@ -935,6 +935,12 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 #docs-view-root .docs-list {
   overflow-y: auto;
   padding: 8px;
+  /* v8.7.01: JS owns page-card navigation. Disable browser anchoring and
+     smooth-scroll behavior inside the viewer so tagged-page clicks land with
+     the selected card aligned to the top instead of settling between pages. */
+  overflow-anchor: none;
+  scroll-padding-top: 0;
+  scroll-behavior: auto;
 }
 
 #docs-view-root .docs-empty {
@@ -988,6 +994,8 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   overflow: hidden;
   cursor: pointer;
   transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+  scroll-margin-top: 0;
+  overflow-anchor: none;
 }
 
 #docs-view-root .doc-item:hover {

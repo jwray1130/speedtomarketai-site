@@ -1362,7 +1362,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <option>Wrap</option>
                                     </select></label>
                                 <label>Project Address<input id="projAddress" type="text" placeholder="Enter project address"></label>
-                                <label>Statute of Repose (yrs)<input id="statRepose" type="number" min="0" step="1" placeholder="Years"></label>
+                                <label>Statute of Repose<input id="statRepose" type="text" readonly placeholder="Auto-fills on state"></label>
                             </div>
                             <div class="grid grid-3">
                                 <label>ISO Class Code<input type="text" id="isoClass" placeholder="Enter code"></label>
@@ -1376,12 +1376,12 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 <label>Exposure Basis<select id="exposureBasis">
                                         <option>Acres</option><option>Admissions</option><option>Area</option><option>Flat</option><option>Gallons</option><option>Gross Sales/Revenues</option><option>Payroll</option><option>Students</option><option>Total Cost</option><option>Total Operating Expenses</option><option>Units</option><option>Other</option>
                                     </select></label>
-                                <label>Dram Score<input id="dramScore" type="text" readonly placeholder="Auto‑fills on state"></label>
+                                <label>Liquor / DRAM Grade<input id="dramScore" type="text" readonly placeholder="Auto-fills on state"></label>
                             </div>
                             <div class="grid grid-4">
                                 <label>Residential Construction %<input id="resConstPct" type="number" min="0" max="100" step="0.01" placeholder="0‑100"></label>
                                 <label>Commercial Construction %<input id="comConstPct" type="number" min="0" max="100" step="0.01" placeholder="0‑100"></label>
-                                <label>Punitive Damages<input id="punitveDmg" type="text" placeholder="Allowed / Capped / Prohibited"></label>
+                                <label>Punitive Damages<input id="punitveDmg" type="text" readonly placeholder="Auto-fills on state"></label>
                                 <label>Website<input id="website" type="url" placeholder="https://"></label>
                             </div>
                         </section>
@@ -1389,14 +1389,14 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                             <header class="card-head">
                                 <div>
                                     <h2>Underwriting narrative</h2>
-                                    <p class="card-subtitle">Narrative fields are blended with the risk profile notes so the underwriting tab holds the full risk story.</p>
+                                    <p class="card-subtitle">Pipeline narratives are shown in underwriting order. The final narrative box is intentionally left for the underwriter's pricing rationale.</p>
                                 </div>
                             </header>
-                            <label>Exposure to Loss<textarea id="expLoss" rows="4" placeholder="Describe exposure to loss…"></textarea></label>
-                            <label>Strengths of the Account<textarea id="acctStrengths" rows="4" placeholder="Describe strengths of the account…"></textarea></label>
-                            <label>Guideline Conflicts<textarea id="guidelineConflicts" rows="4" placeholder="Guideline conflicts based on class…"></textarea></label>
-                            <label>Description of Operations<textarea id="descOps" rows="4" placeholder="Describe operations…"></textarea></label>
-                            <label>Underwriting Rationale<textarea id="pricingRationale" rows="4" placeholder="Describe underwriting rationale, account fit, and deal notes…"></textarea></label>
+                            <label>Summary of Operations<textarea id="descOps" rows="5" placeholder="Pipeline Summary of Operations…"></textarea></label>
+                            <label>Guideline Conflicts<textarea id="guidelineConflicts" rows="4" placeholder="Pipeline Guideline Conflicts…"></textarea></label>
+                            <label>Exposure to Loss<textarea id="expLoss" rows="4" placeholder="Pipeline Exposure to Loss…"></textarea></label>
+                            <label>Strengths of the Account<textarea id="acctStrengths" rows="4" placeholder="Pipeline Strengths of the Account…"></textarea></label>
+                            <label>Underwriting Narrative / Pricing Rationale<textarea id="pricingRationale" rows="5" placeholder="Underwriter-entered pricing rationale and final narrative. Intentionally not auto-filled."></textarea></label>
                         </section>
                     </section>
                 </div>
