@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.03-state-guideposts-final-2026-05-17';
+window.STM_BUILD = 'v8.7.06-universal-system-switcher-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -86,6 +86,7 @@ async function checkAuth() {
     role: 'user'
   };
   if (overlay) overlay.style.display = 'none';
+  try { normalizePlatformShell8705('auth'); } catch(e) {}
   // Update the top-bar avatar name from the signed-in profile
   const avatarNameEl = document.querySelector('.avatar-name');
   if (avatarNameEl && window.currentUser.display_name) {
@@ -6692,6 +6693,161 @@ function renderSubmissionSidebar() {
 // ============================================================================
 // UI PLUMBING
 // ============================================================================
+
+// v8.7.05 — Platform shell stability guard.
+// Returning from the native File Manager can leave the root document scrolled
+// and/or the docs overlay in an intermediate loading state. Normalize the
+// Platform shell whenever we show Queue/Submission/Admin so the topbar and
+// submission header cannot disappear behind a stale overlay or blank spacer.
+function resetPlatformRootScroll8705() {
+  try {
+    const se = document.scrollingElement || document.documentElement;
+    if (se) se.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  } catch (e) {}
+}
+function clearDocsOverlayChrome8705() {
+  try {
+    if (document.body && !document.body.classList.contains('docs-fullwidth')) {
+      const root = document.getElementById('docs-view-root');
+      if (root) {
+        root.querySelectorAll('.loading-overlay.visible, .drop-overlay.visible, .preview-modal.visible, .modal-backdrop.visible')
+          .forEach(el => el.classList.remove('visible'));
+      }
+    }
+  } catch (e) {}
+}
+function normalizePlatformShell8705(reason) {
+  try {
+    const docsTab = document.getElementById('stageTabDocs');
+    const docsActive = !!(docsTab && docsTab.classList.contains('active'));
+    if (!docsActive && document.body) document.body.classList.remove('docs-fullwidth');
+    if (!docsActive) {
+      clearDocsOverlayChrome8705();
+      resetPlatformRootScroll8705();
+    }
+  } catch (e) {}
+}
+
+
+
+// v8.7.06 — Universal System Switcher
+// One dropdown in a consistent topbar location can move between Queue,
+// Submission Pipeline, File Manager, Workbench, and Admin. The function is
+// intentionally shell-only: it does not run pipeline, upload, save, clear tags,
+// or mutate submission data.
+function getActiveSubmissionId8706() {
+  try {
+    if (typeof STATE !== 'undefined' && STATE && STATE.activeSubmissionId) return STATE.activeSubmissionId;
+  } catch (e) {}
+  try {
+    const chip = document.getElementById('submissionChip');
+    if (chip && chip.dataset && chip.dataset.submissionId) return chip.dataset.submissionId;
+  } catch (e) {}
+  try {
+    const params = new URLSearchParams(location.search);
+    return params.get('submission') || params.get('submissionId') || '';
+  } catch (e) { return ''; }
+}
+function openWorkbenchForActiveSubmission8706() {
+  const sid = getActiveSubmissionId8706();
+  window.location.href = sid ? '/workbench?submission=' + encodeURIComponent(sid) : '/workbench';
+}
+function navigateSystem8706(target) {
+  target = String(target || '').toLowerCase();
+  try { closeUniversalSystemNav8706(); } catch (e) {}
+  if (target === 'queue') {
+    if (typeof switchView === 'function') switchView('queue');
+    history.replaceState(null, '', '/platform#queue');
+    return;
+  }
+  if (target === 'submission' || target === 'pipeline') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('pipe');
+    history.replaceState(null, '', '/platform#submission');
+    return;
+  }
+  if (target === 'documents' || target === 'filemanager' || target === 'files') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('docs');
+    history.replaceState(null, '', '/platform#documents');
+    return;
+  }
+  if (target === 'admin') {
+    if (typeof switchView === 'function') switchView('admin');
+    history.replaceState(null, '', '/platform#admin');
+    return;
+  }
+  if (target === 'workbench') {
+    openWorkbenchForActiveSubmission8706();
+  }
+}
+function closeUniversalSystemNav8706() {
+  document.querySelectorAll('[data-system-nav].open').forEach(nav => {
+    nav.classList.remove('open');
+    const btn = nav.querySelector('[data-system-nav-toggle]');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+function updateUniversalSystemNavActive8706() {
+  let active = 'queue';
+  try {
+    if (document.body.classList.contains('docs-fullwidth')) active = 'documents';
+    else if (document.getElementById('view-admin')?.classList.contains('active')) active = 'admin';
+    else if (document.getElementById('view-submission')?.classList.contains('active')) active = 'submission';
+    else active = 'queue';
+  } catch (e) {}
+  document.querySelectorAll('[data-system-target]').forEach(btn => {
+    btn.classList.toggle('active', String(btn.dataset.systemTarget || '').toLowerCase() === active);
+  });
+}
+function wireUniversalSystemNav8706() {
+  document.querySelectorAll('[data-system-nav]').forEach(nav => {
+    if (nav.__stmSystemNavBound) return;
+    nav.__stmSystemNavBound = true;
+    const toggle = nav.querySelector('[data-system-nav-toggle]');
+    if (toggle) {
+      toggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const willOpen = !nav.classList.contains('open');
+        closeUniversalSystemNav8706();
+        nav.classList.toggle('open', willOpen);
+        toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        updateUniversalSystemNavActive8706();
+      });
+    }
+    nav.querySelectorAll('[data-system-target]').forEach(item => {
+      item.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        navigateSystem8706(item.dataset.systemTarget);
+      });
+    });
+  });
+}
+function applyPlatformHashRoute8706() {
+  const h = String(location.hash || '').replace(/^#/, '').toLowerCase();
+  if (!h) return;
+  if (['queue','submission','documents','filemanager','admin'].includes(h)) {
+    navigateSystem8706(h === 'filemanager' ? 'documents' : h);
+  }
+}
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('[data-system-nav]')) closeUniversalSystemNav8706();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeUniversalSystemNav8706();
+});
+document.addEventListener('DOMContentLoaded', () => {
+  wireUniversalSystemNav8706();
+  setTimeout(applyPlatformHashRoute8706, 0);
+});
+window.addEventListener('hashchange', applyPlatformHashRoute8706);
+window.navigateSystem8706 = navigateSystem8706;
+window.wireUniversalSystemNav8706 = wireUniversalSystemNav8706;
+
 function switchView(name) {
   // PHASE 2 FIX (per GPT external audit round 3): remove the docs-fullwidth
   // body class whenever we leave the Submission view. Without this, a user
@@ -6709,7 +6865,9 @@ function switchView(name) {
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
-  window.scrollTo(0, 0);
+  normalizePlatformShell8705('switchView:' + name);
+  resetPlatformRootScroll8705();
+  if (typeof updateUniversalSystemNavActive8706 === 'function') updateUniversalSystemNavActive8706();
   // Phase 6: refresh admin views when Admin tab opens. Each renderer gates on
   // currentUser.role internally, so non-admins are skipped silently.
   if (name === 'admin') {
@@ -6921,15 +7079,22 @@ function showStage(stage) {
     document.getElementById('pipelineStage').style.display = 'block';
     document.getElementById('stageTabPipe').classList.add('active');
     document.body.classList.remove('docs-fullwidth');
+    clearDocsOverlayChrome8705();
+    resetPlatformRootScroll8705();
   } else if (stage === 'sum') {
     document.getElementById('summaryStage').classList.add('active');
     document.getElementById('stageTabSum').classList.add('active');
     document.body.classList.remove('docs-fullwidth');
+    clearDocsOverlayChrome8705();
+    resetPlatformRootScroll8705();
     // Refresh the review banner whenever the summary view becomes visible
     if (typeof renderClassifierReview === 'function') renderClassifierReview();
   } else if (stage === 'docs') {
     document.getElementById('stageTabDocs').classList.add('active');
     document.body.classList.add('docs-fullwidth');
+    // v8.7.05: while File Manager is active, prevent stale root scroll from
+    // showing a partial Platform shell behind the fixed docs overlay.
+    try { resetPlatformRootScroll8705(); } catch(e) {}
     // Phase 4: scope the docs view to the active submission so the user
     // sees only that submission's docs, and any new uploads get linked.
     // If there's no active submission (cross-account browsing), we pass
@@ -6967,6 +7132,7 @@ function showStage(stage) {
   if (typeof updateActiveSubmissionDocsCount === 'function') {
     updateActiveSubmissionDocsCount();
   }
+  if (typeof updateUniversalSystemNavActive8706 === 'function') updateUniversalSystemNavActive8706();
 }
 
 // v8.6.3 (per GPT external audit): toast now supports three signatures
@@ -7177,3 +7343,14 @@ window.switchView = switchView;
 window.logAudit = logAudit;
 window.renderAuditIfOpen = renderAuditIfOpen;
 window.toggleAuditLog = toggleAuditLog;
+
+
+// v8.7.05 — Late shell self-healing. If browser/route restoration leaves the
+// Platform scrolled under its chrome, normalize once after first paint and when
+// the tab becomes visible again. This is read-only UI hygiene.
+try {
+  window.addEventListener('load', () => setTimeout(() => normalizePlatformShell8705('load'), 0));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) setTimeout(() => normalizePlatformShell8705('visibility'), 0);
+  });
+} catch (e) {}

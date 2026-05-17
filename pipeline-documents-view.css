@@ -3241,26 +3241,29 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 }
 
 
-/* v8.6.28 — SAFE File Manager media fill.
-   Restores full-card thumbnail fill using CSS only. Does NOT auto-render
-   high-quality PDF grid thumbnails, so it preserves the instant-upload build
-   and avoids Chrome renderer crashes from background canvas/data-URL churn. */
+/* v8.7.04 — File Manager page-fit final.
+   The earlier media-fill rule used object-fit: cover, which made wide or
+   irregular PDF pages look snappy but cropped the sides/bottom inside the
+   page card. Keep the fast thumbnail path, but render the entire page inside
+   the card. This is CSS-only and does not touch tagging, classification,
+   extraction, or Workbench logic. */
 #docs-view-root .doc-thumb.doc-thumb-media {
-  padding: 0;
+  padding: 8px;
   overflow: hidden;
-  background: #fff;
+  background: #05070B;
 }
 
 #docs-view-root .doc-thumb.doc-thumb-media img {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  object-fit: cover;
-  box-shadow: none;
-  border-radius: 0;
+  inset: 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  object-fit: contain;
+  object-position: center center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  border-radius: 2px;
   background: #fff;
   image-rendering: auto;
 }
@@ -3289,3 +3292,56 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   background: rgba(var(--tag-yellow-rgb, 234, 179, 8), 0.16);
   border-color: var(--tag-yellow, #EAB308);
 }
+
+
+/* ==========================================================================
+   v8.7.05 — Platform shell stability guard
+   Keep the native Document Workspace overlay completely inert unless the
+   Documents stage is active. This prevents a stale docs overlay/loading layer
+   from covering the Platform topbar or leaving a blank black spacer after the
+   user returns from File Manager to the pipeline/submission view.
+   ========================================================================== */
+body:not(.docs-fullwidth) #docs-view-root {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+body.docs-fullwidth #docs-view-root {
+  display: grid !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+body:not(.docs-fullwidth) #docs-view-root .loading-overlay,
+body:not(.docs-fullwidth) #docs-view-root .drop-overlay,
+body:not(.docs-fullwidth) #docs-view-root .preview-modal,
+body:not(.docs-fullwidth) #docs-view-root .modal-backdrop {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+
+/* v8.7.06 — Universal System Switcher in Document Workspace topbar */
+#docs-view-root .stm-system-nav { position: relative; display: inline-flex; align-items: center; z-index: 120; }
+#docs-view-root .stm-system-nav-btn {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px;
+  border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--signal);
+  background: rgba(158,196,255,0.10); border: 1px solid rgba(158,196,255,0.30);
+  cursor: pointer; white-space: nowrap;
+}
+#docs-view-root .stm-system-nav.open .stm-system-nav-btn,
+#docs-view-root .stm-system-nav-btn:hover { background: rgba(158,196,255,0.18); border-color: rgba(158,196,255,0.55); }
+#docs-view-root .stm-system-nav-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; min-width: 226px; padding: 7px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border); box-shadow: var(--shadow-lg); display: none; z-index: 9999;
+}
+#docs-view-root .stm-system-nav.open .stm-system-nav-menu { display: block; }
+#docs-view-root .stm-system-nav-menu button {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 8px;
+  color: var(--text); background: transparent; font-family: var(--font-mono); font-size: 11px; font-weight: 650;
+  letter-spacing: 0.04em; text-align: left; cursor: pointer;
+}
+#docs-view-root .stm-system-nav-menu button:hover,
+#docs-view-root .stm-system-nav-menu button.active { color: var(--signal); background: rgba(158,196,255,0.12); }
+@media (max-width: 1180px) { #docs-view-root .stm-system-nav-label { display:none; } }

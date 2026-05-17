@@ -5,11 +5,78 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.03-state-guideposts-final-2026-05-17';
+window.STM_BUILD = 'v8.7.06-universal-system-switcher-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Start Helper Functions & Setup ---
+
+    // v8.7.06 — Universal System Switcher for Workbench.
+    // Mirrors the Platform dropdown. It only navigates between shell systems;
+    // it does not save, quote, bind, run pipeline, or mutate account data.
+    function getWorkbenchSubmissionId8706() {
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const direct = params.get('submission') || params.get('submissionId');
+            if (direct) return direct;
+        } catch (e) {}
+        try {
+            return window.workbenchActiveSubmission?.id || '';
+        } catch (e) { return ''; }
+    }
+    function closeUniversalSystemNav8706() {
+        document.querySelectorAll('[data-system-nav].open').forEach(nav => {
+            nav.classList.remove('open');
+            const btn = nav.querySelector('[data-system-nav-toggle]');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        });
+    }
+    function navigateSystem8706(target) {
+        target = String(target || '').toLowerCase();
+        closeUniversalSystemNav8706();
+        const sid = getWorkbenchSubmissionId8706();
+        const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
+        if (target === 'workbench') return;
+        if (target === 'queue')      { window.location.href = '/platform#queue'; return; }
+        if (target === 'submission' || target === 'pipeline') { window.location.href = '/platform#submission'; return; }
+        if (target === 'documents' || target === 'filemanager' || target === 'files') { window.location.href = '/platform#documents'; return; }
+        if (target === 'admin')      { window.location.href = '/platform#admin'; return; }
+    }
+    function wireUniversalSystemNav8706() {
+        document.querySelectorAll('[data-system-nav]').forEach(nav => {
+            if (nav.__stmSystemNavBound) return;
+            nav.__stmSystemNavBound = true;
+            const toggle = nav.querySelector('[data-system-nav-toggle]');
+            if (toggle) {
+                toggle.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const willOpen = !nav.classList.contains('open');
+                    closeUniversalSystemNav8706();
+                    nav.classList.toggle('open', willOpen);
+                    toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    nav.querySelectorAll('[data-system-target]').forEach(btn => {
+                        btn.classList.toggle('active', String(btn.dataset.systemTarget || '').toLowerCase() === 'workbench');
+                    });
+                });
+            }
+            nav.querySelectorAll('[data-system-target]').forEach(item => {
+                item.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateSystem8706(item.dataset.systemTarget);
+                });
+            });
+        });
+    }
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('[data-system-nav]')) closeUniversalSystemNav8706();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeUniversalSystemNav8706();
+    });
+    wireUniversalSystemNav8706();
+
 
     const $ = q => document.querySelector(q);
     const $$ = q => document.querySelectorAll(q);

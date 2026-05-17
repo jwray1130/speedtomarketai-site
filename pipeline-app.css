@@ -3877,3 +3877,101 @@ table.loss {
 .toast-msg     { font-size: 12px; opacity: 0.9; }
 @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 
+
+
+/* ==========================================================================
+   v8.7.05 — Platform topbar persistence
+   The Platform shell should never disappear behind stale overlay/scroll state
+   when returning from the File Manager. Keep chrome in its own stacking layer.
+   ========================================================================== */
+.topbar {
+  isolation: isolate;
+  z-index: 8000;
+}
+body:not(.docs-fullwidth) .topbar {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+body:not(.docs-fullwidth) main {
+  position: relative;
+  z-index: 1;
+}
+
+
+/* v8.7.06 — Universal System Switcher
+   One cross-system control in the same topbar location on Platform,
+   Document Workspace, and Workbench. Scoped class names avoid touching
+   File Manager tags/classification or Workbench form controls. */
+.stm-system-nav {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  z-index: 120;
+}
+.stm-system-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--signal-ink);
+  background: var(--signal-pale);
+  border: 1px solid rgba(5, 112, 222, 0.30);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+}
+.stm-system-nav-btn:hover,
+.stm-system-nav.open .stm-system-nav-btn {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+  border-color: var(--signal);
+  background: var(--signal-pale);
+}
+.stm-system-nav-icon { font-size: 13px; line-height: 1; }
+.stm-system-nav-caret { font-size: 10px; opacity: 0.72; }
+.stm-system-nav-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 226px;
+  padding: 7px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg, 0 18px 60px rgba(0,0,0,0.35));
+  display: none;
+  z-index: 9999;
+}
+.stm-system-nav.open .stm-system-nav-menu { display: block; }
+.stm-system-nav-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+.stm-system-nav-menu button:hover,
+.stm-system-nav-menu button.active {
+  color: var(--signal-ink);
+  background: var(--signal-pale);
+}
+@media (max-width: 1120px) {
+  .stm-system-nav-label { display: none; }
+  .stm-system-nav-btn { padding: 6px 10px; }
+}

@@ -248,6 +248,21 @@
     </div>
   </div>
   <div class="topbar-right">
+    <!-- v8.7.06 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
+    <div class="stm-system-nav" data-system-nav>
+      <button type="button" class="stm-system-nav-btn" data-system-nav-toggle aria-haspopup="menu" aria-expanded="false" title="Switch Speed to Market AI system">
+        <span class="stm-system-nav-icon">↔</span>
+        <span class="stm-system-nav-label">Systems</span>
+        <span class="stm-system-nav-caret">▾</span>
+      </button>
+      <div class="stm-system-nav-menu" data-system-nav-menu role="menu">
+        <button type="button" role="menuitem" data-system-target="queue">Queue</button>
+        <button type="button" role="menuitem" data-system-target="submission">Submission Pipeline</button>
+        <button type="button" role="menuitem" data-system-target="documents">File Manager</button>
+        <button type="button" role="menuitem" data-system-target="workbench">Underwriting Workbench</button>
+        <button type="button" role="menuitem" data-system-target="admin">Admin</button>
+      </div>
+    </div>
     <!-- WORKBENCH LAUNCHER — jumps to the standalone /workbench surface so
          Justin can iterate on quote/bind/issue UI without going through the
          queue. Sits at the front of the right-side group so it reads as a
@@ -694,6 +709,21 @@
           </div>
 
           <div class="topbar-right">
+            <!-- v8.7.06 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
+            <div class="stm-system-nav" data-system-nav>
+              <button type="button" class="stm-system-nav-btn" data-system-nav-toggle aria-haspopup="menu" aria-expanded="false" title="Switch Speed to Market AI system">
+                <span class="stm-system-nav-icon">↔</span>
+                <span class="stm-system-nav-label">Systems</span>
+                <span class="stm-system-nav-caret">▾</span>
+              </button>
+              <div class="stm-system-nav-menu" data-system-nav-menu role="menu">
+                <button type="button" role="menuitem" data-system-target="queue">Queue</button>
+                <button type="button" role="menuitem" data-system-target="submission">Submission Pipeline</button>
+                <button type="button" role="menuitem" data-system-target="documents">File Manager</button>
+                <button type="button" role="menuitem" data-system-target="workbench">Underwriting Workbench</button>
+                <button type="button" role="menuitem" data-system-target="admin">Admin</button>
+              </div>
+            </div>
             <!-- Cloud sync status — visible only when writes are failing.
                  Tap for details. Defaults to hidden; documents-view.js
                  toggles visibility based on the cloudSync state machine. -->
