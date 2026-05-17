@@ -5395,3 +5395,91 @@ html[data-theme="dark"] .subjectivity-suggest-chip--strong {
   padding: 2px 6px;
   vertical-align: middle;
 }
+
+
+/* ============================================================
+   v8.6.88 — prepaid QA fixes
+   1) Prevent sticky header/nav/status overlap by making topbar a
+      two-row wrapped layout at all normal workbench widths.
+   2) Move the long layer-review pill onto its own readable full-width
+      line instead of forcing it into the action cluster.
+   3) Keep the live-submission banner and topbar stacked predictably.
+   ============================================================ */
+.demo-mode-banner {
+    position: sticky;
+    top: 0;
+    z-index: 120;
+}
+header.topbar {
+    top: 39px;
+    z-index: 110;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    row-gap: 8px !important;
+    column-gap: 12px !important;
+    padding-block: 9px !important;
+    overflow: visible !important;
+}
+header.topbar > .topbar-left,
+header.topbar > .topbar-right {
+    min-width: 0 !important;
+    overflow: visible !important;
+}
+header.topbar > .topbar-left {
+    order: 1 !important;
+    flex: 1 1 680px !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 10px 16px !important;
+}
+header.topbar > .topbar-right {
+    order: 2 !important;
+    flex: 1 1 520px !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px 10px !important;
+}
+header.topbar nav,
+header.topbar #mainNav {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    flex-wrap: wrap !important;
+}
+header.topbar .brand,
+header.topbar .brand-text {
+    min-width: 0 !important;
+    white-space: nowrap !important;
+}
+#stmLayerTypeConflictWarn {
+    order: 99 !important;
+    flex: 1 1 100% !important;
+    display: block !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin: 4px 0 0 !important;
+    padding: 6px 10px !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    line-height: 1.35 !important;
+    border-radius: 8px !important;
+}
+@media (max-width: 1320px) {
+    header.topbar > .topbar-left,
+    header.topbar > .topbar-right {
+        flex-basis: 100% !important;
+        justify-content: flex-start !important;
+    }
+}
+
+/* Make resolver-populated Lead Excess fields auditable in diagnostics. */
+.limit-entry[data-coverage-type="lead-excess"] [data-field].autofilled-from-platform {
+    outline: 1px solid rgba(201, 168, 76, 0.45);
+    box-shadow: 0 0 0 1px rgba(201, 168, 76, 0.18) inset;
+}

@@ -3677,7 +3677,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.6.87-final-prepaid-fix',
+    version: 'v8.6.88-visible-lead-excess-header-fix',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.87-final-prepaid-fix-2026-05-17';
+window.STM_BUILD = 'v8.6.88-visible-lead-excess-header-fix-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1471,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#homeState')?.dispatchEvent(new Event('change', { bubbles: true }));
             const hz = document.getElementById('hazardGradeSelect');
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[workbench] v8.6.87 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
+            console.log('[workbench] v8.6.88 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
         }
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
@@ -1509,7 +1509,7 @@ document.addEventListener('DOMContentLoaded', () => {
             put('base', vals.base && normalizeBasisForSelect(vals.base.value));
             // Force rater recalculation through existing listeners.
             row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
-            console.log('[workbench] v8.6.87 GL exposure rater apply:', filled, 'cells filled', vals);
+            console.log('[workbench] v8.6.88 GL exposure rater apply:', filled, 'cells filled', vals);
         }
 
 
@@ -1605,7 +1605,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const gl = fill('glLossRows', parsed.gl);
             const au = fill('autoLossRows', parsed.auto);
-            console.log('[workbench] v8.6.87 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
+            console.log('[workbench] v8.6.88 loss history apply:', gl, 'GL rows ·', au, 'Auto rows');
         }
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -1635,7 +1635,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = tr && tr.querySelector('[data-f="units"]');
                 if (set85(input, val)) filled++;
             }
-            console.log('[workbench] v8.6.87 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
+            console.log('[workbench] v8.6.88 AL fleet/code apply:', filled, 'vehicle count row(s) filled');
         }
 
         function applyInternalRaterFromActiveSubmission(submission) {
@@ -1685,14 +1685,99 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.87 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.6.88 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+        }
+
+
+        // v8.6.88 — visible Limits & Premiums Lead Excess card hydrator.
+        // v8.6.87 proved the data layer was healthy (Penn Millers, $2M xs $1M,
+        // $35,019 premium) but the user-facing Lead Excess card was still blank
+        // because the static template had no resolver-bound writer. This pass
+        // writes the underlying lead umbrella into the visible card without any
+        // API calls and without triggering the Carrier Layer handler that would
+        // overwrite the carrier with our own paper.
+        function applyLeadExcessCardFromResolver(submission) {
+            const rules = window.WorkbenchRules;
+            if (!rules || typeof rules.resolveField !== 'function') return;
+            const row = document.querySelector('.limit-entry[data-coverage-type="lead-excess"]');
+            const panel = document.getElementById('details-lead-excess');
+            if (!row || !panel) return;
+
+            const resolve = (field) => {
+                const out = rules.resolveField(field, submission);
+                return out && out.value != null && out.value !== '' ? out.value : null;
+            };
+            const valueMap = {
+                underlying_lead_carrier: resolve('underlying_lead_carrier') || resolve('gl_carrier') || resolve('al_carrier'),
+                gl_effective_date: resolve('gl_effective_date') || resolve('policy_effective'),
+                gl_expiration_date: resolve('gl_expiration_date') || resolve('policy_expiration'),
+                underlying_lead_limit: resolve('underlying_lead_limit'),
+                underlying_lead_aggregate: resolve('underlying_lead_limit'),
+                underlying_lead_premium: resolve('underlying_lead_premium')
+            };
+
+            const hasEvidence = Object.values(valueMap).some(v => v != null && v !== '');
+            if (!hasEvidence) return;
+
+            const setField = (field, value) => {
+                if (value == null || value === '') return false;
+                const el = row.querySelector('[data-field="' + field + '"]');
+                if (!el) return false;
+                try {
+                    if (el.classList.contains('limit-date') || el._flatpickr) {
+                        let v = value;
+                        if (rules && typeof rules.normalizeDateString === 'function') {
+                            v = rules.normalizeDateString(v);
+                        }
+                        if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
+                            el._flatpickr.setDate(v, true);
+                        } else {
+                            el.value = v;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    } else {
+                        el.value = String(value);
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    el.classList.add('autofilled-from-platform');
+                    return true;
+                } catch (e) {
+                    console.warn('[workbench] v8.6.88 Lead Excess card field skipped:', field, e && e.message);
+                    return false;
+                }
+            };
+
+            let filled = 0;
+            Object.entries(valueMap).forEach(([field, value]) => { if (setField(field, value)) filled++; });
+
+            const mainCb = row.querySelector('input[data-target="details-lead-excess"]');
+            if (mainCb && !mainCb.checked) {
+                mainCb.checked = true;
+                mainCb.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const carrierLayerCb = row.querySelector('input[data-policy-layer="lead-excess"]');
+            if (carrierLayerCb && !carrierLayerCb.checked) {
+                // Do not dispatch the existing change handler here: that handler
+                // treats checked carrier layers as our paper and would overwrite
+                // Penn Millers with Steadfast. This card represents the underlying
+                // carrier lead umbrella, so we mark the checkbox and reveal options.
+                carrierLayerCb.checked = true;
+            }
+            panel.classList.add('visible');
+            panel.style.display = '';
+            const header = row.querySelector('.limit-entry-header');
+            header?.querySelector('.collapse-arrow')?.classList.add('expanded');
+            row.dataset.hydratedFromResolver = 'v8.6.88';
+            console.log('[workbench] v8.6.88 Lead Excess card hydrate:', filled, 'fields', valueMap);
         }
 
         function applyV8685PopulationPass(submission) {
             if (!submission) return;
-            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 losses skipped:', e.message); }
-            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 fleet skipped:', e.message); }
-            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.87 rater skipped:', e.message); }
+            try { applyLossHistoryFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 losses skipped:', e.message); }
+            try { applyALFleetFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 fleet skipped:', e.message); }
+            try { applyInternalRaterFromActiveSubmission(submission); } catch (e) { console.warn('[workbench] v8.6.88 rater skipped:', e.message); }
+            try { applyLeadExcessCardFromResolver(submission); } catch (e) { console.warn('[workbench] v8.6.88 lead-excess card skipped:', e.message); }
         }
 
         function renderFieldCoverageReport(submission) {
@@ -1700,7 +1785,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rules || typeof rules.buildFieldCoverageReport !== 'function') return;
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
-            console.log('[workbench] v8.6.87 field coverage report:', report.summary);
+            console.log('[workbench] v8.6.88 field coverage report:', report.summary);
             try { console.table(report.rows); } catch (_) {}
             try { console.table(report.modules); } catch (_) {}
 

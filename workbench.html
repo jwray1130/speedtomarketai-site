@@ -668,11 +668,11 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                             <div class="limits-category" data-visibility="excess">
                                 <h3>Excess Coverages</h3>
                                 <div class="limits-list" id="excess-limits-list">
-                                    <div class="limit-entry default-entry" data-coverage-type="lead-excess">
+                                    <div class="limit-entry default-entry" data-coverage-type="lead-excess" data-tower-role="underlying_lead">
                                         <div class="limit-entry-header">
-                                            <label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess"><span>Lead Excess</span></label>
+                                            <label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess" data-field="lead_excess_enabled"><span>Lead Excess</span></label>
                                             <div class="limit-entry-actions">
-                                                <label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess"><span>Carrier Layer</span></label>
+                                                <label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess" data-field="lead_excess_selected"><span>Carrier Layer</span></label>
                                                 <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
@@ -687,19 +687,19 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         </div>
                                         <div id="details-lead-excess" class="limit-details-panel">
                                             <div class="grid grid-3">
-                                                <label>Carrier <input type="text" placeholder="Carrier Name"></label>
-                                                <label>Effective Date <input type="text" class="limit-date" placeholder="Select Date..."></label>
-                                                <label>Expiration Date <input type="text" class="limit-date" placeholder="Select Date..."></label>
+                                                <label>Carrier <input type="text" placeholder="Carrier Name" data-field="underlying_lead_carrier"></label>
+                                                <label>Effective Date <input type="text" class="limit-date" placeholder="Select Date..." data-field="gl_effective_date"></label>
+                                                <label>Expiration Date <input type="text" class="limit-date" placeholder="Select Date..." data-field="gl_expiration_date"></label>
                                             </div>
                                             <div class="grid grid-3">
                                                 <label>Limit
-                                                    <div class="currency-wrap"><input type="text" class="currency-input limit-value" placeholder="0"></div>
+                                                    <div class="currency-wrap"><input type="text" class="currency-input limit-value" placeholder="0" data-field="underlying_lead_limit"></div>
                                                 </label>
                                                 <label>Aggregate
-                                                    <div class="currency-wrap"><input type="text" class="currency-input aggregate-value" placeholder="0"></div>
+                                                    <div class="currency-wrap"><input type="text" class="currency-input aggregate-value" placeholder="0" data-field="underlying_lead_aggregate"></div>
                                                 </label>
                                                 <label>Premium
-                                                    <div class="currency-wrap"><input type="text" class="currency-input premium-value" placeholder="0"></div>
+                                                    <div class="currency-wrap"><input type="text" class="currency-input premium-value" placeholder="0" data-field="underlying_lead_premium"></div>
                                                 </label>
                                             </div>
                                             <div class="policy-options-panel">
@@ -1003,9 +1003,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <div class="grid grid-2"><label>Limit<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>Premium<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label></div>
                                     </div>
                                 </div>
-                                <div class="limit-entry" data-template-key="lead-excess">
-                                    <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess-clone"><span>Lead Excess</span></label>
-                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess-clone"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <div class="limit-entry" data-template-key="lead-excess" data-tower-role="excess_layer">
+                                    <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess-clone" data-field="lead_excess_enabled"><span>Lead Excess</span></label>
+                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess-clone" data-field="lead_excess_selected"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
                                             </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
