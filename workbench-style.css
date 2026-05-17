@@ -5530,3 +5530,24 @@ header.topbar .brand-text {
     box-shadow: none !important;
     color: var(--text) !important;
 }
+
+
+/* v8.6.95: final guard against duplicate date boxes in dynamically added
+   Primary, Foreign and Excess coverage cards.  Flatpickr's visible alt input
+   remains interactive; the canonical input remains in the DOM for value/state. */
+#risk-limits input.limit-date[data-stm-date-hidden-canonical="1"] {
+  display: none !important;
+  visibility: hidden !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+#risk-limits input.stm-date-alt-input,
+#risk-limits input[data-stm-visible-date="1"] {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}

@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.6.94-tower-date-ui-glrater-fix-2026-05-17';
+window.STM_BUILD = 'v8.6.95-date-card-final-2026-05-17';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -326,8 +326,21 @@ document.addEventListener('DOMContentLoaded', () => {
             // Stripping the trigger classes from the altInput at init time
             // is the single source-of-truth fix.
             if (fp && fp.altInput) {
+                // v8.6.95: make flatpickr alt inputs explicitly identifiable.
+                // Some flatpickr builds do not add a stable `flatpickr-alt-input`
+                // class, so the v8.6.94 sanitizer could miss the visible altInput
+                // and leave the canonical input visible too.  These markers let the
+                // universal coverage-card sanitizer keep exactly one visible input.
                 fp.altInput.classList.remove('limit-date');
                 fp.altInput.classList.remove('date');
+                fp.altInput.classList.add('flatpickr-alt-input', 'stm-date-alt-input');
+                fp.altInput.dataset.stmDateAlt = '1';
+                fp.altInput.dataset.stmVisibleDate = '1';
+                target.dataset.stmDateCanonical = '1';
+                target.dataset.stmDateHiddenCanonical = '1';
+                target.style.display = 'none';
+                target.setAttribute('aria-hidden', 'true');
+                target.tabIndex = -1;
             }
             return fp;
         };
@@ -3164,37 +3177,93 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // v8.6.94 — universal coverage-date de-duplication.
-        // Applies to every Primary, Foreign, Lead Excess and Additional Excess
-        // coverage entry, including user-added clones.  Flatpickr creates a
-        // hidden canonical input plus a visible alt input; stale clones could
-        // show both.  This keeps exactly one visible date box per label.
-        function sanitizeLimitDateFields94(root = document) {
+        // v8.6.95 — universal coverage-date de-duplication, including
+        // freshly added Primary, Foreign and Excess cards.  The prior v8.6.94
+        // pass depended on a flatpickr-alt-input class that was not guaranteed
+        // on every flatpickr altInput.  This pass uses the live _flatpickr.altInput
+        // reference first, explicit data markers second, and a date-label fallback
+        // third.  It always leaves exactly ONE visible date input under each
+        // Effective Date / Expiration Date label.
+        function sanitizeLimitDateFields95(root = document) {
             try {
-                (root || document).querySelectorAll('.limit-details-panel label').forEach(label => {
-                    const canonicalDates = Array.from(label.querySelectorAll('input.limit-date')).filter(inp => !inp.classList.contains('flatpickr-alt-input'));
-                    canonicalDates.forEach(canonical => {
-                        const instanceAlt = canonical._flatpickr && canonical._flatpickr.altInput;
-                        const siblingAlts = Array.from(label.querySelectorAll('input.flatpickr-alt-input'));
-                        const keepAlt = instanceAlt || siblingAlts[0] || null;
-                        siblingAlts.forEach(alt => { if (alt !== keepAlt) alt.remove(); });
-                        if (keepAlt) {
-                            canonical.style.display = 'none';
-                            canonical.setAttribute('aria-hidden', 'true');
-                            canonical.tabIndex = -1;
-                            keepAlt.classList.add('limit-date-visible');
-                            keepAlt.style.display = '';
-                            if (!keepAlt.placeholder && canonical.placeholder) keepAlt.placeholder = canonical.placeholder;
-                        } else {
-                            canonical.style.display = '';
-                            canonical.removeAttribute('aria-hidden');
-                            canonical.tabIndex = 0;
-                        }
-                    });
+                const scope = root || document;
+                const labels = Array.from(scope.querySelectorAll('.limit-details-panel label')).filter(label => {
+                    const t = (label.childNodes[0]?.textContent || label.textContent || '').replace(/\s+/g, ' ').trim();
+                    return /Effective Date|Expiration Date/i.test(t) || label.querySelector('input.limit-date');
+                });
+
+                labels.forEach(label => {
+                    const allInputs = Array.from(label.querySelectorAll('input'));
+                    if (!allInputs.length) return;
+
+                    const canonicalInputs = allInputs.filter(inp =>
+                        inp.classList.contains('limit-date') &&
+                        inp.dataset.stmDateAlt !== '1' &&
+                        !inp.classList.contains('stm-date-alt-input') &&
+                        !inp.classList.contains('flatpickr-alt-input')
+                    );
+                    const canonical = canonicalInputs[0] || allInputs.find(inp => inp._flatpickr) || null;
+
+                    let keep = null;
+                    if (canonical && canonical._flatpickr && canonical._flatpickr.altInput && canonical._flatpickr.altInput.isConnected) {
+                        keep = canonical._flatpickr.altInput;
+                    }
+                    if (!keep) {
+                        keep = allInputs.find(inp => inp.dataset.stmDateAlt === '1' || inp.classList.contains('stm-date-alt-input') || inp.classList.contains('flatpickr-alt-input')) || null;
+                    }
+                    if (!keep && canonical) {
+                        // Date labels should contain only the canonical and its visible
+                        // alt input.  If an unmarked sibling exists, prefer the last
+                        // non-canonical input as the visible control and mark it.
+                        const nonCanonical = allInputs.filter(inp => inp !== canonical);
+                        keep = nonCanonical[nonCanonical.length - 1] || null;
+                    }
+
+                    if (keep && canonical && keep !== canonical) {
+                        keep.classList.add('flatpickr-alt-input', 'stm-date-alt-input', 'limit-date-visible');
+                        keep.dataset.stmDateAlt = '1';
+                        keep.dataset.stmVisibleDate = '1';
+                        keep.style.display = '';
+                        keep.removeAttribute('aria-hidden');
+                        keep.tabIndex = 0;
+                        if (!keep.placeholder && canonical.placeholder) keep.placeholder = canonical.placeholder;
+
+                        canonical.dataset.stmDateCanonical = '1';
+                        canonical.dataset.stmDateHiddenCanonical = '1';
+                        canonical.style.display = 'none';
+                        canonical.setAttribute('aria-hidden', 'true');
+                        canonical.tabIndex = -1;
+
+                        allInputs.forEach(inp => {
+                            if (inp === keep || inp === canonical) return;
+                            // Remove extra orphan alt inputs; keep hidden canonical only.
+                            if (inp.dataset.stmDateAlt === '1' || inp.classList.contains('flatpickr-input') || inp.placeholder === canonical.placeholder) {
+                                inp.remove();
+                            } else {
+                                inp.style.display = 'none';
+                                inp.setAttribute('aria-hidden', 'true');
+                                inp.tabIndex = -1;
+                            }
+                        });
+                    } else {
+                        // No alt input exists.  Fall back to one visible canonical input.
+                        const first = canonical || allInputs[0];
+                        first.style.display = '';
+                        first.removeAttribute('aria-hidden');
+                        first.tabIndex = 0;
+                        allInputs.forEach(inp => {
+                            if (inp !== first) inp.remove();
+                        });
+                    }
                 });
             } catch (e) {
-                console.warn('[workbench] v8.6.94 date de-dupe skipped:', e && e.message);
+                console.warn('[workbench] v8.6.95 date de-dupe skipped:', e && e.message);
             }
+        }
+
+        // Backward-compatible alias for existing calls from the v8.6.94 patch.
+        function sanitizeLimitDateFields94(root = document) {
+            return sanitizeLimitDateFields95(root);
         }
 
         // v8.6.94 — GL rater rows must remain editable even after AI/autofill.
@@ -3342,7 +3411,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             initLimitDateInputs(newEntry);
-            sanitizeLimitDateFields94(newEntry);
+            sanitizeLimitDateFields95(newEntry);
+            // Flatpickr can attach its altInput on the same task but after DOM
+            // measurements in some browsers.  Re-run the sanitizer after paint so
+            // newly added Primary/Foreign/Excess cards cannot show two date boxes.
+            setTimeout(() => sanitizeLimitDateFields95(newEntry), 0);
+            setTimeout(() => sanitizeLimitDateFields95(newEntry), 75);
+            setTimeout(() => sanitizeLimitDateFields95(newEntry), 250);
             recordHistory('Coverage added', getCoverageName(newEntry));
             recalcMEP();
             // FIX-PHASE-8-EMPLOYERS-LIABILITY-2026-05-14: return the clone
@@ -3396,7 +3471,15 @@ document.addEventListener('DOMContentLoaded', () => {
             riskLimitsSection.dataset.limitsWired = '1';
 
             initLimitDateInputs(riskLimitsSection);
-            sanitizeLimitDateFields94(riskLimitsSection);
+            sanitizeLimitDateFields95(riskLimitsSection);
+            if (riskLimitsSection.dataset.dateObserver95 !== '1') {
+                riskLimitsSection.dataset.dateObserver95 = '1';
+                let dateSanitizeTimer95 = null;
+                new MutationObserver(() => {
+                    clearTimeout(dateSanitizeTimer95);
+                    dateSanitizeTimer95 = setTimeout(() => sanitizeLimitDateFields95(riskLimitsSection), 25);
+                }).observe(riskLimitsSection, { childList: true, subtree: true });
+            }
 
             riskLimitsSection.addEventListener('click', e => {
                 const collapseArrow = e.target.closest('.collapse-arrow');
@@ -3532,7 +3615,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupAddCoverageDropdowns();
         applyLayerTypeToLimits();
         setupLayerTypeLimitsReset();
-        sanitizeLimitDateFields94(document);
+        sanitizeLimitDateFields95(document);
 
         /* ============================================================
            PHASE 16 — GL EXPOSURE RATER (Class Territory Table)
