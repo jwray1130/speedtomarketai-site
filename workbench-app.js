@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.20-loss-year-map-final-2026-05-18';
+window.STM_BUILD = 'v8.7.21-loss-normperiod-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2371,19 +2371,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 const noLossChk = document.getElementById(noLossChkId);
                 if (noLossChk && hasNonZeroLoss8719(rows)) {
                     noLossChk.checked = false;
-                    noLossChk.dataset.uncheckedBy = 'v8.7.20-loss-year-map-final';
+                    noLossChk.dataset.uncheckedBy = 'v8.7.21-loss-normperiod-final';
                 }
+                // v8.7.21: define the period normalizer in this closure.
+                // v8.7.20 still referenced normPeriod from the parser helper scope,
+                // which caused ReferenceError on archived loss-row rebinding.
+                const periodKeyFromAny8721 = (v) => {
+                    const s0 = String(v || '').trim();
+                    if (!s0) return '';
+                    let m = s0.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*(?:[-–—]|to|through|thru)\s*(?:(\d{1,2})\/(\d{1,2})\/)?(\d{2,4})/i);
+                    if (m) {
+                        let y1 = parseInt(m[3], 10); if (y1 < 100) y1 += 2000;
+                        let y2 = parseInt(m[6], 10); if (y2 < 100) y2 += 2000;
+                        return String(y1).slice(2) + '-' + String(y2).slice(2);
+                    }
+                    m = s0.match(/(\d{2,4})\s*[-–—]\s*(\d{2,4})/);
+                    if (m) {
+                        let y1 = parseInt(m[1], 10); if (y1 < 100) y1 += 2000;
+                        let y2 = parseInt(m[2], 10); if (y2 < 100) y2 += 2000;
+                        // When a UI row says 2025, map to the 25-26 policy year.
+                        if (m[1].length === 4 && m[1] === m[2]) y2 = y1 + 1;
+                        return String(y1).slice(2) + '-' + String(y2).slice(2);
+                    }
+                    m = s0.match(/^(\d{4})$/);
+                    if (m) {
+                        const y1 = parseInt(m[1], 10);
+                        return String(y1).slice(2) + '-' + String(y1 + 1).slice(2);
+                    }
+                    m = s0.match(/^(\d{2})$/);
+                    if (m) {
+                        const y1 = 2000 + parseInt(m[1], 10);
+                        return String(y1).slice(2) + '-' + String(y1 + 1).slice(2);
+                    }
+                    return s0;
+                };
                 const rowsByPeriod8720 = new Map();
                 rows.forEach(r => {
-                    const p = normPeriod(r.period || r.policy_year || r.year || '');
+                    const p = periodKeyFromAny8721(r.period || r.policy_year || r.year || '');
                     if (p) rowsByPeriod8720.set(p, r);
                 });
                 const domRows = ensureLossRows98(rowsId, Math.max(rows.length, rowsByPeriod8720.size));
                 let count = 0;
                 const periodFromSelect8720 = (sel) => {
-                    const y = parseInt(sel && sel.value, 10);
-                    if (!Number.isFinite(y)) return '';
-                    return String(y).slice(2) + '-' + String(y + 1).slice(2);
+                    if (!sel) return '';
+                    const txt = sel.options && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+                    return periodKeyFromAny8721(txt || sel.value);
                 };
                 domRows.forEach((row, i) => {
                     const inputs = row.querySelectorAll('input');
@@ -2404,7 +2436,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         el.dispatchEvent(new Event('input', { bubbles:true }));
                         el.dispatchEvent(new Event('change', { bubbles:true }));
                         el.classList.add('autofilled-from-platform');
-                        el.dataset.lossRebind = 'v8.7.20';
+                        el.dataset.lossRebind = 'v8.7.21';
                         return true;
                     };
                     writeLossInput8720(0, r.exposure || '', true);
@@ -2413,7 +2445,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     writeLossInput8720(3, r.reserve || '0', true);
                     writeLossInput8720(4, r.incurred || '0', true);
                     if (r.valuation) writeLossInput8720(5, r.valuation, false);
-                    row.dataset.lossRebind = 'v8.7.20';
+                    row.dataset.lossRebind = 'v8.7.21';
                     row.dataset.lossPeriodKey = r.period || currentPeriod || '';
                     count++;
                 });
@@ -2445,24 +2477,25 @@ document.addEventListener('DOMContentLoaded', () => {
             const glLarge = fillLarge98('glLargeLossRows', 'addGlLargeLoss', parsed.largeGl);
             const auLarge = fillLarge98('autoLargeLossRows', 'addAutoLargeLoss', parsed.largeAuto);
             try {
-                window.workbenchLastLossRebind8720 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
+                window.workbenchLastLossRebind8721 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
             } catch (_) {}
-            console.log('[workbench] v8.7.20 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
+            console.log('[workbench] v8.7.21 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
         }
         // v8.7.20: public no-cost rebind hook for archived snapshots and tab re-entry.
         // This lets audits and the UI repaint visible loss year rows from structured
         // A11 JSON without rerunning any paid pipeline step.
-        window.workbenchRebindLossesV8720 = function workbenchRebindLossesV8720() {
+        window.workbenchRebindLossesV8721 = function workbenchRebindLossesV8721() {
             if (!window.workbenchActiveSubmission) return null;
             try {
                 applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
-                return window.workbenchLastLossRebind8720 || { ok: true };
+                return window.workbenchLastLossRebind8721 || { ok: true };
             } catch (e) {
-                console.warn('[workbench] v8.7.20 loss rebind failed:', e && e.message);
+                console.warn('[workbench] v8.7.21 loss rebind failed:', e && e.message);
                 return { ok: false, error: e && e.message };
             }
         };
-        window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8720;
+        window.workbenchRebindLossesV8720 = window.workbenchRebindLossesV8721;
+        window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8721;
 
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -3098,8 +3131,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Repaint from structured A11 JSON whenever the Loss History tab is
             // activated, without any paid/API calls.
             if (key === 'risk' && activePanelId === 'loss') {
-                setTimeout(() => { try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {} }, 75);
-                setTimeout(() => { try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {} }, 450);
+                setTimeout(() => { try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {} }, 75);
+                setTimeout(() => { try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {} }, 450);
             }
         };
 
@@ -5172,7 +5205,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // structured A11 JSON cannot appear as all-zero visible year rows on
         // archived snapshots or fresh runs.
         [900, 1600, 2600].forEach(ms => setTimeout(() => {
-            try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {}
+            try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {}
         }, ms));
 
         /* ============================================================
