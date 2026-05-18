@@ -904,7 +904,7 @@ This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT ex
 **Primary GL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Policy Period: [dates]
@@ -978,7 +978,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Primary AL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1050,7 +1050,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employers Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [WC policy form / state]
 - Period: [dates]
@@ -1094,7 +1094,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employee Benefits Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1133,7 +1133,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Aircraft Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1165,7 +1165,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Garage Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1197,7 +1197,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Liquor Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1236,7 +1236,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign General Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]
@@ -1269,7 +1269,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign Auto Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]
@@ -1292,13 +1292,14 @@ This submission's named insured: "\${account_name}".
 Before extracting ANY layers, perform these steps IN ORDER:
 1. Identify every named insured stated on the input excess/umbrella policies.
 2. For each policy, check whether its named insured matches "\${account_name}".
-3. Include ONLY layers whose underlying policy names the matching insured.
-4. If NO underlying policy names a matching insured, your ENTIRE output MUST be exactly:
+3. Include ONLY layers whose stated named insured matches, OR documents that are silent on named insured but have no conflicting named insured in the same source set.
+3a. NOT-STATED IS NOT A MISMATCH: an umbrella/excess declaration or schedule of underlying that omits the named insured is not automatically wrong. If the policy page is silent on insured and no other policy page states a different/conflicting insured, extract under review and prepend: **Insured not stated on source — extracted under review; verify named insured.**
+4. Hard-refuse ONLY if every policy that states a named insured states a different/conflicting insured and there is no matching or insured-silent policy to extract. In that case your ENTIRE output MUST be exactly:
    **No matching underlying excess policies found for this insured.**
    — nothing else.
 5. If "\${account_name}" is "(unknown)", build the tower from whatever excess documents are present.
 
-Do NOT include layers from policies for different insureds, even if they are the only excess documents available.
+Do NOT include layers from policies that affirmatively state a different insured. Do NOT hard-refuse merely because a quote page is silent on named insured.
 
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 

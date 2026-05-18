@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.10-no-test-fixture-hardening-2026-05-18';
+window.STM_BUILD = 'v8.7.11-source-authority-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1996,6 +1996,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'base', r.base || '1000');
                 row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
+            // v8.7.11: when real GL class rows exist, clear starter/default rows
+            // (for example 91580 / GA / 30009 / $0) so they are not mistaken for
+            // real exposure or stale account data. Keep at least one blank editable row.
+            const latestRows = Array.from(tbody.querySelectorAll('tr'));
+            latestRows.forEach((row, idx) => {
+                if (idx < rowsToApply.length) return;
+                row.querySelectorAll('input').forEach(inp => { inp.value = ''; inp.classList.remove('autofilled-from-platform'); });
+                row.querySelectorAll('select').forEach(sel => { if (sel.querySelector('option[value="1000"]')) sel.value = '1000'; });
+                row.querySelectorAll('[data-out], .computed').forEach(cell => { if (cell.tagName !== 'INPUT') cell.textContent = cell.dataset.out && /rate/i.test(cell.dataset.out) ? '0.000' : '$0'; });
+            });
             unlockGlRaterRows94(document);
             syncUnderwritingRiskProfileFromGlRater8702('after-gl-rater-apply');
             console.log('[workbench] v8.7.03 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
@@ -2391,8 +2401,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         // v8.6.88 — visible Limits & Premiums Lead Excess card hydrator.
-        // v8.6.87 proved the data layer was healthy (Example Insurance, $2M xs $1M,
-        // $35,019 premium) but the user-facing Lead Excess card was still blank
+        // v8.6.87 proved the data layer was healthy (Example Carrier, $2M xs $1M,
+        // the underlying premium) but the user-facing Lead Excess card was still blank
         // because the static template had no resolver-bound writer. This pass
         // writes the underlying lead umbrella into the visible card without any
         // API calls and without triggering the Carrier Layer handler that would
@@ -2461,7 +2471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carrierLayerCb && !carrierLayerCb.checked) {
                 // Do not dispatch the existing change handler here: that handler
                 // treats checked carrier layers as our paper and would overwrite
-                // Example Insurance with Steadfast. This card represents the underlying
+                // the underlying carrier with our paper. This card represents the underlying
                 // carrier lead umbrella, so we mark the checkbox and reveal options.
                 carrierLayerCb.checked = true;
             }

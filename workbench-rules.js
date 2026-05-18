@@ -1102,6 +1102,9 @@
     exposure_to_loss:           ['exposure:json', 'exposure'],
     account_strengths:          ['strengths:json', 'strengths'],
     guideline_conflicts_text:   ['guidelines:json', 'guidelines'],
+    guideline_conflicts:        ['guidelines:json', 'guidelines'],
+    summary_operations:         ['summary-ops:json', 'summary-ops'],
+    strengths_of_account:       ['strengths:json', 'strengths'],
     description_operations:     ['summary-ops:json', 'summary-ops', 'supplemental:json', 'supplemental', 'website:json', 'website'],
     underwriting_rationale:     ['discrepancy:json', 'discrepancy', 'guidelines:json', 'guidelines', 'exposure:json', 'exposure', 'summary-ops'],
 
@@ -1384,6 +1387,9 @@
     exposure_to_loss: ['exposure_to_loss','exposureToLoss','exposure','loss_exposure','lossExposure'],
     account_strengths: ['account_strengths','accountStrengths','strengths','account_strength','strength'],
     guideline_conflicts_text: ['guideline_conflicts_text','guidelineConflicts','guidelines','guideline_cross_reference','guidelineCrossReference'],
+    guideline_conflicts: ['guideline_conflicts','guideline_conflicts_text','guidelineConflicts','guidelines','guideline_cross_reference','guidelineCrossReference'],
+    summary_operations: ['summary_operations','summaryOfOperations','summary_of_operations','operations','description_operations','descOps'],
+    strengths_of_account: ['strengths_of_account','account_strengths','accountStrengths','strengths','account_strength','strength'],
     description_operations: ['description_operations','descriptionOfOperations','operations','summary_of_operations','summaryOfOperations','descOps'],
     underwriting_rationale: ['underwriting_rationale','underwritingRationale','rationale','pricing_rationale','pricingRationale'],
     broker_company: ['broker_company','brokerCompany','brokerage','producer_firm','producerFirm'],
@@ -1574,7 +1580,7 @@
     if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
     m = /\b([A-Z][A-Za-z& .'-]{2,80}\s+(?:Insurance\s+Company|Indemnity\s+Company|Casualty\s+Company|Mutual\s+Insurance\s+Company))\b/i.exec(clean);
     if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
-    // Brand + issuing company pattern, e.g. CHUBB / Example Insurance.
+    // Brand + issuing company pattern, e.g. CHUBB / Example Carrier.
     m = /\b(Penn\s+Millers\s+Insurance\s+Company)\b/i.exec(clean)
      || /\b(Steadfast\s+Insurance\s+Company)\b/i.exec(clean)
      || /\b(Zurich\s+American\s+Insurance\s+Company)\b/i.exec(clean);
@@ -1619,6 +1625,41 @@
     // Fallback for flattened tables where coverage rows were concatenated.
     const flat = lines.join('  ');
     return findIn(flat);
+  }
+
+
+  function quoteGlLimitByLabel8711(clean, fieldName) {
+    const src = String(clean || '').replace(/\u00a0/g, ' ');
+    const labels = {
+      gl_each_occurrence: [/Each\s+Occurrence(?:\s+Limit)?(?:\s*\(\s*Bodily\s+Injury.*?\))?/i, /Each\s+Occurrence\s+Limit/i],
+      gl_general_aggregate: [/General\s+Aggregate(?:\s+Limit)?/i],
+      gl_products_ops_aggregate: [/Products?\s*\/?\s*(?:Completed|Comp)\s*Operations?\s*Aggregate/i, /Products?\s*\/?\s*Comp\s*Ops\s*Agg/i],
+      gl_personal_adv_injury: [/Personal\s*(?:&|and)\s*Advertising\s*Injury/i, /Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury/i]
+    }[fieldName] || [];
+    const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const money = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/i;
+    function toDisplay(v) { return displayMoney85(v); }
+    for (const re of labels) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!re.test(line)) continue;
+        const windowTxt = [line, lines[i+1] || '', lines[i+2] || ''].join(' ');
+        const after = windowTxt.slice(Math.max(0, windowTxt.search(re)));
+        const m = money.exec(after.replace(re, '')) || money.exec(after);
+        const v = m && toDisplay(m[1]);
+        if (v && moneyToNumberFor85(v) >= 100000) return v;
+      }
+    }
+    // Compact slash shorthand, e.g. GL $1M/$2M/$2M/$1M.
+    const slash = /(?:CGL|GL|General\s+Liability)[^\n$]{0,80}?\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)(?:[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?))?/i.exec(src);
+    if (slash) {
+      const arr = [slash[1], slash[2], slash[3], slash[4]].map(toDisplay);
+      if (fieldName === 'gl_each_occurrence') return arr[0];
+      if (fieldName === 'gl_general_aggregate') return arr[1];
+      if (fieldName === 'gl_products_ops_aggregate') return arr[2];
+      if (fieldName === 'gl_personal_adv_injury') return arr[3] || arr[0];
+    }
+    return null;
   }
 
   function quotePremiumByCoverage89(clean, kind) {
@@ -1945,6 +1986,14 @@
       const carr = extractCarrier85(cleanPlusQuote);
       if (carr) return hit(carr, 0.88, moduleKey + '_file_header_carrier');
     }
+    // v8.7.11: if A12 over-refuses but the quote page text clearly states CGL
+    // sublimits, recover them with a review-grade adapter instead of leaving
+    // the visible GL card at $0.
+    if (/^gl_(?:each_occurrence|general_aggregate|products_ops_aggregate|personal_adv_injury)$/.test(fieldName)
+        && (moduleKey === 'gl_quote' || moduleKey === 'excess' || moduleKey === 'tower' || moduleKey === 'supplemental')) {
+      const lim = quoteGlLimitByLabel8711(cleanPlusQuote, fieldName);
+      if (lim) return hit(lim, 0.86, 'quote_page_gl_sublimit_adapter_override');
+    }
     if (moduleKey === 'supplemental') {
       const supVal = parseSupplementalExposure85(clean, fieldName, submission);
       if (supVal) return hit(supVal, 0.84, 'supplemental_acord_schedule');
@@ -2093,7 +2142,9 @@
     // Narrative modules — return clean text, bounded for UI textareas.
     if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(firstReasonableParagraph(clean, 2500), 0.90, 'exposure_narrative');
     if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative');
-    if (fieldName === 'guideline_conflicts_text' && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
+    if ((fieldName === 'guideline_conflicts_text' || fieldName === 'guideline_conflicts') && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
+    if (fieldName === 'summary_operations' && moduleKey === 'summary-ops') return hit(firstReasonableParagraph(clean, 2200), 0.88, 'summary_ops_narrative');
+    if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative_alias');
     if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) return hit(firstReasonableParagraph(clean, 2200), 0.86, 'ops_narrative');
     if (fieldName === 'underwriting_rationale' && (moduleKey === 'discrepancy' || moduleKey === 'guidelines' || moduleKey === 'exposure' || moduleKey === 'summary-ops')) return hit(firstReasonableParagraph(clean, 2200), 0.78, 'rationale_narrative');
 
@@ -3595,6 +3646,32 @@
     while ((cm = codeRe.exec(clsTxt)) !== null) {
       codeMatches.push({ code: cm[1], desc: cm[2].trim() });
     }
+    // v8.7.11 source-authority fallback: if the Class Code Expert is missing,
+    // weak, or produced generic AI-only classes, anchor subtype on the actual
+    // GL classification schedule parsed from quote/ACORD page text. This keeps
+    // the Layer Type gate aligned with the GL Exposure Rater.
+    if (!codeMatches.length || !codeMatches.some(c => lookupGlClassCode(c.code))) {
+      try {
+        const qtxt = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
+        const seenCodes = new Set();
+        const found = [];
+        (String(qtxt || '').match(/\b\d{4,5}\b/g) || []).forEach(code => {
+          if (seenCodes.has(code)) return;
+          const ref = lookupGlClassCode(code);
+          if (!ref || !ref.description) return;
+          seenCodes.add(code);
+          // Prefer classes with a nearby large exposure amount; reject policy years,
+          // NAIC codes, form numbers, and starter-row defaults by requiring the code
+          // to be in the stored GL class table.
+          found.push({ code, desc: ref.description });
+        });
+        if (found.length) {
+          codeMatches.length = 0;
+          found.slice(0, 8).forEach(x => codeMatches.push(x));
+          reasons.push('used GL quote/ACORD class schedule because Class Code Expert was missing or weak');
+        }
+      } catch (_) {}
+    }
     // Primary NAICS (the module marks the lead one "(primary)")
     let naicsPrimary = '';
     const naicsLine = (clsTxt.match(/NAICS:[^\n]*/i) || [''])[0];
@@ -3691,7 +3768,7 @@
     };
   }
 
-  // v8.7.10 — make Lead-vs-Excess position explicit.
+  // v8.7.11 — source-authority hardened Lead-vs-Excess position logic.
   // The test account fixture has a Lead $2M umbrella UNDER Zurich/Steadfast,
   // so our layer is Excess. Do not read every uploaded "Lead" quote this way:
   // if a future submission is asking us to write that lead layer itself, the
@@ -3727,6 +3804,12 @@
 
       const ex = (submission && submission.snapshot && submission.snapshot.extractions) || (submission && submission.extractions) || {};
       const blob = ['tower','excess'].map(k => (ex[k] && (ex[k].text || ex[k].output || ex[k].content || ex[k].result)) || '').join('\n');
+      const quoteBlob = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
+      if (/Lead\s+\$\s*[0-9]|Lead\s+Umbrella|Commercial\s+Liability\s+Umbrella|Lead\s+Excess/i.test(quoteBlob)
+          && (/Schedule\s+of\s+Underlying|underlying|Commercial\s+General\s+Liability|Business\s+Auto|\bxs\b|excess\s+of|over/i.test(quoteBlob))) {
+        out.underlyingLead = true;
+        out.reasons.push('quote page text identifies a lead umbrella/excess layer over scheduled underlying primary policies');
+      }
       if (/Lead\s+Umbrella|Lead\s+Excess|Lead\s+\$\s*[0-9]/i.test(blob)) {
         const hasLayerShape = /\$?\s*[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?\s*(?:xs|x\s*s|excess\s+of|over)\s*\$?\s*[0-9]+/i.test(blob);
         if (/underlying|schedule\s+of\s+underlying|under\s+us|beneath|below/i.test(blob) || hasLayerShape) {
@@ -3857,7 +3940,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.10-no-test-fixture-hardening',
+    version: 'v8.7.11-source-authority-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

@@ -591,8 +591,8 @@ const MODULES = {
 // v8.6.96 - module-specific token budgets and retry policy.
 // A11 Loss History can exceed the global token ceiling because it emits
 // tables plus structured JSON. Give it a larger budget and a retry path.
-const MODULE_MAX_TOKENS = { losses: 12000 };
-const MODULE_RETRY_MAX_TOKENS = { losses: 20000 };
+const MODULE_MAX_TOKENS = { losses: 12000, guidelines: 16000 };
+const MODULE_RETRY_MAX_TOKENS = { losses: 20000, guidelines: 24000 };
 function moduleMaxTokens(moduleId, retry) {
   const globalMax = Number(STATE && STATE.api && STATE.api.maxTokens) || 4096;
   const map = retry ? MODULE_RETRY_MAX_TOKENS : MODULE_MAX_TOKENS;
@@ -4582,6 +4582,9 @@ const APPLICANT_GATED_MODULES = new Set([
   'foreign_gl_quote',
   'foreign_al_quote',
   'supplemental',
+  'subcontract',
+  'vendor',
+  'safety',
   'excess',
   'losses'
 ]);
@@ -4706,7 +4709,10 @@ function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
     al_quote: 'primary AL quote',
     supplemental: 'supplemental application',
     excess: 'underlying excess policies',
-    losses: 'loss runs'
+    losses: 'loss runs',
+    safety: 'safety program',
+    subcontract: 'subcontract agreement',
+    vendor: 'vendor agreement'
   };
   const title = moduleTitles[moduleId] || moduleId;
   const refs = (detectedInsureds && detectedInsureds.length)
@@ -4791,6 +4797,26 @@ function buildLossFallbackExtraction96(sourceText, reason) {
 
 // v8.6.98 - archive A11 structured JSON on the extraction record so Workbench does not
 // have to re-discover it from rendered HTML.
+
+
+// v8.7.11 - deterministic fallback for A8 if guideline cross-reference truncates twice.
+// The fallback is intentionally conservative: it does not invent conflicts.
+// It writes a visible, review-required extraction so the Workbench does not silently
+// show a blank Guideline Conflicts field after an A8 max_tokens failure.
+function buildGuidelinesFallbackExtraction8711(sourceText, reason) {
+  const msg = 'A8 Guideline Cross-Ref did not complete because the model output was truncated. No guideline conflicts should be treated as cleared. Review required or rerun A8 with shorter inputs.';
+  const structured = {
+    guideline_conflicts_text: msg,
+    guideline_conflicts: [],
+    fallback: true,
+    fallback_reason: reason || 'MODEL_TRUNCATED',
+    review_required: true,
+    status: 'a8_fallback_after_truncation'
+  };
+  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable — review required.</strong><p>'
+    + msg + '</p></div>\n\n```json guideline_conflicts_structured\n'
+    + JSON.stringify(structured, null, 2) + '\n```';
+}
 function parseLossStructuredForArchive98(text) {
   if (!text || typeof text !== 'string') return null;
   function tryJson(src) {
@@ -4892,22 +4918,25 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     try {
       result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
     } catch (err) {
-      if (moduleId === 'losses' && isModelTruncationError(err)) {
-        const retryPrompt = effectivePrompt + '\n\nV8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.';
-        logAudit('Pipeline', 'Retrying A11 Loss History with higher token budget after truncation', 'warn');
+      if ((moduleId === 'losses' || moduleId === 'guidelines') && isModelTruncationError(err)) {
+        const isGuidelines = moduleId === 'guidelines';
+        const retryPrompt = effectivePrompt + (isGuidelines
+          ? '\n\nV8.7.11 RETRY AFTER TRUNCATION: The first A8 Guideline Cross-Ref response hit the output token ceiling. Return a concise guideline-conflict digest only. Do not quote source extracts or long guideline passages. If no reliable conflict can be completed, return a review-required unavailable note plus fenced JSON guideline_conflicts_structured.'
+          : '\n\nV8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.');
+        logAudit('Pipeline', isGuidelines ? 'Retrying A8 Guideline Cross-Ref with higher token budget after truncation' : 'Retrying A11 Loss History with higher token budget after truncation', 'warn');
         try {
           result = await callLLM(retryPrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, true) });
           result.retry_attempt = 1;
         } catch (retryErr) {
           if (isModelTruncationError(retryErr)) {
             result = {
-              text: buildLossFallbackExtraction96(userContent, retryErr.message || err.message),
+              text: isGuidelines ? buildGuidelinesFallbackExtraction8711(userContent, retryErr.message || err.message) : buildLossFallbackExtraction96(userContent, retryErr.message || err.message),
               stop_reason: 'fallback_after_truncation',
               usage: retryErr.usage || err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model },
               fallback: true,
               retry_attempt: 1
             };
-            logAudit('Pipeline', 'A11 Loss History used deterministic fallback after retry truncation', 'warn');
+            logAudit('Pipeline', isGuidelines ? 'A8 Guideline Cross-Ref used deterministic fallback after retry truncation' : 'A11 Loss History used deterministic fallback after retry truncation', 'warn');
           } else {
             throw retryErr;
           }
