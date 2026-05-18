@@ -1641,23 +1641,83 @@
     const toDisplay = (v) => displayMoney85(v);
     const asNum = (v) => moneyToNumberFor85(toDisplay(v));
 
-    // v8.7.13: prefer compact GL limit schedules when present. Carrier GL
-    // cards commonly compress limits into a four-value sequence in this order:
-    // Each Occurrence / General Aggregate / Personal & Adv Injury / Products-Comp Ops.
-    // v8.7.12 treated the third value as Products-Comp Ops and the fourth as PAI,
-    // which crossed those two fields on compact schedules. Keep this generalized:
-    // if four values are present, map EO/GA/PAI/PCO; if only three values are
-    // present, use EO/GA/PCO and default PAI to EO.
+    // v8.7.14: resolve GL sublimits by the LABEL order when the quote
+    // presents a compact table. Earlier versions guessed the sequence order
+    // and crossed Products/Completed Ops with Personal & Advertising Injury
+    // on some carrier pages. This parser first looks at the actual label
+    // order in the CGL block and maps the adjacent money values to those
+    // labels. Only if no label-ordered table is found does it fall back to
+    // the common EO/GA/PCO/PAI slash sequence.
+    function orderedGlLimitByVisibleLabels8714() {
+      const cglIdx = src.search(/Commercial\s+General\s+Liability|General\s+Liability|\bCGL\b/i);
+      const start = cglIdx >= 0 ? Math.max(0, cglIdx - 150) : 0;
+      const block = src.slice(start, start + 1800);
+      const labelDefs = [
+        { field: 'gl_each_occurrence', re: /Each\s+Occurrence(?:\s+Limit)?/ig },
+        { field: 'gl_general_aggregate', re: /General\s+Aggregate(?:\s+Limit)?/ig },
+        { field: 'gl_products_ops_aggregate', re: /Products?\s*\/?\s*(?:Completed|Comp(?:leted)?|Comp)\s*(?:Operations?|Ops?)\s*(?:Aggregate|Agg)?/ig },
+        { field: 'gl_personal_adv_injury', re: /Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury/ig }
+      ];
+      const labelsFound = [];
+      for (const def of labelDefs) {
+        const re = new RegExp(def.re.source, 'ig');
+        const m = re.exec(block);
+        if (m) labelsFound.push({ field: def.field, index: m.index, text: m[0] });
+      }
+      if (labelsFound.length < 3) return null;
+      labelsFound.sort((a, b) => a.index - b.index);
+      const earliestLabel = labelsFound[0].index;
+      const latestLabel = labelsFound[labelsFound.length - 1].index;
+      const moneyRe = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/ig;
+      const moneyVals = [];
+      let mm;
+      while ((mm = moneyRe.exec(block))) {
+        const val = moneyToNumberFor85(toDisplay(mm[1]));
+        // Limits here should be six/seven figure values; this excludes premiums,
+        // dates, class codes, and row counts without hard-coding account values.
+        if (val && val >= 100000 && val <= 10000000) {
+          moneyVals.push({ raw: mm[1], display: toDisplay(mm[1]), val, index: mm.index });
+        }
+      }
+      if (moneyVals.length < 3) return null;
+
+      // Case A: table labels first, then a row of values. Map by column order.
+      const afterLabels = moneyVals.filter(v => v.index > latestLabel).slice(0, labelsFound.length);
+      if (afterLabels.length >= labelsFound.length) {
+        const out = {};
+        labelsFound.forEach((lab, i) => { out[lab.field] = afterLabels[i] && afterLabels[i].display; });
+        return out[fieldName] || null;
+      }
+
+      // Case B: each row has value near its label. Prefer values immediately
+      // after the label, then immediately before it, within the same local row.
+      const out = {};
+      for (let i = 0; i < labelsFound.length; i++) {
+        const lab = labelsFound[i];
+        const nextLabelIdx = labelsFound[i + 1] ? labelsFound[i + 1].index : block.length;
+        const after = moneyVals.find(v => v.index > lab.index && v.index < Math.min(nextLabelIdx, lab.index + 140));
+        const before = [...moneyVals].reverse().find(v => v.index < lab.index && v.index > Math.max(0, lab.index - 90));
+        if (after || before) out[lab.field] = (after || before).display;
+      }
+      return out[fieldName] || null;
+    }
+
+    const orderedByLabels = orderedGlLimitByVisibleLabels8714();
+    if (orderedByLabels) return orderedByLabels;
+
+    // Fallback for slash-only compact sequences where labels are not visible in
+    // the parsed text. Common carrier order is EO/GA/PCO/PAI; with only three
+    // values, use EO/GA/PCO and default PAI to EO.
     const slash = /(?:CGL|GL|General\s+Liability|Commercial\s+General\s+Liability)[^\n$]{0,120}?\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)(?:[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?))?/i.exec(src);
     if (slash) {
       const arr = [slash[1], slash[2], slash[3], slash[4]].map(toDisplay);
       if (fieldName === 'gl_each_occurrence' && arr[0]) return arr[0];
       if (fieldName === 'gl_general_aggregate' && arr[1]) return arr[1];
-      if (fieldName === 'gl_personal_adv_injury' && (arr[2] || arr[0])) return arr[2] || arr[0];
-      if (fieldName === 'gl_products_ops_aggregate' && (arr[3] || arr[2])) return arr[3] || arr[2];
+      if (fieldName === 'gl_products_ops_aggregate' && arr[2]) return arr[2];
+      if (fieldName === 'gl_personal_adv_injury' && (arr[3] || arr[0])) return arr[3] || arr[0];
     }
 
-    // v8.7.13 natural-language table rows, e.g. "$1,000,000 Each Occurrence"
+    // v8.7.14 natural-language table rows, e.g. "$1,000,000 Each Occurrence"
     // or "Each Occurrence $1,000,000".  This avoids taking the next row's
     // aggregate value when the amount appears before the label.
     const nearPatterns = {
@@ -4056,7 +4116,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.13-gl-sublimit-final',
+    version: 'v8.7.14-gl-sublimit-label-map-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
