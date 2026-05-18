@@ -1183,7 +1183,99 @@
   //   null on miss
   // Phase 2 implements Tier 0 paths only. Phase 3 adds Tier 1/2 dispatching.
 
+
+  // v8.7.16 — UX guard helpers. These do not change extraction or rating
+  // math. They only prevent known review UX problems from presenting as
+  // clean/blank output on archived or partial runs.
+  function isNarrativeField8716(fieldName) {
+    return /^(description_operations|summary_operations|exposure_to_loss|account_strengths|strengths_of_account|guideline_conflicts|guideline_conflicts_text|underwriting_rationale)$/.test(String(fieldName || ''));
+  }
+
+  function cleanNarrativeText8716(value) {
+    if (value == null) return value;
+    let out = String(value);
+    // Do not let missing data placeholders leak into polished UW prose.
+    // Example fixed: "ABC Co., founded in No information provided, specializes..."
+    out = out.replace(/,\s*founded\s+in\s+(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*,\s*/ig, ' ');
+    out = out.replace(/founded\s+in\s+(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*,?\s*/ig, '');
+    out = out.replace(/(?:founded|established)\s*:\s*(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*/ig, '');
+    out = out.replace(/\s+,/g, ',').replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ').trim();
+    return out;
+  }
+
+  function normalizeResolvedValue8716(fieldName, resolved) {
+    if (!resolved || resolved.value == null) return resolved;
+    if (isNarrativeField8716(fieldName)) {
+      const cleaned = cleanNarrativeText8716(resolved.value);
+      return Object.assign({}, resolved, { value: cleaned });
+    }
+    return resolved;
+  }
+
+  function guidelinesUnavailableFallback8716(submission) {
+    // If the A8 module is missing/empty, the Workbench should not silently
+    // look like there are no guideline conflicts. This is a review blocker
+    // message, not a generated guideline opinion.
+    return {
+      value: 'Guideline Cross-Reference unavailable — A8 module did not run or did not produce a usable output. Review required before relying on guideline compliance.',
+      source: 'fallback:a8_unavailable_v8716',
+      tier: 3,
+      confidence: 0,
+      review: true,
+      reason: 'missing_guidelines_extraction'
+    };
+  }
+
+  function resolveLayerTypeField8716(submission) {
+    try {
+      if (typeof decideLayerType !== 'function') return null;
+      const d = decideLayerType(submission);
+      if (!d || !d.layerType) return null;
+      return {
+        value: d.layerType,
+        source: 'decideLayerType',
+        tier: 'decision',
+        confidence: d.conflict ? 0.80 : 0.95,
+        review: !!d.conflict,
+        reason: (d.reasons || []).join(' | ')
+      };
+    } catch (e) { return null; }
+  }
+
+  function resolveDerivedRiskProfile8716(fieldName, submission) {
+    if (!/^(iso_class_code|iso_description|exposure_amount|exposure_basis)$/.test(String(fieldName || ''))) return null;
+    try {
+      if (typeof extractAuthoritativeGlClassRows8712 !== 'function') return null;
+      const rows = extractAuthoritativeGlClassRows8712(submission) || [];
+      if (!rows.length) return null;
+      const primary = rows[0];
+      const total = rows.reduce((sum, r) => sum + (Number(r.exposure) || 0), 0);
+      if (fieldName === 'iso_class_code' && primary.code) {
+        return { value: primary.code, source: 'derived:gl_class_schedule_v8716', tier: 2, confidence: 0.90, reason: primary.reason || 'controlling_gl_class_row' };
+      }
+      if (fieldName === 'iso_description' && primary.desc) {
+        return { value: primary.desc, source: 'derived:gl_class_schedule_v8716', tier: 2, confidence: 0.90, reason: 'class_description_from_reference_table' };
+      }
+      if (fieldName === 'exposure_amount' && total > 0) {
+        return { value: Math.round(total).toLocaleString('en-US'), source: 'derived:gl_class_schedule_sum_v8716', tier: 2, confidence: 0.88, reason: 'sum_of_authoritative_gl_class_exposures' };
+      }
+      if (fieldName === 'exposure_basis') {
+        const ref = primary.code && lookupGlClassCode(primary.code);
+        if (ref && /gross sales/i.test(ref.ratingBasis || '')) {
+          return { value: 'Gross Sales/Revenues', source: 'derived:gl_class_reference_v8716', tier: 2, confidence: 0.88, reason: 'rating_basis_from_gl_class_reference' };
+        }
+      }
+    } catch (e) { return null; }
+    return null;
+  }
+
   function resolveField(fieldName, submission) {
+    // v8.7.16: expose the layer decision through the normal resolver path
+    // so audits and UI consumers don't get null while the visible select is set.
+    if (fieldName === 'layer_type') {
+      return resolveLayerTypeField8716(submission);
+    }
+
     const chain = SOURCE_AUTHORITY[fieldName];
     if (!chain) {
       return null; // No rule defined for this field
@@ -1192,9 +1284,22 @@
       const resolved = tryDescriptor(descriptor, submission, fieldName);
       if (resolved !== null && resolved.value !== null
           && resolved.value !== undefined && resolved.value !== '') {
-        return resolved;
+        return normalizeResolvedValue8716(fieldName, resolved);
       }
     }
+
+    // v8.7.16: keep resolver and visible UW tab consistent for derived
+    // risk-profile fields populated from the GL rater/class schedule.
+    const derived = resolveDerivedRiskProfile8716(fieldName, submission);
+    if (derived !== null && derived.value !== null && derived.value !== undefined && derived.value !== '') {
+      return derived;
+    }
+
+    // v8.7.16: missing A8 must surface as review-required, not a clean blank.
+    if (fieldName === 'guideline_conflicts' || fieldName === 'guideline_conflicts_text') {
+      return guidelinesUnavailableFallback8716(submission);
+    }
+
     return null;
   }
 
@@ -4146,7 +4251,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.15-gl-sublimit-path-final',
+    version: 'v8.7.16-ux-guard-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

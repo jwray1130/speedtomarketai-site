@@ -549,7 +549,7 @@ Return the SAME JSON format as the first-pass classifier. Be especially alert fo
 
   'summary-ops': `Persona: Expert excess casualty insurance underwriter.
 
-Task: Create the authoritative Summary of Operations in third person. Do not invent, infer, or generalize. If the source data does not provide a field, write "No information provided." Focus only on information provided by the source extractions and remove promotional fluff.
+Task: Create the authoritative Summary of Operations in third person. Do not invent, infer, or generalize. If a section-level field is absent, write "No information provided" only inside that section's bullet. Do not leak missing-data placeholders into polished prose. For example, if year founded / years in business is not provided, omit the founded/established clause entirely instead of writing "founded in No information provided." Focus only on information provided by the source extractions and remove promotional fluff.
 
 PIPELINE ORDER / SOURCE AUTHORITY:
 1. Use Supplemental Application, ACORDs, website/broker narrative, safety manual, and subcontract/sub agreement as the primary operational sources.
@@ -559,7 +559,7 @@ PIPELINE ORDER / SOURCE AUTHORITY:
 
 OUTPUT FORMAT — use exactly this structure:
 
-[Company Name], founded in [Year], specializes in [Services]. The company operates in [Locations] and focuses on [Safety Measures, Industry, or Other Specializations]. [Company Name] prioritizes [Key Operational Practices] and employs [Safety Measures, Risk Transfer Protocols, etc.].
+[Company Name] [founded/established clause only if the year or years in business is actually provided] specializes in [Services]. The company operates in [Locations] and focuses on [Safety Measures, Industry, or Other Specializations]. [Company Name] prioritizes [Key Operational Practices] and employs [Safety Measures, Risk Transfer Protocols, etc.].
 
 **Products and Services:**
 - [Product/Service 1]
