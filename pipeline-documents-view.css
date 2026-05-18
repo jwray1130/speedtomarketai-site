@@ -1568,14 +1568,37 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
    stays in the user's color theme and adds nothing new.  Scoped to light
    mode; dark mode already has enough surface contrast and is left untouched.
    Hover/active lift proportionally so the interaction still reads. */
+/* v8.7.10b — light-mode card elevation, recomposed.
+   The cards sit on a pure-white panel (--bg #FFFFFF) and are themselves
+   pure white (--surface #FFFFFF), so a single low-opacity token shadow
+   could not register — there is zero tonal difference doing any of the
+   separation work.  This uses the technique polished fintech UIs (Stripe/
+   Linear-class) rely on for white-on-white: a crisp hairline ring that
+   defines the edge, a soft wide ambient shadow for float, and a small
+   directional drop for grounding — all composed from the user's existing
+   on-theme navy shadow colour (rgba(10,37,64,*) derived from --text
+   #0A2540).  Restrained on purpose: enough to lift and look premium,
+   not a heavy "drop shadow".  Light mode only; dark mode untouched. */
 html[data-theme="light"] #docs-view-root .cat-card {
-  box-shadow: var(--shadow-sm);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px rgba(10, 37, 64, 0.06),
+    0 1px 2px rgba(10, 37, 64, 0.04),
+    0 4px 12px -2px rgba(10, 37, 64, 0.08);
 }
 html[data-theme="light"] #docs-view-root .cat-card:hover {
-  box-shadow: var(--shadow-lg);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px rgba(10, 37, 64, 0.08),
+    0 2px 4px rgba(10, 37, 64, 0.05),
+    0 10px 24px -4px rgba(10, 37, 64, 0.13);
 }
 html[data-theme="light"] #docs-view-root .cat-card.active {
-  box-shadow: 0 0 0 1px var(--signal-tint), var(--shadow);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--signal-tint),
+    0 2px 4px rgba(10, 37, 64, 0.05),
+    0 8px 20px -4px rgba(10, 37, 64, 0.12);
 }
 
 #docs-view-root .cat-icon {
