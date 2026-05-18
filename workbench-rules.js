@@ -1641,19 +1641,23 @@
     const toDisplay = (v) => displayMoney85(v);
     const asNum = (v) => moneyToNumberFor85(toDisplay(v));
 
-    // v8.7.12: prefer compact GL limit schedules when present. Many carrier
-    // quote pages express GL as $1M/$2M/$2M/$1M (EO/GA/PCO/PAI). This is a
-    // better source for Products/Completed Operations than a noisy OCR line.
+    // v8.7.13: prefer compact GL limit schedules when present. Carrier GL
+    // cards commonly compress limits into a four-value sequence in this order:
+    // Each Occurrence / General Aggregate / Personal & Adv Injury / Products-Comp Ops.
+    // v8.7.12 treated the third value as Products-Comp Ops and the fourth as PAI,
+    // which crossed those two fields on compact schedules. Keep this generalized:
+    // if four values are present, map EO/GA/PAI/PCO; if only three values are
+    // present, use EO/GA/PCO and default PAI to EO.
     const slash = /(?:CGL|GL|General\s+Liability|Commercial\s+General\s+Liability)[^\n$]{0,120}?\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)(?:[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?))?/i.exec(src);
     if (slash) {
       const arr = [slash[1], slash[2], slash[3], slash[4]].map(toDisplay);
       if (fieldName === 'gl_each_occurrence' && arr[0]) return arr[0];
       if (fieldName === 'gl_general_aggregate' && arr[1]) return arr[1];
-      if (fieldName === 'gl_products_ops_aggregate' && arr[2]) return arr[2];
-      if (fieldName === 'gl_personal_adv_injury' && (arr[3] || arr[0])) return arr[3] || arr[0];
+      if (fieldName === 'gl_personal_adv_injury' && (arr[2] || arr[0])) return arr[2] || arr[0];
+      if (fieldName === 'gl_products_ops_aggregate' && (arr[3] || arr[2])) return arr[3] || arr[2];
     }
 
-    // v8.7.12 natural-language table rows, e.g. "$1,000,000 Each Occurrence"
+    // v8.7.13 natural-language table rows, e.g. "$1,000,000 Each Occurrence"
     // or "Each Occurrence $1,000,000".  This avoids taking the next row's
     // aggregate value when the amount appears before the label.
     const nearPatterns = {
@@ -1694,7 +1698,7 @@
           .map(m => ({ raw: m[1], val: asNum(m[1]) }))
           .filter(x => x.val && x.val >= 100000 && x.val <= 10000000);
         if (candidates.length) {
-          // v8.7.12: PCO aggregate OCR windows can include adjacent $1M PAI/EO
+          // v8.7.13: PCO aggregate OCR windows can include adjacent $1M PAI/EO
           // values. Use the highest credible limit in that local PCO window.
           const chosen = fieldName === 'gl_products_ops_aggregate'
             ? candidates.sort((a,b) => b.val - a.val)[0]
@@ -3742,7 +3746,7 @@
     const reasons = [];
 
     // ---- Extract the STRUCTURED class signal ----
-    // v8.7.12 source-authority: the actual GL quote/ACORD class schedule wins
+    // v8.7.13 source-authority: the actual GL quote/ACORD class schedule wins
     // over a weak/generated Class Code Expert paragraph. This prevents a stray
     // valid code elsewhere in a large packet from becoming the controlling
     // Layer Type reason.
@@ -3972,7 +3976,7 @@
     } catch (e) {
       familyReason = 'tower read failed (' + (e && e.message) + ') — defaulted to Lead';
     }
-    // v8.7.12: If A15 did not assemble a tower, do not stop there. File
+    // v8.7.13: If A15 did not assemble a tower, do not stop there. File
     // Manager tags and quote-page adapters can still identify a lead umbrella
     // sitting under our requested layer. That signal should drive Excess.
     try {
@@ -4052,7 +4056,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.12-layer-tower-final',
+    version: 'v8.7.13-gl-sublimit-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
