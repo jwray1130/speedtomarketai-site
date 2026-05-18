@@ -674,9 +674,9 @@
   // FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14
   // ─── Applicant identity gate ──────────────────────────────────────────
   // Some platform-side extractions on multi-applicant submissions pull
-  // data from the wrong ACORD. Concrete example: SUB-MP1ZXZ3E (Anahuac
+  // data from the wrong ACORD. Concrete example: unrelated-submission fixture (Anahuac
   // Infrastructure LLC) has a gl_quote module whose text refers to
-  // "Carroll County Coop, Inc." — a completely unrelated entity that
+  // "Example Named Insured, Inc." — a completely unrelated entity that
   // appeared in the same submission packet.
   //
   // Reading any field from a module that doesn't match the submission's
@@ -727,7 +727,7 @@
     }
     // FIX-PHASE-7.1-ACORD-VERBATIM-INSURED-FALLBACK-2026-05-14
     // (Phase 8 hardening: the v7.1 pattern only matched company-name and
-    // street-address ON THE SAME LINE — overfit to Carroll County's
+    // street-address ON THE SAME LINE — overfit to test account's
     // specific ACORD layout. Real ACORDs also place the name on line 1
     // and the address on line 2, use Title-Case not ALL-CAPS, and have
     // DBA lines. We now try three layouts in priority order.)
@@ -739,18 +739,18 @@
     const suffixGroup = '(?:INC|LLC|L\\.L\\.C|CORP|CORPORATION|CO|COMPANY|COOP|CO-OP|COOPERATIVE|LP|LLP|LTD|PLLC|PC|PA)';
 
     // Layout 1: company name + street address on the SAME line
-    //   "CARROLL COUNTY COOP, INC   505 E. Stuart Dr.   Hillsville VA"
+    //   "EXAMPLE NAMED INSURED, INC   123 Example St.   Sample City VA"
     const sameLineRe = new RegExp(
       '([A-Z][A-Za-z0-9&.,\'\\- ]{2,60}?(?:,?\\s*' + suffixGroup + ')\\b\\.?)\\s+\\d{1,6}\\s+[A-Z][A-Za-z0-9.\\- ]',
       'g'
     );
     // Layout 2: company name on its own line, address on the NEXT line
-    //   "Carroll County Coop, Inc.\n505 E. Stuart Dr., Hillsville VA 24343"
+    //   "Example Named Insured, Inc.\n123 Example St., Sample City VA 00000"
     const twoLineRe = new RegExp(
       '(?:^|\\n)\\s*([A-Z][A-Za-z0-9&.,\'\\- ]{2,60}?(?:,?\\s*' + suffixGroup + ')\\b\\.?)\\s*\\n\\s*\\d{1,6}\\s+[A-Za-z]',
       'gi'
     );
-    // Layout 3: DBA — "ABC Holdings LLC dba Carroll County Coop" → take
+    // Layout 3: DBA — "ABC Holdings LLC dba Example Named Insured" → take
     // the dba operating name (what appears on the policy as the insured)
     const dbaRe = /\bd\/?b\/?a\.?\s+([A-Z][A-Za-z0-9&.,'\- ]{2,60}?)(?:\n|,|$)/i;
 
@@ -806,7 +806,7 @@
   }
 
   // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16
-  // The real paid run (SUB-MP94Y8F5) exposed this: the excess module's
+  // The real paid run (test submission) exposed this: the excess module's
   // extracted "insured" was the literal phrase "Not stated on the
   // provided quote pages" (broker quote pages routinely omit the named
   // insured). The cross-applicant guard fed that phrase into
@@ -837,7 +837,7 @@
   // Cross-applicant verdict that distinguishes the three cases. Returns
   // 'match' | 'mismatch' | 'unverifiable'. The guards use this so a
   // silent-on-insured document is extracted under review, while a
-  // genuinely different insured (Anahuac vs Carroll) is still blocked.
+  // genuinely different insured (unrelated insured mismatch) is still blocked.
   function applicantVerdict(extractedName, submissionAccountName) {
     if (isInsuredNotStated(extractedName)) return 'unverifiable';
     const m = applicantsMatch(extractedName, submissionAccountName);
@@ -1091,7 +1091,7 @@
     // usable prose, but the workbench only filled fields that resolved
     // through the older coverage/deal-info paths. These resolver entries
     // are intentionally module-specific and are backed by adapter parsers
-    // below, so the existing SUB-MP94Y8F5 extraction can be repaired
+    // below, so the existing test submission extraction can be repaired
     // without a full paid rerun.
     iso_class_code:             ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
     iso_description:            ['classcode:json', 'classcode', 'gl_quote:json', 'gl_quote', 'summary-ops'],
@@ -1574,7 +1574,7 @@
     if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
     m = /\b([A-Z][A-Za-z& .'-]{2,80}\s+(?:Insurance\s+Company|Indemnity\s+Company|Casualty\s+Company|Mutual\s+Insurance\s+Company))\b/i.exec(clean);
     if (m && !bad.test(m[1])) return m[1].trim().replace(/\s{2,}/g, ' ');
-    // Brand + issuing company pattern, e.g. CHUBB / Penn Millers.
+    // Brand + issuing company pattern, e.g. CHUBB / Example Insurance.
     m = /\b(Penn\s+Millers\s+Insurance\s+Company)\b/i.exec(clean)
      || /\b(Steadfast\s+Insurance\s+Company)\b/i.exec(clean)
      || /\b(Zurich\s+American\s+Insurance\s+Company)\b/i.exec(clean);
@@ -1586,11 +1586,6 @@
   // Do NOT use package total premium or full Business Auto premium for primary GL/AL.
   // GL should use the Commercial General Liability line item. AL should use the
   // Business Auto LIABILITY line item only, excluding physical damage and APD charges.
-  function premiumLineToDisplay89(v) {
-    const n = moneyToNumberFor85(v);
-    return n == null ? null : n.toLocaleString('en-US');
-  }
-
   function premiumLineToDisplay89(v) {
     const n = moneyToNumberFor85(v);
     return n == null ? null : n.toLocaleString('en-US');
@@ -2007,7 +2002,7 @@
       const isGL = moduleKey === 'gl_quote';
       // Anchor carrier to a real "- Carrier:" line. The broader old
       // regex captured section headings like "Carrier & Administrative:"
-      // and returned "& Administrative:" as the carrier on SUB-MP94Y8F5.
+      // and returned "& Administrative:" as the carrier on test submission.
       const carrier = /^\s*[-*•]?\s*Carrier\s*:\s*(?!&)([^\n]+)/im.exec(clean);
       const period = /(?:Policy\s+)?Period\s*:?\s*([0-9\/\-.]+)\s*(?:[-–—]|to|through|thru)\s*([0-9\/\-.]+)/i.exec(clean);
       if ((fieldName === 'gl_carrier' && isGL) || (fieldName === 'al_carrier' && !isGL)) {
@@ -2785,7 +2780,7 @@
       const stated = extractNamedInsured(text);
       // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16: block only a
       // genuinely DIFFERENT insured. "Not stated"/"(unknown)" on quote
-      // pages → unverifiable → allow tower under review (SUB-MP94Y8F5
+      // pages → unverifiable → allow tower under review (test submission
       // root cause). Anahuac wrong-applicant → still 'mismatch' → blocked.
       if (stated && applicantVerdict(stated, accountName) === 'mismatch') {
         console.warn(
@@ -3249,7 +3244,7 @@
     // submission's account. Without (b) the recommender would fire a
     // "produce the underlying GL/Auto policy" subjectivity off a quote
     // that actually belongs to a DIFFERENT insured (the Anahuac /
-    // Carroll County contamination case) — every other phase already
+    // test account contamination case) — every other phase already
     // honors this gate; the subjectivity recommender now does too.
     const ex = (submission.snapshot && submission.snapshot.extractions)
             || submission.extractions || {};
@@ -3509,7 +3504,7 @@
   // FIX-PHASE-GO-LIVE-80-LAYER-TYPE-DECISION-ENGINE-2026-05-16
   // Layer Type is the master UI gate: until #layerType is set, Limits &
   // Premiums, Forms, and rating sections render empty-state. The real
-  // paid run (SUB-MP94Y8F5) proved the prior crude logic
+  // paid run (test submission) proved the prior crude logic
   // (hasLead ? 'Lead Other' : 'Excess Other', only if a tower assembled)
   // left it blank → whole workbench locked. This engine implements the
   // underwriter's exact spec:
@@ -3548,7 +3543,7 @@
   }
 
   // FIX-PHASE-GO-LIVE-80B-CONTAMINATION-GUARD-2026-05-16
-  // The offline proof against real SUB-MP94Y8F5 data caught this engine
+  // The offline proof against real test submission data caught this engine
   // misclassifying a fertilizer CO-OP as a construction contractor,
   // because the `subcontract` module text is 100% the EXCLUDED Anahuac
   // bridge-construction questionnaire (wrong applicant — every other
@@ -3696,21 +3691,66 @@
     };
   }
 
-  function detectedUnderlyingLeadQuote(submission, towerInfo) {
+  // v8.7.10 — make Lead-vs-Excess position explicit.
+  // The test account fixture has a Lead $2M umbrella UNDER Zurich/Steadfast,
+  // so our layer is Excess. Do not read every uploaded "Lead" quote this way:
+  // if a future submission is asking us to write that lead layer itself, the
+  // engine should remain Lead unless an underlying/under-us/tower signal exists.
+  function detectLeadQuotePosition8709(submission, towerInfo) {
+    const out = { underlyingLead: false, requestedLead: false, ambiguousLead: false, reasons: [] };
     try {
       const files = (submission && submission.snapshot && submission.snapshot.files) || [];
-      if (Array.isArray(files) && files.some(f => {
-        const joined = [f.primaryTag, f.tag, f.subType, f.layerRole, f.classification].concat(f.sectionTags || []).concat((f.classifications || []).map(c => c && (c.tag || c.subType || c.type))).join(' ');
-        return /Lead\s+\$|Lead\s+Umbrella|Lead\s+Excess|\blead\b/i.test(joined) && /QUOTE|UNDERLYING|excess/i.test(joined + ' ' + (f.name || ''));
-      })) return true;
+      if (Array.isArray(files)) {
+        files.forEach(f => {
+          const classBits = [f.primaryTag, f.tag, f.subType, f.layerRole, f.classification, f.category, f.routedTo]
+            .concat(f.sectionTags || [])
+            .concat((f.classifications || []).map(c => c && (c.tag || c.subType || c.type || c.primaryTag)))
+            .join(' ');
+          const nameBits = [f.name, f.fileName, f.filename, f.title].join(' ');
+          const joined = (classBits + ' ' + nameBits).replace(/_/g, ' ');
+          const hasLead = /Lead\s+\$|Lead\s+Umbrella|Lead\s+Excess|\blead\b/i.test(joined);
+          if (!hasLead) return;
+          const explicitUnderlying = /UNDERLYING|underlying|under\s+us|beneath|below|QUOTES\s+UNDERLYING|schedule\s+of\s+underlying/i.test(joined);
+          const explicitOurLead = /our\s+lead|requested\s+lead|target\s+lead|quote\s+lead\s+layer|write\s+the\s+lead|writing\s+the\s+lead/i.test(joined);
+          if (explicitUnderlying) {
+            out.underlyingLead = true;
+            out.reasons.push('file metadata identifies a Lead quote as underlying/beneath our layer');
+          } else if (explicitOurLead) {
+            out.requestedLead = true;
+            out.reasons.push('file metadata indicates the requested layer is the Lead quote itself');
+          } else {
+            out.ambiguousLead = true;
+            out.reasons.push('Lead quote detected without explicit under-us vs requested-layer context');
+          }
+        });
+      }
+
       const ex = (submission && submission.snapshot && submission.snapshot.extractions) || (submission && submission.extractions) || {};
-      const blob = ['tower','excess'].map(k => ex[k] && ex[k].text || '').join('\n');
-      if (/Lead\s+Umbrella|Lead\s+Excess|Lead\s+\$\s*[0-9]/i.test(blob) && /\$?\s*[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?\s*xs\s*\$?\s*[0-9]+/i.test(blob)) return true;
+      const blob = ['tower','excess'].map(k => (ex[k] && (ex[k].text || ex[k].output || ex[k].content || ex[k].result)) || '').join('\n');
+      if (/Lead\s+Umbrella|Lead\s+Excess|Lead\s+\$\s*[0-9]/i.test(blob)) {
+        const hasLayerShape = /\$?\s*[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?\s*(?:xs|x\s*s|excess\s+of|over)\s*\$?\s*[0-9]+/i.test(blob);
+        if (/underlying|schedule\s+of\s+underlying|under\s+us|beneath|below/i.test(blob) || hasLayerShape) {
+          out.underlyingLead = true;
+          out.reasons.push('tower/excess extraction identifies the Lead quote as an underlying layer');
+        } else {
+          out.ambiguousLead = true;
+          out.reasons.push('tower/excess extraction mentions a Lead quote without requested-position context');
+        }
+      }
+
       if (towerInfo && Array.isArray(towerInfo.rungs)) {
-        return towerInfo.rungs.some(r => r && r.kind === 'lead' && r.status !== '????' && (r.limit > 0 || /Lead/i.test(r.label || '')));
+        const leadRung = towerInfo.rungs.find(r => r && r.kind === 'lead' && r.status !== '????' && (r.limit > 0 || /Lead/i.test(r.label || '')));
+        if (leadRung) {
+          out.underlyingLead = true;
+          out.reasons.push('assembled tower contains a resolved lead/umbrella rung below our requested layer');
+        }
       }
     } catch (_) {}
-    return false;
+    return out;
+  }
+
+  function detectedUnderlyingLeadQuote(submission, towerInfo) {
+    return !!detectLeadQuotePosition8709(submission, towerInfo).underlyingLead;
   }
 
   function decideLayerType(submission) {
@@ -3724,24 +3764,26 @@
         towerInfo = tw;
         if (tw && !tw.blocked && Array.isArray(tw.rungs) && tw.rungs.length) {
           // "Excess detected beneath us" = a resolved underlying
-          // excess/umbrella layer attaches at/above primary but BELOW
-          // our position. The lead rung (statedAttachment 0 /
-          // schedulesPrimary) is the underlying program itself; if the
-          // ONLY rung(s) are that lead umbrella with nothing stacked
-          // above it, WE are the next layer → Lead. If there is a
-          // resolved excess rung above the lead (something already sits
-          // between primary and our attachment), → Excess.
+          // excess/umbrella layer, including a Lead $2M umbrella when the
+          // file/tower marks it as UNDER us. If the uploaded Lead quote is
+          // explicitly the layer we are being asked to write, stay Lead.
           const resolved = tw.rungs.filter(r => r.status !== '????');
           const hasExcessBeneath = resolved.some(r => r.kind === 'excess');
-          const hasUnderlyingLeadQuote = detectedUnderlyingLeadQuote(submission, tw);
-          if (hasExcessBeneath || hasUnderlyingLeadQuote) {
+          const leadPosition = detectLeadQuotePosition8709(submission, tw);
+          if (hasExcessBeneath || leadPosition.underlyingLead) {
             family = 'excess';
-            familyReason = hasUnderlyingLeadQuote
-              ? 'lead umbrella / lead excess quote detected beneath our layer → Excess'
+            familyReason = leadPosition.underlyingLead
+              ? 'lead umbrella / lead excess quote is identified as UNDER our requested layer → Excess'
               : 'resolved excess/umbrella layer(s) detected beneath our attachment → Excess';
+            if (leadPosition.reasons && leadPosition.reasons.length) familyReason += ' (' + leadPosition.reasons[0] + ')';
           } else {
             family = 'lead';
-            familyReason = 'tower shows only primary coverages beneath us → we are the lead excess layer';
+            familyReason = leadPosition.requestedLead
+              ? 'requested layer is identified as the uploaded Lead quote itself → Lead'
+              : 'no resolved excess/umbrella layer beneath our attachment → Lead';
+            if (leadPosition.ambiguousLead) {
+              familyReason += ' (Lead quote present but not marked under-us; confirm requested position)';
+            }
           }
         }
       }
@@ -3808,13 +3850,14 @@
     parseTowerDocuments,
     buildTowerFromExcessModule,
     buildTowerView,
+    detectLeadQuotePosition8709,
     recommendSubjectivities,
     recommendForms,
     assessWorkflowReadiness,
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.08-route-context-final',
+    version: 'v8.7.10-no-test-fixture-hardening',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

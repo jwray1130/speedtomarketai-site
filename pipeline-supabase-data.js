@@ -1682,7 +1682,7 @@ async function sbDeleteAllDocumentPages() {
 //   v8.6.8: changed child error path from "throw" to "log and continue"
 //           so parent delete still runs after child error. BUT: still
 //           awaited the explicit child DELETE first, which timed out at ~10s
-//           on submissions with many pages (Carroll County: 223 pages).
+//           on submissions with many pages (test account: 223 pages).
 //           User waiting 10s before parent delete starts → tab close /
 //           navigation → parent never runs → row stays in cloud.
 //   v8.6.9: don't issue the client-side document_pages DELETE at all.

@@ -2658,7 +2658,7 @@ window.initDocumentsView = function() {
   // ════════════════════════════════════════════════════════════════════
   // v8.6: PER-PAGE TAG RESOLUTION FOR COMBINED PDFs
   //
-  // For combined PDFs (e.g. Carroll Co Pkg App = ACORD 125 + ACORD 126 +
+  // For combined PDFs (e.g. combined package app = ACORD 125 + ACORD 126 +
   // ACORD 131), pctx.sectionClassifications contains per-section tags +
   // section_hint page ranges. _resolvePerPageTag finds which section a
   // given page belongs to and returns its tag if the page is the section's
@@ -2799,7 +2799,7 @@ window.initDocumentsView = function() {
       //
       // v8.6.2: SECTION-START TAGGING (was: FIRST-PAGE-ONLY).
       // Previously color/tagged were only set when (pageNumber === 1).
-      // That broke combined PDFs: page 5 of Carroll Co Pkg App is the
+      // That broke combined PDFs: page 5 of combined package app is the
       // start of ACORD 126 and SHOULD count as a tagged page (so it
       // appears in Tagged Pages, gets exported, etc.) — but the old
       // logic only tagged literal page 1.
@@ -5213,7 +5213,7 @@ window.initDocumentsView = function() {
           primaryBucket: (ctx && ctx.primaryBucket) || null,
           submissionId: (ctx && ctx.submissionId) || null,
           // v8.6.7 (per GPT external audit): CRITICAL — pipe per-section
-          // classifications through to addDoc so combined PDFs (Carroll
+          // classifications through to addDoc so combined PDFs (combined package
           // Co Pkg App with ACORD 125 + 126 + 131) get a different chip
           // on each section's first page. The pipeline builds this array
           // in ingestCtx; if we don't carry it here, _resolvePerPageTag

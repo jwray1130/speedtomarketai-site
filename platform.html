@@ -29,7 +29,7 @@
   // uploads. Without this, dropping an .eml within the first ~500ms of
   // page load (before the ESM CDN responds) silently falls back to the
   // legacy text-only parseEml path — which doesn't extract attachments.
-  // Carroll County and other .eml-with-attachments demos would lose every
+  // test account and other .eml-with-attachments demos would lose every
   // attached PDF. Race window is small but real, especially on slow
   // corp networks. Keeping the import non-blocking (DOMContentLoaded
   // still fires snappy) but exposing the promise so consumers can await

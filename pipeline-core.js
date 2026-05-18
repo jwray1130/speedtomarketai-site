@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.08-route-context-final-2026-05-17';
+window.STM_BUILD = 'v8.7.10-no-test-fixture-hardening-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2197,7 +2197,7 @@ async function handleFiles(fileList) {
   //
   // Adaptive cap: if batch is "normal demo size" (≤8 files AND ≤75 MB
   // total bytes), keep full parallelism. Above that, cap at min(4,
-  // hardwareConcurrency-1). Justin's typical demo (Carroll County is 5
+  // hardwareConcurrency-1). Justin's typical demo (test account is 5
   // files / ~10 MB) stays full-parallel. A defensive cap kicks in only
   // when needed, and it adapts to the user's machine.
   //
@@ -3020,7 +3020,7 @@ function deriveBroker() {
   // The previous regex /\*{0,2}Broker\*{0,2}\s*:?\s*([^\n]+)/i matched
   // ANY occurrence of "Broker" in supplemental.text — including inside
   // mid-sentence phrases like "Insurance Broker; retained indefinitely"
-  // (from a COIs context block on Anahuac SUB-MP1ZXZ3E). That captured
+  // (from a COIs context block on Anahuac unrelated-submission fixture). That captured
   // "; retained indefinitely" as the broker name and persisted it to
   // the submissions.broker column.
   //
@@ -6805,13 +6805,17 @@ function navigateSystem8706(target) {
   if (target === 'submission' || target === 'pipeline') {
     if (typeof switchView === 'function') switchView('submission');
     if (typeof showStage === 'function') showStage('pipe');
-    history.replaceState(null, '', '/platform#submission');
+    const sid = getActiveSubmissionId8706();
+    const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
+    history.replaceState(null, '', '/platform' + suffix + '#submission');
     return;
   }
   if (target === 'documents' || target === 'filemanager' || target === 'files') {
     if (typeof switchView === 'function') switchView('submission');
     if (typeof showStage === 'function') showStage('docs', { fastNav: true });
-    history.replaceState(null, '', '/platform#documents');
+    const sid = getActiveSubmissionId8706();
+    const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
+    history.replaceState(null, '', '/platform' + suffix + '#documents');
     return;
   }
   if (target === 'admin') {

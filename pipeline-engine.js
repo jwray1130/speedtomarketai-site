@@ -1522,7 +1522,7 @@ async function rerunModules(moduleIds) {
   // On a rerun, the account_name is already known from the prior pipeline
   // run — that's exactly what we want for per-applicant isolation in the
   // re-run extractions (especially gl_quote, which on Anahuac previously
-  // contaminated with Carroll County Coop data).
+  // contaminated with Example Named Insured data).
   const pipelineContext = (function () {
     const sid = STATE.activeSubmissionId;
     if (!sid || !Array.isArray(STATE.submissions)) return { account_name: null };
@@ -4548,8 +4548,8 @@ window.substitutePromptVars = substitutePromptVars;
 // FIX-PHASE-6.1-TWO-PASS-APPLICANT-GATE-2026-05-14
 // ============================================================================
 // Phase 6's per-applicant isolation preamble proved insufficient on its own —
-// empirical test on SUB-MP1ZXZ3E showed the LLM ignored the filter and
-// extracted Carroll County data despite being instructed to refuse. The
+// empirical test on unrelated-submission fixture showed the LLM ignored the filter and
+// extracted test account data despite being instructed to refuse. The
 // failure mode: a long template-completion task dominates over a short
 // filtering preamble; the LLM treats template completion as primary and
 // the preamble as background context, not a hard gate.
@@ -4593,7 +4593,7 @@ Look for labels like:
 
 Output ONLY a valid JSON array of strings — the named insureds as they appear in the documents (preserve "LLC", "Inc.", etc.). Examples:
   ["Anahuac Infrastructure LLC"]
-  ["Carroll County Coop, Inc.", "Acme Subsidiary LLC"]
+  ["Example Named Insured, Inc.", "Acme Subsidiary LLC"]
   []
 
 Rules:
@@ -5495,7 +5495,7 @@ async function runPipeline() {
   // file", but the classifier already burned API tokens AND wave-2/3
   // modules then run on whatever extractions are present (or none).
   //
-  // The historical cost of this bug: 3 separate Carroll County test runs
+  // The historical cost of this bug: 3 separate test account test runs
   // where 5 of 6 files routed nowhere (APPLICATIONS / LOSS_HISTORY /
   // UNDERLYING bucket names didn't match lowercase ROUTING keys). Each
   // run cost real Anthropic API spend. The pipeline reported "complete"
@@ -5602,7 +5602,7 @@ async function runPipeline() {
   // will be null and per-applicant isolation degrades gracefully — the
   // prompt preambles substitute "(unknown)" and proceed without filtering.
   // For re-runs of submissions with a previously-derived account name
-  // (like SUB-MP1ZXZ3E / Anahuac), account_name is known BEFORE Wave 1
+  // (like unrelated-submission fixture / Anahuac), account_name is known BEFORE Wave 1
   // starts, so gl_quote / al_quote / excess / losses get per-applicant
   // filtering from turn 1 of the re-run.
   const pipelineContext = (function () {

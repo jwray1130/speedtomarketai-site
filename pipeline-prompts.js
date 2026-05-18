@@ -275,7 +275,7 @@ TAGS YOU MUST NEVER EMIT — RULE 8
 The classifier output's "type" field MUST come from the finite tag list.
 NEVER emit any of the following as a tag:
 
-  • Filenames or filename fragments (e.g., "Carroll County Package App",
+  • Filenames or filename fragments (e.g., "test account Package App",
     "carrier_send", "submission_packet")
   • Generic words ("Document", "Form", "Page", "Application", "Quote",
     "Proposal" without a layer context)
@@ -904,7 +904,7 @@ This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT ex
 **Primary GL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Policy Period: [dates]
@@ -978,7 +978,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Primary AL Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1050,7 +1050,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employers Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [WC policy form / state]
 - Period: [dates]
@@ -1094,7 +1094,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Employee Benefits Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1133,7 +1133,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Aircraft Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1165,7 +1165,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Garage Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1197,7 +1197,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Liquor Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [form]
 - Period: [dates]
@@ -1236,7 +1236,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign General Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]
@@ -1269,7 +1269,7 @@ Do NOT extract from non-matching documents even if they are the only documents a
 **Foreign Auto Liability Summary**
 
 **Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Penn Millers/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
+- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Insurance/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
 - AM Best: [rating]
 - Form: [foreign/international form]
 - Period: [dates]

@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.08-route-context-final-2026-05-17';
+window.STM_BUILD = 'v8.7.10-no-test-fixture-hardening-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -31,22 +31,29 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btn) btn.setAttribute('aria-expanded', 'false');
         });
     }
+    function platformRouteForWorkbench8709(target, suffix) {
+        if (target === 'submission' || target === 'pipeline') return '/platform' + suffix + '#submission';
+        if (target === 'documents' || target === 'filemanager' || target === 'files') return '/platform' + suffix + '#documents';
+        if (target === 'queue') return '/platform#queue';
+        if (target === 'admin') return '/platform#admin';
+        return '';
+    }
     function navigateSystem8706(target) {
         target = String(target || '').toLowerCase();
         closeUniversalSystemNav8706();
         const sid = getWorkbenchSubmissionId8706();
         const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
         if (target === 'workbench') return;
-        if (target === 'queue')      { window.location.href = '/platform#queue'; return; }
+        if (target === 'queue')      { window.location.href = platformRouteForWorkbench8709(target, suffix); return; }
         // v8.7.08: preserve the active submission when jumping back from
         // Workbench to the Platform Submission or File Manager surfaces.  In
         // v8.7.06/v8.7.07 the suffix was computed but never used, so a fresh
         // /platform load could open File Manager with no active submission
         // context and show all documents or a blank pipeline until the user
         // manually selected the row again.
-        if (target === 'submission' || target === 'pipeline') { window.location.href = '/platform' + suffix + '#submission'; return; }
-        if (target === 'documents' || target === 'filemanager' || target === 'files') { window.location.href = '/platform' + suffix + '#documents'; return; }
-        if (target === 'admin')      { window.location.href = '/platform#admin'; return; }
+        if (target === 'submission' || target === 'pipeline') { window.location.href = platformRouteForWorkbench8709(target, suffix); return; }
+        if (target === 'documents' || target === 'filemanager' || target === 'files') { window.location.href = platformRouteForWorkbench8709(target, suffix); return; }
+        if (target === 'admin')      { window.location.href = platformRouteForWorkbench8709(target, suffix); return; }
     }
     function wireUniversalSystemNav8706() {
         document.querySelectorAll('[data-system-nav]').forEach(nav => {
@@ -601,7 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Layer Type is the master UI gate. Prior versions used a
             // crude hasLead?'Lead Other':'Excess Other' that left the
             // field BLANK whenever no tower assembled → whole workbench
-            // locked (this is what the real paid run SUB-MP94Y8F5
+            // locked (this is what the real paid run test submission
             // exposed). v8.6.80 replaces it with the proven
             // WorkbenchRules.decideLayerType engine:
             //   • mechanical Lead/Excess from the real tower
@@ -2384,7 +2391,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         // v8.6.88 — visible Limits & Premiums Lead Excess card hydrator.
-        // v8.6.87 proved the data layer was healthy (Penn Millers, $2M xs $1M,
+        // v8.6.87 proved the data layer was healthy (Example Insurance, $2M xs $1M,
         // $35,019 premium) but the user-facing Lead Excess card was still blank
         // because the static template had no resolver-bound writer. This pass
         // writes the underlying lead umbrella into the visible card without any
@@ -2454,7 +2461,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carrierLayerCb && !carrierLayerCb.checked) {
                 // Do not dispatch the existing change handler here: that handler
                 // treats checked carrier layers as our paper and would overwrite
-                // Penn Millers with Steadfast. This card represents the underlying
+                // Example Insurance with Steadfast. This card represents the underlying
                 // carrier lead umbrella, so we mark the checkbox and reveal options.
                 carrierLayerCb.checked = true;
             }
