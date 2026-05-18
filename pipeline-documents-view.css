@@ -1561,6 +1561,23 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
 }
 
+/* v8.7.10 — light-mode card lift.  On the white Document Library the cards
+   read as stark white-on-white separated only by a hairline border.  Give
+   the resting state a soft elevation built ONLY from the existing on-theme
+   navy shadow tokens (rgba(10,37,64,*) — derived from --text #0A2540), so it
+   stays in the user's color theme and adds nothing new.  Scoped to light
+   mode; dark mode already has enough surface contrast and is left untouched.
+   Hover/active lift proportionally so the interaction still reads. */
+html[data-theme="light"] #docs-view-root .cat-card {
+  box-shadow: var(--shadow-sm);
+}
+html[data-theme="light"] #docs-view-root .cat-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+html[data-theme="light"] #docs-view-root .cat-card.active {
+  box-shadow: 0 0 0 1px var(--signal-tint), var(--shadow);
+}
+
 #docs-view-root .cat-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
