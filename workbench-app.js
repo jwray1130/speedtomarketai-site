@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.19-loss-rebind-final-2026-05-18';
+window.STM_BUILD = 'v8.7.20-loss-year-map-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2189,7 +2189,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // older flat gl_paid/gl_incurred keys. Rebuild rows from nested
                 // metrics when the flat parse produced all-zero rows even though the
                 // structured JSON contains real coverage totals.
-                function deepMetric8718(root, coverageRe, metricRe) {
+                function deepMetric8720(root, coverageRe, metricRe) {
                     let found = null;
                     const seen = new WeakSet();
                     function walk(x, path, depth) {
@@ -2205,40 +2205,70 @@ document.addEventListener('DOMContentLoaded', () => {
                     walk(root, [], 0);
                     return found;
                 }
-                function directOrNested8718(py, directKeys, coverageRe, metricRe) {
+                function metricFromObj8720(o, metricNames) {
+                    if (!o || typeof o !== 'object') return null;
+                    for (const k of metricNames) if (o[k] != null) return o[k];
+                    const names = metricNames.map(m => String(m).replace(/[^a-z0-9]/gi, '').toLowerCase());
+                    for (const [k, v] of Object.entries(o)) {
+                        const nk = String(k || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+                        if (names.includes(nk)) return v;
+                    }
+                    for (const [k, v] of Object.entries(o)) {
+                        const kk = String(k || '').toLowerCase();
+                        if (metricNames.some(m => kk.includes(String(m).toLowerCase().replace(/_/g, ' ')))) return v;
+                    }
+                    return null;
+                }
+                function coverageObj8720(py, aliases) {
+                    if (!py || typeof py !== 'object') return null;
+                    for (const a of aliases) if (py[a] && typeof py[a] === 'object') return py[a];
+                    const names = aliases.map(a => String(a).replace(/[^a-z0-9]/gi, '').toLowerCase());
+                    for (const [k, v] of Object.entries(py)) {
+                        if (!v || typeof v !== 'object') continue;
+                        const nk = String(k || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+                        if (names.includes(nk)) return v;
+                    }
+                    return null;
+                }
+                function directOrNested8720(py, directKeys, coverageAliases, metricNames, coverageRe, metricRe) {
                     for (const k of directKeys) if (py && py[k] != null) return py[k];
-                    const v = deepMetric8718(py, coverageRe, metricRe);
+                    const cov = coverageObj8720(py, coverageAliases);
+                    const mv = metricFromObj8720(cov, metricNames);
+                    if (mv != null) return mv;
+                    const v = deepMetric8720(py, coverageRe, metricRe);
                     return v == null ? 0 : v;
                 }
-                function hasMoney8718(rows) {
+                function hasMoney8720(rows) {
                     return (rows || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || Number(String(r.claims || '0').replace(/[^0-9.-]/g,'')));
                 }
-                if (!hasMoney8718(rows.gl) || !hasMoney8718(rows.auto)) {
+                if (!hasMoney8720(rows.gl) || !hasMoney8720(rows.auto)) {
                     const rebuilt = { gl: [], auto: [] };
+                    const glAliases = ['gl','cgl','general_liability','generalLiability','commercial_general_liability','commercialGeneralLiability','general liability'];
+                    const alAliases = ['al','auto','auto_liability','autoLiability','automobile','automobile_liability','automobileLiability','business_auto','businessAuto'];
                     years.forEach(py => {
                         const period = normPeriod(py.policy_year || py.period || py.year);
                         if (!period) return;
                         rebuilt.gl.push({
                             period,
-                            claims: String(directOrNested8718(py, ['gl_claims','gl_count','general_liability_claims','generalLiabilityClaims'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /claim|count|number/i) || '0'),
+                            claims: String(directOrNested8720(py, ['gl_claims','gl_count','general_liability_claims','generalLiabilityClaims','general_liability_count','generalLiabilityCount'], glAliases, ['claims','claim_count','claimCount','count','number_of_claims','numberOfClaims'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /claim|count|number/i) || '0'),
                             exposure: '',
-                            paid: moneyFmt(directOrNested8718(py, ['gl_paid','general_liability_paid','paid_gl','generalLiabilityPaid'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /paid/i)),
-                            reserve: moneyFmt(directOrNested8718(py, ['gl_reserve','general_liability_reserve','reserve_gl','generalLiabilityReserve'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /reserve|outstanding/i)),
-                            incurred: moneyFmt(directOrNested8718(py, ['gl_incurred','general_liability_incurred','incurred_gl','generalLiabilityIncurred'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /incurred|total/i)),
+                            paid: moneyFmt(directOrNested8720(py, ['gl_paid','general_liability_paid','paid_gl','generalLiabilityPaid'], glAliases, ['paid','paid_losses','paidLosses','total_paid','totalPaid'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /paid/i)),
+                            reserve: moneyFmt(directOrNested8720(py, ['gl_reserve','general_liability_reserve','reserve_gl','generalLiabilityReserve','gl_outstanding'], glAliases, ['reserve','reserves','outstanding','case_reserve','caseReserve'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /reserve|outstanding/i)),
+                            incurred: moneyFmt(directOrNested8720(py, ['gl_incurred','general_liability_incurred','incurred_gl','generalLiabilityIncurred'], glAliases, ['incurred','total_incurred','totalIncurred','total'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /incurred|total/i)),
                             valuation: obj.valuation_date || py.valuation_date || ''
                         });
                         rebuilt.auto.push({
                             period,
-                            claims: String(directOrNested8718(py, ['al_claims','auto_claims','automobile_claims','autoLiabilityClaims'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /claim|count|number/i) || '0'),
+                            claims: String(directOrNested8720(py, ['al_claims','auto_claims','automobile_claims','autoLiabilityClaims','auto_liability_claims'], alAliases, ['claims','claim_count','claimCount','count','number_of_claims','numberOfClaims'], /\b(al|auto|automobile|auto[_\s-]*liability|business[_\s-]*auto)\b/i, /claim|count|number/i) || '0'),
                             exposure: '',
-                            paid: moneyFmt(directOrNested8718(py, ['al_paid','auto_paid','automobile_paid','paid_al','autoLiabilityPaid'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /paid/i)),
-                            reserve: moneyFmt(directOrNested8718(py, ['al_reserve','auto_reserve','automobile_reserve','reserve_al','autoLiabilityReserve'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /reserve|outstanding/i)),
-                            incurred: moneyFmt(directOrNested8718(py, ['al_incurred','auto_incurred','automobile_incurred','incurred_al','autoLiabilityIncurred'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /incurred|total/i)),
+                            paid: moneyFmt(directOrNested8720(py, ['al_paid','auto_paid','automobile_paid','paid_al','autoLiabilityPaid','auto_liability_paid'], alAliases, ['paid','paid_losses','paidLosses','total_paid','totalPaid'], /\b(al|auto|automobile|auto[_\s-]*liability|business[_\s-]*auto)\b/i, /paid/i)),
+                            reserve: moneyFmt(directOrNested8720(py, ['al_reserve','auto_reserve','automobile_reserve','reserve_al','autoLiabilityReserve','auto_liability_reserve'], alAliases, ['reserve','reserves','outstanding','case_reserve','caseReserve'], /\b(al|auto|automobile|auto[_\s-]*liability|business[_\s-]*auto)\b/i, /reserve|outstanding/i)),
+                            incurred: moneyFmt(directOrNested8720(py, ['al_incurred','auto_incurred','automobile_incurred','incurred_al','autoLiabilityIncurred','auto_liability_incurred'], alAliases, ['incurred','total_incurred','totalIncurred','total'], /\b(al|auto|automobile|auto[_\s-]*liability|business[_\s-]*auto)\b/i, /incurred|total/i)),
                             valuation: obj.valuation_date || py.valuation_date || ''
                         });
                     });
-                    if (hasMoney8718(rebuilt.gl)) rows.gl = rebuilt.gl;
-                    if (hasMoney8718(rebuilt.auto)) rows.auto = rebuilt.auto;
+                    if (hasMoney8720(rebuilt.gl)) rows.gl = rebuilt.gl;
+                    if (hasMoney8720(rebuilt.auto)) rows.auto = rebuilt.auto;
                 }
                 rows.gl = fillMissingYears98(rows.gl, 8);
                 rows.auto = fillMissingYears98(rows.auto, 8);
@@ -2326,7 +2356,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 while (wrap.querySelectorAll('.loss-row').length < needed && addBtn && guard++ < 10) addBtn.click();
                 return Array.from(wrap.querySelectorAll('.loss-row'));
             }
-            // v8.7.19: archived snapshots can reopen with the "No losses" checkbox
+            // v8.7.20: archived snapshots can reopen with the "No losses" checkbox
             // still checked or with dynamic loss rows reset after hydration.  If the
             // structured A11 JSON has non-zero year values, silently uncheck the box
             // before painting; do NOT dispatch its onchange handler because that
@@ -2341,17 +2371,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 const noLossChk = document.getElementById(noLossChkId);
                 if (noLossChk && hasNonZeroLoss8719(rows)) {
                     noLossChk.checked = false;
-                    noLossChk.dataset.uncheckedBy = 'v8.7.19-loss-rebind-final';
+                    noLossChk.dataset.uncheckedBy = 'v8.7.20-loss-year-map-final';
                 }
-                const domRows = ensureLossRows98(rowsId, rows.length);
+                const rowsByPeriod8720 = new Map();
+                rows.forEach(r => {
+                    const p = normPeriod(r.period || r.policy_year || r.year || '');
+                    if (p) rowsByPeriod8720.set(p, r);
+                });
+                const domRows = ensureLossRows98(rowsId, Math.max(rows.length, rowsByPeriod8720.size));
                 let count = 0;
-                rows.slice(0, domRows.length).forEach((r, i) => {
-                    const row = domRows[i];
+                const periodFromSelect8720 = (sel) => {
+                    const y = parseInt(sel && sel.value, 10);
+                    if (!Number.isFinite(y)) return '';
+                    return String(y).slice(2) + '-' + String(y + 1).slice(2);
+                };
+                domRows.forEach((row, i) => {
                     const inputs = row.querySelectorAll('input');
                     const sel = row.querySelector('select.policy-select');
+                    const currentPeriod = periodFromSelect8720(sel);
+                    let r = rowsByPeriod8720.get(currentPeriod);
+                    if (!r && rows[i]) r = rows[i];
+                    if (!r) return;
                     const y = String(r.period || '').match(/(\d{2})\s*-\s*(\d{2})/);
-                    if (sel && y) { sel.value = String(2000 + parseInt(y[1], 10)); sel.dispatchEvent(new Event('change', { bubbles:true })); }
-                    const writeLossInput8719 = (idx, val, isMoney) => {
+                    if (sel && y && !currentPeriod) sel.value = String(2000 + parseInt(y[1], 10));
+                    const writeLossInput8720 = (idx, val, isMoney) => {
                         const el = inputs[idx];
                         if (!el) return false;
                         el.value = val == null ? '' : String(val);
@@ -2361,16 +2404,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         el.dispatchEvent(new Event('input', { bubbles:true }));
                         el.dispatchEvent(new Event('change', { bubbles:true }));
                         el.classList.add('autofilled-from-platform');
-                        el.dataset.lossRebind = 'v8.7.19';
+                        el.dataset.lossRebind = 'v8.7.20';
                         return true;
                     };
-                    writeLossInput8719(0, r.exposure || '', true);
-                    writeLossInput8719(1, r.claims || '0', false);
-                    writeLossInput8719(2, r.paid || '0', true);
-                    writeLossInput8719(3, r.reserve || '0', true);
-                    writeLossInput8719(4, r.incurred || '0', true);
-                    if (r.valuation) writeLossInput8719(5, r.valuation, false);
-                    row.dataset.lossRebind = 'v8.7.19';
+                    writeLossInput8720(0, r.exposure || '', true);
+                    writeLossInput8720(1, r.claims || '0', false);
+                    writeLossInput8720(2, r.paid || '0', true);
+                    writeLossInput8720(3, r.reserve || '0', true);
+                    writeLossInput8720(4, r.incurred || '0', true);
+                    if (r.valuation) writeLossInput8720(5, r.valuation, false);
+                    row.dataset.lossRebind = 'v8.7.20';
+                    row.dataset.lossPeriodKey = r.period || currentPeriod || '';
                     count++;
                 });
                 return count;
@@ -2401,23 +2445,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const glLarge = fillLarge98('glLargeLossRows', 'addGlLargeLoss', parsed.largeGl);
             const auLarge = fillLarge98('autoLargeLossRows', 'addAutoLargeLoss', parsed.largeAuto);
             try {
-                window.workbenchLastLossRebind8719 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
+                window.workbenchLastLossRebind8720 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
             } catch (_) {}
-            console.log('[workbench] v8.7.19 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
+            console.log('[workbench] v8.7.20 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
         }
-        // v8.7.19: public no-cost rebind hook for archived snapshots and tab re-entry.
+        // v8.7.20: public no-cost rebind hook for archived snapshots and tab re-entry.
         // This lets audits and the UI repaint visible loss year rows from structured
         // A11 JSON without rerunning any paid pipeline step.
-        window.workbenchRebindLossesV8719 = function workbenchRebindLossesV8719() {
+        window.workbenchRebindLossesV8720 = function workbenchRebindLossesV8720() {
             if (!window.workbenchActiveSubmission) return null;
             try {
                 applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
-                return window.workbenchLastLossRebind8719 || { ok: true };
+                return window.workbenchLastLossRebind8720 || { ok: true };
             } catch (e) {
-                console.warn('[workbench] v8.7.19 loss rebind failed:', e && e.message);
+                console.warn('[workbench] v8.7.20 loss rebind failed:', e && e.message);
                 return { ok: false, error: e && e.message };
             }
         };
+        window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8720;
 
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -3049,12 +3094,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 || (key === 'page' && fullWidthPages.includes(activePanelId));
 
             container.classList.toggle('full-width', shouldBeFullWidth);
-            // v8.7.19: loss rows are dynamic and can be reset by tab/card hydration.
+            // v8.7.20: loss rows are dynamic and can be reset by tab/card hydration.
             // Repaint from structured A11 JSON whenever the Loss History tab is
             // activated, without any paid/API calls.
             if (key === 'risk' && activePanelId === 'loss') {
-                setTimeout(() => { try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {} }, 75);
-                setTimeout(() => { try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {} }, 450);
+                setTimeout(() => { try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {} }, 75);
+                setTimeout(() => { try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {} }, 450);
             }
         };
 
@@ -5127,7 +5172,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // structured A11 JSON cannot appear as all-zero visible year rows on
         // archived snapshots or fresh runs.
         [900, 1600, 2600].forEach(ms => setTimeout(() => {
-            try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {}
+            try { window.workbenchRebindLossesV8720 && window.workbenchRebindLossesV8720(); } catch (_) {}
         }, ms));
 
         /* ============================================================
