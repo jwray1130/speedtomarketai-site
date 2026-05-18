@@ -222,6 +222,10 @@
       // Capture line that contains a well-known broker token.
       { re: /(?:^|\n)\s*((?:AmWINS|CRC|Burns\s*(?:&|and)\s*Wilcox|RT\s+Specialty|Brown\s*(?:&|and)\s*Brown|Hull\s+(?:&|and)\s+Co)[^\n]*)(?:\n|$)/i, conf: 0.75 }
     ],
+    requested_limit: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Requested|Requested\s+Limit|Target\s+Limit|Our\s+Limit|Limit)\**\s*:?\s*\**\s*\$?\s*([0-9][0-9,\.]*\s*(?:million|thousand|m|mm|k)?)/im, conf: 0.85 }
+    ],
+
     // layer_type: Phase 11 classifier reads schedule of underlying; no
     // pattern-based extraction is reliable enough to ship.
 
@@ -260,6 +264,11 @@
     // LABEL_PATTERNS[fieldName], so with fieldName='policy_expiration'
     // and module descriptors 'gl_quote'/'al_quote' it extracts the
     // stated term from the quote text before any +1yr compute fallback.
+    policy_effective: [
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Effective\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Inception\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Period\**\s*:\s*\**\s*([\d\/\-\.]+)\s*(?:[-–—]|to\b|thru\b|through\b)\s*[\d\/\-\.]+/im, conf: 0.85 }
+    ],
     policy_expiration: [
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Policy\s+)?Expiration\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Expiry\s+Date\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.75 },
@@ -924,7 +933,7 @@
   const SOURCE_AUTHORITY = {
     // ─── Deal Information ───
     insured_name:        ['submission.account_name'],
-    policy_effective:    ['submission.effective_date'],
+    policy_effective:    ['submission.effective_date', 'gl_quote', 'al_quote', 'excess', 'tower', 'supplemental'],
     policy_expiration:   [
       // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
       // Per the stated rule: policy term must be pulled from the GL/AL
@@ -992,8 +1001,8 @@
     // workbench blank. Carrier and premium stay GL-quote-only unless
     // explicitly stated elsewhere.
     gl_carrier:                 ['gl_quote:json', 'gl_quote', 'excess', 'tower'],
-    gl_effective_date:          ['gl_quote:json', 'gl_quote', 'submission.effective_date'],
-    gl_expiration_date:         ['gl_quote:json', 'gl_quote', 'submission.expiration_date', 'al_quote'],
+    gl_effective_date:          ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'submission.effective_date'],
+    gl_expiration_date:         ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'submission.expiration_date', 'al_quote'],
     gl_each_occurrence:         ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
     gl_general_aggregate:       ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
     gl_products_ops_aggregate:  ['gl_quote:json', 'gl_quote', 'excess', 'tower', 'supplemental', 'summary-ops'],
@@ -1006,8 +1015,8 @@
     // comes ONLY from the al_quote module. No fallbacks. The #details-al
     // panel is 5 fields: carrier, eff, exp, CSL, premium (no split limits).
     al_carrier:                 ['al_quote:json', 'al_quote', 'excess', 'tower'],
-    al_effective_date:          ['al_quote:json', 'al_quote'],
-    al_expiration_date:         ['al_quote:json', 'al_quote'],
+    al_effective_date:          ['al_quote:json', 'al_quote', 'gl_quote', 'excess', 'tower', 'supplemental'],
+    al_expiration_date:         ['al_quote:json', 'al_quote', 'gl_quote', 'excess', 'tower', 'supplemental'],
     al_combined_single_limit:   ['al_quote:json', 'al_quote'],
     al_premium:                 ['al_quote:json', 'al_quote'],
 
@@ -1133,7 +1142,7 @@
     underlying_lead_carrier:    ['excess', 'tower', 'excess:json', 'tower:json'],
     underlying_lead_premium:    ['excess', 'tower', 'excess:json', 'tower:json'],
     tower_role:                 ['excess', 'tower', 'excess:json', 'tower:json'],
-    requested_limit:            ['excess', 'tower', 'excess:json', 'tower:json'],
+    requested_limit:            ['submission.requested_limit', 'submission.requested', 'submission.requestedLimit', 'submission.limit', 'excess', 'tower', 'excess:json', 'tower:json'],
     attachment_point:           ['excess', 'tower', 'excess:json', 'tower:json']
   };
 
@@ -4408,7 +4417,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.22-loss-flat-lob-final',
+    version: 'v8.7.23-applicant-gate-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.22-loss-flat-lob-final-2026-05-18';
+window.STM_BUILD = 'v8.7.23-applicant-gate-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -1,3 +1,4 @@
+// v8.7.23-applicant-gate-final - structural applicant gate hardening
 // v8.7.00-prompt-orchestration-clean: visible-output cleanup; A11 archive logic retained.
 // ============================================================================
 // pipeline.js — Altitude / Speed to Market AI
@@ -575,7 +576,7 @@ const MODULES = {
   // WAVE 2 — synthesize Summary of Ops from intake extractions + Excess Tower viz.
   // Email intel is an OPTIONAL dep: if present, its claims are used to fill gaps
   // the supplemental/website/docs leave open — never to override authoritative sources.
-  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel'], inputsFrom: 'extractions', model: 'claude-opus-4-7' },
+  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-7' },
   tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-7' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
   guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
@@ -4587,7 +4588,15 @@ const APPLICANT_GATED_MODULES = new Set([
   'vendor',
   'safety',
   'excess',
-  'losses'
+  'losses',
+  // v8.7.23 - downstream narrative modules are also structurally tagged
+  // so audits and exports can see whether they depended on gated inputs.
+  'summary-ops',
+  'guidelines',
+  'exposure',
+  'strengths',
+  'classcode',
+  'tower'
 ]);
 
 const PRECHECK_PROMPT = `You are an identity-detection step in an insurance submission pipeline. Read the document content below. Identify every named insured / company entity that is explicitly stated as the subject of any document.
@@ -4704,6 +4713,17 @@ function localApplicantGate8718(moduleId, userContent, context) {
   const detected = detectNamedInsuredsLocal8718(userContent, moduleId);
   if (!detected.length) return null;
   const matches = detected.filter(n => _gateInsuredMatches(n, context.account_name));
+  const nonMatches = detected.filter(n => !_gateInsuredMatches(n, context.account_name));
+  // v8.7.23 - support-doc modules are zero-tolerance for wrong named insureds.
+  // If a Safety/Supp/Sub/Vendor packet includes a foreign insured, refuse or
+  // quarantine it even when the prompt/header also mentions the submission account.
+  // This prevents mixed Anahuac/Carroll style payloads from contaminating
+  // Summary, Guidelines, Exposure and Strengths.
+  const strictSupportDoc = /^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId);
+  if (strictSupportDoc && nonMatches.length) {
+    console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
+    return { proceed: false, reason: 'local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8723' } } };
+  }
   if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
   console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
   return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
@@ -4767,10 +4787,9 @@ function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
     vendor: 'vendor agreement'
   };
   const title = moduleTitles[moduleId] || moduleId;
-  const refs = (detectedInsureds && detectedInsureds.length)
-    ? detectedInsureds.join(', ')
-    : 'unknown';
-  return '**No matching ' + title + ' found for this insured (documents reference: ' + refs + ').**';
+  const hasRefs = detectedInsureds && detectedInsureds.length;
+  return '**No matching ' + title + ' found for this insured.**' +
+    (hasRefs ? ' Applicant gate refused one or more source documents whose named insured did not match the submission account.' : ' Applicant gate could not confirm a matching named insured.');
 }
 
 // Expose for console / extension debugging
@@ -4909,6 +4928,61 @@ function parseLossStructuredForArchive98(text) {
   return null;
 }
 
+
+// v8.7.23 - after Wave 1 derives a submission account for a first-run packet,
+// quarantine already-produced support-doc extractions that clearly belong to a
+// different insured. Wave 1 often runs before account_name is known, so the
+// pre-LLM gate cannot always fire. This structural post-pass protects the
+// Summary/Guidelines/Exposure/Strengths wave from contaminated support docs.
+function applyPostExtractionApplicantGate8723(accountName) {
+  if (!accountName || !STATE || !STATE.extractions) return { checked: 0, refused: 0 };
+  const mods = ['safety','subcontract','supplemental','vendor'];
+  let checked = 0, refused = 0;
+  mods.forEach(function(mid) {
+    const ex = STATE.extractions[mid];
+    if (!ex || ex.rejected || ex.excluded) return;
+    checked += 1;
+    const raw = String(ex.text || ex.output || ex.content || '');
+    const detected = detectNamedInsuredsLocal8718(raw, mid);
+    if (!detected.length) {
+      ex.applicantGate = ex.applicantGate || 'no_insured_detected_post_wave_v8723';
+      ex.applicantGateReason = ex.applicantGateReason || 'no_insured_detected_post_wave_v8723';
+      return;
+    }
+    const matches = detected.filter(function(n){ return _gateInsuredMatches(n, accountName); });
+    const nonMatches = detected.filter(function(n){ return !_gateInsuredMatches(n, accountName); });
+    if (nonMatches.length) {
+      refused += 1;
+      const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
+      ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
+      ex.text = diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
+      ex.confidence = 0;
+      ex.mode = 'gated';
+      ex.applicantGate = 'mismatch';
+      ex.applicantGateReason = 'post_wave_local_mismatch_v8723';
+      ex.applicant_match = 'mismatch';
+      ex.rejected = true;
+      ex.refused = true;
+      ex.excluded = true;
+      ex.detectedInsureds = nonMatches;
+      ex.matchedInsureds = matches;
+      ex.submissionInsured = accountName;
+      ex.gateDetails = { proceed: false, reason: 'post_wave_local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
+      logAudit('Pipeline', 'Applicant-gated ' + (MODULES[mid] ? MODULES[mid].code : mid) + ' after account context refresh · refused (' + nonMatches.join(', ') + ')', 'LOCAL REFUSED v8.7.23');
+    } else {
+      ex.applicantGate = ex.applicantGate || 'matched';
+      ex.applicantGateReason = ex.applicantGateReason || 'post_wave_local_matched_v8723';
+      ex.applicant_match = ex.applicant_match || 'matched';
+      ex.detectedInsureds = ex.detectedInsureds || detected;
+      ex.matchedInsureds = ex.matchedInsureds || matches;
+      ex.submissionInsured = ex.submissionInsured || accountName;
+      ex.gateDetails = ex.gateDetails || { proceed: true, reason: 'post_wave_local_matched_v8723', matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
+    }
+  });
+  return { checked: checked, refused: refused };
+}
+window.applyPostExtractionApplicantGate8723 = applyPostExtractionApplicantGate8723;
+
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
@@ -4938,9 +5012,18 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
         sourceInfo: sourceInfo,
         usage: gateUsage,
         cost: cost,
-        applicantGate: {
+        applicantGate: 'mismatch',
+        applicantGateReason: gateResult.reason || 'no_match',
+        applicant_match: 'mismatch',
+        rejected: true,
+        refused: true,
+        excluded: true,
+        detectedInsureds: gateResult.detectedInsureds || [],
+        matchedInsureds: gateResult.matchedInsureds || [],
+        submissionInsured: (context && context.account_name) || null,
+        gateDetails: {
           proceed: false,
-          reason: 'no_match',
+          reason: gateResult.reason || 'no_match',
           detectedInsureds: gateResult.detectedInsureds,
           submissionInsured: (context && context.account_name) || null
         }
@@ -5014,7 +5097,19 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       cost: cost,
       retry_attempt: result.retry_attempt || 0,
       fallback: !!result.fallback,
-      stop_reason: result.stop_reason || null
+      stop_reason: result.stop_reason || null,
+      // v8.7.23 - expose applicant-gate state structurally even when
+      // the module is allowed to proceed. Audits/downstream exporters no
+      // longer need to scrape prose to determine whether an applicant check ran.
+      applicantGate: (gateResult && gateResult.reason) || 'not_checked',
+      applicantGateReason: (gateResult && gateResult.reason) || 'not_checked',
+      applicant_match: (gateResult && (gateResult.matchedInsureds || []).length) ? 'matched' : ((gateResult && gateResult.reason) || 'not_checked'),
+      rejected: false,
+      refused: false,
+      excluded: false,
+      detectedInsureds: (gateResult && (gateResult.allDetected || (gateResult.precheck && gateResult.precheck.detected) || [])) || [],
+      matchedInsureds: (gateResult && gateResult.matchedInsureds) || [],
+      gateDetails: gateResult || null
     };
     if (moduleId === 'losses') {
       try {
@@ -5738,6 +5833,14 @@ async function runPipeline() {
     if (derivedName) {
       pipelineContext.account_name = derivedName;
       console.log('[pipeline] Phase 6 context refreshed from supplemental:', derivedName);
+    }
+  }
+  // v8.7.23 - now that the account can be known on a fresh first run,
+  // structurally quarantine wrong-insured support docs before Summary/Tower.
+  if (pipelineContext.account_name && typeof applyPostExtractionApplicantGate8723 === 'function') {
+    const gatePost8723 = applyPostExtractionApplicantGate8723(pipelineContext.account_name);
+    if (gatePost8723 && gatePost8723.refused) {
+      console.warn('[pipeline] v8.7.23 post-wave applicant gate refused', gatePost8723.refused, 'support extraction(s)');
     }
   }
 
