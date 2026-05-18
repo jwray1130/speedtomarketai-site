@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.16-ux-guard-final-2026-05-18';
+window.STM_BUILD = 'v8.7.17-exposure-resolver-align-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -1242,6 +1242,30 @@
     } catch (e) { return null; }
   }
 
+
+  function visibleGlRaterExposureAmount8717() {
+    // v8.7.17: align resolver exposure_amount with the visible Underwriting
+    // Risk Profile binding. The UI sync intentionally sums the GL Rater rows
+    // rather than relying on a broad raw-page scan, because the broad scan can
+    // accidentally treat quote numbers or schedule/control numbers as exposure
+    // dollars. This reads only the rendered classTerritoryTable rows, ignores
+    // starter/default rows, and sums rows with valid code + positive exposure.
+    try {
+      if (typeof document === 'undefined') return null;
+      const tbl = document.getElementById('classTerritoryTable');
+      if (!tbl) return null;
+      let total = 0;
+      Array.from(tbl.querySelectorAll('tbody tr')).forEach(tr => {
+        const code = String(tr.querySelector('[data-f="code"]')?.value || '').trim();
+        if (!/^\d{4,5}$/.test(code) || code === '91580') return;
+        const raw = String(tr.querySelector('[data-f="exposures"]')?.value || '').trim();
+        const n = moneyToNumberFor85(raw);
+        if (n && n > 0) total += n;
+      });
+      return total > 0 ? total : null;
+    } catch (_) { return null; }
+  }
+
   function resolveDerivedRiskProfile8716(fieldName, submission) {
     if (!/^(iso_class_code|iso_description|exposure_amount|exposure_basis)$/.test(String(fieldName || ''))) return null;
     try {
@@ -1256,8 +1280,20 @@
       if (fieldName === 'iso_description' && primary.desc) {
         return { value: primary.desc, source: 'derived:gl_class_schedule_v8716', tier: 2, confidence: 0.90, reason: 'class_description_from_reference_table' };
       }
-      if (fieldName === 'exposure_amount' && total > 0) {
-        return { value: Math.round(total).toLocaleString('en-US'), source: 'derived:gl_class_schedule_sum_v8716', tier: 2, confidence: 0.88, reason: 'sum_of_authoritative_gl_class_exposures' };
+      if (fieldName === 'exposure_amount') {
+        const visibleTotal8717 = visibleGlRaterExposureAmount8717();
+        if (visibleTotal8717 && visibleTotal8717 > 0) {
+          return { value: Math.round(visibleTotal8717).toLocaleString('en-US'), source: 'derived:gl_rater_visible_sum_v8717', tier: 2, confidence: 0.92, reason: 'sum_of_visible_gl_rater_exposure_rows_matches_underwriting_tab' };
+        }
+        // Fallback for pre-render / non-DOM consumers. Guard against raw quote
+        // scan outliers caused by quote/control numbers by using a conservative
+        // plausible-account cap per row and total. Values above this are left
+        // to the visible GL Rater path or direct supplemental fields.
+        const plausibleRows8717 = rows.filter(r => Number(r.exposure) > 0 && Number(r.exposure) <= 250000000);
+        const fallbackTotal8717 = plausibleRows8717.reduce((sum, r) => sum + (Number(r.exposure) || 0), 0);
+        if (fallbackTotal8717 > 0 && fallbackTotal8717 <= 500000000) {
+          return { value: Math.round(fallbackTotal8717).toLocaleString('en-US'), source: 'derived:gl_class_schedule_sum_v8717', tier: 2, confidence: 0.84, reason: 'sum_of_authoritative_gl_class_exposures_outlier_guarded' };
+        }
       }
       if (fieldName === 'exposure_basis') {
         const ref = primary.code && lookupGlClassCode(primary.code);
@@ -4251,7 +4287,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.16-ux-guard-final',
+    version: 'v8.7.17-exposure-resolver-align',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
