@@ -4408,7 +4408,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.18-canary-fix-final',
+    version: 'v8.7.19-loss-rebind-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

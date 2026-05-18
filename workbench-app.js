@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.18-canary-fix-final-2026-05-18';
+window.STM_BUILD = 'v8.7.19-loss-rebind-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2326,8 +2326,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 while (wrap.querySelectorAll('.loss-row').length < needed && addBtn && guard++ < 10) addBtn.click();
                 return Array.from(wrap.querySelectorAll('.loss-row'));
             }
+            // v8.7.19: archived snapshots can reopen with the "No losses" checkbox
+            // still checked or with dynamic loss rows reset after hydration.  If the
+            // structured A11 JSON has non-zero year values, silently uncheck the box
+            // before painting; do NOT dispatch its onchange handler because that
+            // handler blanks/zeros rows when unchecked.  Then write values directly
+            // to the current row template and format currency inputs.
+            const hasNonZeroLoss8719 = (rows) => (rows || []).some(r =>
+                n85(r.claims) || n85(r.paid) || n85(r.reserve) || n85(r.incurred)
+            );
             const fill = (rowsId, rows) => {
                 if (!rows || !rows.length) return 0;
+                const noLossChkId = rowsId === 'glLossRows' ? 'noLossesGlChk' : 'noLossesAutoChk';
+                const noLossChk = document.getElementById(noLossChkId);
+                if (noLossChk && hasNonZeroLoss8719(rows)) {
+                    noLossChk.checked = false;
+                    noLossChk.dataset.uncheckedBy = 'v8.7.19-loss-rebind-final';
+                }
                 const domRows = ensureLossRows98(rowsId, rows.length);
                 let count = 0;
                 rows.slice(0, domRows.length).forEach((r, i) => {
@@ -2335,13 +2350,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     const inputs = row.querySelectorAll('input');
                     const sel = row.querySelector('select.policy-select');
                     const y = String(r.period || '').match(/(\d{2})\s*-\s*(\d{2})/);
-                    if (sel && y) sel.value = String(2000 + parseInt(y[1], 10));
-                    if (inputs[1]) set85(inputs[1], r.claims || '0');
-                    if (inputs[0]) set85(inputs[0], r.exposure || '');
-                    if (inputs[2]) set85(inputs[2], r.paid || '0');
-                    if (inputs[3]) set85(inputs[3], r.reserve || '0');
-                    if (inputs[4]) set85(inputs[4], r.incurred || '0');
-                    if (inputs[5] && r.valuation) set85(inputs[5], r.valuation);
+                    if (sel && y) { sel.value = String(2000 + parseInt(y[1], 10)); sel.dispatchEvent(new Event('change', { bubbles:true })); }
+                    const writeLossInput8719 = (idx, val, isMoney) => {
+                        const el = inputs[idx];
+                        if (!el) return false;
+                        el.value = val == null ? '' : String(val);
+                        if (isMoney && el.classList.contains('currency-input')) {
+                            try { formatCurrency(el); } catch (_) {}
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles:true }));
+                        el.dispatchEvent(new Event('change', { bubbles:true }));
+                        el.classList.add('autofilled-from-platform');
+                        el.dataset.lossRebind = 'v8.7.19';
+                        return true;
+                    };
+                    writeLossInput8719(0, r.exposure || '', true);
+                    writeLossInput8719(1, r.claims || '0', false);
+                    writeLossInput8719(2, r.paid || '0', true);
+                    writeLossInput8719(3, r.reserve || '0', true);
+                    writeLossInput8719(4, r.incurred || '0', true);
+                    if (r.valuation) writeLossInput8719(5, r.valuation, false);
+                    row.dataset.lossRebind = 'v8.7.19';
                     count++;
                 });
                 return count;
@@ -2371,8 +2400,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const au = fill('autoLossRows', parsed.auto);
             const glLarge = fillLarge98('glLargeLossRows', 'addGlLargeLoss', parsed.largeGl);
             const auLarge = fillLarge98('autoLargeLossRows', 'addAutoLargeLoss', parsed.largeAuto);
-            console.log('[workbench] v8.6.98 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
+            try {
+                window.workbenchLastLossRebind8719 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
+            } catch (_) {}
+            console.log('[workbench] v8.7.19 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
         }
+        // v8.7.19: public no-cost rebind hook for archived snapshots and tab re-entry.
+        // This lets audits and the UI repaint visible loss year rows from structured
+        // A11 JSON without rerunning any paid pipeline step.
+        window.workbenchRebindLossesV8719 = function workbenchRebindLossesV8719() {
+            if (!window.workbenchActiveSubmission) return null;
+            try {
+                applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
+                return window.workbenchLastLossRebind8719 || { ok: true };
+            } catch (e) {
+                console.warn('[workbench] v8.7.19 loss rebind failed:', e && e.message);
+                return { ok: false, error: e && e.message };
+            }
+        };
 
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -3004,6 +3049,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 || (key === 'page' && fullWidthPages.includes(activePanelId));
 
             container.classList.toggle('full-width', shouldBeFullWidth);
+            // v8.7.19: loss rows are dynamic and can be reset by tab/card hydration.
+            // Repaint from structured A11 JSON whenever the Loss History tab is
+            // activated, without any paid/API calls.
+            if (key === 'risk' && activePanelId === 'loss') {
+                setTimeout(() => { try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {} }, 75);
+                setTimeout(() => { try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {} }, 450);
+            }
         };
 
         // Wire click + keyboard arrow navigation for each tablist
@@ -5070,11 +5122,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setupInternalRater();
         setTimeout(() => { if (window.workbenchActiveSubmission) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
-        // v8.7.18: loss year rows are dynamic and can be reset by late tab/card
-        // initialization. Repaint just the loss history after the rest of the
-        // Workbench settles so structured A11 JSON cannot appear as all-zero
-        // visible year rows.
-        setTimeout(() => { try { if (window.workbenchActiveSubmission) applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission); } catch (_) {} }, 1400);
+        // v8.7.19: loss year rows are dynamic and can be reset by late tab/card
+        // initialization. Repaint repeatedly after the Workbench settles so
+        // structured A11 JSON cannot appear as all-zero visible year rows on
+        // archived snapshots or fresh runs.
+        [900, 1600, 2600].forEach(ms => setTimeout(() => {
+            try { window.workbenchRebindLossesV8719 && window.workbenchRebindLossesV8719(); } catch (_) {}
+        }, ms));
 
         /* ============================================================
            PHASE 18 — FORMS & ENDORSEMENTS
