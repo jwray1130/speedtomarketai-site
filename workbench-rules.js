@@ -1630,34 +1630,78 @@
 
   function quoteGlLimitByLabel8711(clean, fieldName) {
     const src = String(clean || '').replace(/\u00a0/g, ' ');
+    const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
     const labels = {
       gl_each_occurrence: [/Each\s+Occurrence(?:\s+Limit)?(?:\s*\(\s*Bodily\s+Injury.*?\))?/i, /Each\s+Occurrence\s+Limit/i],
       gl_general_aggregate: [/General\s+Aggregate(?:\s+Limit)?/i],
-      gl_products_ops_aggregate: [/Products?\s*\/?\s*(?:Completed|Comp)\s*Operations?\s*Aggregate/i, /Products?\s*\/?\s*Comp\s*Ops\s*Agg/i],
+      gl_products_ops_aggregate: [/Products?\s*\/?\s*(?:Completed|Comp(?:leted)?|Comp)\s*(?:Operations?|Ops?)\s*(?:Aggregate|Agg)?/i, /Products?\s*\/?\s*Comp\s*Ops\s*Agg/i],
       gl_personal_adv_injury: [/Personal\s*(?:&|and)\s*Advertising\s*Injury/i, /Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury/i]
     }[fieldName] || [];
-    const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const money = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/i;
-    function toDisplay(v) { return displayMoney85(v); }
+    const money = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/ig;
+    const toDisplay = (v) => displayMoney85(v);
+    const asNum = (v) => moneyToNumberFor85(toDisplay(v));
+
+    // v8.7.12: prefer compact GL limit schedules when present. Many carrier
+    // quote pages express GL as $1M/$2M/$2M/$1M (EO/GA/PCO/PAI). This is a
+    // better source for Products/Completed Operations than a noisy OCR line.
+    const slash = /(?:CGL|GL|General\s+Liability|Commercial\s+General\s+Liability)[^\n$]{0,120}?\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)(?:[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?))?/i.exec(src);
+    if (slash) {
+      const arr = [slash[1], slash[2], slash[3], slash[4]].map(toDisplay);
+      if (fieldName === 'gl_each_occurrence' && arr[0]) return arr[0];
+      if (fieldName === 'gl_general_aggregate' && arr[1]) return arr[1];
+      if (fieldName === 'gl_products_ops_aggregate' && arr[2]) return arr[2];
+      if (fieldName === 'gl_personal_adv_injury' && (arr[3] || arr[0])) return arr[3] || arr[0];
+    }
+
+    // v8.7.12 natural-language table rows, e.g. "$1,000,000 Each Occurrence"
+    // or "Each Occurrence $1,000,000".  This avoids taking the next row's
+    // aggregate value when the amount appears before the label.
+    const nearPatterns = {
+      gl_each_occurrence: [
+        /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)\s*(?:Each\s+Occurrence|Per\s+Occurrence)/i,
+        /(?:Each\s+Occurrence|Per\s+Occurrence)[^$0-9]{0,60}\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i
+      ],
+      gl_general_aggregate: [
+        /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)\s*(?:General\s+Aggregate|Aggregate\s+Limit)/i,
+        /(?:General\s+Aggregate|Aggregate\s+Limit)[^$0-9]{0,60}\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i
+      ],
+      gl_products_ops_aggregate: [
+        /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)\s*Products?\s*\/?\s*(?:Completed|Comp(?:leted)?|Comp)\s*(?:Operations?|Ops?)\s*(?:Aggregate|Agg)?/i,
+        /Products?\s*\/?\s*(?:Completed|Comp(?:leted)?|Comp)\s*(?:Operations?|Ops?)\s*(?:Aggregate|Agg)?[^$0-9]{0,60}\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i
+      ],
+      gl_personal_adv_injury: [
+        /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)\s*Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury/i,
+        /Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury[^$0-9]{0,60}\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i
+      ]
+    }[fieldName] || [];
+    for (const re of nearPatterns) {
+      for (const line of lines) {
+        const m = re.exec(line);
+        if (m) {
+          const v = toDisplay(m[1]);
+          if (v && moneyToNumberFor85(v) >= 100000) return v;
+        }
+      }
+    }
+
     for (const re of labels) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!re.test(line)) continue;
         const windowTxt = [line, lines[i+1] || '', lines[i+2] || ''].join(' ');
-        const after = windowTxt.slice(Math.max(0, windowTxt.search(re)));
-        const m = money.exec(after.replace(re, '')) || money.exec(after);
-        const v = m && toDisplay(m[1]);
-        if (v && moneyToNumberFor85(v) >= 100000) return v;
+        const after = windowTxt.slice(Math.max(0, windowTxt.search(re))).replace(re, ' ');
+        const candidates = Array.from(after.matchAll(money))
+          .map(m => ({ raw: m[1], val: asNum(m[1]) }))
+          .filter(x => x.val && x.val >= 100000 && x.val <= 10000000);
+        if (candidates.length) {
+          // v8.7.12: PCO aggregate OCR windows can include adjacent $1M PAI/EO
+          // values. Use the highest credible limit in that local PCO window.
+          const chosen = fieldName === 'gl_products_ops_aggregate'
+            ? candidates.sort((a,b) => b.val - a.val)[0]
+            : candidates[0];
+          return toDisplay(chosen.raw);
+        }
       }
-    }
-    // Compact slash shorthand, e.g. GL $1M/$2M/$2M/$1M.
-    const slash = /(?:CGL|GL|General\s+Liability)[^\n$]{0,80}?\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)(?:[\s\/]+\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million)?))?/i.exec(src);
-    if (slash) {
-      const arr = [slash[1], slash[2], slash[3], slash[4]].map(toDisplay);
-      if (fieldName === 'gl_each_occurrence') return arr[0];
-      if (fieldName === 'gl_general_aggregate') return arr[1];
-      if (fieldName === 'gl_products_ops_aggregate') return arr[2];
-      if (fieldName === 'gl_personal_adv_injury') return arr[3] || arr[0];
     }
     return null;
   }
@@ -3622,6 +3666,65 @@
     return txt;
   }
 
+
+  function extractAuthoritativeGlClassRows8712(submission) {
+    const out = [];
+    const seen = new Set();
+    const quoteText = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
+    const supplementalText = [
+      _moduleTextIfApplicant(submission, 'gl_quote'),
+      _moduleTextIfApplicant(submission, 'supplemental'),
+      _moduleTextIfApplicant(submission, 'exposure'),
+      _moduleTextIfApplicant(submission, 'summary-ops')
+    ].join('\n');
+    const corpora = [quoteText, supplementalText].filter(Boolean);
+    function add(code, exposure, reason) {
+      if (!code || seen.has(code)) return;
+      const ref = lookupGlClassCode(code);
+      if (!ref || !ref.description) return;
+      if (/^(?:91580|41603)$/.test(code) && !exposure) return;
+      seen.add(code);
+      out.push({ code, desc: ref.description, exposure: exposure || 0, reason });
+    }
+    for (const txt of corpora) {
+      const clean = String(txt || '').replace(/\u00a0/g, ' ');
+      const rows = clean.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      for (const line of rows) {
+        const codes = Array.from(line.matchAll(/\b(\d{5})\b/g)).map(m => m[1]);
+        if (!codes.length) continue;
+        const moneyVals = Array.from(line.matchAll(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/ig))
+          .map(m => moneyToNumberFor85(displayMoney85(m[1])))
+          .filter(n => n && n >= 10000);
+        for (const code of codes) {
+          const ref = lookupGlClassCode(code);
+          if (!ref) continue;
+          const descWords = ref.description.split(/\s+/).slice(0, 3).join('|').replace(/[()]/g, '');
+          const hasDesc = new RegExp(descWords, 'i').test(line);
+          const exposure = moneyVals.length ? Math.max.apply(null, moneyVals) : 0;
+          if (exposure || hasDesc || /fertilizer|feed|grain|hay|hardware|chemical|dealer|distributor|store/i.test(line + ' ' + ref.description)) {
+            add(code, exposure, exposure ? 'GL class schedule row with exposure amount' : 'GL class schedule/code description signal');
+          }
+        }
+      }
+      Array.from(clean.matchAll(/\b(\d{5})\b[\s\S]{0,180}?\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/g))
+        .forEach(m => {
+          const code = m[1];
+          const ref = lookupGlClassCode(code);
+          if (!ref) return;
+          const exposure = moneyToNumberFor85(displayMoney85(m[2]));
+          if (exposure && exposure >= 10000) add(code, exposure, 'flattened GL class schedule exposure signal');
+        });
+    }
+    out.sort((a, b) => {
+      const am = /dealer|distributor|wholesale|store|feed|grain|hay|fertilizer|chemical/i.test(a.desc) ? 1 : 0;
+      const bm = /dealer|distributor|wholesale|store|feed|grain|hay|fertilizer|chemical/i.test(b.desc) ? 1 : 0;
+      if ((b.exposure || 0) !== (a.exposure || 0)) return (b.exposure || 0) - (a.exposure || 0);
+      if (bm !== am) return bm - am;
+      return 0;
+    });
+    return out;
+  }
+
   function _classifyOperationalSubtype(submission) {
     // FIX-PHASE-GO-LIVE-80C-STRUCTURED-CLASS-2026-05-16
     // The offline proof against real data caught a fundamental flaw:
@@ -3639,38 +3742,29 @@
     const reasons = [];
 
     // ---- Extract the STRUCTURED class signal ----
-    // Primary ISO codes: "- **Code NNNNN — Description**"
+    // v8.7.12 source-authority: the actual GL quote/ACORD class schedule wins
+    // over a weak/generated Class Code Expert paragraph. This prevents a stray
+    // valid code elsewhere in a large packet from becoming the controlling
+    // Layer Type reason.
     const codeMatches = [];
-    const codeRe = /\*\*Code\s+(\d{4,5})\s+—\s+([^*]+?)\*\*/g;
-    let cm;
-    while ((cm = codeRe.exec(clsTxt)) !== null) {
-      codeMatches.push({ code: cm[1], desc: cm[2].trim() });
-    }
-    // v8.7.11 source-authority fallback: if the Class Code Expert is missing,
-    // weak, or produced generic AI-only classes, anchor subtype on the actual
-    // GL classification schedule parsed from quote/ACORD page text. This keeps
-    // the Layer Type gate aligned with the GL Exposure Rater.
-    if (!codeMatches.length || !codeMatches.some(c => lookupGlClassCode(c.code))) {
-      try {
-        const qtxt = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
-        const seenCodes = new Set();
-        const found = [];
-        (String(qtxt || '').match(/\b\d{4,5}\b/g) || []).forEach(code => {
-          if (seenCodes.has(code)) return;
-          const ref = lookupGlClassCode(code);
-          if (!ref || !ref.description) return;
-          seenCodes.add(code);
-          // Prefer classes with a nearby large exposure amount; reject policy years,
-          // NAIC codes, form numbers, and starter-row defaults by requiring the code
-          // to be in the stored GL class table.
-          found.push({ code, desc: ref.description });
-        });
-        if (found.length) {
-          codeMatches.length = 0;
-          found.slice(0, 8).forEach(x => codeMatches.push(x));
-          reasons.push('used GL quote/ACORD class schedule because Class Code Expert was missing or weak');
-        }
-      } catch (_) {}
+    try {
+      const scheduleRows = extractAuthoritativeGlClassRows8712(submission);
+      if (scheduleRows.length) {
+        scheduleRows.slice(0, 8).forEach(x => codeMatches.push({ code: x.code, desc: x.desc, exposure: x.exposure }));
+        reasons.push('used GL quote/ACORD class schedule as controlling class source');
+      }
+    } catch (_) {}
+
+    // Secondary fallback: Primary ISO codes emitted by Class Code Expert:
+    // "- **Code NNNNN — Description**". Use only if no authoritative GL
+    // schedule rows were recovered.
+    if (!codeMatches.length) {
+      const codeRe = /\*\*Code\s+(\d{4,5})\s+—\s+([^*]+?)\*\*/g;
+      let cm;
+      while ((cm = codeRe.exec(clsTxt)) !== null) {
+        const ref = lookupGlClassCode(cm[1]);
+        codeMatches.push({ code: cm[1], desc: (ref && ref.description) || cm[2].trim() });
+      }
     }
     // Primary NAICS (the module marks the lead one "(primary)")
     let naicsPrimary = '';
@@ -3768,7 +3862,7 @@
     };
   }
 
-  // v8.7.11 — source-authority hardened Lead-vs-Excess position logic.
+  // v8.7.11/12 — source-authority hardened Lead-vs-Excess position logic.
   // The test account fixture has a Lead $2M umbrella UNDER Zurich/Steadfast,
   // so our layer is Excess. Do not read every uploaded "Lead" quote this way:
   // if a future submission is asking us to write that lead layer itself, the
@@ -3805,8 +3899,13 @@
       const ex = (submission && submission.snapshot && submission.snapshot.extractions) || (submission && submission.extractions) || {};
       const blob = ['tower','excess'].map(k => (ex[k] && (ex[k].text || ex[k].output || ex[k].content || ex[k].result)) || '').join('\n');
       const quoteBlob = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
-      if (/Lead\s+\$\s*[0-9]|Lead\s+Umbrella|Commercial\s+Liability\s+Umbrella|Lead\s+Excess/i.test(quoteBlob)
-          && (/Schedule\s+of\s+Underlying|underlying|Commercial\s+General\s+Liability|Business\s+Auto|\bxs\b|excess\s+of|over/i.test(quoteBlob))) {
+      const parsedTowerRole = (typeof parseUnderlyingLayer85 === 'function')
+        ? parseUnderlyingLayer85(quoteBlob, 'tower_role') : null;
+      const parsedLeadLimit = (typeof parseUnderlyingLayer85 === 'function')
+        ? parseUnderlyingLayer85(quoteBlob, 'underlying_lead_limit') : null;
+      const quoteHasLead = /Lead\s+\$\s*[0-9]|Lead\s+Umbrella|Commercial\s+Liability\s+Umbrella|Lead\s+Excess/i.test(quoteBlob);
+      const quoteHasUnderlyingSchedule = /Schedule\s+of\s+Underlying|underlying|Commercial\s+General\s+Liability|Business\s+Auto|\bxs\b|excess\s+of|over/i.test(quoteBlob);
+      if ((quoteHasLead && quoteHasUnderlyingSchedule) || parsedTowerRole === 'underlying_lead' || parsedLeadLimit) {
         out.underlyingLead = true;
         out.reasons.push('quote page text identifies a lead umbrella/excess layer over scheduled underlying primary policies');
       }
@@ -3873,6 +3972,19 @@
     } catch (e) {
       familyReason = 'tower read failed (' + (e && e.message) + ') — defaulted to Lead';
     }
+    // v8.7.12: If A15 did not assemble a tower, do not stop there. File
+    // Manager tags and quote-page adapters can still identify a lead umbrella
+    // sitting under our requested layer. That signal should drive Excess.
+    try {
+      if (family === 'lead') {
+        const leadPositionNoTower = detectLeadQuotePosition8709(submission, towerInfo);
+        if (leadPositionNoTower && leadPositionNoTower.underlyingLead) {
+          family = 'excess';
+          familyReason = 'lead umbrella / lead excess quote is identified as UNDER our requested layer → Excess'
+            + (leadPositionNoTower.reasons && leadPositionNoTower.reasons.length ? ' (' + leadPositionNoTower.reasons[0] + ')' : '');
+        }
+      }
+    } catch (_) {}
 
     // ---- Axis 2: operational subtype ----
     const cls = _classifyOperationalSubtype(submission);
@@ -3940,7 +4052,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.11-source-authority-final',
+    version: 'v8.7.12-layer-tower-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
