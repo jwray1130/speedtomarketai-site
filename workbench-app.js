@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.17-exposure-resolver-align-2026-05-18';
+window.STM_BUILD = 'v8.7.18-canary-fix-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2184,6 +2184,62 @@ document.addEventListener('DOMContentLoaded', () => {
                         valuation: obj.valuation_date || ''
                     });
                 });
+                // v8.7.18: fresh canary JSON may nest coverage metrics under
+                // objects like policy_years[].general_liability.paid rather than the
+                // older flat gl_paid/gl_incurred keys. Rebuild rows from nested
+                // metrics when the flat parse produced all-zero rows even though the
+                // structured JSON contains real coverage totals.
+                function deepMetric8718(root, coverageRe, metricRe) {
+                    let found = null;
+                    const seen = new WeakSet();
+                    function walk(x, path, depth) {
+                        if (found != null || x == null || depth > 8) return;
+                        if (typeof x !== 'object') {
+                            const p = path.join('.');
+                            if (coverageRe.test(p) && metricRe.test(p)) found = x;
+                            return;
+                        }
+                        if (seen.has(x)) return; seen.add(x);
+                        Object.entries(x).forEach(([k, v]) => walk(v, path.concat(k), depth + 1));
+                    }
+                    walk(root, [], 0);
+                    return found;
+                }
+                function directOrNested8718(py, directKeys, coverageRe, metricRe) {
+                    for (const k of directKeys) if (py && py[k] != null) return py[k];
+                    const v = deepMetric8718(py, coverageRe, metricRe);
+                    return v == null ? 0 : v;
+                }
+                function hasMoney8718(rows) {
+                    return (rows || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || Number(String(r.claims || '0').replace(/[^0-9.-]/g,'')));
+                }
+                if (!hasMoney8718(rows.gl) || !hasMoney8718(rows.auto)) {
+                    const rebuilt = { gl: [], auto: [] };
+                    years.forEach(py => {
+                        const period = normPeriod(py.policy_year || py.period || py.year);
+                        if (!period) return;
+                        rebuilt.gl.push({
+                            period,
+                            claims: String(directOrNested8718(py, ['gl_claims','gl_count','general_liability_claims','generalLiabilityClaims'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /claim|count|number/i) || '0'),
+                            exposure: '',
+                            paid: moneyFmt(directOrNested8718(py, ['gl_paid','general_liability_paid','paid_gl','generalLiabilityPaid'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /paid/i)),
+                            reserve: moneyFmt(directOrNested8718(py, ['gl_reserve','general_liability_reserve','reserve_gl','generalLiabilityReserve'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /reserve|outstanding/i)),
+                            incurred: moneyFmt(directOrNested8718(py, ['gl_incurred','general_liability_incurred','incurred_gl','generalLiabilityIncurred'], /\b(gl|general[_\s-]*liability|commercial[_\s-]*general[_\s-]*liability)\b/i, /incurred|total/i)),
+                            valuation: obj.valuation_date || py.valuation_date || ''
+                        });
+                        rebuilt.auto.push({
+                            period,
+                            claims: String(directOrNested8718(py, ['al_claims','auto_claims','automobile_claims','autoLiabilityClaims'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /claim|count|number/i) || '0'),
+                            exposure: '',
+                            paid: moneyFmt(directOrNested8718(py, ['al_paid','auto_paid','automobile_paid','paid_al','autoLiabilityPaid'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /paid/i)),
+                            reserve: moneyFmt(directOrNested8718(py, ['al_reserve','auto_reserve','automobile_reserve','reserve_al','autoLiabilityReserve'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /reserve|outstanding/i)),
+                            incurred: moneyFmt(directOrNested8718(py, ['al_incurred','auto_incurred','automobile_incurred','incurred_al','autoLiabilityIncurred'], /\b(al|auto|automobile|auto[_\s-]*liability)\b/i, /incurred|total/i)),
+                            valuation: obj.valuation_date || py.valuation_date || ''
+                        });
+                    });
+                    if (hasMoney8718(rebuilt.gl)) rows.gl = rebuilt.gl;
+                    if (hasMoney8718(rebuilt.auto)) rows.auto = rebuilt.auto;
+                }
                 rows.gl = fillMissingYears98(rows.gl, 8);
                 rows.auto = fillMissingYears98(rows.auto, 8);
                 (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
@@ -5014,6 +5070,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setupInternalRater();
         setTimeout(() => { if (window.workbenchActiveSubmission) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
+        // v8.7.18: loss year rows are dynamic and can be reset by late tab/card
+        // initialization. Repaint just the loss history after the rest of the
+        // Workbench settles so structured A11 JSON cannot appear as all-zero
+        // visible year rows.
+        setTimeout(() => { try { if (window.workbenchActiveSubmission) applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission); } catch (_) {} }, 1400);
 
         /* ============================================================
            PHASE 18 — FORMS & ENDORSEMENTS

@@ -1769,6 +1769,121 @@
   }
 
 
+
+  // v8.7.18 - bind GL sublimits to the actual CGL coverage-structure block
+  // before any broad document sweep. The v8.7.15 cross-pair guard fixed an
+  // archived fixture but a fresh canary proved the broad scanner could still
+  // harvest Damage-to-Premises and class-schedule exposure dollars. This helper
+  // uses only explicit coverage/limit blocks, rejects rating/exposure rows, and
+  // returns the four standard CGL limit fields together so class sales cannot be
+  // mistaken for limits.
+  function quoteGlCoverageStructureLimits8718(text) {
+    const src = String(text || '').replace(/\u00a0/g, ' ');
+    if (!src) return null;
+    const anchorRe = /(?:Coverage\s+Structure|Coverage\s+Limits|Commercial\s+General\s+Liability|\bCGL\b|Primary\s+General\s+Liability)/ig;
+    const anchors = [];
+    let am;
+    while ((am = anchorRe.exec(src)) !== null) anchors.push(am.index);
+    if (!anchors.length) anchors.push(0);
+
+    const moneyPat = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/ig;
+    const labelDefs = {
+      gl_each_occurrence: /(?:Each\s+Occurrence|Each\s+Occ\.?|Per\s+Occurrence|Occurrence\s+Limit)\b/i,
+      gl_general_aggregate: /(?:General\s+Aggregate|Gen(?:eral)?\s+Agg(?:regate)?|Aggregate\s+Limit)\b/i,
+      gl_products_ops_aggregate: /(?:Products?\s*\/?\s*(?:Completed|Comp(?:leted)?|Comp)\s*(?:Operations?|Ops?)\s*(?:Aggregate|Agg)?|Prod(?:ucts?)?\s*\/?\s*Comp\s*Ops\s*Agg)\b/i,
+      gl_personal_adv_injury: /(?:Personal\s*(?:&|and)?\s*Adv(?:ertising)?\s*Injury|Personal\s*(?:&|and)\s*Advertising\s*Injury|P\s*&\s*A\s*Injury)\b/i
+    };
+    const fieldOrder = ['gl_each_occurrence','gl_general_aggregate','gl_products_ops_aggregate','gl_personal_adv_injury'];
+    const rejectLine = /Damage\s+to\s+Premises|Premises\s+Rented|Medical\s+Expense|Med\s+Pay|Fire\s+Damage|Deductible|Premium|Rate\b|Exposure|Gross\s+Sales|Revenue|Receipts|Class\s*Code|Classification|Territory|Location\b|Zip\b|Vehicle|Auto\s+Liability|Business\s+Auto/i;
+    const display = (v) => displayMoney85(v);
+    const num = (v) => moneyToNumberFor85(display(v));
+    const credible = (v) => {
+      const n = num(v);
+      // CGL limits should be policy-limit sized. This deliberately excludes
+      // class-code exposures such as 9,900,000 and small Damage-to-Premises
+      // values such as 100,000 from the standard EO/GA/PCO/PAI fields.
+      return n && n >= 250000 && n <= 5000000;
+    };
+
+    function assignFromLine(block) {
+      const out = {};
+      const lines = String(block || '').split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      for (const line of lines) {
+        for (const [field, re] of Object.entries(labelDefs)) {
+          if (!re.test(line)) continue;
+          if (rejectLine.test(line.replace(re, ''))) continue;
+          const values = Array.from(line.matchAll(moneyPat)).map(m => ({ raw:m[1], val:num(m[1]), disp:display(m[1]), idx:m.index || 0 }))
+            .filter(x => x.val && credible(x.raw));
+          if (!values.length) continue;
+          // Prefer the value nearest the label; most carrier text has either
+          // "label $limit" or "$limit label" on one line.
+          const labelIdx = Math.max(0, line.search(re));
+          values.sort((a,b) => Math.abs(a.idx - labelIdx) - Math.abs(b.idx - labelIdx));
+          out[field] = values[0].disp;
+        }
+      }
+      return Object.keys(out).length ? out : null;
+    }
+
+    function assignFromCompactBlock(block) {
+      const labelPositions = [];
+      for (const [field, re] of Object.entries(labelDefs)) {
+        const m = re.exec(block);
+        if (m) labelPositions.push({ field, index:m.index, text:m[0] });
+      }
+      if (labelPositions.length < 3) return null;
+      labelPositions.sort((a,b) => a.index - b.index);
+      const latest = labelPositions[labelPositions.length - 1].index;
+      const vals = [];
+      let mm;
+      moneyPat.lastIndex = 0;
+      while ((mm = moneyPat.exec(block)) !== null) {
+        const lineStart = block.lastIndexOf('\n', mm.index) + 1;
+        const lineEnd0 = block.indexOf('\n', mm.index);
+        const lineEnd = lineEnd0 >= 0 ? lineEnd0 : block.length;
+        const line = block.slice(lineStart, lineEnd);
+        if (rejectLine.test(line)) continue;
+        if (!credible(mm[1])) continue;
+        vals.push({ raw:mm[1], disp:display(mm[1]), val:num(mm[1]), index:mm.index });
+      }
+      const after = vals.filter(v => v.index > latest).slice(0, labelPositions.length);
+      if (after.length >= labelPositions.length) {
+        const out = {};
+        labelPositions.forEach((lab, i) => out[lab.field] = after[i].disp);
+        return out;
+      }
+      return null;
+    }
+
+    function canonicalize(out) {
+      if (!out) return null;
+      const eo = num(out.gl_each_occurrence), ga = num(out.gl_general_aggregate), pco = num(out.gl_products_ops_aggregate), pai = num(out.gl_personal_adv_injury);
+      // Reject unmistakable exposure/rating contamination.
+      if (pco && eo && pco > eo * 5) delete out.gl_products_ops_aggregate;
+      if (pai && eo && pai > eo * 5) delete out.gl_personal_adv_injury;
+      if (ga && eo && ga < eo) delete out.gl_general_aggregate;
+      const nEo = num(out.gl_each_occurrence);
+      const nGa = num(out.gl_general_aggregate);
+      if (nEo && nGa && nGa >= nEo) {
+        if (!out.gl_products_ops_aggregate || num(out.gl_products_ops_aggregate) > nEo * 5) out.gl_products_ops_aggregate = out.gl_general_aggregate;
+        if (!out.gl_personal_adv_injury || num(out.gl_personal_adv_injury) > nEo * 5) out.gl_personal_adv_injury = out.gl_each_occurrence;
+      }
+      return fieldOrder.every(f => out[f]) ? out : null;
+    }
+
+    for (const idx of anchors) {
+      let block = src.slice(Math.max(0, idx - 80), idx + 1600);
+      // Stop before schedules/rating rows when possible, but only after the GL
+      // limit labels have had enough room to appear.
+      const stop = block.search(/\n\s*(?:Classification|Class\s*Code|Schedule\s+of\s+Hazards|GL\s+Exposure|Exposure\s+Schedule|Rating\s+Basis|Automobile\s+Liability|Business\s+Auto)\b/i);
+      if (stop > 250) block = block.slice(0, stop);
+      if (!/Each\s+Occurrence|General\s+Aggregate|Products?|Personal/i.test(block)) continue;
+      const local = canonicalize(assignFromLine(block)) || canonicalize(assignFromCompactBlock(block));
+      if (local) return local;
+    }
+    return null;
+  }
+
   function quoteGlLimitByLabel8711(clean, fieldName) {
     const src = String(clean || '').replace(/\u00a0/g, ' ');
     const lines = src.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -1781,6 +1896,9 @@
     const money = /\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/ig;
     const toDisplay = (v) => displayMoney85(v);
     const asNum = (v) => moneyToNumberFor85(toDisplay(v));
+
+    const strictCoverage8718 = quoteGlCoverageStructureLimits8718(src);
+    if (strictCoverage8718 && strictCoverage8718[fieldName]) return strictCoverage8718[fieldName];
 
     // v8.7.14: resolve GL sublimits by the LABEL order when the quote
     // presents a compact table. Earlier versions guessed the sequence order
@@ -2240,8 +2358,11 @@
     // the visible GL card at $0.
     if (/^gl_(?:each_occurrence|general_aggregate|products_ops_aggregate|personal_adv_injury)$/.test(fieldName)
         && (moduleKey === 'gl_quote' || moduleKey === 'excess' || moduleKey === 'tower' || moduleKey === 'supplemental')) {
-      const lim = quoteGlLimitByLabel8711(cleanPlusQuote, fieldName);
+      const strictLimits8718 = quoteGlCoverageStructureLimits8718(cleanPlusQuote);
+      const strictLim8718 = strictLimits8718 && strictLimits8718[fieldName];
+      const lim = strictLim8718 || quoteGlLimitByLabel8711(cleanPlusQuote, fieldName);
       if (lim) {
+        if (strictLim8718) return hit(strictLim8718, 0.94, 'quote_page_gl_sublimit_adapter_override_v8718_coverage_structure_block');
         // v8.7.15: the live resolver path was still returning a crossed
         // Products/Completed Ops Aggregate and Personal & Advertising Injury
         // pair on carrier pages where label/value order is ambiguous.  Normalize
@@ -4287,7 +4408,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.17-exposure-resolver-align',
+    version: 'v8.7.18-canary-fix-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 

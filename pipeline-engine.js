@@ -1526,8 +1526,9 @@ async function rerunModules(moduleIds) {
   const pipelineContext = (function () {
     const sid = STATE.activeSubmissionId;
     if (!sid || !Array.isArray(STATE.submissions)) return { account_name: null };
-    const prior = STATE.submissions.find(s => s.id === sid);
-    return { account_name: (prior && prior.account) || null };
+    const prior = STATE.submissions.find(s => s.id === sid) || STATE.activeSubmission || STATE.currentSubmission;
+    const accountName8718 = prior && (prior.account_name || prior.account || prior.named_insured || prior.insured_name || prior.name || prior.accountName);
+    return { account_name: accountName8718 || null };
   })();
   // === FIX #2 — BACKUP BEFORE DELETE ===
   // Previously we deleted STATE.extractions[mid] for every module in the rerun
@@ -4660,6 +4661,54 @@ async function detectNamedInsureds(userContent) {
   }
 }
 
+
+// v8.7.18 - deterministic applicant-name precheck for first-run packets.
+// The LLM precheck is still used, but this local pass catches clearly labelled
+// wrong-insured support docs (Safety, Supplemental, Subcontract, Vendor) before
+// the main extraction can contaminate Summary/Guidelines/Exposure/Strengths.
+function detectNamedInsuredsLocal8718(userContent, moduleId) {
+  const text = String(userContent || '').replace(/\u00a0/g, ' ');
+  if (!text) return [];
+  const out = [];
+  const add = (v) => {
+    let s = String(v || '').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^(?:Name|Named Insured|Insured|Applicant|Company Name|Contractor|Subcontractor)\s*[:\-]\s*/i, '').trim();
+    s = s.replace(/[.;,\]]+$/g, '').trim();
+    if (s.length >= 4 && s.length <= 100 && !out.some(x => _gateNormalizeInsuredName(x) === _gateNormalizeInsuredName(s))) out.push(s);
+  };
+  const labeled = [
+    /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
+    /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
+  ];
+  for (const re of labeled) {
+    let m;
+    while ((m = re.exec(text)) !== null) add(m[1]);
+  }
+  // For support-doc modules only, capture obvious legal-entity names with suffixes.
+  if (/^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId)) {
+    const firstSlice = text.slice(0, 12000);
+    const entityRe = /\b([A-Z][A-Za-z0-9&'.,()\- ]{2,90}\s+(?:LLC|L\.L\.C\.|Inc\.?|Incorporated|Corporation|Corp\.?|Company|Co\.?|Ltd\.?|Limited))\b/g;
+    let em;
+    while ((em = entityRe.exec(firstSlice)) !== null) {
+      const candidate = em[1];
+      if (/Insurance|Agency|Zurich|Steadfast|Penn\s+Millers|Chubb|Producer|Broker|Company Address/i.test(candidate)) continue;
+      add(candidate);
+    }
+  }
+  return out;
+}
+
+function localApplicantGate8718(moduleId, userContent, context) {
+  if (!APPLICANT_GATED_MODULES.has(moduleId)) return null;
+  if (!context || !context.account_name || context.account_name === '(unknown)') return null;
+  const detected = detectNamedInsuredsLocal8718(userContent, moduleId);
+  if (!detected.length) return null;
+  const matches = detected.filter(n => _gateInsuredMatches(n, context.account_name));
+  if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
+  console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
+  return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
+}
+
 // Main gate function — called by runModule before the main extraction LLM call.
 // Returns:
 //   { proceed: true, reason, matchedInsureds?, allDetected?, precheck? }
@@ -4671,6 +4720,9 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
   if (!context || !context.account_name || context.account_name === '(unknown)') {
     return { proceed: true, reason: 'no_account_name' };
   }
+  const localGate8718 = localApplicantGate8718(moduleId, userContent, context);
+  if (localGate8718) return localGate8718;
+
   const precheck = await detectNamedInsureds(userContent);
   if (precheck.error || precheck.parseError) {
     console.warn('[applicant-gate] ' + moduleId + ' precheck unreliable, failing OPEN to main extraction. Reason:',
@@ -4798,6 +4850,8 @@ function buildLossFallbackExtraction96(sourceText, reason) {
 // v8.6.98 - archive A11 structured JSON on the extraction record so Workbench does not
 // have to re-discover it from rendered HTML.
 
+
+// v8.7.18 - applicant gate context/local precheck patched.
 
 // v8.7.11 - deterministic fallback for A8 if guideline cross-reference truncates twice.
 // The fallback is intentionally conservative: it does not invent conflicts.
@@ -5637,8 +5691,9 @@ async function runPipeline() {
   const pipelineContext = (function () {
     const sid = STATE.activeSubmissionId;
     if (!sid || !Array.isArray(STATE.submissions)) return { account_name: null };
-    const prior = STATE.submissions.find(s => s.id === sid);
-    return { account_name: (prior && prior.account) || null };
+    const prior = STATE.submissions.find(s => s.id === sid) || STATE.activeSubmission || STATE.currentSubmission;
+    const accountName8718 = prior && (prior.account_name || prior.account || prior.named_insured || prior.insured_name || prior.name || prior.accountName);
+    return { account_name: accountName8718 || null };
   })();
   console.log('[pipeline] Phase 6 context built. account_name:',
               pipelineContext.account_name || '(none — fresh run)');
