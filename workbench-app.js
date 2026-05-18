@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.21-loss-normperiod-final-2026-05-18';
+window.STM_BUILD = 'v8.7.22-loss-flat-lob-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2270,6 +2270,52 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (hasMoney8720(rebuilt.gl)) rows.gl = rebuilt.gl;
                     if (hasMoney8720(rebuilt.auto)) rows.auto = rebuilt.auto;
                 }
+                // v8.7.22: some live A11 payloads store one row per LOB as flat
+                // objects like { lob:"GL", year:"2025-26", paid, incurred, claims }.
+                // The nested extractor above correctly finds periods but can miss these
+                // generic top-level metrics because generic paid/incurred/claims should
+                // only be used after the LOB has been identified. Rebuild from the flat
+                // LOB-keyed shape before filling default years.
+                function pickFlat8722(o, keys, fallback) {
+                    if (!o || typeof o !== 'object') return fallback;
+                    for (const k of keys) if (o[k] != null && o[k] !== '') return o[k];
+                    const wanted = keys.map(k => String(k).replace(/[^a-z0-9]/gi, '').toLowerCase());
+                    for (const [k, v] of Object.entries(o)) {
+                        const nk = String(k || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+                        if (wanted.includes(nk) && v != null && v !== '') return v;
+                    }
+                    return fallback;
+                }
+                function lobOf8722(py) {
+                    const raw = String(py && (py.lob || py.line || py.coverage || py.coverage_type || py.coverageType || py.type || '') || '').toLowerCase();
+                    if (/general|\bcgl\b|\bgl\b|liability/.test(raw) && !/auto|automobile/.test(raw)) return 'gl';
+                    if (/auto|automobile|business auto|\bal\b/.test(raw)) return 'auto';
+                    return '';
+                }
+                function rowFromFlat8722(py) {
+                    const period = normPeriod(py.policy_year || py.period || py.year || py.policyYear || '');
+                    if (!period) return null;
+                    const claimsRaw = pickFlat8722(py, ['claims','claim_count','claimCount','claimCountTotal','number_of_claims','numberOfClaims','count'], 0);
+                    return {
+                        period,
+                        claims: String(claimsRaw || '0'),
+                        exposure: '',
+                        paid: moneyFmt(pickFlat8722(py, ['paid','paid_loss','paid_losses','paidLoss','paidLosses','total_paid','totalPaid'], 0)),
+                        reserve: moneyFmt(pickFlat8722(py, ['reserve','reserves','case_reserve','caseReserve','outstanding','outstanding_reserve','outstandingReserve'], 0)),
+                        incurred: moneyFmt(pickFlat8722(py, ['incurred','total_incurred','totalIncurred','total','gross_incurred','grossIncurred'], 0)),
+                        valuation: obj.valuation_date || py.valuation_date || py.valuationDate || ''
+                    };
+                }
+                const flatByLob8722 = { gl: [], auto: [] };
+                years.forEach(py => {
+                    const lob = lobOf8722(py);
+                    if (!lob) return;
+                    const row = rowFromFlat8722(py);
+                    if (!row) return;
+                    flatByLob8722[lob].push(row);
+                });
+                if (hasMoney8720(flatByLob8722.gl)) rows.gl = flatByLob8722.gl;
+                if (hasMoney8720(flatByLob8722.auto)) rows.auto = flatByLob8722.auto;
                 rows.gl = fillMissingYears98(rows.gl, 8);
                 rows.auto = fillMissingYears98(rows.auto, 8);
                 (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
@@ -2371,9 +2417,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const noLossChk = document.getElementById(noLossChkId);
                 if (noLossChk && hasNonZeroLoss8719(rows)) {
                     noLossChk.checked = false;
-                    noLossChk.dataset.uncheckedBy = 'v8.7.21-loss-normperiod-final';
+                    noLossChk.dataset.uncheckedBy = 'v8.7.22-loss-flat-lob-final';
                 }
-                // v8.7.21: define the period normalizer in this closure.
+                // v8.7.22: define the period normalizer in this closure.
                 // v8.7.20 still referenced normPeriod from the parser helper scope,
                 // which caused ReferenceError on archived loss-row rebinding.
                 const periodKeyFromAny8721 = (v) => {
@@ -2436,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         el.dispatchEvent(new Event('input', { bubbles:true }));
                         el.dispatchEvent(new Event('change', { bubbles:true }));
                         el.classList.add('autofilled-from-platform');
-                        el.dataset.lossRebind = 'v8.7.21';
+                        el.dataset.lossRebind = 'v8.7.22';
                         return true;
                     };
                     writeLossInput8720(0, r.exposure || '', true);
@@ -2445,7 +2491,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     writeLossInput8720(3, r.reserve || '0', true);
                     writeLossInput8720(4, r.incurred || '0', true);
                     if (r.valuation) writeLossInput8720(5, r.valuation, false);
-                    row.dataset.lossRebind = 'v8.7.21';
+                    row.dataset.lossRebind = 'v8.7.22';
                     row.dataset.lossPeriodKey = r.period || currentPeriod || '';
                     count++;
                 });
@@ -2477,25 +2523,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const glLarge = fillLarge98('glLargeLossRows', 'addGlLargeLoss', parsed.largeGl);
             const auLarge = fillLarge98('autoLargeLossRows', 'addAutoLargeLoss', parsed.largeAuto);
             try {
-                window.workbenchLastLossRebind8721 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
+                window.workbenchLastLossRebind8722 = { gl, au, glLarge, auLarge, source: parsed.__source || 'unknown', at: new Date().toISOString() };
             } catch (_) {}
-            console.log('[workbench] v8.7.21 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
+            console.log('[workbench] v8.7.22 loss history apply:', gl, 'GL rows ·', au, 'Auto rows ·', glLarge, 'GL large ·', auLarge, 'Auto large · source', parsed.__source || 'unknown');
         }
         // v8.7.20: public no-cost rebind hook for archived snapshots and tab re-entry.
         // This lets audits and the UI repaint visible loss year rows from structured
         // A11 JSON without rerunning any paid pipeline step.
-        window.workbenchRebindLossesV8721 = function workbenchRebindLossesV8721() {
+        window.workbenchRebindLossesV8722 = function workbenchRebindLossesV8722() {
             if (!window.workbenchActiveSubmission) return null;
             try {
                 applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
-                return window.workbenchLastLossRebind8721 || { ok: true };
+                return window.workbenchLastLossRebind8722 || { ok: true };
             } catch (e) {
-                console.warn('[workbench] v8.7.21 loss rebind failed:', e && e.message);
+                console.warn('[workbench] v8.7.22 loss rebind failed:', e && e.message);
                 return { ok: false, error: e && e.message };
             }
         };
-        window.workbenchRebindLossesV8720 = window.workbenchRebindLossesV8721;
-        window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8721;
+        window.workbenchRebindLossesV8721 = window.workbenchRebindLossesV8722;
+        window.workbenchRebindLossesV8720 = window.workbenchRebindLossesV8722;
+        window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8722;
 
 
         function applyALFleetFromActiveSubmission(submission) {
@@ -3131,8 +3178,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Repaint from structured A11 JSON whenever the Loss History tab is
             // activated, without any paid/API calls.
             if (key === 'risk' && activePanelId === 'loss') {
-                setTimeout(() => { try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {} }, 75);
-                setTimeout(() => { try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {} }, 450);
+                setTimeout(() => { try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {} }, 75);
+                setTimeout(() => { try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {} }, 450);
             }
         };
 
@@ -5205,7 +5252,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // structured A11 JSON cannot appear as all-zero visible year rows on
         // archived snapshots or fresh runs.
         [900, 1600, 2600].forEach(ms => setTimeout(() => {
-            try { window.workbenchRebindLossesV8721 && window.workbenchRebindLossesV8721(); } catch (_) {}
+            try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {}
         }, ms));
 
         /* ============================================================

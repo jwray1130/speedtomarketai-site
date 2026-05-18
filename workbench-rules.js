@@ -4408,7 +4408,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.21-loss-normperiod-final',
+    version: 'v8.7.22-loss-flat-lob-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
