@@ -1472,20 +1472,6 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   min-width: 0;
 }
 
-/* v8.7.10c — light-mode canvas depth.  The single biggest reason the
-   Document Library reads "blank" is not the cards' shadow strength — it
-   is that white cards sit on a pure-white panel with zero tonal layering,
-   so there is no surface for them to rest ON.  Give the panel a very
-   faint navy-tinted vertical wash (built from the existing --surface-alt
-   #EBF0F5 token) so the cards have something to lift off of.  Subtle on
-   purpose — this is depth, not decoration.  Light mode only. */
-html[data-theme="light"] #docs-view-root .categories-panel {
-  background:
-    linear-gradient(180deg,
-      rgba(235, 240, 245, 0.55) 0%,
-      rgba(235, 240, 245, 0.75) 100%);
-}
-
 #docs-view-root .cat-header {
   padding: 20px 24px 14px;
   display: flex;
@@ -1573,58 +1559,6 @@ html[data-theme="light"] #docs-view-root .categories-panel {
   border-left-color: var(--signal);
   box-shadow: 0 0 0 1px var(--signal-tint);
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
-}
-
-/* v8.7.10 — light-mode card lift.  On the white Document Library the cards
-   read as stark white-on-white separated only by a hairline border.  Give
-   the resting state a soft elevation built ONLY from the existing on-theme
-   navy shadow tokens (rgba(10,37,64,*) — derived from --text #0A2540), so it
-   stays in the user's color theme and adds nothing new.  Scoped to light
-   mode; dark mode already has enough surface contrast and is left untouched.
-   Hover/active lift proportionally so the interaction still reads. */
-/* v8.7.10b — light-mode card elevation, recomposed.
-   The cards sit on a pure-white panel (--bg #FFFFFF) and are themselves
-   pure white (--surface #FFFFFF), so a single low-opacity token shadow
-   could not register — there is zero tonal difference doing any of the
-   separation work.  This uses the technique polished fintech UIs (Stripe/
-   Linear-class) rely on for white-on-white: a crisp hairline ring that
-   defines the edge, a soft wide ambient shadow for float, and a small
-   directional drop for grounding — all composed from the user's existing
-   on-theme navy shadow colour (rgba(10,37,64,*) derived from --text
-   #0A2540).  Restrained on purpose: enough to lift and look premium,
-   not a heavy "drop shadow".  Light mode only; dark mode untouched. */
-/* v8.7.10c — card elevation, paired with the tinted panel above.
-   Now that the panel carries a faint navy wash, the white cards have a
-   surface to rest on and a crisp layered shadow reads cleanly.  Hover
-   adds a soft glow in the brand signal blue (--signal #0570DE) so the
-   interaction feels alive and premium — this is a coloured light bloom,
-   not a 3D tilt or neon effect, which would look consumer-grade to
-   enterprise buyers.  Active uses a stronger branded ring + bloom.
-   Light mode only; dark mode untouched. */
-html[data-theme="light"] #docs-view-root .cat-card {
-  border-color: transparent;
-  background: #FFFFFF;
-  box-shadow:
-    0 0 0 1px rgba(10, 37, 64, 0.05),
-    0 1px 2px rgba(10, 37, 64, 0.04),
-    0 6px 16px -4px rgba(10, 37, 64, 0.10);
-}
-html[data-theme="light"] #docs-view-root .cat-card:hover {
-  border-color: transparent;
-  transform: translateY(-2px);
-  box-shadow:
-    0 0 0 1px rgba(5, 112, 222, 0.22),
-    0 4px 10px -2px rgba(10, 37, 64, 0.10),
-    0 16px 32px -8px rgba(10, 37, 64, 0.16),
-    0 8px 28px -6px rgba(5, 112, 222, 0.20);
-}
-html[data-theme="light"] #docs-view-root .cat-card.active {
-  border-color: transparent;
-  box-shadow:
-    0 0 0 1px var(--signal),
-    0 4px 10px -2px rgba(10, 37, 64, 0.10),
-    0 14px 30px -8px rgba(10, 37, 64, 0.15),
-    0 6px 24px -6px rgba(5, 112, 222, 0.26);
 }
 
 #docs-view-root .cat-icon {
