@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.14-gl-sublimit-label-map-final-2026-05-18';
+window.STM_BUILD = 'v8.7.15-gl-sublimit-path-final-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

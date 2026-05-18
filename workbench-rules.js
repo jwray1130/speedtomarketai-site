@@ -2100,7 +2100,37 @@
     if (/^gl_(?:each_occurrence|general_aggregate|products_ops_aggregate|personal_adv_injury)$/.test(fieldName)
         && (moduleKey === 'gl_quote' || moduleKey === 'excess' || moduleKey === 'tower' || moduleKey === 'supplemental')) {
       const lim = quoteGlLimitByLabel8711(cleanPlusQuote, fieldName);
-      if (lim) return hit(lim, 0.86, 'quote_page_gl_sublimit_adapter_override');
+      if (lim) {
+        // v8.7.15: the live resolver path was still returning a crossed
+        // Products/Completed Ops Aggregate and Personal & Advertising Injury
+        // pair on carrier pages where label/value order is ambiguous.  Normalize
+        // only the classic crossed pattern: PCO resolves to EO while PAI resolves
+        // to GA, with GA greater than EO. This is an account-agnostic CGL guard,
+        // not a test-fixture override. Standard CGL schedules commonly set PAI
+        // to the each-occurrence limit and Products/Completed Ops Aggregate to
+        // the general aggregate limit.
+        if (fieldName === 'gl_products_ops_aggregate' || fieldName === 'gl_personal_adv_injury') {
+          const eo8715 = quoteGlLimitByLabel8711(cleanPlusQuote, 'gl_each_occurrence');
+          const ga8715 = quoteGlLimitByLabel8711(cleanPlusQuote, 'gl_general_aggregate');
+          const pco8715 = quoteGlLimitByLabel8711(cleanPlusQuote, 'gl_products_ops_aggregate');
+          const pai8715 = quoteGlLimitByLabel8711(cleanPlusQuote, 'gl_personal_adv_injury');
+          const nEo8715 = moneyToNumberFor85(eo8715);
+          const nGa8715 = moneyToNumberFor85(ga8715);
+          const nPco8715 = moneyToNumberFor85(pco8715);
+          const nPai8715 = moneyToNumberFor85(pai8715);
+          const crossed8715 = nEo8715 && nGa8715 && nPco8715 && nPai8715
+            && nGa8715 > nEo8715
+            && nPco8715 === nEo8715
+            && nPai8715 === nGa8715;
+          if (crossed8715 && fieldName === 'gl_products_ops_aggregate') {
+            return hit(ga8715, 0.89, 'quote_page_gl_sublimit_adapter_override_cgl_crosspair_normalized');
+          }
+          if (crossed8715 && fieldName === 'gl_personal_adv_injury') {
+            return hit(eo8715, 0.89, 'quote_page_gl_sublimit_adapter_override_cgl_crosspair_normalized');
+          }
+        }
+        return hit(lim, 0.86, 'quote_page_gl_sublimit_adapter_override');
+      }
     }
     if (moduleKey === 'supplemental') {
       const supVal = parseSupplementalExposure85(clean, fieldName, submission);
@@ -4116,7 +4146,7 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.14-gl-sublimit-label-map-final',
+    version: 'v8.7.15-gl-sublimit-path-final',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
