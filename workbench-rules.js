@@ -4474,8 +4474,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.28-reconciler-observer-fix',
-    fixTag: 'FIX-v8.7.28-RECONCILER-OBSERVER-2026-05-18'
+    version: 'v8.7.29-paint-reentrancy-fix',
+    fixTag: 'FIX-v8.7.29-PAINT-REENTRANCY-2026-05-18'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

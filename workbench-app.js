@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.28-reconciler-observer-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.29-paint-reentrancy-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2617,7 +2617,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // ============================================================
         (function installLossReconciler8725() {
             var PANEL_ID = 'risk-loss';
-            var reconciling = false;       // re-entrancy guard (our own writes mutate the DOM)
+            var reconciling = false;       // re-entrancy guard (released SYNC in v8.7.29)
+            var lastSelfWriteAt = 0;       // v8.7.29: non-latching observer mute window
             var observer = null;
             var lastSig = '';              // signature of last data we painted
 
@@ -2674,6 +2675,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!dataPresent()) return;
                 if (userEdited()) return;
                 reconciling = true;
+                lastSelfWriteAt = Date.now(); // mute observer briefly (non-latching)
                 try {
                     applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
                     lastSig = dataSignature();
@@ -2683,11 +2685,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         sig: lastSig.slice(0, 80)
                     };
                 } catch (e) {
-                    console.warn('[workbench] v8.7.25 loss reconciler paint skipped:', e && e.message);
+                    console.warn('[workbench] v8.7.28 loss reconciler paint skipped:', e && e.message);
                 } finally {
-                    // release the guard AFTER this frame so the observer does
-                    // not treat our own writes as a foreign mutation.
-                    requestAnimationFrame(function () { reconciling = false; });
+                    // v8.7.29 CRITICAL FIX: release the re-entrancy guard
+                    // SYNCHRONOUSLY. The prior version released it inside
+                    // requestAnimationFrame, so across synchronous re-entries
+                    // (ensure→paint→startObserver→observer/heartbeat all in the
+                    // same tick) `reconciling` was still true and EVERY later
+                    // paint() bailed at the first line — lastPaintReason stayed
+                    // null forever, even on a manual call. The audit proved
+                    // this exactly. Observer self-write suppression is now done
+                    // via the lastSelfWriteAt timestamp window below, which
+                    // physically cannot latch.
+                    reconciling = false;
+                    lastSelfWriteAt = Date.now();
                 }
             }
 
@@ -2709,7 +2720,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 var panel = document.getElementById(PANEL_ID);
                 if (!panel || observer) return;
                 observer = new MutationObserver(function () {
-                    if (reconciling) return;          // ignore our own writes
+                    if (reconciling) return;          // immediate re-entry guard
+                    // v8.7.29: ignore mutations caused by our own paint() for a
+                    // brief window after it ran. Timestamp-based so it can NEVER
+                    // latch the way the old rAF-released flag did.
+                    if (Date.now() - lastSelfWriteAt < 250) return;
                     if (!dataPresent()) return;
                     if (userEdited()) return;
                     // Re-assert only when the DOM rebuild actually blanked the
