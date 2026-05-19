@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.23-applicant-gate-final-2026-05-18';
+window.STM_BUILD = 'v8.7.28-reconciler-observer-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2721,7 +2721,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         requestAnimationFrame(function () { paint('observer'); });
                     }
                 });
-                observer.observe(panel, { childList: true, subtree: true });
+                observer.observe(panel, {
+                    childList: true, subtree: true,
+                    attributes: true, characterData: true
+                });
             }
 
             // The single entry point. Called the instant a submission is in
@@ -2730,7 +2733,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 wireEditGuard();
                 paint(reason || 'ensure');
                 startObserver();
+                startHeartbeat();
             };
+
+            // ----------------------------------------------------------------
+            // v8.7.28 — THE CRITICAL FIX the audit caught.
+            // A MutationObserver with {childList,subtree} does NOT fire when
+            // an <input>'s .value is cleared in place (value is a property,
+            // not an attribute/node — no mutation record is emitted). Some
+            // tab/Flatpickr rebuilds blank the rows exactly that way, so the
+            // observer was structurally blind to the very failure it existed
+            // to heal. The audit proved this: blanking .value and waiting
+            // 2.2s left the rows blank. A heartbeat is the only honest fix
+            // for "data vanished with zero DOM mutation": a low-frequency
+            // idempotent check that re-asserts when rows look blank but data
+            // is present. It is cheap (does nothing when rows already match),
+            // edit-aware, and re-entrancy-guarded — same predicates as paint.
+            var heartbeatId = null;
+            function startHeartbeat() {
+                if (heartbeatId != null) return;
+                heartbeatId = setInterval(function () {
+                    if (reconciling) return;
+                    if (!dataPresent()) return;
+                    if (userEdited()) return;
+                    // Only act on the exact failure the observer can't see:
+                    // rows visibly blank while structured data is in memory.
+                    if (rowsLookBlank()) {
+                        paint('heartbeat');
+                    } else if (dataSignature() !== lastSig) {
+                        // submission changed under us (e.g. async load landed
+                        // after install) — re-assert to the new data once.
+                        paint('heartbeat-sigchange');
+                    }
+                }, 700);
+            }
+
+            // Expose for runtime deploy verification (the audit found these
+            // undefined on window, which is how a stale/uninvoked build hides).
+            window.installLossReconciler8725 = function () {
+                window.ensureLossHistoryReconciled8725('manual-install');
+                return !!heartbeatId;
+            };
+            window.workbenchLossReconciler8725 = window.workbenchLossReconciler8725
+                || { installedAt: new Date().toISOString(), lastPaintReason: null };
 
             // If the page is restored from bfcache (tab away → back), or the
             // submission arrives after this script ran, re-assert immediately.
@@ -2740,6 +2785,14 @@ document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('visibilitychange', function () {
                 if (!document.hidden) window.ensureLossHistoryReconciled8725('visible');
             });
+
+            // v8.7.28: SELF-INVOKE at install. Previously the IIFE only
+            // DEFINED ensureLossHistoryReconciled8725 and waited for an
+            // external caller; if the load path's call raced the async
+            // submission fetch, the observer/heartbeat never started. Kick
+            // them now — paint() no-ops safely until data is present, and
+            // the heartbeat then catches the data the instant it lands.
+            try { window.ensureLossHistoryReconciled8725('install'); } catch (_) {}
         })();
         window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8722;
 
