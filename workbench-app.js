@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.31-edit-guard-istrusted-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.32-stale-editflag-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2673,10 +2673,27 @@ document.addEventListener('DOMContentLoaded', () => {
             // Did the user manually edit a cell since our last paint? If so,
             // do NOT clobber their work — the reconciler defends against the
             // DOM blanking data, never against the human filling it.
+            // v8.7.32: the 'user-edited-loss' class is added but was NEVER
+            // removed anywhere — a permanent one-way latch. After a real edit
+            // (correctly flagged by the v8.7.31 isTrusted guard) the flag
+            // stuck forever, so the heartbeat bailed here and never healed
+            // blanked rows (audit 2c). Fix: a flagged cell only counts as a
+            // protectable edit if it STILL HAS A VALUE. A flagged-but-empty
+            // cell has no edit left to protect (its content is already gone),
+            // so the heartbeat may restore it. A real edit that still holds a
+            // value is still fully protected (2f stays green).
             function userEdited() {
                 var wrap = document.getElementById('risk-loss');
                 if (!wrap) return false;
-                return !!wrap.querySelector('.loss-row input.user-edited-loss');
+                var flagged = wrap.querySelectorAll('.loss-row input.user-edited-loss');
+                for (var i = 0; i < flagged.length; i++) {
+                    var v = String(flagged[i].value || '').replace(/[^0-9.]/g, '');
+                    if (v && v !== '0') return true; // a real, still-present edit
+                    // flagged but now empty: the edit is gone — drop the stale
+                    // latch so it cannot block healing forever.
+                    flagged[i].classList.remove('user-edited-loss');
+                }
+                return false;
             }
 
             function paint(reason) {
