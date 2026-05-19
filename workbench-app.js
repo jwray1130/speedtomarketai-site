@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.29-paint-reentrancy-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.30-datapresent-rootcause-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2623,11 +2623,20 @@ document.addEventListener('DOMContentLoaded', () => {
             var lastSig = '';              // signature of last data we painted
 
             function dataPresent() {
-                var s = window.workbenchActiveSubmission;
-                if (!s) return false;
-                var ex = (s.snapshot && s.snapshot.extractions) || s.extractions;
-                if (!ex) return false;
-                return !!(ex.losses || ex.loss_history || ex.loss_history_structured);
+                // v8.7.30: 'data present' === 'a submission is loaded'.
+                // The authoritative loss-data check is inside
+                // applyLossHistoryFromActiveSubmission (parseLossTables85 +
+                // the v8.7.24 LOB flattener), which finds the data wherever it
+                // actually lives on the submission. The previous body here
+                // required ex.losses/loss_history/loss_history_structured at a
+                // fixed path and returned false on real submissions where the
+                // data sat elsewhere — that single wrong heuristic silently
+                // blocked paint(), the heartbeat, and the observer for three
+                // audits straight (callErr null, lastPaintReason null forever,
+                // while the sibling rebind path — gated only on the submission
+                // existing — refilled rows correctly). Gate like the proven
+                // path; let apply() decide if there is anything to paint.
+                return !!window.workbenchActiveSubmission;
             }
 
             // Cheap signature of the structured loss data so we only repaint
@@ -2672,31 +2681,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
             function paint(reason) {
                 if (reconciling) return;
-                if (!dataPresent()) return;
+                // v8.7.30 ROOT-CAUSE FIX. Three prior audits proved paint()
+                // silently bailed (callErr null, lastPaintReason null forever)
+                // while the sibling workbenchRebindLossesV8722 — calling the
+                // SAME applyLossHistoryFromActiveSubmission — refilled rows
+                // correctly. The culprit was `if (!dataPresent()) return;`.
+                // dataPresent() is a redundant, stricter, WRONG heuristic that
+                // demands ex.losses/loss_history/loss_history_structured at a
+                // fixed path; on real submissions the data lives elsewhere and
+                // apply()'s own parseLossTables85 (+ v8.7.24 LOB flattener)
+                // finds it — but paint() bailed before apply ever ran. We now
+                // gate EXACTLY like the proven-working rebind path: require
+                // only that a submission is loaded, then let apply() be the
+                // sole authority on whether loss data exists. userEdited()
+                // still protected (never clobber the human).
+                if (!window.workbenchActiveSubmission) return;
                 if (userEdited()) return;
                 reconciling = true;
                 lastSelfWriteAt = Date.now(); // mute observer briefly (non-latching)
                 try {
                     applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
                     lastSig = dataSignature();
+                    // Use apply()'s OWN success signal — it reports how many
+                    // rows it actually wrote. Only claim a paint happened if
+                    // it really did, so lastPaintReason reflects reality.
+                    var res = window.workbenchLastLossRebind8722 || null;
+                    var painted = !!(res && ((res.gl|0) || (res.au|0)
+                        || (res.glLarge|0) || (res.auLarge|0)));
                     window.workbenchLossReconciler8725 = {
                         lastPaintReason: reason,
+                        painted: painted,
+                        rowsWritten: res ? { gl: res.gl, au: res.au } : null,
+                        source: res && res.source,
                         at: new Date().toISOString(),
-                        sig: lastSig.slice(0, 80)
+                        sig: String(lastSig).slice(0, 80)
                     };
                 } catch (e) {
-                    console.warn('[workbench] v8.7.28 loss reconciler paint skipped:', e && e.message);
+                    console.warn('[workbench] v8.7.30 loss reconciler paint skipped:', e && e.message);
                 } finally {
-                    // v8.7.29 CRITICAL FIX: release the re-entrancy guard
-                    // SYNCHRONOUSLY. The prior version released it inside
-                    // requestAnimationFrame, so across synchronous re-entries
-                    // (ensure→paint→startObserver→observer/heartbeat all in the
-                    // same tick) `reconciling` was still true and EVERY later
-                    // paint() bailed at the first line — lastPaintReason stayed
-                    // null forever, even on a manual call. The audit proved
-                    // this exactly. Observer self-write suppression is now done
-                    // via the lastSelfWriteAt timestamp window below, which
-                    // physically cannot latch.
+                    // v8.7.29 fix retained: release the re-entrancy guard
+                    // SYNCHRONOUSLY (the old rAF-deferred release latched
+                    // across same-tick re-entries and froze every later
+                    // paint()). Observer self-write suppression is the
+                    // non-latching lastSelfWriteAt timestamp window.
                     reconciling = false;
                     lastSelfWriteAt = Date.now();
                 }
