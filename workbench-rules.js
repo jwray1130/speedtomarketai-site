@@ -4474,8 +4474,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.34-rowslookblank-dateinput-fix',
-    fixTag: 'FIX-v8.7.34-ROWSLOOKBLANK-DATEINPUT-2026-05-18'
+    version: 'v8.7.35-heartbeat-removed',
+    fixTag: 'FIX-v8.7.35-HEARTBEAT-REMOVED-2026-05-18'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14

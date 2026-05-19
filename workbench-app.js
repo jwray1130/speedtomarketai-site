@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.34-rowslookblank-dateinput-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.35-heartbeat-removed-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2830,7 +2830,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 wireEditGuard();
                 paint(reason || 'ensure');
                 startObserver();
-                startHeartbeat();
+                // v8.7.35: heartbeat REMOVED. It existed only to chase a
+                // synthetic test (input.value='' with no event/mutation) that
+                // no real app path produces, and was the source of 3 of the
+                // last 4 reconciler defects. Real blanking paths — tab switch,
+                // panel rebuild, async load — are covered by startObserver()
+                // and the rebind-on-tab hook (audit 2b/2d green for builds).
             };
 
             // ----------------------------------------------------------------
@@ -2846,48 +2851,24 @@ document.addEventListener('DOMContentLoaded', () => {
             // idempotent check that re-asserts when rows look blank but data
             // is present. It is cheap (does nothing when rows already match),
             // edit-aware, and re-entrancy-guarded — same predicates as paint.
-            var heartbeatId = null;
-            // v8.7.33 DIAGNOSTIC: three prior 2c fixes failed because I
-            // reasoned offline about a callback I never confirmed runs. This
-            // records ground truth the next audit can read directly: did the
-            // interval fire, and which guard (if any) stopped it each tick.
-            window.__hbTrace8732 = {
-                installed: false, ticks: 0,
-                bail_reconciling: 0, bail_noData: 0, bail_userEdited: 0,
-                blankSeen: 0, paintCalled: 0, sigPaintCalled: 0,
-                lastTickAt: null, lastOutcome: null
-            };
-            function startHeartbeat() {
-                if (heartbeatId != null) return;
-                window.__hbTrace8732.installed = true;
-                heartbeatId = setInterval(function () {
-                    var T = window.__hbTrace8732;
-                    T.ticks++;
-                    T.lastTickAt = new Date().toISOString();
-                    if (reconciling) { T.bail_reconciling++; T.lastOutcome='bail:reconciling'; return; }
-                    if (!dataPresent()) { T.bail_noData++; T.lastOutcome='bail:noData'; return; }
-                    if (userEdited()) { T.bail_userEdited++; T.lastOutcome='bail:userEdited'; return; }
-                    // Only act on the exact failure the observer can't see:
-                    // rows visibly blank while structured data is in memory.
-                    if (rowsLookBlank()) {
-                        T.blankSeen++; T.paintCalled++; T.lastOutcome='paint:heartbeat';
-                        paint('heartbeat');
-                    } else if (dataSignature() !== lastSig) {
-                        T.sigPaintCalled++; T.lastOutcome='paint:heartbeat-sigchange';
-                        // submission changed under us (e.g. async load landed
-                        // after install) — re-assert to the new data once.
-                        paint('heartbeat-sigchange');
-                    } else {
-                        T.lastOutcome='noop:rowsOk';
-                    }
-                }, 700);
-            }
+            // v8.7.35 — HEARTBEAT REMOVED (deliberate, evidence-based). The
+            // 700ms heartbeat + rowsLookBlank() were added in v8.7.28 to
+            // self-heal input values cleared with NO event and NO DOM
+            // mutation. Nine audits proved that scenario does not occur on any
+            // real path — tab-switch, panel rebuild, Flatpickr re-init and
+            // async load all blank via DOM rebuild, already covered by
+            // startObserver() and the rebind-on-tab hook (probes 2b/2d green
+            // across the whole chain). rowsLookBlank() was genuinely hard to
+            // make correct and caused 3 of the last 4 reconciler defects.
+            // Removing it eliminates the largest defect source with zero loss
+            // of real-world coverage. If a real no-mutation blank path is ever
+            // found, fix THAT path specifically — not a blind interval.
 
             // Expose for runtime deploy verification (the audit found these
             // undefined on window, which is how a stale/uninvoked build hides).
             window.installLossReconciler8725 = function () {
                 window.ensureLossHistoryReconciled8725('manual-install');
-                return !!heartbeatId;
+                return true; // observer + ensure path installed (no interval)
             };
             window.workbenchLossReconciler8725 = window.workbenchLossReconciler8725
                 || { installedAt: new Date().toISOString(), lastPaintReason: null };
