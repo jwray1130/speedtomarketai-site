@@ -743,6 +743,10 @@ document.addEventListener('DOMContentLoaded', () => {
             applyUnderwritingFromActiveSubmission(data);
             applyGLExposureRaterFromActiveSubmission(data);
             applyV8685PopulationPass(data);
+            // v8.7.25: loss history no longer relies on the timed-retry storm
+            // below. Reconcile it NOW (data is in memory) and pin it so it
+            // stays through every later DOM rebuild / tab switch.
+            try { window.ensureLossHistoryReconciled8725 && window.ensureLossHistoryReconciled8725('load'); } catch (_) {}
             setTimeout(() => applyV8685PopulationPass(window.workbenchActiveSubmission), 350);
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
@@ -2159,7 +2163,53 @@ document.addEventListener('DOMContentLoaded', () => {
             function normalizeStructured98(obj) {
                 if (!obj || typeof obj !== 'object') return null;
                 if (obj.loss_history_structured && typeof obj.loss_history_structured === 'object') obj = obj.loss_history_structured;
-                const years = Array.isArray(obj.policy_years) ? obj.policy_years : (Array.isArray(obj.loss_history_by_year) ? obj.loss_history_by_year : null);
+                // v8.7.24: schema-drift fix. The pipeline (parseLossStructuredForArchive98)
+                // persists policy_years as an LOB-KEYED OBJECT:
+                //   policy_years: { GL: [{year,claims,paid,incurred}], AL: [...] }
+                // but every downstream path in this function (including all the
+                // v8.7.18/.20/.22 nested/flat extractors) only ran AFTER an
+                // Array.isArray(policy_years) check. On the LOB-keyed shape `years`
+                // was null, the function returned null, and the rebinder silently
+                // fell back to loss_file_text_regex_dedup98 -> zero rows. Detect that
+                // shape here and FLATTEN it into the flat per-year array
+                // ([{policy_year, gl_claims, gl_paid, gl_incurred, al_claims, ...}])
+                // that the existing, proven-correct flat path already consumes. We
+                // convert to the known-good shape rather than add another reader.
+                function flattenLobKeyedPolicyYears8724(pyObj) {
+                    if (!pyObj || typeof pyObj !== 'object' || Array.isArray(pyObj)) return null;
+                    const glKey = Object.keys(pyObj).find(k => /^(gl|cgl|general[_\s-]*liability)$/i.test(String(k).trim()));
+                    const alKey = Object.keys(pyObj).find(k => /^(al|auto|automobile|auto[_\s-]*liability|business[_\s-]*auto)$/i.test(String(k).trim()));
+                    const glArr = glKey && Array.isArray(pyObj[glKey]) ? pyObj[glKey] : [];
+                    const alArr = alKey && Array.isArray(pyObj[alKey]) ? pyObj[alKey] : [];
+                    if (!glArr.length && !alArr.length) return null;
+                    const yearOf = e => String((e && (e.year || e.policy_year || e.period)) || '').trim();
+                    const byYear = new Map();
+                    const ensure = y => { if (!byYear.has(y)) byYear.set(y, { policy_year: y }); return byYear.get(y); };
+                    glArr.forEach(e => {
+                        const y = yearOf(e); if (!y) return; const row = ensure(y);
+                        row.gl_claims   = e.claims   ?? e.gl_claims   ?? e.count    ?? 0;
+                        row.gl_paid     = e.paid     ?? e.gl_paid     ?? 0;
+                        row.gl_reserve  = e.reserve  ?? e.gl_reserve  ?? e.outstanding ?? 0;
+                        row.gl_incurred = e.incurred ?? e.gl_incurred ?? e.total    ?? 0;
+                    });
+                    alArr.forEach(e => {
+                        const y = yearOf(e); if (!y) return; const row = ensure(y);
+                        row.al_claims   = e.claims   ?? e.al_claims   ?? e.count    ?? 0;
+                        row.al_paid     = e.paid     ?? e.al_paid     ?? 0;
+                        row.al_reserve  = e.reserve  ?? e.al_reserve  ?? e.outstanding ?? 0;
+                        row.al_incurred = e.incurred ?? e.al_incurred ?? e.total    ?? 0;
+                    });
+                    const out = Array.from(byYear.values());
+                    return out.length ? out : null;
+                }
+                const lobFlattened8724 = (obj.policy_years && !Array.isArray(obj.policy_years))
+                    ? flattenLobKeyedPolicyYears8724(obj.policy_years)
+                    : (obj.loss_history_by_year && !Array.isArray(obj.loss_history_by_year))
+                        ? flattenLobKeyedPolicyYears8724(obj.loss_history_by_year)
+                        : null;
+                const years = Array.isArray(obj.policy_years) ? obj.policy_years
+                    : (Array.isArray(obj.loss_history_by_year) ? obj.loss_history_by_year
+                    : (lobFlattened8724 || null));
                 if (!years) return null;
                 const rows = { gl: [], auto: [], largeGl: [], largeAuto: [] };
                 years.forEach(py => {
@@ -2542,6 +2592,155 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         window.workbenchRebindLossesV8721 = window.workbenchRebindLossesV8722;
         window.workbenchRebindLossesV8720 = window.workbenchRebindLossesV8722;
+
+        // ============================================================
+        // v8.7.25 LOSS HISTORY RECONCILER
+        // ------------------------------------------------------------
+        // Replaces the old strategy ("fire applyV8685PopulationPass at
+        // 0/350/600ms and hope the DOM + Supabase data are both ready").
+        // That strategy is why loss rows appeared late, vanished on
+        // tab-out, and reappeared 30-60s later. It was a race the code
+        // could not win, so every prior version just added more timers.
+        //
+        // This reconciler makes the loss rows STATEFUL and SELF-HEALING:
+        //   1. It applies IMMEDIATELY the moment the submission data is
+        //      present in memory — no setTimeout, no guessing.
+        //   2. A MutationObserver watches the loss panel. Any time a DOM
+        //      rebuild (tab switch, Flatpickr re-init, return-to-page)
+        //      blanks the rows, it re-asserts them in the SAME frame, so
+        //      the empty state is never visible to the human eye.
+        //   3. It is idempotent and edit-aware: if the rows already match
+        //      the data, or the user has manually edited a cell, it does
+        //      nothing — it never fights the user or itself.
+        // Net effect: the data is there instantly and stays there. No
+        // "hold on, it's commmming." No paid calls — pure in-memory.
+        // ============================================================
+        (function installLossReconciler8725() {
+            var PANEL_ID = 'risk-loss';
+            var reconciling = false;       // re-entrancy guard (our own writes mutate the DOM)
+            var observer = null;
+            var lastSig = '';              // signature of last data we painted
+
+            function dataPresent() {
+                var s = window.workbenchActiveSubmission;
+                if (!s) return false;
+                var ex = (s.snapshot && s.snapshot.extractions) || s.extractions;
+                if (!ex) return false;
+                return !!(ex.losses || ex.loss_history || ex.loss_history_structured);
+            }
+
+            // Cheap signature of the structured loss data so we only repaint
+            // when the underlying data actually changed (not on every mutation).
+            function dataSignature() {
+                try {
+                    var s = window.workbenchActiveSubmission;
+                    var ex = (s && s.snapshot && s.snapshot.extractions) || (s && s.extractions) || {};
+                    var L = ex.losses || ex.loss_history || ex.loss_history_structured || null;
+                    var core = L && (L.loss_history_structured || L.json || L.policy_years || L.text || L);
+                    return (s && s.id || '') + '::' + JSON.stringify(core).length + '::' +
+                           JSON.stringify(core).slice(0, 256);
+                } catch (_) { return Math.random().toString(); }
+            }
+
+            // Are the visible rows currently empty while we DO have data?
+            // (i.e. a DOM rebuild just wiped them and we must re-assert.)
+            function rowsLookBlank() {
+                var wraps = ['glLossRows', 'autoLossRows'];
+                for (var w = 0; w < wraps.length; w++) {
+                    var wrap = document.getElementById(wraps[w]);
+                    if (!wrap) continue;
+                    var anyVal = Array.prototype.some.call(
+                        wrap.querySelectorAll('.loss-row input'),
+                        function (i) {
+                            var v = String(i.value || '').replace(/[^0-9.]/g, '');
+                            return v && v !== '0';
+                        });
+                    if (anyVal) return false; // at least one wrap has data → not blank
+                }
+                return true; // both wraps had no meaningful values
+            }
+
+            // Did the user manually edit a cell since our last paint? If so,
+            // do NOT clobber their work — the reconciler defends against the
+            // DOM blanking data, never against the human filling it.
+            function userEdited() {
+                var wrap = document.getElementById('risk-loss');
+                if (!wrap) return false;
+                return !!wrap.querySelector('.loss-row input.user-edited-loss');
+            }
+
+            function paint(reason) {
+                if (reconciling) return;
+                if (!dataPresent()) return;
+                if (userEdited()) return;
+                reconciling = true;
+                try {
+                    applyLossHistoryFromActiveSubmission(window.workbenchActiveSubmission);
+                    lastSig = dataSignature();
+                    window.workbenchLossReconciler8725 = {
+                        lastPaintReason: reason,
+                        at: new Date().toISOString(),
+                        sig: lastSig.slice(0, 80)
+                    };
+                } catch (e) {
+                    console.warn('[workbench] v8.7.25 loss reconciler paint skipped:', e && e.message);
+                } finally {
+                    // release the guard AFTER this frame so the observer does
+                    // not treat our own writes as a foreign mutation.
+                    requestAnimationFrame(function () { reconciling = false; });
+                }
+            }
+
+            // Mark cells the user typed into so we never overwrite them.
+            function wireEditGuard() {
+                var panel = document.getElementById(PANEL_ID);
+                if (!panel || panel.__lossEditGuard8725) return;
+                panel.__lossEditGuard8725 = true;
+                panel.addEventListener('input', function (e) {
+                    if (reconciling) return; // our own programmatic writes
+                    var t = e.target;
+                    if (t && t.closest && t.closest('.loss-row') && t.tagName === 'INPUT') {
+                        t.classList.add('user-edited-loss');
+                    }
+                }, true);
+            }
+
+            function startObserver() {
+                var panel = document.getElementById(PANEL_ID);
+                if (!panel || observer) return;
+                observer = new MutationObserver(function () {
+                    if (reconciling) return;          // ignore our own writes
+                    if (!dataPresent()) return;
+                    if (userEdited()) return;
+                    // Re-assert only when the DOM rebuild actually blanked the
+                    // rows, OR the underlying data changed. This keeps it cheap
+                    // and means it does nothing when everything already matches.
+                    if (rowsLookBlank() || dataSignature() !== lastSig) {
+                        // same-frame repaint so the empty state never reaches
+                        // the screen the user sees.
+                        requestAnimationFrame(function () { paint('observer'); });
+                    }
+                });
+                observer.observe(panel, { childList: true, subtree: true });
+            }
+
+            // The single entry point. Called the instant a submission is in
+            // memory (from the load path) — applies now, then keeps it pinned.
+            window.ensureLossHistoryReconciled8725 = function (reason) {
+                wireEditGuard();
+                paint(reason || 'ensure');
+                startObserver();
+            };
+
+            // If the page is restored from bfcache (tab away → back), or the
+            // submission arrives after this script ran, re-assert immediately.
+            window.addEventListener('pageshow', function () {
+                window.ensureLossHistoryReconciled8725('pageshow');
+            });
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) window.ensureLossHistoryReconciled8725('visible');
+            });
+        })();
         window.workbenchRebindLossesV8719 = window.workbenchRebindLossesV8722;
 
 
@@ -3174,12 +3373,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 || (key === 'page' && fullWidthPages.includes(activePanelId));
 
             container.classList.toggle('full-width', shouldBeFullWidth);
-            // v8.7.20: loss rows are dynamic and can be reset by tab/card hydration.
-            // Repaint from structured A11 JSON whenever the Loss History tab is
-            // activated, without any paid/API calls.
+            // v8.7.25: entering the Loss History tab reconciles immediately
+            // (data is already in memory) and the observer keeps it pinned.
+            // No more 75ms/450ms guesses that produced the visible flicker.
             if (key === 'risk' && activePanelId === 'loss') {
-                setTimeout(() => { try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {} }, 75);
-                setTimeout(() => { try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {} }, 450);
+                try { window.ensureLossHistoryReconciled8725 && window.ensureLossHistoryReconciled8725('tab'); } catch (_) {}
             }
         };
 

@@ -932,7 +932,18 @@
 
   const SOURCE_AUTHORITY = {
     // ─── Deal Information ───
-    insured_name:        ['submission.account_name'],
+    // FIX-IDENTITY-SOURCE-PRIORITY-2026-05-18 (Justin's spec):
+    // Resolve named insured / mailing / state from the GL quote FIRST,
+    // then the ACORD 125, then the Supp App. NOTE: the pipeline classifier
+    // routes ACORD 125/126/131 AND the Supp App both into the 'supplemental'
+    // module (pipeline-engine.js line ~144), so "ACORD 125 then Supp App"
+    // maps here to: gl_quote -> supplemental. insured_name previously read
+    // ONLY submission.account_name, so when that was blank (new submission)
+    // it had no source at all and the Deal Name rendered empty.
+    insured_name:        ['submission.account_name',
+                          'gl_quote:json', 'gl_quote',
+                          'supplemental:json', 'supplemental',
+                          'summary-ops'],
     policy_effective:    ['submission.effective_date', 'gl_quote', 'al_quote', 'excess', 'tower', 'supplemental'],
     policy_expiration:   [
       // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
@@ -978,11 +989,13 @@
     //   - summary-ops:  AI-synthesized account summary
     //   - subcontract:  subcontract agreement details
     //   - exposure:     exposure analysis
-    home_state:          ['supplemental:json', 'gl_quote:json',
-                          'supplemental', 'gl_quote', 'summary-ops'],
-    mailing_address:     ['supplemental:json', 'supplemental',
-                          'gl_quote', 'summary-ops'],
-    controlling_address: ['gl_quote:json', 'gl_quote', 'supplemental'],
+    // GL quote first, then supplemental (ACORD 125 + Supp App), then AI summary.
+    home_state:          ['gl_quote:json', 'gl_quote',
+                          'supplemental:json', 'supplemental', 'summary-ops'],
+    mailing_address:     ['gl_quote:json', 'gl_quote',
+                          'supplemental:json', 'supplemental', 'summary-ops'],
+    controlling_address: ['gl_quote:json', 'gl_quote',
+                          'supplemental:json', 'supplemental', 'summary-ops'],
     broker_name:         ['summary-ops', 'supplemental'],
     broker_address:      ['summary-ops', 'supplemental'],
     layer_type:          [],    // Phase 11 classifier — placeholder
@@ -1449,12 +1462,47 @@
     if (!moduleRec || typeof moduleRec.text !== 'string') return null;
 
     // FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14
-    // Refuse modules whose stated Named Insured doesn't match the
-    // submission's account_name. Returns null treated as unknown
-    // (proceed). Returns false explicitly = skip this module entirely.
+    // v8.7.27: de-fanged to NON-BLOCKING ADVISORY (Justin's decision).
+    // Production submissions are single-insured; a trained underwriter
+    // reviews every deal via the File Manager, so a stated-insured
+    // mismatch should NOT blank the field (silent data loss). The
+    // mismatch is still DETECTED (checkApplicantMatch unchanged — the
+    // Anahuac defense is intact) but the consequence here is now: record
+    // a breadcrumb the File Manager can surface, then proceed to fill
+    // from normal source priority. Nothing is blocked or blanked.
     const applicantCheck = checkApplicantMatch(submission, moduleKey, moduleRec);
     if (applicantCheck === false) {
-      return null;
+      try {
+        const sid = (submission && (submission.id || submission.submission_id)) || '?';
+        const acct = (submission && submission.account_name) || '(account name not set)';
+        const stated = (function () {
+          try { return extractNamedInsured(moduleRec.text) || '(unreadable)'; }
+          catch (_) { return '(unreadable)'; }
+        })();
+        const G = (typeof window !== 'undefined') ? window : globalThis;
+        G.__stmCrossApplicantAdvisories = G.__stmCrossApplicantAdvisories || {};
+        const bucket = (G.__stmCrossApplicantAdvisories[sid] =
+          G.__stmCrossApplicantAdvisories[sid] || {});
+        // keyed by module so the File Manager can badge the right file;
+        // idempotent — re-resolving the same field won't duplicate it.
+        bucket[moduleKey] = {
+          module: moduleKey,
+          statedInsured: stated,
+          accountName: acct,
+          field: fieldName,
+          severity: 'advisory',
+          message: 'Document names "' + stated + '" — differs from account "'
+                   + acct + '". Verify in File Manager; value still populated.',
+          at: new Date().toISOString()
+        };
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[WorkbenchRules] v8.7.27 cross-applicant ADVISORY (non-blocking): '
+            + 'module "' + moduleKey + '" insured "' + stated
+            + '" vs account "' + acct + '" — field "' + fieldName
+            + '" still resolved from normal priority.');
+        }
+      } catch (_) { /* advisory must never throw or block resolution */ }
+      // IMPORTANT: do NOT return — fall through and resolve normally.
     }
 
     const extractionConf = (typeof moduleRec.confidence === 'number')
@@ -4417,7 +4465,16 @@
     TOWER_UNDERLYING_COLOR,
     _sampleTowerInputDoc,
     formatIso,
-    version: 'v8.7.23-applicant-gate-final',
+    // v8.7.27: non-blocking cross-applicant advisories, keyed by module,
+    // for the File Manager to surface as breadcrumbs. Never blocks.
+    getCrossApplicantAdvisories: function (submissionId) {
+      try {
+        const G = (typeof window !== 'undefined') ? window : globalThis;
+        const all = G.__stmCrossApplicantAdvisories || {};
+        return submissionId ? (all[submissionId] || {}) : all;
+      } catch (_) { return {}; }
+    },
+    version: 'v8.7.27-cross-applicant-advisory',
     fixTag: 'FIX-PHASE-GO-LIVE-73-2026-05-16'
   };
 
