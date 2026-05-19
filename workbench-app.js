@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.33-heartbeat-diagnostic-2026-05-18';
+window.STM_BUILD = 'v8.7.34-rowslookblank-dateinput-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2655,19 +2655,42 @@ document.addEventListener('DOMContentLoaded', () => {
             // Are the visible rows currently empty while we DO have data?
             // (i.e. a DOM rebuild just wiped them and we must re-assert.)
             function rowsLookBlank() {
+                // v8.7.34 ROOT-CAUSE FIX (proven by v8.7.33 diagnostic:
+                // blankSeen stayed 0 on provably-empty rows, heartbeat never
+                // bailed, lastOutcome 'rowsOk'). The old selector
+                // '.loss-row input' also matched the Flatpickr DATE inputs and
+                // Flatpickr's injected altInput. A date string like
+                // "05/01/2026" after .replace(/[^0-9.]/g,'') is "05012026" —
+                // non-empty — so anyVal was ALWAYS true and rowsLookBlank()
+                // could never return true, no matter how empty the money
+                // cells were. Only the actual loss-data inputs may count:
+                // currency cells (.currency-input) and the numeric claims
+                // input (pattern="[0-9,]*"). Date pickers / alt-inputs are
+                // explicitly excluded.
                 var wraps = ['glLossRows', 'autoLossRows'];
                 for (var w = 0; w < wraps.length; w++) {
                     var wrap = document.getElementById(wraps[w]);
                     if (!wrap) continue;
-                    var anyVal = Array.prototype.some.call(
+                    var dataInputs = Array.prototype.filter.call(
                         wrap.querySelectorAll('.loss-row input'),
                         function (i) {
-                            var v = String(i.value || '').replace(/[^0-9.]/g, '');
-                            return v && v !== '0';
+                            // exclude date pickers and flatpickr alt inputs
+                            if (i.classList.contains('loss-date-picker')) return false;
+                            if (i.classList.contains('flatpickr-alt-input')) return false;
+                            if (i.classList.contains('stm-date-alt-input')) return false;
+                            if (i.classList.contains('flatpickr-input')) return false;
+                            if (String(i.type).toLowerCase() === 'hidden') return false;
+                            // keep only money cells + the numeric claims cell
+                            return i.classList.contains('currency-input')
+                                || i.pattern === '[0-9,]*';
                         });
-                    if (anyVal) return false; // at least one wrap has data → not blank
+                    var anyVal = dataInputs.some(function (i) {
+                        var v = String(i.value || '').replace(/[^0-9.]/g, '');
+                        return v && v !== '0';
+                    });
+                    if (anyVal) return false; // a money/claim cell has data → not blank
                 }
-                return true; // both wraps had no meaningful values
+                return true; // no money/claim cell holds a value → blank
             }
 
             // Did the user manually edit a cell since our last paint? If so,
