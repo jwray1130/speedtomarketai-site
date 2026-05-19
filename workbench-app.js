@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.30-datapresent-rootcause-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.31-edit-guard-istrusted-fix-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2735,7 +2735,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!panel || panel.__lossEditGuard8725) return;
                 panel.__lossEditGuard8725 = true;
                 panel.addEventListener('input', function (e) {
-                    if (reconciling) return; // our own programmatic writes
+                    if (reconciling) return; // our own programmatic writes (paint path)
+                    // v8.7.31 ROOT-CAUSE FIX. apply() dispatches synthetic
+                    // `input` events on every cell it writes (see fill():
+                    // el.dispatchEvent(new Event('input'))). When apply() runs
+                    // OUTSIDE paint() — i.e. via workbenchRebindLossesV8722 on
+                    // load/tab/restore, where `reconciling` is false — those
+                    // synthetic events used to stamp the PERMANENT one-way
+                    // 'user-edited-loss' class on every cell. userEdited() then
+                    // returned true forever (the class is only ever added,
+                    // never removed), so paint()'s `if (userEdited()) return;`
+                    // bailed on every subsequent call — silently, no error,
+                    // lastPaintReason null forever. That is the exact signature
+                    // five audits reported. Real human input has
+                    // e.isTrusted === true; synthetic dispatchEvent input has
+                    // e.isTrusted === false. Gate on that.
+                    if (!e.isTrusted) return;
                     var t = e.target;
                     if (t && t.closest && t.closest('.loss-row') && t.tagName === 'INPUT') {
                         t.classList.add('user-edited-loss');

@@ -4474,8 +4474,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.30-datapresent-rootcause-fix',
-    fixTag: 'FIX-v8.7.30-DATAPRESENT-ROOTCAUSE-2026-05-18'
+    version: 'v8.7.31-edit-guard-istrusted-fix',
+    fixTag: 'FIX-v8.7.31-EDIT-GUARD-ISTRUSTED-2026-05-18'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
