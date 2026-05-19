@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.32-stale-editflag-fix-2026-05-18';
+window.STM_BUILD = 'v8.7.33-heartbeat-diagnostic-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2824,20 +2824,38 @@ document.addEventListener('DOMContentLoaded', () => {
             // is present. It is cheap (does nothing when rows already match),
             // edit-aware, and re-entrancy-guarded — same predicates as paint.
             var heartbeatId = null;
+            // v8.7.33 DIAGNOSTIC: three prior 2c fixes failed because I
+            // reasoned offline about a callback I never confirmed runs. This
+            // records ground truth the next audit can read directly: did the
+            // interval fire, and which guard (if any) stopped it each tick.
+            window.__hbTrace8732 = {
+                installed: false, ticks: 0,
+                bail_reconciling: 0, bail_noData: 0, bail_userEdited: 0,
+                blankSeen: 0, paintCalled: 0, sigPaintCalled: 0,
+                lastTickAt: null, lastOutcome: null
+            };
             function startHeartbeat() {
                 if (heartbeatId != null) return;
+                window.__hbTrace8732.installed = true;
                 heartbeatId = setInterval(function () {
-                    if (reconciling) return;
-                    if (!dataPresent()) return;
-                    if (userEdited()) return;
+                    var T = window.__hbTrace8732;
+                    T.ticks++;
+                    T.lastTickAt = new Date().toISOString();
+                    if (reconciling) { T.bail_reconciling++; T.lastOutcome='bail:reconciling'; return; }
+                    if (!dataPresent()) { T.bail_noData++; T.lastOutcome='bail:noData'; return; }
+                    if (userEdited()) { T.bail_userEdited++; T.lastOutcome='bail:userEdited'; return; }
                     // Only act on the exact failure the observer can't see:
                     // rows visibly blank while structured data is in memory.
                     if (rowsLookBlank()) {
+                        T.blankSeen++; T.paintCalled++; T.lastOutcome='paint:heartbeat';
                         paint('heartbeat');
                     } else if (dataSignature() !== lastSig) {
+                        T.sigPaintCalled++; T.lastOutcome='paint:heartbeat-sigchange';
                         // submission changed under us (e.g. async load landed
                         // after install) — re-assert to the new data once.
                         paint('heartbeat-sigchange');
+                    } else {
+                        T.lastOutcome='noop:rowsOk';
                     }
                 }, 700);
             }
