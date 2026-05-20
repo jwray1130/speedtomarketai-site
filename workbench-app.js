@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.35-heartbeat-removed-2026-05-18';
+window.STM_BUILD = 'v8.7.36-perf-cascade-trim-2026-05-18';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -747,7 +747,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // below. Reconcile it NOW (data is in memory) and pin it so it
             // stays through every later DOM rebuild / tab switch.
             try { window.ensureLossHistoryReconciled8725 && window.ensureLossHistoryReconciled8725('load'); } catch (_) {}
-            setTimeout(() => applyV8685PopulationPass(window.workbenchActiveSubmission), 350);
+            // v8.7.36: removed `setTimeout(applyV8685PopulationPass, 350)`.
+            // The synchronous call on the line above already runs the full
+            // population pass; the 350ms retry was a pre-reconciler hedge that
+            // also re-triggered the internal 250/900ms coverage-card retries,
+            // duplicating work. The reconciler keeps losses pinned; if a
+            // non-loss panel (cards/fleet/rater) genuinely needs a late retry,
+            // we'll wire that panel-specifically, not via a blind reload.
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
@@ -5594,13 +5600,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setupInternalRater();
         setTimeout(() => { if (window.workbenchActiveSubmission) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
-        // v8.7.19: loss year rows are dynamic and can be reset by late tab/card
-        // initialization. Repaint repeatedly after the Workbench settles so
-        // structured A11 JSON cannot appear as all-zero visible year rows on
-        // archived snapshots or fresh runs.
-        [900, 1600, 2600].forEach(ms => setTimeout(() => {
-            try { window.workbenchRebindLossesV8722 && window.workbenchRebindLossesV8722(); } catch (_) {}
-        }, ms));
+        // v8.7.36: removed [900, 1600, 2600]ms loss-rebind retry cascade.
+        // This was a pre-reconciler defense against late DOM resets blanking
+        // loss rows. The v8.7.25 MutationObserver in installLossReconciler8725
+        // now handles that path (audits 2b/2d/2e green across the chain), so
+        // these three timers were doing redundant work and contributing ~5.1s
+        // of artificial wait to the load. If a real path is found where the
+        // observer misses a reset, fix THAT path specifically.
 
         /* ============================================================
            PHASE 18 — FORMS & ENDORSEMENTS

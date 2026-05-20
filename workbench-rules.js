@@ -4474,8 +4474,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.35-heartbeat-removed',
-    fixTag: 'FIX-v8.7.35-HEARTBEAT-REMOVED-2026-05-18'
+    version: 'v8.7.36-perf-cascade-trim',
+    fixTag: 'FIX-v8.7.36-PERF-CASCADE-TRIM-2026-05-18'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
