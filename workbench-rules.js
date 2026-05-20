@@ -172,6 +172,23 @@
   // is tried.
 
   const LABEL_PATTERNS = {
+    // FIX-v8.7.38a-INSURED-NAME-LABEL-PATTERNS-2026-05-20
+    // The v8.7.38 chain reorder put gl_quote at the front of the
+    // insured_name resolver chain. But parseMarkdown lookups
+    // LABEL_PATTERNS[fieldName] and there was no insured_name entry —
+    // so the resolver walked through gl_quote, found no patterns,
+    // returned null, and fell through to submission.account_name.
+    // These patterns mirror the strict labels the existing
+    // extractNamedInsured function uses (kept in sync intentionally
+    // so the cross-applicant guard and the resolver agree on what
+    // counts as a stated insured).
+    insured_name: [
+      // Bold label, value on same line, may be preceded by bullet
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Named\s+Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Applicant\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Company\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 }
+    ],
     home_state: [
       // Strict label match — high confidence. Allow leading bullet
       // dashes (- or *) and bold markers (**) in any combination.
@@ -4479,8 +4496,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.38-gl-quote-identity-priority',
-    fixTag: 'FIX-v8.7.38-GL-QUOTE-IDENTITY-PRIORITY-2026-05-20'
+    version: 'v8.7.38a-insured-name-patterns',
+    fixTag: 'FIX-v8.7.38a-INSURED-NAME-PATTERNS-2026-05-20'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
