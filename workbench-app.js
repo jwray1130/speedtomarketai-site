@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.37-post-wave-ocr-recovery-2026-05-20';
+window.STM_BUILD = 'v8.7.39-address-modal-sync-fix-2026-05-20';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
