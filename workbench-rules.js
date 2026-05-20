@@ -172,27 +172,14 @@
   // is tried.
 
   const LABEL_PATTERNS = {
-    // FIX-v8.7.38a-INSURED-NAME-LABEL-PATTERNS-2026-05-20
-    // The v8.7.38 chain reorder put gl_quote at the front of the
-    // insured_name resolver chain. But parseMarkdown lookups
-    // LABEL_PATTERNS[fieldName] and there was no insured_name entry —
-    // so the resolver walked through gl_quote, found no patterns,
-    // returned null, and fell through to submission.account_name.
-    // These patterns mirror the strict labels the existing
-    // extractNamedInsured function uses (kept in sync intentionally
-    // so the cross-applicant guard and the resolver agree on what
-    // counts as a stated insured).
     insured_name: [
-      // Bold label, value on same line, may be preceded by bullet
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Named\s+Insured\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Insured\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Applicant\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 },
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*Company\s+Name\**\s*:\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 }
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant\s+Name|Applicant|Quote\s+For|Insured)\**\s*:?\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Company\s+Name|Organization\s+Name|Account\s+Name)\**\s*:?\s*\**\s*([^\n]+?)(?:\n|$)/im, conf: 0.85 }
     ],
     home_state: [
       // Strict label match — high confidence. Allow leading bullet
       // dashes (- or *) and bold markers (**) in any combination.
-      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Home\s+State|State\s+of\s+Domicile|Mailing\s+State|Primary\s+State|Domicile\s+State)\**\s*:?\s*\**\s*([A-Z]{2})\b/im, conf: 1.0 },
+      { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Home\s+State|State\s+of\s+Domicile|Mailing\s+State|Primary\s+State|Domicile\s+State)\**\s*:?\s*\**\s*([A-Z]{2}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/im, conf: 1.0 },
       // Generic "State:" — slightly weaker (could be product state, etc.)
       { re: /(?:^|\n)\s*(?:[-*]\s+)?\**\s*State\**\s*:\s*([A-Z]{2})\b/im, conf: 0.75 },
       // Two-letter state inferred from an address line ending in ZIP
@@ -674,6 +661,24 @@
     return true;
   }
 
+  // v8.7.38 — Workbench Deal Info state normalization. Keep Deal Info
+  // fills simple and deterministic: GL quote / ACORD may say either "TX"
+  // or "Texas"; the #homeState select expects two-letter values.
+  const US_STATE_ABBR_V8738 = new Set(['AL','AK','AZ','AR','CA','CO','CT','DC','DE','FL','GA','HI','IA','ID','IL','IN','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','PR','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']);
+  const US_STATE_NAME_TO_ABBR_V8738 = {
+    'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA','colorado':'CO','connecticut':'CT','district of columbia':'DC','delaware':'DE','florida':'FL','georgia':'GA','hawaii':'HI','iowa':'IA','idaho':'ID','illinois':'IL','indiana':'IN','kansas':'KS','kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD','massachusetts':'MA','michigan':'MI','minnesota':'MN','mississippi':'MS','missouri':'MO','montana':'MT','nebraska':'NE','nevada':'NV','new hampshire':'NH','new jersey':'NJ','new mexico':'NM','new york':'NY','north carolina':'NC','north dakota':'ND','ohio':'OH','oklahoma':'OK','oregon':'OR','pennsylvania':'PA','puerto rico':'PR','rhode island':'RI','south carolina':'SC','south dakota':'SD','tennessee':'TN','texas':'TX','utah':'UT','vermont':'VT','virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY'
+  };
+  function normalizeStateAbbrev8738(value) {
+    if (value == null) return null;
+    let s = String(value).replace(/[^A-Za-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    const up = s.toUpperCase();
+    if (US_STATE_ABBR_V8738.has(up)) return up;
+    const lower = s.toLowerCase();
+    if (US_STATE_NAME_TO_ABBR_V8738[lower]) return US_STATE_NAME_TO_ABBR_V8738[lower];
+    return null;
+  }
+
   // ─── Tier 2 parser: markdown label patterns ───────────────────────────
   // Returns { value, parser_confidence } on hit, null on miss.
   // FIX-PHASE-4.1-SENTINEL-FILTER-2026-05-14 — when a pattern matches
@@ -691,6 +696,11 @@
           .replace(/\s*\**$/, '');  // strip trailing bold markers
         if (!value) continue;
         if (isSentinelValue(value)) continue;  // treat placeholder as miss
+        if (fieldName === 'home_state') {
+          const st = normalizeStateAbbrev8738(value);
+          if (!st) continue;
+          value = st;
+        }
         return { value: value, parser_confidence: p.conf };
       }
     }
@@ -957,15 +967,10 @@
     // maps here to: gl_quote -> supplemental. insured_name previously read
     // ONLY submission.account_name, so when that was blank (new submission)
     // it had no source at all and the Deal Name rendered empty.
-    // v8.7.38 — moved submission.account_name from the front of the chain
-    // to the back. Per the universal priority rule, the GL quote is the
-    // authoritative source for the named insured; the submission column
-    // (a derived/upstream value) is a last-resort fallback for cases
-    // where no extraction module returned an insured name.
     insured_name:        ['gl_quote:json', 'gl_quote',
                           'supplemental:json', 'supplemental',
-                          'summary-ops',
-                          'submission.account_name'],
+                          'submission.account_name',
+                          'summary-ops'],
     policy_effective:    ['submission.effective_date', 'gl_quote', 'al_quote', 'excess', 'tower', 'supplemental'],
     policy_expiration:   [
       // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
@@ -1541,6 +1546,10 @@
       let val = lookupJsonField(obj, fieldName);
       if (val == null || val === '') return null;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      if (fieldName === 'home_state') {
+        val = normalizeStateAbbrev8738(val);
+        if (!val) return null;
+      }
       return {
         value: val,
         source: descriptor,
@@ -1563,6 +1572,10 @@
     if (adapted && adapted.value != null && adapted.value !== '') {
       let val = adapted.value;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      if (fieldName === 'home_state') {
+        val = normalizeStateAbbrev8738(val);
+        if (!val) return null;
+      }
       return {
         value: val,
         source: descriptor + ':adapter',
@@ -1599,6 +1612,9 @@
   // construction classifications and are not allowed for routing.
 
   const JSON_FIELD_SYNONYMS = {
+    insured_name: ['insured_name','insuredName','named_insured','namedInsured','first_named_insured','firstNamedInsured','applicant_name','applicantName','account_name','accountName','company_name','companyName'],
+    mailing_address: ['mailing_address','mailingAddress','mailing','mailing_addr','mailingAddr','insured_mailing_address','insuredMailingAddress','address'],
+    controlling_address: ['controlling_address','controllingAddress','physical_address','physicalAddress','premises_address','premisesAddress','location_address','locationAddress','insured_address','insuredAddress'],
     iso_class_code: ['iso_class_code','isoClassCode','class_code','classCode','code','iso_code','isoCode'],
     iso_description: ['iso_description','isoDescription','class_description','classDescription','description','class_desc'],
     hazard_grade: ['hazard_grade','hazardGrade','hazard','hg','risk_grade','riskGrade'],
@@ -2400,6 +2416,133 @@
     return null;
   }
 
+  // v8.7.38 — deterministic Deal Info extraction for the Workbench. This is
+  // intentionally narrow: it only supports named insured, home state, mailing
+  // address, and controlling address, and it only reads already-available OCR /
+  // extraction text. No rating / coverage logic is touched.
+  function cleanDealValue8738(value) {
+    if (value == null) return null;
+    let v = String(value)
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^[:\-–—|/]+\s*/, '')
+      .replace(/\s*\**$/, '')
+      .trim();
+    v = v.split(/\s*(?:\||·|;\s*(?:policy|period|effective|quote)|\bPolicy\s+(?:Period|No\.?|Number)\b)\s*/i)[0].trim();
+    if (!v || isSentinelValue(v)) return null;
+    return v;
+  }
+
+  function cleanDealName8738(value) {
+    const v = cleanDealValue8738(value);
+    if (!v) return null;
+    if (/\b(insurance company|insurer|carrier|producer|broker|underwriter|agency|policy period|quote number)\b/i.test(v)) return null;
+    if (!looksStructurallyValid(v)) return null;
+    return v;
+  }
+
+  function extractAddressFromLines8738(lines, startIndex, sameLineValue) {
+    const parts = [];
+    const push = (x) => {
+      const v = cleanDealValue8738(x);
+      if (!v) return;
+      if (/^(named insured|insured|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|location no\.?|loc\b)/i.test(v)) return;
+      parts.push(v.replace(/,$/, ''));
+    };
+    if (sameLineValue) push(sameLineValue);
+    for (let i = startIndex + 1; i < Math.min(lines.length, startIndex + 4); i++) {
+      const ln = lines[i];
+      if (!ln) break;
+      if (/^(named insured|insured name|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class)\b/i.test(ln)) break;
+      push(ln);
+      if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(ln)) break;
+    }
+    const joined = parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
+    if (!joined) return null;
+    if (/\d{1,6}\s+/.test(joined) || /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(joined)) return joined;
+    return null;
+  }
+
+  function extractDealAddress8738(rawText, preferMailing) {
+    if (!rawText) return null;
+    const clean = unmarkdown(rawText).replace(/\u00a0/g, ' ');
+    const lines = clean.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const label = preferMailing
+      ? /^(?:[-*•]\s*)?(?:mailing\s+address|named\s+insured\s+address|insured\s+mailing\s+address|insured\s+address|applicant\s+mailing\s+address|applicant\s+address|address)\b\s*:?\s*(.*)$/i
+      : /^(?:[-*•]\s*)?(?:physical\s+address|controlling\s+address|premises\s+address|named\s+insured\s+address|insured\s+address|location\s+address|location|address)\b\s*:?\s*(.*)$/i;
+
+    for (let i = 0; i < lines.length; i++) {
+      const m = label.exec(lines[i]);
+      if (!m) continue;
+      const addr = extractAddressFromLines8738(lines, i, m[1]);
+      if (addr) return addr;
+    }
+
+    // If this was a controlling/physical address request and no explicit
+    // controlling-style label was found, stop here. Do not promote a mailing
+    // address or unrelated producer/broker address into the controlling field.
+    if (!preferMailing) return null;
+
+    // Slash-separated ACORD/OCR layout: NAME / STREET / CITY ST ZIP
+    let m = /\b\d{1,6}\s+([^\/\n]{3,90}?)\s*\/\s*([A-Za-z .'-]{2,60})\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\b/i.exec(clean);
+    if (m) return cleanDealValue8738(m[0].replace(/\s*\/\s*/g, ', '));
+
+    // Single-line address with city/state/zip. Scan line-by-line so a ZIP
+    // at the end of one line cannot be misread as the street number on the
+    // next line.
+    for (const line of lines) {
+      m = /\b(\d{1,6}\s+[A-Za-z0-9 .#&'\-]+?(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Boulevard|Blvd\.?|Lane|Ln\.?|Court|Ct\.?|Circle|Cir\.?|Highway|Hwy\.?|Parkway|Pkwy\.?|Way|Loop|Place|Pl\.?|Plaza|Square|Sq\.?).{0,80}?,\s*[A-Za-z .'-]{2,60},?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?)\b/i.exec(line);
+      if (m) return cleanDealValue8738(m[1]);
+    }
+
+    // Two-line address: street line followed by City ST ZIP.
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (!/\b\d{1,6}\s+/.test(lines[i])) continue;
+      if (!/\b(Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Boulevard|Blvd\.?|Lane|Ln\.?|Court|Ct\.?|Highway|Hwy\.?|Parkway|Pkwy\.?|Way|Loop|Place|Pl\.?)\b/i.test(lines[i])) continue;
+      if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(lines[i + 1])) {
+        return cleanDealValue8738(lines[i] + ', ' + lines[i + 1]);
+      }
+    }
+    return null;
+  }
+
+  function extractDealState8738(rawText) {
+    if (!rawText) return null;
+    const clean = unmarkdown(rawText).replace(/\u00a0/g, ' ');
+    let m = /(?:Home\s+State|State\s+of\s+Domicile|Mailing\s+State|Primary\s+State|Domicile\s+State|State)\s*:?\s*([A-Z]{2}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i.exec(clean);
+    if (m) {
+      const st = normalizeStateAbbrev8738(m[1]);
+      if (st) return st;
+    }
+    const addr = extractDealAddress8738(clean, true) || extractDealAddress8738(clean, false);
+    m = addr && /\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/.exec(addr);
+    if (m && normalizeStateAbbrev8738(m[1])) return m[1].toUpperCase();
+    m = /\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/.exec(clean);
+    if (m && normalizeStateAbbrev8738(m[1])) return m[1].toUpperCase();
+    return null;
+  }
+
+  function extractDealName8738(rawText) {
+    if (!rawText) return null;
+    const fromExisting = extractNamedInsured(rawText);
+    const cleanedExisting = cleanDealName8738(fromExisting);
+    if (cleanedExisting) return cleanedExisting;
+    const clean = unmarkdown(rawText).replace(/\u00a0/g, ' ');
+    const patterns = [
+      /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant\s+Name|Applicant|Quote\s+For|Company\s+Name)\s*:?\s*([^\n]{2,100})/i,
+      /(?:^|\n)\s*([A-Z][A-Za-z0-9&.,'\- ]{2,80}?\s+(?:LLC|L\.L\.C\.?|INC\.?|CORP\.?|CORPORATION|COMPANY|CO\.?|LP|LLP|LTD\.?|PLLC|PC|PA))\b/m
+    ];
+    for (const re of patterns) {
+      const m = re.exec(clean);
+      const v = m && cleanDealName8738(m[1]);
+      if (v) return v;
+    }
+    return null;
+  }
+
   function moduleSpecificFieldAdapter(moduleKey, text, fieldName, submission) {
     const raw = text || '';
     const clean = unmarkdown(raw);
@@ -2414,6 +2557,34 @@
       if (value == null || value === '' || isSentinelValue(value)) return null;
       return { value, parser_confidence: conf || 0.80, reason: reason || 'adapter' };
     };
+
+    // v8.7.38: Workbench Deal Info fix. Named insured, Home State,
+    // Mailing Address, and Controlling Address must resolve from GL quote
+    // first, then ACORD 125 / Supp App, then lower-priority sources via
+    // SOURCE_AUTHORITY. This block gives those fields a deterministic parser
+    // before broad narrative adapters can miss or return stale submission data.
+    if (/^(insured_name|home_state|mailing_address|controlling_address)$/.test(fieldName)
+        && /^(gl_quote|supplemental|summary-ops|al_quote|excess|tower)$/.test(moduleKey)) {
+      const dealText = (moduleKey === 'gl_quote')
+        ? [clean, quoteFileClean].filter(Boolean).join('\n\n')
+        : clean;
+      if (fieldName === 'insured_name') {
+        const name = extractDealName8738(dealText);
+        if (name) return hit(name, moduleKey === 'gl_quote' ? 0.94 : 0.88, moduleKey + '_deal_named_insured_v8738');
+      }
+      if (fieldName === 'mailing_address') {
+        const addr = extractDealAddress8738(dealText, true);
+        if (addr) return hit(addr, moduleKey === 'gl_quote' ? 0.92 : 0.86, moduleKey + '_deal_mailing_address_v8738');
+      }
+      if (fieldName === 'controlling_address') {
+        const addr = extractDealAddress8738(dealText, false);
+        if (addr) return hit(addr, moduleKey === 'gl_quote' ? 0.90 : 0.84, moduleKey + '_deal_controlling_address_v8738');
+      }
+      if (fieldName === 'home_state') {
+        const st = extractDealState8738(dealText);
+        if (st) return hit(st, moduleKey === 'gl_quote' ? 0.92 : 0.86, moduleKey + '_deal_home_state_v8738');
+      }
+    }
 
     // v8.6.89: premium source authority. Quote page line items beat generic
     // LLM prose labels like Total Premium/Annual Premium, which caused package
@@ -4496,8 +4667,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.38a-insured-name-patterns',
-    fixTag: 'FIX-v8.7.38a-INSURED-NAME-PATTERNS-2026-05-20'
+    version: 'v8.7.37-post-wave-ocr-recovery',
+    fixTag: 'FIX-v8.7.37-POST-WAVE-OCR-RECOVERY-2026-05-20'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
