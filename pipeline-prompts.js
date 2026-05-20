@@ -909,6 +909,9 @@ This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT ex
 - Form: [form]
 - Policy Period: [dates]
 - Named Insured: [name]
+- Mailing Address: [full address line(s) from the QUOTE DECLARATIONS / top of quote / policyholder block — street, city, state, ZIP. If multi-line, join with comma+space into a single line. If absent on the quote, write "No information provided."]
+- Physical Address: [if the quote lists a separate physical / premises / risk location address distinct from mailing, return it in the same format; if only one address appears, write "same as mailing"; if no address appears at all, write "No information provided."]
+- Home State: [two-letter state abbreviation, taken from the mailing-address state. e.g., "VA". If mailing address is absent, write "No information provided."]
 - Total Premium: [$]
 
 **Coverage Structure:**

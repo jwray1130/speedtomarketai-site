@@ -940,10 +940,15 @@
     // maps here to: gl_quote -> supplemental. insured_name previously read
     // ONLY submission.account_name, so when that was blank (new submission)
     // it had no source at all and the Deal Name rendered empty.
-    insured_name:        ['submission.account_name',
-                          'gl_quote:json', 'gl_quote',
+    // v8.7.38 — moved submission.account_name from the front of the chain
+    // to the back. Per the universal priority rule, the GL quote is the
+    // authoritative source for the named insured; the submission column
+    // (a derived/upstream value) is a last-resort fallback for cases
+    // where no extraction module returned an insured name.
+    insured_name:        ['gl_quote:json', 'gl_quote',
                           'supplemental:json', 'supplemental',
-                          'summary-ops'],
+                          'summary-ops',
+                          'submission.account_name'],
     policy_effective:    ['submission.effective_date', 'gl_quote', 'al_quote', 'excess', 'tower', 'supplemental'],
     policy_expiration:   [
       // FIX-PHASE-GO-LIVE-75-EXPIRATION-SOURCE-PRIORITY-2026-05-16
@@ -4474,8 +4479,8 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.37-post-wave-ocr-recovery',
-    fixTag: 'FIX-v8.7.37-POST-WAVE-OCR-RECOVERY-2026-05-20'
+    version: 'v8.7.38-gl-quote-identity-priority',
+    fixTag: 'FIX-v8.7.38-GL-QUOTE-IDENTITY-PRIORITY-2026-05-20'
   };
 
   // FIX-PHASE-5.0-DEBUG-HELPER-2026-05-14
