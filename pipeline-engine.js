@@ -4983,6 +4983,198 @@ function applyPostExtractionApplicantGate8723(accountName) {
 }
 window.applyPostExtractionApplicantGate8723 = applyPostExtractionApplicantGate8723;
 
+// ============================================================
+// FIX-v8.7.37-POST-WAVE-OCR-RECOVERY-2026-05-20
+// ============================================================
+// PROBLEM (diagnostic forensics, fully documented):
+//   Wave-1 fires when the submission row is still a stub
+//   (account_name === null). gateModuleByApplicant short-circuits
+//   at its first line: `if (!context.account_name) return
+//   { proceed: true, reason: 'no_account_name' };`. The main LLM
+//   call THEN runs with the prompt's ${account_name} rendered as
+//   the literal string "(unknown)". Despite the prompt's Step 5
+//   escape clause ("if literally (unknown), proceed normally"),
+//   empirical reality is that the LLM treats Step 4's hard-refuse
+//   contract as primary and emits the refusal sentinel
+//   "**No matching primary GL quote found for this insured.**"
+//   The engine's own FIX-PHASE-6.1-TWO-PASS-APPLICANT-GATE comment
+//   documents this exact "long template dominates over short
+//   preamble" failure mode and explains why prompt-layer fixes
+//   cannot patch it reliably. The post-wave-1 sweep above
+//   (applyPostExtractionApplicantGate8723) handles the OPPOSITE
+//   problem (modules that extracted WRONG-insured data) but does
+//   not cover A12/A13/A14 (gl_quote/al_quote/excess) and is not
+//   built to recover from SELF-refusals where the module text is
+//   the sentinel and there is no extracted data to gate.
+//
+// FIX:
+//   At the same Phase 6 hook where the v8.7.23 sweep runs, detect
+//   gl_quote/al_quote/excess modules that self-refused with the
+//   exact sentinel string (a precise textual signature, not a
+//   generic refusal check) AND whose own routed source document's
+//   OCR text contains a Named Insured that matches the now-known
+//   accountName via the existing _gateInsuredMatches. In that case,
+//   synthesize a structured narrative output from the OCR using
+//   the SAME label patterns the resolver's parseMarkdown already
+//   trusts (Named Insured, Mailing Address, Policy Period,
+//   Effective Date, Carrier) — emitted as `- Label: value` bullets
+//   matching the format the prompt would have produced. The
+//   existing resolver picks them up via existing patterns, no
+//   resolver changes needed.
+//
+// CRITICAL: zero paid calls. OCR text is already in memory on
+// STATE.files[].extractMeta.pageTexts. This is a deterministic
+// regex synthesis, not an LLM re-extraction.
+//
+// SCOPE: identity + policy-period fields only. Richer coverage
+// fields (limits, premiums, endorsements) are not synthesized
+// because the OCR regex cannot match LLM-quality underwriting
+// extraction. Those fields stay blank — exactly as today — but
+// the identity/term fields the user flagged blank are recovered.
+function applyPostWaveOcrRecovery_v8737(accountName) {
+  if (!accountName || !STATE || !STATE.extractions || !STATE.files) {
+    return { checked: 0, recovered: 0 };
+  }
+  const REFUSAL_SENTINELS = {
+    gl_quote: '**No matching primary GL quote found for this insured.**',
+    al_quote: '**No matching primary AL quote found for this insured.**',
+    excess: '**No matching underlying excess policies found for this insured.**'
+  };
+  const MODULE_TITLES = {
+    gl_quote: 'Primary GL Summary',
+    al_quote: 'Primary AL Summary',
+    excess: 'Underlying Excess Program Tower'
+  };
+  let checked = 0, recovered = 0;
+  Object.keys(REFUSAL_SENTINELS).forEach(function(mid) {
+    const ex = STATE.extractions[mid];
+    if (!ex || typeof ex.text !== 'string') return;
+    checked += 1;
+    // Detect self-refusal precisely — only recover when the module's
+    // own text starts with the exact sentinel string. Never act on
+    // partial / ambiguous matches.
+    if (!ex.text.startsWith(REFUSAL_SENTINELS[mid])) return;
+    // Only recover when the gate's reason was actually 'no_account_name'
+    // (the failure mode this fix addresses). A self-refusal for any
+    // OTHER reason — e.g., a real mismatch — must NOT be overridden.
+    if (ex.applicantGateReason !== 'no_account_name'
+        && ex.applicant_match !== 'no_account_name') return;
+    // Find the source file(s) routed to this module.
+    const routedFiles = STATE.files.filter(function(f){
+      return f && f.routedTo === mid
+        && f.extractMeta && Array.isArray(f.extractMeta.pageTexts)
+        && f.extractMeta.pageTexts.length > 0;
+    });
+    if (!routedFiles.length) return;
+    // For each routed file, check whether its OCR text states an insured
+    // matching the now-known accountName. If multiple files all state
+    // DIFFERENT insureds, we DO NOT recover — that is exactly the
+    // wrong-applicant case the gate is supposed to refuse on, and we
+    // must not undo that.
+    let matchedFile = null;
+    let anyConflictingInsured = false;
+    routedFiles.forEach(function(f) {
+      const fullText = f.extractMeta.pageTexts.join('\n');
+      const detected = detectNamedInsuredsLocal8718(fullText, mid);
+      if (!detected.length) return; // silent doc is fine
+      const matches = detected.some(function(n){ return _gateInsuredMatches(n, accountName); });
+      const conflicts = detected.some(function(n){ return !_gateInsuredMatches(n, accountName); });
+      if (matches && !matchedFile) matchedFile = { file: f, text: fullText };
+      if (conflicts && !matches) anyConflictingInsured = true;
+    });
+    if (anyConflictingInsured || !matchedFile) return;
+    // Synthesize a narrative output from OCR using the same label
+    // patterns the resolver's parseMarkdown trusts.
+    const synthesized = synthesizeNarrativeFromOcr_v8737(
+      matchedFile.text, mid, MODULE_TITLES[mid], accountName);
+    if (!synthesized) return;
+    // Preserve original sentinel for audit traceability; swap in
+    // the synthesized narrative so the resolver can read it.
+    ex.originalTextBeforeRecovery_v8737 = ex.text;
+    ex.text = synthesized;
+    ex.applicantGate = 'recovered_v8737';
+    ex.applicantGateReason = 'post_wave_ocr_recovery_v8737';
+    ex.applicant_match = 'matched';
+    ex.recovered_v8737 = true;
+    ex.recovery_source_file = matchedFile.file.name || null;
+    ex.submissionInsured = accountName;
+    ex.gateDetails = {
+      proceed: true,
+      reason: 'post_wave_ocr_recovery_v8737',
+      submissionInsured: accountName,
+      sourceFile: matchedFile.file.name || null
+    };
+    recovered += 1;
+    logAudit('Pipeline',
+      'OCR-recovered ' + (MODULES[mid] ? MODULES[mid].code : mid)
+      + ' after account context refresh · synthesized from '
+      + (matchedFile.file.name || 'routed file'),
+      'RECOVERED v8.7.37');
+  });
+  return { checked: checked, recovered: recovered };
+}
+
+// Deterministic OCR-to-narrative synthesis. Patterns mirror the
+// LABEL_PATTERNS in workbench-rules.js so the resolver's parseMarkdown
+// picks them up via its existing matches. We emit `- Label: value`
+// bullets in the format the prompt template would have produced.
+function synthesizeNarrativeFromOcr_v8737(ocrText, moduleId, headerTitle, accountName) {
+  if (!ocrText) return null;
+  const grab = function(re) {
+    const m = re.exec(ocrText);
+    return m && m[1] ? m[1].trim() : null;
+  };
+  // Named Insured — prefer the document's stated form (caller has
+  // already verified it matches accountName via _gateInsuredMatches).
+  const namedInsured = grab(
+    /(?:Named\s+Insured|Insured\s+Name|Applicant)\s*:?\s*([^\n]{1,160}?)(?:\s{2,}|\n|$)/i)
+    || accountName;
+  // Mailing Address — prefer multi-line capture, then single-line.
+  let mailingAddress = grab(
+    /Mailing\s+Address\s*:?\s*([^\n]{1,180}?)(?:\s{2,}Broker\s*:|\s{2,}Phone|\n[A-Z][a-z]+\s*:|\n\n|$)/i);
+  if (!mailingAddress) mailingAddress = grab(/Mailing\s+Address\s*:?\s*([^\n]{1,180})/i);
+  // Carrier from header — Penn Millers shape: "<Carrier Name> - NAIC Code: <#>"
+  // or "<Carrier Name> Insurance Company" near top of document.
+  let carrier = grab(/^([^-\n]{3,80}?)\s*-\s*NAIC\s+Code\s*:/im)
+    || grab(/^([A-Z][A-Za-z .,&'\-]{2,60}\s+Insurance\s+Company)\b/im);
+  // Policy Period — supports MM-DD-YYYY, MM/DD/YYYY, M/D/YY etc.
+  const period = /Policy\s+Period\s*:?\s*([\d\/\-\.]+)\s*(?:to|through|thru|[-–—])\s*([\d\/\-\.]+)/i.exec(ocrText);
+  const effectiveStandalone = grab(/(?:Policy\s+)?Effective\s+Date\s*:?\s*([\d\/\-\.]+)/i);
+  const expirationStandalone = grab(/(?:Policy\s+)?Expiration\s+Date\s*:?\s*([\d\/\-\.]+)/i);
+  const effective = (period && period[1]) || effectiveStandalone || null;
+  const expiration = (period && period[2]) || expirationStandalone || null;
+  // Quote / policy number — useful audit breadcrumb, not a workbench field.
+  const quoteNumber = grab(/(?:Quote|Policy)\s+(?:Number|No\.?)\s*:?\s*([A-Za-z0-9\-]+)/i);
+  // If we couldn't recover ANY of the workbench-critical fields, do not
+  // overwrite the sentinel — better to leave the honest refusal than to
+  // emit a misleading near-empty narrative.
+  if (!effective && !expiration && !mailingAddress && !carrier) return null;
+  // Compose the narrative in the exact `- Label: value` bullet format
+  // the prompt template would have produced, so parseMarkdown in
+  // workbench-rules.js picks each field up via its existing patterns.
+  const lines = [
+    '**' + headerTitle + '**',
+    '',
+    '**Carrier & Administrative:**',
+    '- Carrier: ' + (carrier || 'No information provided.'),
+    '- Policy Period: ' + (effective && expiration
+        ? effective + ' to ' + expiration
+        : 'No information provided.'),
+    '- Effective Date: ' + (effective || 'No information provided.'),
+    '- Expiration Date: ' + (expiration || 'No information provided.'),
+    '- Named Insured: ' + (namedInsured || accountName),
+    '- Mailing Address: ' + (mailingAddress || 'No information provided.'),
+    (quoteNumber ? '- Quote Number: ' + quoteNumber : null),
+    '',
+    '[RECOVERED v8.7.37 — synthesized from source OCR after wave-1 self-refusal '
+    + 'due to no_account_name at dispatch. Identity and policy-term fields only; '
+    + 'coverage limits, premiums, and endorsements were not LLM-extracted and '
+    + 'remain unavailable. Verify in File Manager before binding.]'
+  ].filter(function(x){ return x !== null; });
+  return lines.join('\n');
+}
+window.applyPostWaveOcrRecovery_v8737 = applyPostWaveOcrRecovery_v8737;
+
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
@@ -5841,6 +6033,18 @@ async function runPipeline() {
     const gatePost8723 = applyPostExtractionApplicantGate8723(pipelineContext.account_name);
     if (gatePost8723 && gatePost8723.refused) {
       console.warn('[pipeline] v8.7.23 post-wave applicant gate refused', gatePost8723.refused, 'support extraction(s)');
+    }
+  }
+  // v8.7.37 — now that account_name is known, recover gl_quote / al_quote /
+  // excess that self-refused at wave-1 dispatch with reason 'no_account_name'.
+  // Uses OCR text already in memory + the same _gateInsuredMatches the gate
+  // trusts. Zero paid calls. See applyPostWaveOcrRecovery_v8737 above for
+  // full diagnostic rationale.
+  if (pipelineContext.account_name && typeof applyPostWaveOcrRecovery_v8737 === 'function') {
+    const recovery8737 = applyPostWaveOcrRecovery_v8737(pipelineContext.account_name);
+    if (recovery8737 && recovery8737.recovered) {
+      console.log('[pipeline] v8.7.37 post-wave OCR recovery synthesized',
+        recovery8737.recovered, 'of', recovery8737.checked, 'self-refused module(s)');
     }
   }
 
