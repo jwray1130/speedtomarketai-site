@@ -918,7 +918,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     missed.push({ field: t.field, sel: t.sel });
                     continue;
                 }
-                const applied = applyResolvedToElement(el, t.kind, resolved.value);
+                const applied = (t.field === 'mailing_address' || t.field === 'controlling_address')
+                    ? applyResolvedAddressToWorkbench8739(t.field, resolved.value)
+                    : applyResolvedToElement(el, t.kind, resolved.value);
                 if (applied) {
                     el.classList.add('autofilled-from-platform');
                     // FIX-PHASE-3-TIER-1-2-DISPATCH-2026-05-14
@@ -3441,6 +3443,146 @@ document.addEventListener('DOMContentLoaded', () => {
             return { filled, missed };
         }
 
+        // v8.7.39 — Address card/modal sync only. The resolver now returns a
+        // clean one-line mailing/controlling address; this helper splits that
+        // line into the existing popup fields so "Change" opens with the same
+        // address shown on the card.
+        const WORKBENCH_ADDR_SUFFIX_8739 = '(?:Street|St\\.?|Avenue|Ave\\.?|Road|Rd\\.?|Drive|Dr\\.?|Boulevard|Blvd\\.?|Lane|Ln\\.?|Court|Ct\\.?|Circle|Cir\\.?|Highway|Hwy\\.?|Parkway|Pkwy\\.?|Way|Loop|Place|Pl\\.?|Plaza|Square|Sq\\.?|Terrace|Ter\\.?)';
+
+        function isBlankAddressText8739(value) {
+            const s = String(value || '').replace(/\s+/g, ' ').trim();
+            return !s || s === '—' || s === '-';
+        }
+
+        function cleanWorkbenchAddressText8739(value) {
+            let s = String(value || '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!s || s === '—' || s === '-') return '';
+            s = s.replace(/^.*\b(?:Mailing\s+Address|Controlling\s+Address|Physical\s+Address|Premises\s+Address|Location\s+Address|Address)\b\s*:?\s*/i, '');
+            s = s.replace(/\s*[\[(]?\s*RECOVERED[\s\S]*$/i, ' ')
+                 .replace(/\s+Verify\s+in\s+File\s+Manager[\s\S]*$/i, ' ')
+                 .replace(/\s+(?:Quote|Account|Policy)\s+(?:No\.?|Number)\s*:?[\s\S]*$/i, ' ')
+                 .replace(/\s+Company\s+-\s+NAIC\s+Code[\s\S]*$/i, ' ')
+                 .replace(/[\s,;|]+$/g, ' ')
+                 .trim();
+            const zip = /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i.exec(s);
+            if (zip) s = s.slice(0, zip.index + zip[0].length);
+            return s.replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').replace(/[\s,]+$/g, '').trim();
+        }
+
+        function parseWorkbenchAddress8739(value) {
+            const s = cleanWorkbenchAddressText8739(value);
+            if (!s) return null;
+            let m = /^(.+?),\s*([^,]+?),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i.exec(s);
+            if (!m) {
+                const re = new RegExp('^(.+?\\b' + WORKBENCH_ADDR_SUFFIX_8739 + '\\b\\.?)\\s+([A-Za-z .\'\\-]{2,60})\\s*,?\\s+([A-Z]{2})\\s+(\\d{5}(?:-\\d{4})?)$', 'i');
+                m = re.exec(s);
+            }
+            if (!m) return null;
+            let street = (m[1] || '').trim();
+            let suite = '';
+            const suiteMatch = /\s+((?:Suite|Ste\.?|Apt\.?|Unit|#)\s*[A-Za-z0-9-]+)$/i.exec(street);
+            if (suiteMatch) {
+                suite = suiteMatch[1].trim();
+                street = street.slice(0, suiteMatch.index).trim();
+            }
+            return {
+                street,
+                suite,
+                city: (m[2] || '').trim(),
+                state: String(m[3] || '').trim().toUpperCase(),
+                zip: (m[4] || '').trim()
+            };
+        }
+
+        function formatAddressParts8739(parts) {
+            if (!parts) return '';
+            const line1 = [parts.street, parts.suite].filter(Boolean).join(' ').trim();
+            const stateZip = [parts.state, parts.zip].filter(Boolean).join(' ').trim();
+            const cityLine = [parts.city, stateZip].filter(Boolean).join(', ').trim();
+            return [line1, cityLine].filter(Boolean).join(', ').trim() || '';
+        }
+
+        function setAddressInput8739(name, value, readOnly) {
+            const field = document.querySelector(`#insuredForm [name="${name}"]`);
+            if (!field) return;
+            const next = value || '';
+            if (field.value !== next) {
+                field.value = next;
+                field.dispatchEvent(new Event('input', { bubbles: true }));
+                field.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (typeof readOnly === 'boolean') field.readOnly = readOnly;
+        }
+
+        function setSameAsMailing8739(checked) {
+            const chk = document.getElementById('sameAsMailingChk');
+            if (chk) chk.checked = !!checked;
+            ['riskStreet', 'riskSuite', 'riskCity', 'riskState', 'riskZip'].forEach(name => {
+                const field = document.querySelector(`#insuredForm [name="${name}"]`);
+                if (field) field.readOnly = !!checked;
+            });
+        }
+
+        function setAddressFormParts8739(kind, parts, readOnly) {
+            if (!parts) return;
+            const prefix = kind === 'mail' ? 'mail' : 'risk';
+            setAddressInput8739(prefix + 'Street', parts.street, readOnly);
+            setAddressInput8739(prefix + 'Suite', parts.suite, readOnly);
+            setAddressInput8739(prefix + 'City', parts.city, readOnly);
+            setAddressInput8739(prefix + 'State', parts.state, readOnly);
+            setAddressInput8739(prefix + 'Zip', parts.zip, readOnly);
+        }
+
+        function applyResolvedAddressToWorkbench8739(fieldName, rawValue) {
+            const parsed = parseWorkbenchAddress8739(rawValue);
+            const formatted = parsed ? formatAddressParts8739(parsed) : cleanWorkbenchAddressText8739(rawValue);
+            if (!formatted) return false;
+
+            if (fieldName === 'mailing_address') {
+                const mailTxt = document.getElementById('mailingTxt');
+                if (mailTxt) mailTxt.textContent = formatted;
+                if (parsed) setAddressFormParts8739('mail', parsed, false);
+
+                const ctrlTxt = document.getElementById('controllingTxt');
+                if (ctrlTxt && isBlankAddressText8739(ctrlTxt.textContent)) {
+                    ctrlTxt.textContent = formatted;
+                    if (parsed) setAddressFormParts8739('risk', parsed, true);
+                    setSameAsMailing8739(true);
+                }
+            } else if (fieldName === 'controlling_address') {
+                const ctrlTxt = document.getElementById('controllingTxt');
+                if (ctrlTxt) ctrlTxt.textContent = formatted;
+                if (parsed) setAddressFormParts8739('risk', parsed, false);
+                setSameAsMailing8739(false);
+            } else {
+                return false;
+            }
+
+            setTimeout(() => applyStateGuideposts8703('address-autofill-v8739'), 0);
+            return true;
+        }
+
+        function prefillInsuredDialogFromCards8739() {
+            const mailParsed = parseWorkbenchAddress8739(document.getElementById('mailingTxt')?.textContent);
+            const ctrlParsed = parseWorkbenchAddress8739(document.getElementById('controllingTxt')?.textContent);
+            if (mailParsed) setAddressFormParts8739('mail', mailParsed, false);
+            if (ctrlParsed) {
+                const same = mailParsed && formatAddressParts8739(mailParsed).toLowerCase() === formatAddressParts8739(ctrlParsed).toLowerCase();
+                setAddressFormParts8739('risk', ctrlParsed, same);
+                setSameAsMailing8739(!!same);
+            } else if (mailParsed) {
+                setAddressFormParts8739('risk', mailParsed, true);
+                setSameAsMailing8739(true);
+                const ctrlTxt = document.getElementById('controllingTxt');
+                if (ctrlTxt && isBlankAddressText8739(ctrlTxt.textContent)) ctrlTxt.textContent = formatAddressParts8739(mailParsed);
+            }
+        }
+
         function applyResolvedToElement(el, kind, value) {
             const tag = (el.tagName || '').toLowerCase();
             try {
@@ -3702,13 +3844,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.addEventListener("click", e => {
             if (e.target.classList.contains("edit")) {
+                if (e.target.dataset.target === 'insuredDialog') prefillInsuredDialogFromCards8739();
                 $(`#${e.target.dataset.target}`)?.showModal();
             }
         });
         $("#insuredSaveBtn").onclick = () => {
             const f = new FormData($("#insuredForm")), v = n => f.get(n) || "";
-            $("#mailingTxt").textContent = `${v("mailStreet")} ${v("mailSuite")}`.trim() + `, ${v("mailCity")}, ${v("mailState")} ${v("mailZip")}`;
-            $("#controllingTxt").textContent = `${v("riskStreet")} ${v("riskSuite")}`.trim() + `, ${v("riskCity")}, ${v("riskState")} ${v("riskZip")}`;
+            const mailParts = { street: v("mailStreet"), suite: v("mailSuite"), city: v("mailCity"), state: String(v("mailState")).toUpperCase(), zip: v("mailZip") };
+            const riskParts = { street: v("riskStreet"), suite: v("riskSuite"), city: v("riskCity"), state: String(v("riskState")).toUpperCase(), zip: v("riskZip") };
+            $("#mailingTxt").textContent = formatAddressParts8739(mailParts) || "—";
+            $("#controllingTxt").textContent = formatAddressParts8739(riskParts) || "—";
             applyStateGuideposts8703('insured-dialog-save');
         };
         const insuredFormForGuideposts = $("#insuredForm");

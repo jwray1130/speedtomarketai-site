@@ -1550,6 +1550,11 @@
         val = normalizeStateAbbrev8738(val);
         if (!val) return null;
       }
+      if (fieldName === 'mailing_address' || fieldName === 'controlling_address') {
+        const preferMailing = fieldName === 'mailing_address';
+        val = extractDealAddress8738(val, preferMailing) || normalizeDealAddress8739(val);
+        if (!val) return null;
+      }
       return {
         value: val,
         source: descriptor,
@@ -1591,6 +1596,11 @@
     if (!parsed) return null;
     let val = parsed.value;
     if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+    if (fieldName === 'mailing_address' || fieldName === 'controlling_address') {
+      const preferMailing = fieldName === 'mailing_address';
+      val = extractDealAddress8738(val, preferMailing) || normalizeDealAddress8739(val);
+      if (!val) return null;
+    }
     return {
       value: val,
       source: descriptor,
@@ -2420,9 +2430,37 @@
   // intentionally narrow: it only supports named insured, home state, mailing
   // address, and controlling address, and it only reads already-available OCR /
   // extraction text. No rating / coverage logic is touched.
+  const STREET_SUFFIX_8739 = '(?:Street|St\\.?|Avenue|Ave\\.?|Road|Rd\\.?|Drive|Dr\\.?|Boulevard|Blvd\\.?|Lane|Ln\\.?|Court|Ct\\.?|Circle|Cir\\.?|Highway|Hwy\\.?|Parkway|Pkwy\\.?|Way|Loop|Place|Pl\\.?|Plaza|Square|Sq\\.?|Terrace|Ter\\.?)';
+
+  function stringifyDealValue8739(value) {
+    if (value == null) return '';
+    if (typeof value === 'object') {
+      try {
+        return Object.values(value)
+          .filter(v => v != null && typeof v !== 'object')
+          .join(' ');
+      } catch (_) {
+        return '';
+      }
+    }
+    return String(value);
+  }
+
+  function stripAddressTail8739(value) {
+    return stringifyDealValue8739(value)
+      .replace(/\s*[\[(]?\s*RECOVERED[\s\S]*$/i, ' ')
+      .replace(/\s+Verify\s+in\s+File\s+Manager[\s\S]*$/i, ' ')
+      .replace(/\s+coverage\s+limits[\s\S]*$/i, ' ')
+      .replace(/\s+Company\s+-\s+NAIC\s+Code[\s\S]*$/i, ' ')
+      .replace(/\s+(?:Quote|Account|Policy)\s+(?:No\.?|Number)\s*:?[\s\S]*$/i, ' ')
+      .replace(/\s+(?:Carrier|Insurer|Producer|Broker)\s*:?[\s\S]*$/i, ' ')
+      .replace(/[\s,;|]+$/g, ' ')
+      .trim();
+  }
+
   function cleanDealValue8738(value) {
     if (value == null) return null;
-    let v = String(value)
+    let v = stringifyDealValue8739(value)
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')
@@ -2431,23 +2469,66 @@
       .replace(/^[:\-–—|/]+\s*/, '')
       .replace(/\s*\**$/, '')
       .trim();
+    v = stripAddressTail8739(v);
     v = v.split(/\s*(?:\||·|;\s*(?:policy|period|effective|quote)|\bPolicy\s+(?:Period|No\.?|Number)\b)\s*/i)[0].trim();
     if (!v || isSentinelValue(v)) return null;
     return v;
   }
 
   function cleanDealName8738(value) {
-    const v = cleanDealValue8738(value);
+    let v = cleanDealValue8738(value);
+    if (!v) return null;
+    v = v.split(/\b(?:Mailing\s+Address|Named\s+Insured\s+Address|Insured\s+Mailing\s+Address|Physical\s+Address|Controlling\s+Address|Premises\s+Address|Location\s+Address|Quote\s+(?:No\.?|Number)|Policy\s+(?:No\.?|Number))\b\s*:?/i)[0].trim();
     if (!v) return null;
     if (/\b(insurance company|insurer|carrier|producer|broker|underwriter|agency|policy period|quote number)\b/i.test(v)) return null;
     if (!looksStructurallyValid(v)) return null;
     return v;
   }
 
+  function normalizeDealAddress8739(value) {
+    if (value == null) return null;
+    let v = stringifyDealValue8739(value)
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!v || isSentinelValue(v)) return null;
+
+    // Real GL OCR can arrive as one long sentence, e.g.
+    // "... Named Insured: X Mailing Address: 505 E STUART DR HILLSVILLE, VA 24343-1664, Quote Number ...".
+    // Keep only the address segment and stop at the ZIP.
+    v = v.replace(/^.*\b(?:Mailing\s+Address|Named\s+Insured\s+Address|Insured\s+Mailing\s+Address|Insured\s+Address|Applicant\s+Address|Physical\s+Address|Controlling\s+Address|Premises\s+Address|Location\s+Address|Location|Address)\b\s*:?\s*/i, '');
+    v = stripAddressTail8739(v);
+    const zip = /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i.exec(v);
+    if (zip) v = v.slice(0, zip.index + zip[0].length);
+    v = v.replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').replace(/[\s,]+$/g, '').trim();
+    if (!v) return null;
+
+    const full = new RegExp('(\\d{1,6}\\s+[A-Za-z0-9 .#&\'\\-]+?\\b' + STREET_SUFFIX_8739 + '\\b\\.?[A-Za-z0-9 .#&\'\\-]*?\\s*,?\\s*[A-Za-z .\'\\-]{2,60}\\s*,?\\s+[A-Z]{2}\\s+\\d{5}(?:-\\d{4})?)', 'i');
+    let m = full.exec(v);
+    if (m) v = m[1].trim();
+
+    // Normalize "505 E STUART DR HILLSVILLE, VA 24343" into
+    // "505 E STUART DR, HILLSVILLE, VA 24343" for the summary card/modal.
+    const noComma = new RegExp('^(.+?\\b' + STREET_SUFFIX_8739 + '\\b\\.?)\\s+([A-Za-z .\'\\-]{2,60})\\s*,\\s*([A-Z]{2})\\s+(\\d{5}(?:-\\d{4})?)$', 'i');
+    m = noComma.exec(v);
+    if (m) v = m[1].trim() + ', ' + m[2].trim() + ', ' + m[3].toUpperCase() + ' ' + m[4];
+
+    const comma = /^(.+?),\s*([^,]+?),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i.exec(v);
+    if (comma) v = comma[1].trim() + ', ' + comma[2].trim() + ', ' + comma[3].toUpperCase() + ' ' + comma[4];
+
+    if (!/\d{1,6}\s+/.test(v)) return null;
+    if (!/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(v)) return null;
+    if (/\b(insurance company|insurer|carrier|producer|broker|underwriter|agency|quote number|account number|naic code)\b/i.test(v)) return null;
+    return v;
+  }
+
   function extractAddressFromLines8738(lines, startIndex, sameLineValue) {
     const parts = [];
     const push = (x) => {
-      const v = cleanDealValue8738(x);
+      const v = normalizeDealAddress8739(x) || cleanDealValue8738(x);
       if (!v) return;
       if (/^(named insured|insured|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|location no\.?|loc\b)/i.test(v)) return;
       parts.push(v.replace(/,$/, ''));
@@ -2460,7 +2541,7 @@
       push(ln);
       if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(ln)) break;
     }
-    const joined = parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
+    const joined = normalizeDealAddress8739(parts.join(', ')) || parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
     if (!joined) return null;
     if (/\d{1,6}\s+/.test(joined) || /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(joined)) return joined;
     return null;
@@ -2468,17 +2549,26 @@
 
   function extractDealAddress8738(rawText, preferMailing) {
     if (!rawText) return null;
-    const clean = unmarkdown(rawText).replace(/\u00a0/g, ' ');
+    const clean = unmarkdown(stringifyDealValue8739(rawText)).replace(/\u00a0/g, ' ');
+    const inlineLabel = preferMailing
+      ? /\b(?:mailing\s+address|named\s+insured\s+address|insured\s+mailing\s+address|applicant\s+mailing\s+address|applicant\s+address|insured\s+address|address)\b\s*:?\s*([\s\S]{0,260}?\b[A-Z]{2}\s+\d{5}(?:-\d{4})?)/i
+      : /\b(?:physical\s+address|controlling\s+address|premises\s+address|location\s+address|location)\b\s*:?\s*([\s\S]{0,260}?\b[A-Z]{2}\s+\d{5}(?:-\d{4})?)/i;
+    let inline = inlineLabel.exec(clean);
+    if (inline) {
+      const addr = normalizeDealAddress8739(inline[1]);
+      if (addr) return addr;
+    }
+
     const lines = clean.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
     const label = preferMailing
-      ? /^(?:[-*•]\s*)?(?:mailing\s+address|named\s+insured\s+address|insured\s+mailing\s+address|insured\s+address|applicant\s+mailing\s+address|applicant\s+address|address)\b\s*:?\s*(.*)$/i
-      : /^(?:[-*•]\s*)?(?:physical\s+address|controlling\s+address|premises\s+address|named\s+insured\s+address|insured\s+address|location\s+address|location|address)\b\s*:?\s*(.*)$/i;
+      ? /(?:^|[\s,;])(?:[-*•]\s*)?(?:mailing\s+address|named\s+insured\s+address|insured\s+mailing\s+address|applicant\s+mailing\s+address|applicant\s+address|insured\s+address|address)\b\s*:?\s*(.*)$/i
+      : /(?:^|[\s,;])(?:[-*•]\s*)?(?:physical\s+address|controlling\s+address|premises\s+address|location\s+address|location)\b\s*:?\s*(.*)$/i;
 
     for (let i = 0; i < lines.length; i++) {
       const m = label.exec(lines[i]);
       if (!m) continue;
       const addr = extractAddressFromLines8738(lines, i, m[1]);
-      if (addr) return addr;
+      if (addr) return normalizeDealAddress8739(addr) || addr;
     }
 
     // If this was a controlling/physical address request and no explicit
@@ -2488,22 +2578,23 @@
 
     // Slash-separated ACORD/OCR layout: NAME / STREET / CITY ST ZIP
     let m = /\b\d{1,6}\s+([^\/\n]{3,90}?)\s*\/\s*([A-Za-z .'-]{2,60})\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\b/i.exec(clean);
-    if (m) return cleanDealValue8738(m[0].replace(/\s*\/\s*/g, ', '));
+    if (m) return normalizeDealAddress8739(m[0].replace(/\s*\/\s*/g, ', '));
 
     // Single-line address with city/state/zip. Scan line-by-line so a ZIP
     // at the end of one line cannot be misread as the street number on the
     // next line.
+    const lineAddr = new RegExp('\\b(\\d{1,6}\\s+[A-Za-z0-9 .#&\'\\-]+?\\b' + STREET_SUFFIX_8739 + '\\b\\.?[A-Za-z0-9 .#&\'\\-]*?.{0,80}?\\b[A-Z]{2}\\s+\\d{5}(?:-\\d{4})?)\\b', 'i');
     for (const line of lines) {
-      m = /\b(\d{1,6}\s+[A-Za-z0-9 .#&'\-]+?(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Boulevard|Blvd\.?|Lane|Ln\.?|Court|Ct\.?|Circle|Cir\.?|Highway|Hwy\.?|Parkway|Pkwy\.?|Way|Loop|Place|Pl\.?|Plaza|Square|Sq\.?).{0,80}?,\s*[A-Za-z .'-]{2,60},?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?)\b/i.exec(line);
-      if (m) return cleanDealValue8738(m[1]);
+      m = lineAddr.exec(line);
+      if (m) return normalizeDealAddress8739(m[1]);
     }
 
     // Two-line address: street line followed by City ST ZIP.
     for (let i = 0; i < lines.length - 1; i++) {
       if (!/\b\d{1,6}\s+/.test(lines[i])) continue;
-      if (!/\b(Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Boulevard|Blvd\.?|Lane|Ln\.?|Court|Ct\.?|Highway|Hwy\.?|Parkway|Pkwy\.?|Way|Loop|Place|Pl\.?)\b/i.test(lines[i])) continue;
+      if (!(new RegExp('\\b' + STREET_SUFFIX_8739 + '\\b', 'i')).test(lines[i])) continue;
       if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(lines[i + 1])) {
-        return cleanDealValue8738(lines[i] + ', ' + lines[i + 1]);
+        return normalizeDealAddress8739(lines[i] + ', ' + lines[i + 1]);
       }
     }
     return null;
