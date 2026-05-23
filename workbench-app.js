@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.42-loss-paid-reconcile-2026-05-23';
+window.STM_BUILD = 'v8.7.43-loss-history-structured-contract-2026-05-23';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2233,7 +2233,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (typeof x !== 'object') return;
                     if (seen.has(x)) return; seen.add(x);
-                    if (Array.isArray(x.policy_years) || Array.isArray(x.loss_history_by_year) || x.coverage_totals || Array.isArray(x.large_losses)) objectCandidates.push(x);
+                    // FIX-PHASE-LOSSES-8743-COLLECTOR-LOB-BUCKETS-2026-05-23
+                    // Detect Shape A / E roots: { general_liability: {...},
+                    // auto_liability: {...} } or { gl_loss_information: [...],
+                    // auto_loss_information: [...] }. Without this, the
+                    // collector descends into the LOB inner objects and can
+                    // parse them as bare {policy_years:[...]} candidates with
+                    // no LOB tag. The root object is the only candidate where
+                    // the coercer can add the correct GL/AL context.
+                    const hasTopLevelLobBucket = !!(
+                        (x.general_liability && typeof x.general_liability === 'object') ||
+                        (x.auto_liability && typeof x.auto_liability === 'object') ||
+                        (x.general_liability_loss_information && typeof x.general_liability_loss_information === 'object') ||
+                        (x.auto_liability_loss_information && typeof x.auto_liability_loss_information === 'object') ||
+                        (x.gl_loss_information && typeof x.gl_loss_information === 'object') ||
+                        (x.auto_loss_information && typeof x.auto_loss_information === 'object') ||
+                        (x.al_loss_information && typeof x.al_loss_information === 'object') ||
+                        (x.gl && typeof x.gl === 'object' && (Array.isArray(x.gl) || Array.isArray(x.gl.policy_years) || Array.isArray(x.gl.years) || Array.isArray(x.gl.loss_history_by_year))) ||
+                        (x.al && typeof x.al === 'object' && (Array.isArray(x.al) || Array.isArray(x.al.policy_years) || Array.isArray(x.al.years) || Array.isArray(x.al.loss_history_by_year))) ||
+                        (x.auto && typeof x.auto === 'object' && (Array.isArray(x.auto) || Array.isArray(x.auto.policy_years) || Array.isArray(x.auto.years) || Array.isArray(x.auto.loss_history_by_year)))
+                    );
+                    if (Array.isArray(x.policy_years) || Array.isArray(x.loss_history_by_year) || x.coverage_totals || Array.isArray(x.large_losses) || hasTopLevelLobBucket) objectCandidates.push(x);
                     if (/loss/i.test(String(key || '')) && (x.text || x.output || x.content || x.result)) {
                         textCandidates.push(String(x.text || x.output || x.content || x.result || ''));
                     }
@@ -2256,6 +2276,56 @@ document.addEventListener('DOMContentLoaded', () => {
             function normalizeStructured98(obj) {
                 if (!obj || typeof obj !== 'object') return null;
                 if (obj.loss_history_structured && typeof obj.loss_history_structured === 'object') obj = obj.loss_history_structured;
+                // FIX-PHASE-LOSSES-8743-TOP-LEVEL-LOB-SHAPE-2026-05-23
+                // The A11 LLM can emit JSON with top-level LOB-named buckets
+                // instead of the canonical flat policy_years array, especially
+                // because the visual report has separate General Liability and
+                // Auto Liability sections. Coerce those legacy/drifted roots
+                // into the v8.7.22 flat-with-lob shape so existing readers can
+                // consume them and so already-saved Supabase rows heal without
+                // requiring another paid run.
+                function coerceTopLevelLobToFlat8743(o) {
+                    if (!o || typeof o !== 'object') return o;
+                    if (Array.isArray(o.policy_years) || Array.isArray(o.loss_history_by_year)) return o;
+                    const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+                    const extractYears = v => {
+                        if (Array.isArray(v)) return v;
+                        if (!isObj(v)) return null;
+                        return Array.isArray(v.policy_years) ? v.policy_years
+                            : Array.isArray(v.years) ? v.years
+                            : Array.isArray(v.loss_history_by_year) ? v.loss_history_by_year
+                            : null;
+                    };
+                    let glYears = null, alYears = null;
+                    let glLarge = null, alLarge = null;
+                    for (const [k, v] of Object.entries(o)) {
+                        const lk = String(k || '').toLowerCase();
+                        const isGL = /(?:^|[_\s])(gl|cgl|general[_\s-]*liability)(?:[_\s]|$)/.test(lk) && !/auto|automobile/.test(lk);
+                        const isAL = /(?:^|[_\s])(al|auto|automobile|business[_\s-]*auto)(?:[_\s]|$)/.test(lk) && !/(?:^|[_\s])general(?:[_\s]|$)/.test(lk);
+                        if (isGL && !glYears) {
+                            const y = extractYears(v);
+                            if (y && y.length) glYears = y;
+                            if (isObj(v) && Array.isArray(v.large_losses)) glLarge = v.large_losses;
+                        } else if (isAL && !alYears) {
+                            const y = extractYears(v);
+                            if (y && y.length) alYears = y;
+                            if (isObj(v) && Array.isArray(v.large_losses)) alLarge = v.large_losses;
+                        }
+                    }
+                    if (!glYears && !alYears) return o;
+                    const flat = [];
+                    (glYears || []).forEach(r => flat.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'GL' })));
+                    (alYears || []).forEach(r => flat.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'AL' })));
+                    const out = Object.assign({}, o, { policy_years: flat });
+                    if (!Array.isArray(out.large_losses)) {
+                        const ll = [];
+                        if (glLarge) glLarge.forEach(r => ll.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'GL' })));
+                        if (alLarge) alLarge.forEach(r => ll.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'AL' })));
+                        if (ll.length) out.large_losses = ll;
+                    }
+                    return out;
+                }
+                obj = coerceTopLevelLobToFlat8743(obj);
                 // v8.7.24: schema-drift fix. The pipeline (parseLossStructuredForArchive98)
                 // persists policy_years as an LOB-KEYED OBJECT:
                 //   policy_years: { GL: [{year,claims,paid,incurred}], AL: [...] }
@@ -2471,6 +2541,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 reconcileRows8742(rows.largeGl);
                 reconcileRows8742(rows.largeAuto);
                 rows.__source = 'loss_history_structured_reconciled8742';
+                // FIX-PHASE-LOSSES-8743-REJECT-CONFIDENCELESS-ZERO-2026-05-23
+                // A bare inner LOB bucket can look like { policy_years: [...] }
+                // but the rows have no LOB tag and no gl_*/al_* prefixed keys.
+                // If that candidate produces no claim/money values and no LOB
+                // disambiguation signal, return null so parseStructuredLoss98
+                // continues to the root candidate where the 8743 coercer can
+                // reconstruct GL/Auto rows correctly. True no-loss accounts
+                // under the pinned schema are preserved because they include
+                // row-level lob tags.
+                const hasMoneyFinal = (rows.gl || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || num98(r.claims))
+                    || (rows.auto || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || num98(r.claims));
+                const hasLobSignal = (years || []).some(py =>
+                    (py && (py.lob || py.line || py.coverage || py.coverage_type || py.coverageType || py.type)) ||
+                    Object.keys(py || {}).some(k => /^(gl|al|auto|general_liability|automobile|auto_liability)_/i.test(k)) ||
+                    (py && typeof py === 'object' && (
+                        (py.gl && typeof py.gl === 'object') ||
+                        (py.al && typeof py.al === 'object') ||
+                        (py.general_liability && typeof py.general_liability === 'object') ||
+                        (py.auto_liability && typeof py.auto_liability === 'object')
+                    ))
+                );
+                if (!hasMoneyFinal && !hasLobSignal) {
+                    console.log('[workbench] v8.7.43 normalizeStructured98 rejecting confidence-less zero result; continuing candidate loop.');
+                    return null;
+                }
                 return rows;
             }
             function parseStructuredLoss98() {
