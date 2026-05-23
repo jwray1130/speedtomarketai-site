@@ -1589,6 +1589,11 @@
         val = normalizeStateAbbrev8738(val);
         if (!val) return null;
       }
+      if (fieldName === 'mailing_address' || fieldName === 'controlling_address') {
+        const preferMailing = fieldName === 'mailing_address';
+        val = extractDealAddress8738(val, preferMailing) || normalizeDealAddress8739(val);
+        if (!val) return null;
+      }
       return {
         value: val,
         source: descriptor + ':adapter',
@@ -2548,9 +2553,13 @@
   }
 
   function extractAddressFromLines8738(lines, startIndex, sameLineValue) {
+    // v8.7.41: Strict address assembly. The old helper allowed any joined
+    // text containing a digit (for example an exclusion form number like
+    // "SUF-25") to pass as a controlling address. Only return a value after
+    // normalizeDealAddress8739 confirms a real street + city/state/ZIP.
     const parts = [];
     const push = (x) => {
-      const v = normalizeDealAddress8739(x) || cleanDealValue8738(x);
+      const v = cleanDealValue8738(x);
       if (!v) return;
       if (/^(named insured|insured|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|location no\.?|loc\b)/i.test(v)) return;
       parts.push(v.replace(/,$/, ''));
@@ -2559,14 +2568,12 @@
     for (let i = startIndex + 1; i < Math.min(lines.length, startIndex + 4); i++) {
       const ln = lines[i];
       if (!ln) break;
-      if (/^(named insured|insured name|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class)\b/i.test(ln)) break;
+      if (/^(named insured|insured name|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|exclusion|endorsement|form|subjectivity)\b/i.test(ln)) break;
       push(ln);
       if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(ln)) break;
     }
-    const joined = normalizeDealAddress8739(parts.join(', ')) || parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
-    if (!joined) return null;
-    if (/\d{1,6}\s+/.test(joined) || /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(joined)) return joined;
-    return null;
+    const joinedRaw = parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
+    return normalizeDealAddress8739(joinedRaw);
   }
 
   function extractDealAddress8738(rawText, preferMailing) {
@@ -4786,7 +4793,7 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.40-named-insured-guard',
+    version: 'v8.7.41-address-queue-sync',
     fixTag: 'FIX-v8.7.37-POST-WAVE-OCR-RECOVERY-2026-05-20'
   };
 

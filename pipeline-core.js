@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.40-named-insured-guard-2026-05-23';
+window.STM_BUILD = 'v8.7.42-loss-paid-reconcile-2026-05-23';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2872,6 +2872,10 @@ function loadSubmissions() {
 // patterns (Pattern C in summary-ops) could match things like "The company
 // has been..." or "Submission information..." or "Operations include...".
 const ACCOUNT_NAME_BLOCKLIST = [
+  /^is\s+["“']?\(?unknown\)?/i,
+  /does\s+not\s+state\s+an\s+insured/i,
+  /^the\s+gl\s+quote/i,
+  /^the\s+acord/i,
   /^the\s+company/i,
   /^the\s+applicant/i,
   /^the\s+insured/i,
@@ -2890,8 +2894,9 @@ function isLikelyCompanyName(s) {
   const trimmed = s.trim();
   if (trimmed.length < 3 || trimmed.length > 100) return false;
   if (ACCOUNT_NAME_BLOCKLIST.some(rx => rx.test(trimmed))) return false;
-  // Must contain at least one capitalized word
-  if (!/[A-Z][a-z]/.test(trimmed)) return false;
+  if (/\b(?:unknown|does\s+not\s+state|extracted\s+pages|acord\s+ap|verify\s+in\s+file\s+manager)\b/i.test(trimmed)) return false;
+  // Must look like a company: either title-case words or an all-caps legal name.
+  if (!/[A-Z][a-z]/.test(trimmed) && !/\b[A-Z][A-Z0-9&.'-]{2,}\b/.test(trimmed)) return false;
   return true;
 }
 
@@ -2923,9 +2928,11 @@ function _accountNameFromQuoteNamedInsured(extractions) {
     const ext = extractions && extractions[mid];
     if (!ext || !ext.text) continue;
     const name = _matchCompanyName(ext.text, [
-      /\*{0,2}Named Insured\*{0,2}\s*:?\s*([^\n]+)/i,
+      /\*{0,2}(?:First\s+)?Named Insured\*{0,2}\s*:?\s*([^\n]+)/i,
+      /\*{0,2}Insured\s+Name\*{0,2}\s*:?\s*([^\n]+)/i,
+      /\*{0,2}Applicant\*{0,2}\s*:?\s*([^\n]+)/i,
     ]);
-    if (name) return { name, source: mid + '.named_insured', confidence: 0.92 };
+    if (name) return { name, source: mid + '.named_insured', confidence: mid === 'gl_quote' ? 0.96 : 0.90 };
   }
   return null;
 }
@@ -2972,13 +2979,14 @@ function _accountNameFromWebsiteIntel(extractions) {
 }
 
 // Main entry. Walks priority chain, returns first non-null result.
-// Single-source priority order — broker docs > A6 prose > A1 website.
-// Website-only submissions naturally fall through to the website fallback;
-// no need for a special-case branch (which would duplicate logic).
+// v8.7.41: Match the Workbench source priority for displayed account name:
+// GL quote / quote named-insured first, then ACORD/Supplemental, then summary
+// and website fallbacks. This prevents frankenstein test packets from showing
+// a different insured in the Queue than the Workbench resolved Deal Name.
 function deriveAccountNameDetailed(extractions) {
   const sources = [
-    _accountNameFromSupplemental,
     _accountNameFromQuoteNamedInsured,
+    _accountNameFromSupplemental,
     _accountNameFromSummaryOps,
     _accountNameFromWebsiteIntel,
   ];

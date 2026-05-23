@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.40-named-insured-guard-2026-05-23';
+window.STM_BUILD = 'v8.7.42-loss-paid-reconcile-2026-05-23';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -850,6 +850,33 @@ document.addEventListener('DOMContentLoaded', () => {
         // We log a per-field outcome so Justin can see exactly what got
         // filled, from which source, and what was missed for Phase 3 to
         // pick up.
+        async function syncResolvedInsuredToQueue8741(submission) {
+            try {
+                const rules = window.WorkbenchRules;
+                if (!submission || !submission.id || !rules || typeof rules.resolveField !== 'function') return;
+                if (!window.sb || !window.currentUser) return;
+                const resolved = rules.resolveField('insured_name', submission);
+                const nextName = resolved && resolved.value ? String(resolved.value).trim() : '';
+                if (!nextName) return;
+                if (/\b(?:unknown|does\s+not\s+state|extracted\s+pages|acord\s+ap|verify\s+in\s+file\s+manager)\b/i.test(nextName)) return;
+                const current = String(submission.account_name || submission.title || '').trim();
+                if (current && current.toLowerCase() === nextName.toLowerCase()) return;
+                const patch = { account_name: nextName, title: nextName };
+                const { error } = await window.sb
+                    .from('submissions')
+                    .update(patch)
+                    .eq('id', submission.id);
+                if (error) throw error;
+                submission.account_name = nextName;
+                submission.title = nextName;
+                const badgeValue = document.querySelector('#workbenchSubmissionBadge .submission-badge-value');
+                if (badgeValue) badgeValue.textContent = nextName;
+                console.log('[workbench] v8.7.41 synced resolved insured to queue row:', submission.id, current || '(blank)', '→', nextName);
+            } catch (err) {
+                console.warn('[workbench] v8.7.41 queue insured sync failed:', err && err.message ? err.message : err);
+            }
+        }
+
         function applyDealInfoFromActiveSubmission(submission) {
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
@@ -955,6 +982,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (filled.length)  console.log('[workbench] Phase 3 filled:',  filled);
             if (missed.length)  console.log('[workbench] Phase 3 missed:',  missed);
             if (skipped.length) console.log('[workbench] Phase 3 skipped:', skipped);
+
+            // v8.7.41: Workbench may resolve a cleaner insured than the
+            // platform queue flat account_name, especially on frankenstein
+            // test packets. Patch only the display fields so Queue matches
+            // the Workbench; do not touch files, extraction text, rating, or
+            // source priority.
+            syncResolvedInsuredToQueue8741(submission);
 
             // FIX-v8.6.49-PAPER-OVERRIDE-GUARD
             // Belt-and-suspenders for #paper: if any async handler fires
@@ -1889,7 +1923,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function normalizeGlDesc91(desc, code) {
             const ref = lookupGlClassRef92(code);
             let d = String(desc || '').replace(/\s+/g, ' ').replace(/[-–—]\s*$/, '').trim();
-            d = d.replace(/CLASSIFICATION|CODE#|PREMIUM BASIS|RATE BASIS|PREM\/OPS/gi, '').trim();
+            d = d.replace(/\bCLASSIFICATION\b|\bCODE#\b|\bPREMIUM BASIS\b|\bRATE BASIS\b|\bPREM\/OPS\b/gi, '').trim();
             if (!d || d.length < 3 || /quote number|naic|policy|coverage|premium|limit|building|vehicle|pickup|ford|location|application/i.test(d)) {
                 d = ref && ref.description ? ref.description : '';
             }
@@ -2068,6 +2102,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 return Math.round(n).toLocaleString('en-US');
             }
             function num98(v) { return Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, '')) || 0; }
+
+            // v8.7.42: paid-loss reconciliation for structured A11 schema drift.
+            // The paid run can return policy-year rows with claims/reserve/incurred
+            // but omit paid, even when the underlying loss run shows reserve = $0.
+            // Since incurred = paid + reserve, a zero reserve plus positive incurred
+            // means paid should equal incurred.  This is a general insurance math
+            // guard, not an account-specific hardcode, and it only fires when paid
+            // is blank/zero.
+            function reconcilePaidFromIncurred8742(row) {
+                if (!row || typeof row !== 'object') return row;
+                const incurred = num98(row.incurred);
+                const reserve = num98(row.reserve);
+                const paid = num98(row.paid);
+                if (incurred > 0 && reserve === 0 && paid === 0) {
+                    row.paid = moneyFmt(incurred);
+                    row.__paidReconciled = 'incurred_minus_zero_reserve';
+                }
+                return row;
+            }
+            function reconcileRows8742(rows) {
+                (rows || []).forEach(reconcilePaidFromIncurred8742);
+                return rows || [];
+            }
+            function isLossDateLike8742(v) {
+                return /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(String(v || ''));
+            }
+            function pickLossVal8742(o, keys) {
+                if (!o || typeof o !== 'object') return null;
+                for (const k of keys) if (o[k] != null && o[k] !== '') return o[k];
+                const wanted = keys.map(k => String(k).replace(/[^a-z0-9]/gi, '').toLowerCase());
+                for (const [k, v] of Object.entries(o)) {
+                    const nk = String(k || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+                    if (wanted.includes(nk) && v != null && v !== '') return v;
+                }
+                return null;
+            }
+            function normalizeLargeLoss8742(x) {
+                const rawDate = pickLossVal8742(x, ['dol','DOL','date_of_loss','dateOfLoss','loss_date','lossDate','date']);
+                const incurred = pickLossVal8742(x, ['incurred','total_incurred','totalIncurred','total_incurred_loss','gross_incurred','grossIncurred','total']);
+                const reserve = pickLossVal8742(x, ['reserve','res','reserves','case_reserve','caseReserve','outstanding','outstanding_reserve','outstandingReserve']);
+                let paid = pickLossVal8742(x, ['paid','total_paid','totalPaid','paid_loss','paidLoss','paid_losses','paidLosses','payment','payments']);
+                const tmp = { incurred: moneyFmt(incurred), reserve: moneyFmt(reserve), paid: moneyFmt(paid) };
+                reconcilePaidFromIncurred8742(tmp);
+                return {
+                    dol: isLossDateLike8742(rawDate) ? String(rawDate).trim() : '',
+                    incurred: tmp.incurred,
+                    paid: tmp.paid,
+                    status: x.status || x.claim_status || x.claimStatus || 'Closed',
+                    desc: x.description || x.notes || x.claim_description || x.claimDescription || x.desc || ''
+                };
+            }
             function normPeriod(v) {
                 const s0 = String(v || '').trim();
                 if (!s0) return '';
@@ -2376,12 +2461,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (hasMoney8720(flatByLob8722.auto)) rows.auto = flatByLob8722.auto;
                 rows.gl = fillMissingYears98(rows.gl, 8);
                 rows.auto = fillMissingYears98(rows.auto, 8);
+                reconcileRows8742(rows.gl);
+                reconcileRows8742(rows.auto);
                 (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
-                    const r = { dol: x.dol || x.date || '', incurred: moneyFmt(x.incurred), paid: moneyFmt(x.paid), status: x.status || 'Closed', desc: x.description || x.notes || '' };
-                    if (/^A|auto/i.test(String(x.lob || x.coverage || ''))) rows.largeAuto.push(r);
+                    const r = normalizeLargeLoss8742(x);
+                    if (/^A|auto/i.test(String(x.lob || x.coverage || x.line || ''))) rows.largeAuto.push(r);
                     else rows.largeGl.push(r);
                 });
-                rows.__source = 'loss_history_structured';
+                reconcileRows8742(rows.largeGl);
+                reconcileRows8742(rows.largeAuto);
+                rows.__source = 'loss_history_structured_reconciled8742';
                 return rows;
             }
             function parseStructuredLoss98() {
@@ -3540,24 +3629,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function applyResolvedAddressToWorkbench8739(fieldName, rawValue) {
             const parsed = parseWorkbenchAddress8739(rawValue);
-            const formatted = parsed ? formatAddressParts8739(parsed) : cleanWorkbenchAddressText8739(rawValue);
-            if (!formatted) return false;
+            const formatted = parsed ? formatAddressParts8739(parsed) : '';
 
             if (fieldName === 'mailing_address') {
+                if (!formatted) return false;
                 const mailTxt = document.getElementById('mailingTxt');
                 if (mailTxt) mailTxt.textContent = formatted;
                 if (parsed) setAddressFormParts8739('mail', parsed, false);
 
                 const ctrlTxt = document.getElementById('controllingTxt');
-                if (ctrlTxt && isBlankAddressText8739(ctrlTxt.textContent)) {
+                const ctrlParsed = parseWorkbenchAddress8739(ctrlTxt && ctrlTxt.textContent);
+                if (ctrlTxt && (!ctrlParsed || isBlankAddressText8739(ctrlTxt.textContent))) {
                     ctrlTxt.textContent = formatted;
                     if (parsed) setAddressFormParts8739('risk', parsed, true);
                     setSameAsMailing8739(true);
                 }
             } else if (fieldName === 'controlling_address') {
                 const ctrlTxt = document.getElementById('controllingTxt');
+                if (!parsed || !formatted) {
+                    // v8.7.41: never display raw controlling-address prose.
+                    // If the controlling resolver returns an exclusion/note
+                    // sentence instead of a parseable address, inherit mailing.
+                    const mailParsed = parseWorkbenchAddress8739(document.getElementById('mailingTxt')?.textContent);
+                    if (!mailParsed) return false;
+                    const mailFormatted = formatAddressParts8739(mailParsed);
+                    if (ctrlTxt) ctrlTxt.textContent = mailFormatted;
+                    setAddressFormParts8739('risk', mailParsed, true);
+                    setSameAsMailing8739(true);
+                    setTimeout(() => applyStateGuideposts8703('address-autofill-v8741'), 0);
+                    return true;
+                }
                 if (ctrlTxt) ctrlTxt.textContent = formatted;
-                if (parsed) setAddressFormParts8739('risk', parsed, false);
+                setAddressFormParts8739('risk', parsed, false);
                 setSameAsMailing8739(false);
             } else {
                 return false;
