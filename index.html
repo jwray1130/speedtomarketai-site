@@ -2220,6 +2220,58 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   v8.7.64 — Signal gradient on prominent display text (dark mode only)
+
+   The 135° #0570DE → #00D4FF gradient that the v8.7.53 baseline applied
+   to the hero "compressed." word via background-clip: text. The look Justin
+   liked — a soft Stripe-blue fading to cyan — gets propagated to every
+   other large solid-blue display element so the whole page reads as a
+   single cool-blue palette instead of mixing flat signal blue with the
+   gradient.
+
+   Scoped to dark mode (default theme, no data-theme attribute). Light
+   mode keeps its accessible solid #0570DE on white. Dark-mode-only is
+   enforced with html:not([data-theme="light"]) so the rule is inert when
+   light theme is active.
+   ════════════════════════════════════════════════════════════════════ */
+html:not([data-theme="light"]) h1.hero-title,
+html:not([data-theme="light"]) .mc-num em,
+html:not([data-theme="light"]) .stat-num em,
+html:not([data-theme="light"]) .ba-col.after .ba-stat,
+html:not([data-theme="light"]) .ba-compress-pct,
+html:not([data-theme="light"]) .tc-num,
+html:not([data-theme="light"]) .section-title em,
+html:not([data-theme="light"]) .builtby h3 em,
+html:not([data-theme="light"]) .cta-huge em,
+html:not([data-theme="light"]) .wedge-line em {
+  background-image: linear-gradient(135deg, #0570DE 0%, #00D4FF 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent; /* progressive fallback for engines without -webkit-text-fill-color */
+}
+
+/* Print fallback — the background-clip:text rendering does NOT print,
+   leaving the text completely invisible. Force visible signal blue when
+   printing. */
+@media print {
+  html:not([data-theme="light"]) h1.hero-title,
+  html:not([data-theme="light"]) .mc-num em,
+  html:not([data-theme="light"]) .stat-num em,
+  html:not([data-theme="light"]) .ba-col.after .ba-stat,
+  html:not([data-theme="light"]) .ba-compress-pct,
+  html:not([data-theme="light"]) .tc-num,
+  html:not([data-theme="light"]) .section-title em,
+  html:not([data-theme="light"]) .builtby h3 em,
+  html:not([data-theme="light"]) .cta-huge em,
+  html:not([data-theme="light"]) .wedge-line em {
+    background-image: none !important;
+    -webkit-text-fill-color: initial !important;
+    color: #0570DE !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
    PHASE 7 — FINAL POLISH (v8.7.61)
    Accessibility (skip-link, ARIA), print stylesheet, anchor-arrival
    pulse, reduced-motion final sweep. Pure CSS, no functional logic
@@ -3220,11 +3272,6 @@ html.scroll-choreographed .reveal {
     <div class="mc-eyebrow">The opportunity</div>
     <div class="mc-grid">
       <div class="mc-stat">
-        <div class="mc-num"><em>$1.05T</em></div>
-        <div class="mc-label">US P&amp;C Direct Premiums Written, 2024</div>
-        <div class="mc-source">S&amp;P Global &middot; NAIC</div>
-      </div>
-      <div class="mc-stat">
         <div class="mc-num"><em>$502B</em></div>
         <div class="mc-label">US Commercial Lines Premium, 2024</div>
         <div class="mc-source">S&amp;P Global</div>
@@ -3277,11 +3324,12 @@ html.scroll-choreographed .reveal {
 }
 .mc-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 28px;
   margin-bottom: 36px;
 }
-@media (max-width: 780px) { .mc-grid { grid-template-columns: repeat(2, 1fr); gap: 32px 20px; } }
+@media (max-width: 880px) { .mc-grid { grid-template-columns: repeat(3, 1fr); gap: 22px 16px; } }
+@media (max-width: 640px) { .mc-grid { grid-template-columns: 1fr; gap: 28px; } }
 .mc-stat {
   display: flex;
   flex-direction: column;
@@ -5141,7 +5189,7 @@ html[data-theme="light"] .showcase-cta-band {
     <div class="section-label">Use Cases</div>
     <h2 class="section-title">Built for the realities of <em>commercial insurance</em> &mdash; across every line.</h2>
     <p class="section-lede">
-      GL, Auto, Workers' Comp, Property, Excess. Speed to Market AI was built by an underwriter who has sat in the clearance seat, the assistant seat, and the underwriter seat &mdash; across every stage of the commercial intake funnel. The use cases below are just examples but can do way more.
+      GL, Auto, Workers' Comp, Excess. Speed to Market AI was built by an underwriter who has sat in the clearance seat, the assistant seat, and the underwriter seat &mdash; across every stage of the commercial intake funnel. The use cases below are just examples but can do way more.
     </p>
 
     <div class="usecases">
@@ -5188,7 +5236,7 @@ html[data-theme="light"] .showcase-cta-band {
 
         <div class="uc-pane" id="uc-5">
           <div class="uc-pane-title">Loss history, decoded in minutes.</div>
-          <p class="uc-pane-desc">Loss runs arrive in every format carriers can produce. The platform normalizes GL, Auto, WC, Property, and Umbrella claims into a single structured view &mdash; with penetration analysis, severity trending, and fraud/edit detection built in.</p>
+          <p class="uc-pane-desc">Loss runs arrive in every format carriers can produce. The platform normalizes GL, Auto, WC, and Umbrella claims into a single structured view &mdash; with penetration analysis, severity trending, and fraud/edit detection built in.</p>
           <ul class="uc-pane-list">
             <li>Parses loss runs from 40+ carrier formats (table, transaction, block, scanned)</li>
             <li>Individual claim detail for every loss above your threshold</li>
@@ -5220,7 +5268,7 @@ html[data-theme="light"] .showcase-cta-band {
       <div class="diff-col us">
         <h3>Speed to Market AI <span class="chip">OURS</span></h3>
         <ul>
-          <li><svg class="diff-icon diff-icon-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 L7 12.5 L13 4"/></svg>Specialty depth across GL, Auto, WC, Property &amp; Excess &mdash; with line-specific knowledge (NY &sect;240, nuclear corridors, subsidence, ALAE allocation, etc.)</li>
+          <li><svg class="diff-icon diff-icon-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 L7 12.5 L13 4"/></svg>Specialty depth across GL, Auto, WC, and Excess &mdash; with line-specific knowledge (NY &sect;240, nuclear corridors, subsidence, ALAE allocation, etc.)</li>
           <li><svg class="diff-icon diff-icon-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 L7 12.5 L13 4"/></svg>BYO-API &mdash; bring your own Anthropic, OpenAI, or on-device LM Studio key. Your data never touches a third-party cloud</li>
           <li><svg class="diff-icon diff-icon-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 L7 12.5 L13 4"/></svg>10+ document formats parsed natively in-browser (PDF, DOCX, XLSX, MSG, EML, RTF, HTML, CSV)</li>
           <li><svg class="diff-icon diff-icon-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 L7 12.5 L13 4"/></svg>Every output source-cited with automatic QC validation loop until 100% field coverage</li>
@@ -5232,7 +5280,7 @@ html[data-theme="light"] .showcase-cta-band {
       <div class="diff-col them">
         <h3>Most AI tools <span class="chip">THEM</span></h3>
         <ul>
-          <li><svg class="diff-icon diff-icon-x" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>Generic P&amp;C / L&amp;H &mdash; doesn't know what a &sect;240 claim or a subsidence exclusion means</li>
+          <li><svg class="diff-icon diff-icon-x" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>Generic commercial platforms &mdash; don't know what a &sect;240 claim or a subsidence exclusion means</li>
           <li><svg class="diff-icon diff-icon-x" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>Isolated cloud environment &mdash; your submission data processed on vendor's infrastructure</li>
           <li><svg class="diff-icon diff-icon-x" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>Narrow document support &mdash; usually PDFs and maybe Word, limited table / spreadsheet handling</li>
           <li><svg class="diff-icon diff-icon-x" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>Outputs that sound confident but don't link back to source</li>
@@ -6952,7 +7000,14 @@ if (!REDUCED) {
      the others are simple <em> elements. */
   const targets = [];
   document.querySelectorAll('.mc-num em, .stat-num em').forEach(el => {
-    targets.push({ el, textNode: el.firstChild, original: el.textContent });
+    /* Only push targets whose firstChild is a text node. Phase 3 wrapped
+       .stat-num em values in <span data-count-target> spans — that
+       structure is handled by the Phase 3 countUp instead, and trying
+       to read .nodeValue.endsWith on the span would throw (null.endsWith)
+       and halt the whole forEach mid-loop. Skip those here. */
+    const fc = el.firstChild;
+    if (!fc || fc.nodeType !== Node.TEXT_NODE) return;
+    targets.push({ el, textNode: fc, original: el.textContent });
   });
   document.querySelectorAll('.ba-stat').forEach(el => {
     const textNode = getTextNode(el);

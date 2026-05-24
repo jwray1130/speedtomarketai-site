@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.62-fixes-word-break-counter-compression-flow-2026-05-24';
+window.STM_BUILD = 'v8.7.64-signal-gradient-prominent-text-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
