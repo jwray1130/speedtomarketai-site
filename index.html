@@ -4155,132 +4155,215 @@ html[data-theme="light"] .pipe-row[data-status="running"] { background: rgba(5, 
   letter-spacing: 0.04em;
 }
 
-/* ── File Manager mockup ── */
-.files-categories {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 18px;
+/* ── File Manager mockup — mirrors the actual platform's layout:
+       toolbar (categories label + counts) + categories grid (2-col
+       w/ description) + tagged pages sidebar on the right.
+       Category color tokens shared via CSS variables. ── */
+.files-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
-.cat-chip {
+.files-toolbar-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.files-toolbar-counts {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+}
+.files-counts-total { color: var(--cream); }
+.files-counts-sep   { margin: 0 6px; opacity: 0.5; }
+.files-counts-tagged { color: var(--signal); }
+
+.files-main {
+  display: grid;
+  grid-template-columns: 1fr 168px;
+  gap: 14px;
+  align-items: start;
+}
+
+/* Category cards grid (2-col within the categories panel) */
+.files-categories-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 9px;
+}
+.cat-card {
   position: relative;
-  padding: 10px 12px 9px 14px;
+  padding: 11px 11px 11px 16px;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   overflow: hidden;
+  transition: border-color 240ms ease, transform 240ms ease;
 }
-.cat-chip::before {
+.cat-card::before {
   content: "";
   position: absolute;
   top: 0; bottom: 0; left: 0;
   width: 3px;
   background: var(--cat-color);
 }
-.cat-chip[data-cat="loss"]       { --cat-color: #DC2626; }
-.cat-chip[data-cat="apps"]       { --cat-color: #16A34A; }
-.cat-chip[data-cat="underlying"] { --cat-color: #EAB308; }
-.cat-chip[data-cat="corr"]       { --cat-color: #F472B6; }
-.cat-chip[data-cat="compliance"] { --cat-color: #EA580C; }
-.cat-chip[data-cat="project"]    { --cat-color: #7C3AED; }
-.cat-name {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--muted);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.cat-card.cat-pulse {
+  border-color: var(--cat-color);
+  transform: translateX(1px);
 }
-.cat-count {
+.cat-card[data-cat="loss"]       { --cat-color: #DC2626; }
+.cat-card[data-cat="apps"]       { --cat-color: #16A34A; }
+.cat-card[data-cat="underlying"] { --cat-color: #EAB308; }
+.cat-card[data-cat="corr"]       { --cat-color: #F472B6; }
+.cat-card[data-cat="compliance"] { --cat-color: #EA580C; }
+.cat-card[data-cat="project"]    { --cat-color: #7C3AED; }
+.cat-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.cat-card-name {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cream);
+  letter-spacing: -0.01em;
+}
+.cat-card-count {
   font-family: var(--font-mono);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--cream);
   line-height: 1;
 }
-.files-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 14px 0;
-}
-.files-divider::before, .files-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
-.files-divider-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.files-thumbs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-}
-.thumb {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  transition: transform 240ms ease;
-}
-.thumb:hover { transform: translateY(-2px); }
-.thumb-page {
-  aspect-ratio: 3 / 4;
-  background: var(--surface-2);
-  border: 1px solid var(--line-warm);
-  border-radius: 3px;
-  padding: 9px 7px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  position: relative;
-}
-.thumb-page::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--thumb-color);
-}
-.thumb[data-cat="loss"]       { --thumb-color: #DC2626; }
-.thumb[data-cat="apps"]       { --thumb-color: #16A34A; }
-.thumb[data-cat="underlying"] { --thumb-color: #EAB308; }
-.thumb[data-cat="corr"]       { --thumb-color: #F472B6; }
-.thumb[data-cat="compliance"] { --thumb-color: #EA580C; }
-.thumb[data-cat="project"]    { --thumb-color: #7C3AED; }
-.thumb-line {
-  height: 2px;
-  background: var(--line-warm);
-  border-radius: 1px;
-  width: 100%;
-}
-.thumb-line:nth-child(2) { width: 75%; }
-.thumb-line:nth-child(3) { width: 60%; }
-.thumb-line:nth-child(4) { width: 90%; }
-.thumb-line:nth-child(5) { width: 50%; }
-.thumb-label {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--cream);
-  letter-spacing: 0.02em;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.thumb-pp {
+.cat-card-desc {
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--muted-2);
   letter-spacing: 0.04em;
+  line-height: 1.35;
 }
+
+/* Tagged-pages sidebar — vertical pills with colored left borders */
+.files-tagged-side {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 9px;
+  overflow: hidden;
+}
+.files-tagged-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.files-tagged-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.files-tagged-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--signal);
+  font-weight: 600;
+}
+.files-tagged-unit {
+  font-size: 8.5px;
+  font-weight: 400;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+.files-tagged-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 280px;
+}
+
+/* Animated scanline that sweeps down behind the tagged-pages list while
+   pages are being tagged. */
+.files-tagged-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 42px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(158, 196, 255, 0.06) 50%, transparent 100%);
+  height: 60px;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.files-tagged-side.scanning .files-tagged-scanline {
+  opacity: 1;
+  animation: scanlineSweep 1.6s linear infinite;
+}
+@keyframes scanlineSweep {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(220px); }
+}
+
+/* Tagged-page pill — name only, with colored left border that matches
+   its source category. Animates in from the right. */
+.tagged-pill {
+  position: relative;
+  padding: 6px 8px 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--cream);
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1), border-color 320ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tagged-pill::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 3px;
+  background: var(--tag-color);
+}
+.tagged-pill.pill-in {
+  opacity: 1;
+  transform: translateX(0);
+  box-shadow: 0 0 0 1px var(--tag-color) inset, 0 0 8px -2px var(--tag-color);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.tagged-pill[data-cat="loss"]       { --tag-color: #DC2626; }
+.tagged-pill[data-cat="apps"]       { --tag-color: #16A34A; }
+.tagged-pill[data-cat="underlying"] { --tag-color: #EAB308; }
+.tagged-pill[data-cat="corr"]       { --tag-color: #F472B6; }
+.tagged-pill[data-cat="compliance"] { --tag-color: #EA580C; }
+.tagged-pill[data-cat="project"]    { --tag-color: #7C3AED; }
+
+/* Light-mode adjustments */
+html[data-theme="light"] .cat-card { background: var(--surface-2); }
+html[data-theme="light"] .files-tagged-side { background: var(--surface-2); }
+html[data-theme="light"] .tagged-pill { background: var(--surface); }
+
 
 /* ── Workbench mockup ── */
 .wb-tabs {
@@ -4718,58 +4801,72 @@ html[data-theme="light"] .showcase-cta-band {
               <span class="device-badge">47 docs</span>
             </div>
             <div class="device-body files-body">
-              <div class="files-categories" id="filesCategories">
-                <div class="cat-chip" data-cat="loss"><span class="cat-name">Loss History</span><span class="cat-count">14</span></div>
-                <div class="cat-chip" data-cat="apps"><span class="cat-name">Applications</span><span class="cat-count">3</span></div>
-                <div class="cat-chip" data-cat="underlying"><span class="cat-name">Underlying</span><span class="cat-count">8</span></div>
-                <div class="cat-chip" data-cat="corr"><span class="cat-name">Correspondence</span><span class="cat-count">6</span></div>
-                <div class="cat-chip" data-cat="compliance"><span class="cat-name">Compliance</span><span class="cat-count">4</span></div>
-                <div class="cat-chip" data-cat="project"><span class="cat-name">Project</span><span class="cat-count">2</span></div>
+              <div class="files-toolbar">
+                <span class="files-toolbar-label">CATEGORIES</span>
+                <span class="files-toolbar-counts">
+                  <span class="files-counts-total">47 Total</span>
+                  <span class="files-counts-sep">&middot;</span>
+                  <span class="files-counts-tagged"><span id="filesTaggedNum">0</span> Tagged</span>
+                </span>
               </div>
-              <div class="files-divider">
-                <span class="files-divider-label">37 of 3,127 pages tagged</span>
+              <div class="files-main">
+                <div class="files-categories-grid" id="filesCategories">
+                  <div class="cat-card" data-cat="loss" data-final="4">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Loss History</span>
+                      <span class="cat-card-count" data-target="4">0</span>
+                    </div>
+                    <span class="cat-card-desc">Loss runs &middot; summary &middot; large losses</span>
+                  </div>
+                  <div class="cat-card" data-cat="apps" data-final="12">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Applications</span>
+                      <span class="cat-card-count" data-target="12">0</span>
+                    </div>
+                    <span class="cat-card-desc">Supp app &middot; ACORD &middot; narrative &middot; safety</span>
+                  </div>
+                  <div class="cat-card" data-cat="underlying" data-final="8">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Underlying</span>
+                      <span class="cat-card-count" data-target="8">0</span>
+                    </div>
+                    <span class="cat-card-desc">GL &middot; AL &middot; EL &middot; Lead &middot; Excess</span>
+                  </div>
+                  <div class="cat-card" data-cat="corr" data-final="5">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Correspondence</span>
+                      <span class="cat-card-count" data-target="5">0</span>
+                    </div>
+                    <span class="cat-card-desc">Cover notes &middot; bind requests &middot; emails</span>
+                  </div>
+                  <div class="cat-card" data-cat="compliance" data-final="6">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Compliance</span>
+                      <span class="cat-card-count" data-target="6">0</span>
+                    </div>
+                    <span class="cat-card-desc">TRIA &middot; surplus lines &middot; COI</span>
+                  </div>
+                  <div class="cat-card" data-cat="project" data-final="2">
+                    <div class="cat-card-row">
+                      <span class="cat-card-name">Project</span>
+                      <span class="cat-card-count" data-target="2">0</span>
+                    </div>
+                    <span class="cat-card-desc">Site plans &middot; geotech &middot; budgets</span>
+                  </div>
+                </div>
+                <div class="files-tagged-side">
+                  <div class="files-tagged-header">
+                    <span class="files-tagged-title">TAGGED PAGES</span>
+                    <span class="files-tagged-count" id="filesTaggedSideCount">14 <span class="files-tagged-unit">pages</span></span>
+                  </div>
+                  <div class="files-tagged-scanline" id="filesScanline"></div>
+                  <div class="files-tagged-list" id="filesTaggedList">
+                    <!-- pills appear here via JS as pages get tagged -->
+                  </div>
+                </div>
               </div>
-              <div class="files-thumbs" id="filesThumbs">
-                <div class="thumb" data-cat="loss">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">Loss Run &middot; 5yr</div>
-                  <div class="thumb-pp">14 pp</div>
-                </div>
-                <div class="thumb" data-cat="apps">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">ACORD 125</div>
-                  <div class="thumb-pp">3 pp</div>
-                </div>
-                <div class="thumb" data-cat="underlying">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">GL Quote</div>
-                  <div class="thumb-pp">8 pp</div>
-                </div>
-                <div class="thumb" data-cat="underlying">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">AL Policy</div>
-                  <div class="thumb-pp">22 pp</div>
-                </div>
-                <div class="thumb" data-cat="compliance">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">HACCP Cert</div>
-                  <div class="thumb-pp">4 pp</div>
-                </div>
-                <div class="thumb" data-cat="corr">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">Broker Email</div>
-                  <div class="thumb-pp">2 pp</div>
-                </div>
-                <div class="thumb" data-cat="project">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">Supp. App</div>
-                  <div class="thumb-pp">12 pp</div>
-                </div>
-                <div class="thumb" data-cat="loss">
-                  <div class="thumb-page"><div class="thumb-line"></div><div class="thumb-line"></div><div class="thumb-line"></div></div>
-                  <div class="thumb-label">Loss Detail</div>
-                  <div class="thumb-pp">6 pp</div>
-                </div>
+            </div>
+          </div>
               </div>
             </div>
           </div>
@@ -7450,34 +7547,166 @@ function toggleTheme() {
   }
 
   // ────────────────────────────────────────────────────────────────────
-  // File Manager — cascade-reveal category chips and thumbnails
+  // File Manager — animated page-tagging cycle.
+  // 14 named documents get "tagged" one-at-a-time (~220ms apart) into
+  // the right sidebar. Each tag bumps its source category counter.
+  // After all 14 named tags land, remaining (un-named) category pages
+  // ramp up to their finals between t=3400ms and t=5400ms. Hold final
+  // state for 3.2s then reset and loop.
   // ────────────────────────────────────────────────────────────────────
-  var filesCategories = document.getElementById('filesCategories');
-  var filesThumbs     = document.getElementById('filesThumbs');
+  var filesSection = document.getElementById('filesCategories');
+  var taggedList   = document.getElementById('filesTaggedList');
+  var taggedSide   = document.querySelector('.files-tagged-side');
+  var taggedNum    = document.getElementById('filesTaggedNum');
 
-  if (filesCategories && filesThumbs && !reduce) {
-    var hostA = [].slice.call(filesCategories.children);
-    var hostB = [].slice.call(filesThumbs.children);
-    hostA.concat(hostB).forEach(function(el) {
-      el.style.opacity   = '0';
-      el.style.transform = 'translateY(10px)';
-      el.style.transition = 'opacity 420ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1)';
+  if (filesSection && taggedList && !reduce) {
+
+    var TAGGED = [
+      { label: 'Loss Runs',         cat: 'loss' },
+      { label: 'ACORD 125',         cat: 'apps' },
+      { label: 'ACORD 126',         cat: 'apps' },
+      { label: 'ACORD 131',         cat: 'apps' },
+      { label: 'Contractors Supp',  cat: 'apps' },
+      { label: 'Sub Agreement',     cat: 'apps' },
+      { label: 'GL T&C',            cat: 'underlying' },
+      { label: 'GL Quote',          cat: 'underlying' },
+      { label: 'GL Exposure',       cat: 'underlying' },
+      { label: 'AL Quote',          cat: 'underlying' },
+      { label: 'AL Fleet',          cat: 'underlying' },
+      { label: 'Lead $2M',          cat: 'underlying' },
+      { label: 'Underlying Sched',  cat: 'underlying' },
+      { label: '10 xs 10',          cat: 'underlying' }
+    ];
+
+    var catCards  = filesSection.querySelectorAll('.cat-card');
+    var catCounts = {};
+    catCards.forEach(function(c) {
+      catCounts[c.getAttribute('data-cat')] = {
+        el:    c.querySelector('.cat-card-count'),
+        card:  c,
+        final: parseInt(c.getAttribute('data-final'), 10),
+        cur:   0
+      };
     });
+
+    var pillEls    = [];
+    var filesTimer = null;
+    var phase      = 0;
+    var pillsInDom = false;
+
+    function buildPills() {
+      if (pillsInDom) return;
+      TAGGED.forEach(function(t) {
+        var pill = document.createElement('div');
+        pill.className = 'tagged-pill';
+        pill.setAttribute('data-cat', t.cat);
+        pill.textContent = t.label;
+        taggedList.appendChild(pill);
+        pillEls.push(pill);
+      });
+      pillsInDom = true;
+    }
+
+    function resetCycle() {
+      Object.keys(catCounts).forEach(function(k) {
+        catCounts[k].cur = 0;
+        catCounts[k].el.textContent = '0';
+        catCounts[k].card.classList.remove('cat-pulse');
+      });
+      pillEls.forEach(function(p) { p.classList.remove('pill-in'); });
+      if (taggedNum) taggedNum.textContent = '0';
+      if (taggedSide) taggedSide.classList.remove('scanning');
+    }
+
+    function setCount(cat, n) {
+      var c = catCounts[cat];
+      if (!c) return;
+      if (n !== c.cur) {
+        c.cur = n;
+        c.el.textContent = String(n);
+        c.card.classList.add('cat-pulse');
+        setTimeout(function() { c.card.classList.remove('cat-pulse'); }, 400);
+      }
+    }
+
+    function step() {
+      phase += 80;
+      var t = phase;
+
+      var SCAN_START = 200;
+      var TAG_START  = 300;
+      var TAG_GAP    = 220;
+      var TAG_END    = TAG_START + TAG_GAP * TAGGED.length;
+      var BULK_START = TAG_END + 50;
+      var BULK_END   = BULK_START + 2000;
+      var DONE_HOLD  = 3200;
+      var CYCLE      = BULK_END + DONE_HOLD;
+
+      if (t >= CYCLE) {
+        phase = 0;
+        resetCycle();
+        return;
+      }
+
+      if (taggedSide) {
+        if (t >= SCAN_START && t < BULK_END) taggedSide.classList.add('scanning');
+        else taggedSide.classList.remove('scanning');
+      }
+
+      if (t >= TAG_START && t < TAG_END) {
+        var landed = Math.min(TAGGED.length, Math.floor((t - TAG_START) / TAG_GAP));
+        for (var i = 0; i < landed; i++) {
+          if (!pillEls[i].classList.contains('pill-in')) {
+            pillEls[i].classList.add('pill-in');
+            var tag = TAGGED[i];
+            var c = catCounts[tag.cat];
+            if (c) setCount(tag.cat, c.cur + 1);
+          }
+        }
+        if (taggedNum) taggedNum.textContent = String(landed);
+      }
+
+      if (t >= TAG_END) {
+        pillEls.forEach(function(p) { p.classList.add('pill-in'); });
+        if (taggedNum) taggedNum.textContent = String(TAGGED.length);
+      }
+
+      if (t >= BULK_START && t < BULK_END) {
+        var p = (t - BULK_START) / (BULK_END - BULK_START);
+        var eased = 1 - Math.pow(1 - p, 3);
+        Object.keys(catCounts).forEach(function(k) {
+          var c = catCounts[k];
+          var taggedSoFar = TAGGED.filter(function(tg) { return tg.cat === k; }).length;
+          var remaining = c.final - taggedSoFar;
+          if (remaining <= 0) return;
+          var bonus = Math.round(remaining * eased);
+          setCount(k, taggedSoFar + bonus);
+        });
+      }
+
+      if (t >= BULK_END) {
+        Object.keys(catCounts).forEach(function(k) {
+          var c = catCounts[k];
+          if (c.cur !== c.final) setCount(k, c.final);
+        });
+      }
+    }
 
     var filesObs = new IntersectionObserver(function(entries) {
       entries.forEach(function(entry) {
         if (entry.isIntersecting) {
-          hostA.concat(hostB).forEach(function(el, i) {
-            setTimeout(function() {
-              el.style.opacity   = '1';
-              el.style.transform = 'translateY(0)';
-            }, i * 70);
-          });
-          filesObs.disconnect();
+          if (!filesTimer) {
+            buildPills();
+            resetCycle();
+            phase = 0;
+            filesTimer = setInterval(step, 80);
+          }
+        } else {
+          if (filesTimer) { clearInterval(filesTimer); filesTimer = null; }
         }
       });
-    }, { threshold: 0.3 });
-    filesObs.observe(filesThumbs);
+    }, { threshold: 0.25 });
+    filesObs.observe(filesSection);
   }
 
   // ────────────────────────────────────────────────────────────────────
