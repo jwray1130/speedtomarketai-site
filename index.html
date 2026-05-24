@@ -2220,51 +2220,81 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   v8.7.64 — Signal gradient on prominent display text (dark mode only)
+   v8.7.65 — Signal gradient on prominent display text (dark mode only)
+              CORRECTED FROM v8.7.64.
 
-   The 135° #0570DE → #00D4FF gradient that the v8.7.53 baseline applied
-   to the hero "compressed." word via background-clip: text. The look Justin
-   liked — a soft Stripe-blue fading to cyan — gets propagated to every
-   other large solid-blue display element so the whole page reads as a
-   single cool-blue palette instead of mixing flat signal blue with the
+   v8.7.64 attempted to put the v8.7.53 hero gradient onto h1.hero-title
+   and other prominent solid-blue text. It broke the whole hero because
+   Phase 4 char-splitting wraps text in .tc spans that are display:
+   inline-block — and inline-block descendants establish a NEW painting
+   context. The parent's background-clip:text does not propagate through
+   to them, while -webkit-text-fill-color: transparent DOES propagate
+   (since it's an inherited property). Net effect: parent has gradient
+   bg clipped to no text (h1 has no direct text), descendants have
+   transparent fill with no own bg → text invisible.
+
+   Fix: apply the gradient ALSO to the leaf inline-block spans
+   (.tc, .tw, and the data-count-target wrapper span inside stat-num em).
+   Use background-attachment: fixed so every leaf shares the same
+   viewport-relative gradient layout — the gradient reads as a continuous
+   diagonal sweep across the text rather than each char repeating a tiny
    gradient.
 
-   Scoped to dark mode (default theme, no data-theme attribute). Light
-   mode keeps its accessible solid #0570DE on white. Dark-mode-only is
-   enforced with html:not([data-theme="light"]) so the rule is inert when
-   light theme is active.
+   Dark mode only. Light mode keeps its accessible solid #0570DE.
    ════════════════════════════════════════════════════════════════════ */
 html:not([data-theme="light"]) h1.hero-title,
+html:not([data-theme="light"]) h1.hero-title em,
+html:not([data-theme="light"]) h1.hero-title .tc-word,
+html:not([data-theme="light"]) h1.hero-title .tc,
+html:not([data-theme="light"]) .section-title em,
+html:not([data-theme="light"]) .section-title em .tw,
+html:not([data-theme="light"]) .builtby h3 em,
+html:not([data-theme="light"]) .builtby h3 em .tw,
+html:not([data-theme="light"]) .cta-huge em,
+html:not([data-theme="light"]) .cta-huge em .tw,
+html:not([data-theme="light"]) .wedge-line em,
+html:not([data-theme="light"]) .wedge-line em .tw,
 html:not([data-theme="light"]) .mc-num em,
 html:not([data-theme="light"]) .stat-num em,
+html:not([data-theme="light"]) .stat-num em > span[data-count-target],
 html:not([data-theme="light"]) .ba-col.after .ba-stat,
 html:not([data-theme="light"]) .ba-compress-pct,
+html:not([data-theme="light"]) .ba-compress-pct > span,
 html:not([data-theme="light"]) .tc-num,
-html:not([data-theme="light"]) .section-title em,
-html:not([data-theme="light"]) .builtby h3 em,
-html:not([data-theme="light"]) .cta-huge em,
-html:not([data-theme="light"]) .wedge-line em {
+html:not([data-theme="light"]) .tc-num > span[data-count-target] {
   background-image: linear-gradient(135deg, #0570DE 0%, #00D4FF 100%);
+  background-attachment: fixed;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  color: transparent; /* progressive fallback for engines without -webkit-text-fill-color */
+  color: transparent;
 }
 
-/* Print fallback — the background-clip:text rendering does NOT print,
-   leaving the text completely invisible. Force visible signal blue when
-   printing. */
+/* iOS Safari and some Android browsers treat background-attachment: fixed
+   as scroll. In that case the gradient sizes to each element's own box —
+   tiny .tc chars would each show a full gradient (visually noisy). For
+   those browsers, fall back to scroll attachment and accept a slightly
+   different look on the chars. (No way to detect this in pure CSS, so
+   the rule above is shipped as-is and treated as a desktop enhancement.) */
+
+/* Print fallback — background-clip:text does not render in print, leaving
+   the text completely invisible. Force visible signal blue when printing. */
 @media print {
   html:not([data-theme="light"]) h1.hero-title,
-  html:not([data-theme="light"]) .mc-num em,
-  html:not([data-theme="light"]) .stat-num em,
-  html:not([data-theme="light"]) .ba-col.after .ba-stat,
-  html:not([data-theme="light"]) .ba-compress-pct,
-  html:not([data-theme="light"]) .tc-num,
+  html:not([data-theme="light"]) h1.hero-title *,
   html:not([data-theme="light"]) .section-title em,
+  html:not([data-theme="light"]) .section-title em *,
   html:not([data-theme="light"]) .builtby h3 em,
   html:not([data-theme="light"]) .cta-huge em,
-  html:not([data-theme="light"]) .wedge-line em {
+  html:not([data-theme="light"]) .wedge-line em,
+  html:not([data-theme="light"]) .mc-num em,
+  html:not([data-theme="light"]) .stat-num em,
+  html:not([data-theme="light"]) .stat-num em *,
+  html:not([data-theme="light"]) .ba-col.after .ba-stat,
+  html:not([data-theme="light"]) .ba-compress-pct,
+  html:not([data-theme="light"]) .ba-compress-pct *,
+  html:not([data-theme="light"]) .tc-num,
+  html:not([data-theme="light"]) .tc-num * {
     background-image: none !important;
     -webkit-text-fill-color: initial !important;
     color: #0570DE !important;
