@@ -29,7 +29,7 @@
   // uploads. Without this, dropping an .eml within the first ~500ms of
   // page load (before the ESM CDN responds) silently falls back to the
   // legacy text-only parseEml path — which doesn't extract attachments.
-  // test account and other .eml-with-attachments demos would lose every
+  // test account and other .eml-with-attachments flows would lose every
   // attached PDF. Race window is small but real, especially on slow
   // corp networks. Keeping the import non-blocking (DOMContentLoaded
   // still fires snappy) but exposing the promise so consumers can await
@@ -50,9 +50,9 @@
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
 <script src="pipeline-prompts.js"></script>
 <link rel="stylesheet" href="pipeline-app.css">
-<!-- Documents view (Speed File Manager prototype, native port).
+<!-- Documents view (Speed File Manager native port).
      CSS is namespaced under #docs-view-root so it cannot leak into Altitude.
-     Additional libs the prototype needs: jszip (docx pagination, pptx parsing,
+     Additional libs the document viewer needs: jszip (docx pagination, pptx parsing,
      archives) and jspdf (Tagged-Pages export, single-doc download as PDF). -->
 <link rel="stylesheet" href="pipeline-documents-view.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -272,7 +272,7 @@
       <span class="version-badge-label">BUILD</span>
       <span class="version-badge-value" id="versionBadgeValue">loading…</span>
     </div>
-    <button class="api-pill demo" id="apiPill" onclick="openSettings()">
+    <button class="api-pill offline" id="apiPill" onclick="openSettings()">
       <span class="dot"></span>
       <span id="apiPillText">SIGN IN REQUIRED</span>
     </button>
@@ -320,7 +320,7 @@
     <div class="kpi amber">
       <div class="kpi-label">Backend</div>
       <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud-synced</div>
-      <div class="kpi-sub">single-tenant prototype</div>
+      <div class="kpi-sub">single-tenant workspace</div>
     </div>
   </div>
 
@@ -598,14 +598,14 @@
       <!-- ═══════════════════════════════════════════════════════════════════
            DOCUMENTS STAGE — Speed File Manager (native port)
            ═══════════════════════════════════════════════════════════════════
-           The prototype's full UI is mounted directly inside Altitude's
+           The document viewer UI is mounted directly inside Altitude's
            submission view, hidden by default. showStage('docs') toggles
            visibility via body.docs-fullwidth, and the #docs-view-root
            container is positioned fixed/inset:0/z-index:9999 so it overlays
            every other Altitude stage and chrome element.
 
            CSS is namespaced under #docs-view-root in /documents-view.css —
-           the prototype's class names (.topbar, .modal, .btn, etc.) cannot
+           the document viewer class names (.topbar, .modal, .btn, etc.) cannot
            collide with Altitude's identical class names because every
            selector lives behind the namespace.
 
@@ -1073,7 +1073,7 @@
           <h4>Submission</h4>
           <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">—</span></div>
           <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">—</span></div>
-          <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">DEMO</span></div>
+          <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">Not run</span></div>
           <div class="meta-row" id="sidebarCostRow"><span class="meta-row-label">Run cost</span><span class="meta-row-value" id="sidebarRunCost">$0.00</span></div>
         </div>
 
@@ -1097,7 +1097,7 @@
   <div class="page-head">
     <div class="page-eyebrow">02 · Admin</div>
     <h1 class="page-title">Carrier configuration</h1>
-    <p class="page-sub">Six screens that separate a prototype from a product. Users, guidelines, appetite thresholds, prompt overrides, integrations, audit export.</p>
+    <p class="page-sub">Production controls for users, guidelines, appetite thresholds, prompt overrides, integrations, and audit export.</p>
   </div>
 
   <div class="admin-grid">
@@ -1376,7 +1376,7 @@
 
 <div class="toast-wrap" id="toastWrap"></div>
 
-<!-- Phase 8 step 7: residue extraction. Defines window.STATE, window.sb, window.MOCKS, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
+<!-- Phase 8 step 7: core runtime. Defines window.STATE, window.sb, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
 <script src="pipeline-core.js"></script>
 <!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
 <script src="pipeline-supabase-data.js"></script>

@@ -5,9 +5,9 @@
    by default (display:none) — showStage('docs') sets display:flex, which
    is the only thing that activates the styling.
 
-   All selectors below are scoped under #docs-view-root so the prototype
+   All selectors below are scoped under #docs-view-root so the document viewer
    styles cannot leak into Altitude's pipe/sum/admin views. Likewise,
-   Altitude styles do not leak in — the prototype's CSS variables
+   Altitude styles do not leak in — the document viewer CSS variables
    (--bg, --surface, --text, etc.) are scoped to #docs-view-root and
    override anything inherited.
 
@@ -32,10 +32,10 @@
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;          /* prototype expects no scroll on its container */
+  overflow: hidden;          /* document viewer expects no scroll on its container */
 }
 body.docs-fullwidth #docs-view-root {
-  display: grid;             /* prototype's .app uses display:grid layout */
+  display: grid;             /* document viewer .app uses display:grid layout */
 }
 body.docs-fullwidth {
   /* Hide Altitude's chrome behind the overlay — strictly belt-and-braces
@@ -47,7 +47,7 @@ body.docs-fullwidth {
 /* ════════════════════════════════════════════════════════════════════════
    Speed File Manager (Documents view) — namespaced CSS
    Auto-generated. All selectors scoped under #docs-view-root so the
-   prototype styles cannot leak into the rest of Altitude.
+   document viewer styles cannot leak into the rest of Altitude.
    ════════════════════════════════════════════════════════════════════════ */
 
 #docs-view-root {

@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.43-loss-history-structured-contract-2026-05-23';
+window.STM_BUILD = 'v8.7.48-production-cleanup-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -38,7 +38,7 @@ window.debugBuildInfo = function() {
 //   1. Supabase client init + auth flow + llmProxyFetch (formerly Block 1)
 //   2. STATE, guideline, edit persistence, file parsing, queue, feedback
 //      (formerly Block 2)
-//   3. Demo mocks, audit log UI, exports, sanitizer, summary card renderer,
+//   3. Audit log UI, exports, sanitizer, summary card renderer,
 //      handoff workflow, manual-paste modal, decision pane, UI plumbing
 //      (formerly Block 3)
 //
@@ -49,7 +49,7 @@ window.debugBuildInfo = function() {
 // less ceremony. Top-level consts are explicitly window-exported in the
 // footer below.
 //
-// Cross-file references: STATE, sb, MOCKS, ACTIVE_GUIDELINE are referenced
+// Cross-file references: STATE, sb, ACTIVE_GUIDELINE are referenced
 // by the other split files. They are explicitly window-exported below.
 // Plus 55 functions used by HTML inline onclick/onchange handlers — also
 // explicitly window-exported.
@@ -1391,7 +1391,7 @@ function updateApiPillUI() {
   const shPill = document.getElementById('shModePill');
   if (!pill || !text) return;
   if (window.currentUser) {
-    pill.classList.remove('demo');
+    pill.classList.remove('offline');
     pill.classList.add('live');
     text.textContent = 'SIGNED IN · ' + (window.currentUser.display_name || 'user').toUpperCase();
     pill.title = 'Click to open Settings · Right-click to sign out';
@@ -1408,7 +1408,7 @@ function updateApiPillUI() {
     if (shPill) { shPill.textContent = 'LIVE · ' + (STATE.api.model || '').toUpperCase(); shPill.className = 'sub-pill signal'; }
   } else {
     pill.classList.remove('live');
-    pill.classList.add('demo');
+    pill.classList.add('offline');
     text.textContent = 'NOT SIGNED IN';
     pill.title = 'Sign in required';
     pill.onclick = null;
@@ -1453,7 +1453,7 @@ async function extractText(file, metadata, onProgress) {
       // chunkSize=8: ceiling on in-flight page extractions per file. With
       // outer-loop file parallelism, total in-flight extractions is
       // ~(num_files × 8). Set to 8 (not 16) to keep memory pressure
-      // reasonable on demo laptops and avoid PDF.js worker queue bloat.
+      // reasonable on local laptops and avoid PDF.js worker queue bloat.
       // The PDF.js worker is single-threaded internally, so larger chunks
       // don't actually parallelize more — they just queue more pages.
       reportProgress({ phase: 'extracting', page: 0, totalPages: pdf.numPages, label: 'extracting PDF text…' });
@@ -1474,7 +1474,7 @@ async function extractText(file, metadata, onProgress) {
         // calls pdf.destroy() — which can race with sibling page promises
         // still resolving inside their inner try/finally blocks. Edge case
         // (page text extraction rarely fails) but the symptom would be
-        // noisy uncaught promise warnings in the console mid-demo.
+        // noisy uncaught promise warnings in the console during processing.
         //
         // allSettled waits for every promise in the chunk to fully settle
         // (including their finally blocks for page.cleanup), then we throw
@@ -1532,7 +1532,7 @@ async function extractText(file, metadata, onProgress) {
       // Always destroy the PDF.js document object so its internal caches
       // (stream decoders, fonts, operator lists) get released. Without
       // this, every uploaded PDF leaks a few hundred MB until the next GC
-      // cycle — fine for one upload, fatal across a long sales demo
+      // cycle — fine for one upload, fatal across a long intake session
       // session with multiple submissions.
       if (pdf) {
         try { await pdf.destroy(); } catch (e) { /* ignore */ }
@@ -2036,7 +2036,7 @@ function setupDropzone() {
   // The user dragging files SLIGHTLY outside the dashed dropzone box will
   // hit the surrounding intake-pane area. Without these document-level
   // listeners, the browser shows the red no-drop cursor across the rest
-  // of the page — looks broken in a sales demo.
+  // of the page — looks broken in an intake session.
   //
   // PHASE 7 FIX (per GPT external audit round 5): regression repair.
   // Phase 5's "always preventDefault + stopPropagation" version blocked
@@ -2110,7 +2110,7 @@ async function handleFiles(fileList) {
   // PHASE A FIX (per GPT external audit): DON'T bump _uploadToken here.
   //
   // The Phase 3 implementation bumped the token at the start of every
-  // handleFiles() call. That broke a real demo flow:
+  // handleFiles() call. That broke a real intake flow:
   //   1. User drops batch A
   //   2. Batch A starts extracting (captures token N)
   //   3. User drops batch B mid-extraction (forgot a doc)
@@ -2145,7 +2145,7 @@ async function handleFiles(fileList) {
   // user sees every dropped file appear immediately. Without this split,
   // the first PDF's text-extraction loop (sequential per-page awaits) blocks
   // the JS thread for tens of seconds before subsequent rows can paint —
-  // looks like the app is frozen during a sales demo.
+  // looks like the app is frozen during an intake session.
   // ──────────────────────────────────────────────────────────────────────────
   const entries = [];
   for (const file of fileList) {
@@ -2185,7 +2185,7 @@ async function handleFiles(fileList) {
   // PHASE 10 FIX (per GPT external audit round 5): adaptive concurrency.
   //
   // Promise.all on entries.map() lets every file's extractAndProcessFile
-  // run in parallel. For a normal demo batch (5-7 files, ~30 MB total),
+  // run in parallel. For a normal upload batch (5-7 files, ~30 MB total),
   // that's the right call — total wall-clock is max(file_extract_time)
   // instead of sum(). The original architecture decision was right.
   //
@@ -2195,9 +2195,9 @@ async function handleFiles(fileList) {
   // simultaneously. On a Surface Laptop 7 with 32 GB this is fine; on
   // older 8/16 GB machines, the tab can OOM-crash mid-extraction.
   //
-  // Adaptive cap: if batch is "normal demo size" (≤8 files AND ≤75 MB
+  // Adaptive cap: if batch is "normal upload size" (≤8 files AND ≤75 MB
   // total bytes), keep full parallelism. Above that, cap at min(4,
-  // hardwareConcurrency-1). Justin's typical demo (test account is 5
+  // hardwareConcurrency-1). Justin's typical upload batch (test account is 5
   // files / ~10 MB) stays full-parallel. A defensive cap kicks in only
   // when needed, and it adapts to the user's machine.
   //
@@ -2218,9 +2218,9 @@ async function handleFiles(fileList) {
 
   const totalBytes = entries.reduce((sum, x) => sum + (x.file.size || 0), 0);
   const MB = 1024 * 1024;
-  const normalDemoBatch = entries.length <= 8 && totalBytes <= 75 * MB;
-  const adaptiveLimit = normalDemoBatch
-    ? entries.length  // full parallel — preserves demo speed
+  const normalUploadBatch = entries.length <= 8 && totalBytes <= 75 * MB;
+  const adaptiveLimit = normalUploadBatch
+    ? entries.length  // full parallel — preserves upload speed
     : Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
 
   await mapLimit(entries, adaptiveLimit, ({ entry, file }) =>
@@ -2300,7 +2300,7 @@ async function extractAndProcessFile(entry, file, hashText, isIncremental, newFi
   // SAFETY (#7): file-size cap before arrayBuffer() loads the binary into
   // memory. With parallel extraction across multiple files plus chunked
   // PDF.js worker calls, an unbounded large file could spike memory and
-  // crash the tab during a sales demo. 100MB matches the documents-view
+  // crash the tab during an intake session. 100MB matches the documents-view
   // cap (which fires later in the flow); duplicating it here catches
   // oversized files before they ever touch arrayBuffer().
   //
@@ -2748,7 +2748,7 @@ function updateRunButton() {
 // PHASE C FIX (per GPT external audit): dynamic empty-state copy.
 //
 // app.html previously hardcoded "Pipeline ready / 7 documents classified
-// and routed" as the static empty-state. On a fresh demo session that says
+// and routed" as the static empty-state. On a fresh session that says
 // "7 documents" while the queue clearly shows 0 files — looks broken.
 //
 // This function rewrites the heading + body based on actual queue state,
@@ -4301,883 +4301,9 @@ if (typeof toast === 'undefined') {
 // ============================================================================
 
 // ============================================================================
-// DEMO MODE MOCKS — realistic outputs for each module
+// Legacy sample extraction data removed in v8.7.48. Live runtime now routes
+// through the authenticated Supabase LLM proxy only.
 // ============================================================================
-const MOCKS = {
-  classifier: {
-    'Commercial_App': {type:'supplemental_contractors',confidence:0.96,reasoning:'construction supplemental: max height 62 ft, crane usage, subcontracted work %, % direct/commercial/residential, states with % — subtype = contractors'},
-    'Subk': {type:'subcontract',confidence:0.94,reasoning:'Master Subcontract Agreement with Article 8 Indemnification + Article 11 Insurance'},
-    'Loss': {type:'losses',confidence:0.99,reasoning:'carrier loss run format with DOL / incurred / paid columns across 5 policy years'},
-    'Starr': {type:'gl_quote',confidence:0.97,reasoning:'Starr Indemnity primary GL quote with CG 00 01 form + endorsement schedule'},
-    'GreatAm': {type:'al_quote',confidence:0.93,reasoning:'Great American commercial auto quote with Symbol 1 covered auto + fleet schedule'},
-    'Safety': {type:'safety',confidence:0.91,reasoning:'68-page written safety program with Safety Director, OSHA training matrix, EMR/TRIR metrics'},
-    'RE_Meridian': {type:'email',confidence:0.99,reasoning:'Outlook format with From:/To:/Subject: broker renewal submission'},
-    'Vendor': {type:'vendor',confidence:0.95,reasoning:'operated equipment lease with borrowed-servant language'},
-    'Excess': {type:'excess',confidence:0.95,reasoning:'follow-form excess policy with layer structure + attachment point + underlying schedule'},
-    'Website': {type:'website',confidence:0.94,reasoning:'homepage + services + about + projects pages from corporate site scrape'},
-    default: {type:'unknown',confidence:0.5,reasoning:'could not confidently classify from text sample'}
-  },
-
-  'summary-ops': `Meridian Structural Group, LLC, founded in 2008, specializes in structural steel erection and concrete tilt-wall construction for commercial, light industrial, and select mid-rise residential projects. The company operates across Texas, Oklahoma, Louisiana, New Mexico, Arkansas, Colorado, and New York, and focuses on self-performance of structural work with subcontracted MEP, finishes, and specialty trades. Meridian prioritizes an OSHA VPP Star-certified safety culture, a 68-page written safety program, a full-time CSP/CHST-credentialed safety director, myCOI subcontractor tracking, and broad-form contractual risk transfer.
-
-**Products and Services:**
-- Structural steel erection
-- Tilt-wall concrete construction
-- Precast panel installation
-- Design-build and general contracting services
-- Rigging and heavy-lift planning
-
-**Percentage of Work by Location:**
-- Texas 61%
-- Oklahoma 14%
-- Louisiana 11%
-- New Mexico 6%
-- Arkansas 4%
-- Colorado 3%
-- New York 1%
-
-**Safety Protocols:**
-- Training: OSHA 30-hr (100% foremen), OSHA 10-hr (100% field), NCCCO crane operator certifications
-- Safety Measures: 68-page written safety manual (rev. Jan 2026), Samsara telematics on all Class 5+ fleet units, Lytx AI cameras on Class 8
-- Safety Staff: Safety Director Patricia Chen, CSP, CHST (7-yr tenure, full-time); 3 site safety managers; 1:42 safety-FTE to field-employee ratio
-- Certifications: OSHA VPP Star (2021-present), AISC Certified Erector, ABC STEP Platinum (8 years)
-- Performance: EMR 0.81 (3-yr avg), TRIR 2.1, DART 1.1
-
-**Subcontractor Requirements:**
-- Subcontracted Work: MEP trades, finishes, roofing, landscape (32% of operations)
-- Risk Transfer: COIs via myCOI with broad-form hold-harmless; Meridian named AI on primary and non-contributory basis (CG 20 10 + CG 20 37)
-- Liability Limits: GL $1M/$2M/$2M, AL $1M CSL, Umbrella $5M general / $10M structural/crane/rigging/roofing/electrical
-- Compliance: 5-year completed ops tail required
-
-**Source Products & Services (verbatim):**
-- Structural steel erection
-- Tilt-wall concrete construction
-- Precast panel installation
-- Design-build and general contracting services
-- Rigging and heavy-lift planning
-
-**Checklist – Did the Draft Include Each Item?**
-- ✔ Structural steel erection
-- ✔ Tilt-wall concrete construction
-- ✔ Precast panel installation
-- ✔ Design-build and general contracting services
-- ✔ Rigging and heavy-lift planning
-
-All items present. QC passed on first pass.`,
-
-  supplemental: `**Supplemental Application Summary**
-
-- Company Name: Meridian Structural Group, LLC
-- Years in Business: 18 (Founded 2008)
-
-**Operations:**
-- Description: General contractor specializing in structural steel erection and concrete tilt-wall construction for commercial, light industrial, and select mid-rise residential projects.
-- Max Height of Work: 62 ft
-- Max Depth of Work: 14 ft (excavation support)
-- Crane Usage: Yes. Details: 2 owned (65-ton & 90-ton crawler), balance leased with operator.
-
-**Geographic Spread:**
-- TX: 61%
-- OK: 14%
-- LA: 11%
-- NM: 6%
-- AR: 4%
-- CO: 3%
-- NY: 1%
-
-**Work Mix:**
-- Direct / Self-Performed: 68%
-- Subcontracted: 32%
-- Commercial: 74%
-- Residential: 18%
-
-**Subcontractor Risk-Transfer:**
-- Additional Insured Required: Yes
-- COIs Retained: Yes (myCOI)
-- Indemnification / Hold-Harmless: Yes (broad form)
-- Minimum Insurance Limits: GL $1M/$2M/$2M; AL $1M CSL; Umbrella $5M (general), $10M (structural/crane/rigging/roofing/electrical)
-
-**Safety Program:**
-- Formal Written Program: Yes
-- Additional Safety Details: 68-page manual rev. Jan 2026. Safety Director Patricia Chen, CSP, CHST. OSHA VPP Star, AISC Certified Erector, ABC STEP Platinum. Samsara telematics on all Class 5+ units.
-
-**Source Extracts (verbatim)**
-- Applicant: Meridian Structural Group, LLC
-- MAX HEIGHT OF WORK: 62 ft
-- CRANES USED: [X] YES
-- STATES: TX 61% | OK 14% | LA 11% | NM 6% | AR 4% | CO 3% | NY 1%
-- Minimum Limits: GL $1M/$2M/$2M; AL $1M CSL; Umbrella $5M/$10M
-
-**Checklist** — all 18 required fields present. QC passed on first pass.`,
-
-  subcontract: `**Subcontractor Requirements:**
-
-- **Subcontracted Work:** All subcontractors executing the Master Agreement
-- **Risk Transfer / Indemnification:** Subcontractor shall indemnify, defend, and hold harmless Contractor, Owner, Architect from all claims arising from performance — "to the fullest extent permitted by law"
-- **Additional Insured:** Meridian Structural Group named as AI on primary and non-contributory basis (CG 20 10 + CG 20 37, ongoing + completed ops)
-- **Waiver of Subrogation:** Required on all lines
-- **Liability Limits:**
-  - GL: $1M occ / $2M gen agg / $2M prod-CO agg · per-project aggregate
-  - AL: $1M CSL (any auto)
-  - Umbrella/Excess: $5M general; $10M structural / crane / rigging / roofing / electrical
-- **Duration of Coverage:** Completed ops maintained 5+ years following final acceptance
-
-**Source Extracts (verbatim)**
-- "Commercial General Liability on an occurrence form with limits of not less than $1,000,000..."
-- "Meridian Structural Group... shall be named as Additional Insured on a primary and non-contributory basis (CG 20 10 and CG 20 37)..."
-- "Completed operations coverage shall be maintained for a period of not less than five (5) years..."
-
-**Checklist** — all 10 required fields present. QC passed.`,
-
-  vendor: `**Vendor Agreement Analysis**
-- **Vendor Name:** Southwest Crane Services, Inc.
-- **Vendor Type:** Operated Equipment Lessor (crane rental with operator furnished)
-- **Service/Equipment:** Crawler cranes 65T-250T, bare-rental or operated basis per-project
-- **On-Site Work:** Yes — operator-furnished cranes at Lessee jobsite under Lessee direction
-
-**Risk Transfer:**
-- Indemnification: Mutual limited (each party for own negligence). Lessee defends Lessor for claims arising from Lessee signal person / direction
-- Additional Insured: Yes — each party names the other on primary and non-contributory basis
-- Waiver of Subrogation: Yes on GL, AL, WC
-- Hold Harmless Scope: Mutual limited
-
-**Insurance Limits Required:**
-- GL: $2M each occurrence / $4M general aggregate
-- AL: $2M combined single limit
-- Umbrella/Excess: $10M each occurrence
-
-**Operated Equipment Specific:**
-- Borrowed Servant Language: Yes — Agreement acknowledges operator may be deemed borrowed servant under applicable state law when Lessee directs signaling/picks. Lessor does not waive WC employer status.
-- Operator Qualifications: Required — NCCCO-certified operator furnished by Lessor
-
-**Source Extracts (verbatim)**
-- "Commercial General Liability: $2,000,000 each occurrence / $4,000,000 general aggregate"
-- "the operator may be deemed a borrowed servant of Lessee under applicable state law"
-
-**Checklist** — all 12 fields present. QC passed.`,
-
-  safety: `**Written Safety Program Summary**
-
-**Program Oversight:**
-- Safety Director: Patricia Chen, CSP, CHST — 7 years tenure — full-time
-- Reporting: Direct to CEO
-- Staff: 3 site safety managers + 1 fleet safety specialist
-- Ratio: 1 safety FTE per 42 field employees
-
-**Written Program Scope:**
-- Page Count: 68 pages
-- Last Revision: January 15, 2026
-- Topics: Fall Protection (Subpart M), Scaffolding (Subpart L), Cranes & Rigging (Subpart CC), Hot Work, Confined Space, Excavation (Subpart P), PPE, HazCom, Electrical Safety, Fleet Safety
-
-**Training Matrix:**
-- OSHA 30-Hour: 100% of foremen and superintendents
-- OSHA 10-Hour: 100% of field personnel
-- NCCCO Certification: All crane operators
-- Competent Person - Fall Protection: Designated by jobsite
-- Refresher Frequency: Annual, documented
-
-**Performance Metrics (3-year average):**
-- EMR: 0.81 (NAICS 236220 benchmark 1.00) — 19% better than industry
-- TRIR: 2.1 (BLS benchmark 2.8) — 25% better than industry
-- DART: 1.1
-- LTIR: 0.4
-
-**Programs & Certifications:**
-- OSHA VPP Star: Continuously since 2021
-- ABC STEP Platinum: 8 consecutive years (2018-2026)
-- AISC Certified Erector: Advanced + Seismic
-
-**Fleet / Mobile Equipment:**
-- Telematics: Samsara across all Class 5+ units
-- In-Cab Cameras: Lytx DriveCam with AI coaching on Class 8
-- Speed Governance: 65 mph max Class 8
-- CDL Qualification: Annual MVRs, hair-follicle pre-employment, random DOT testing
-
-**Source Extracts (verbatim)** — key lines from the 68-page manual.
-**Checklist** — all required fields present. QC passed.`,
-
-  losses: `<div class="loss-output">
-
-<div class="loss-summary-block">
-  <div class="loss-summary-label">Summary</div>
-  <p class="loss-summary-text"><strong>40 total claims over 5 policy years</strong> (22 GL + 18 AL). Combined incurred $489,000. Largest single loss $178,000 AL (7/14/23 I-35 Dallas rear-end, cervical BI, closed at AL primary limit). <strong>No claims exceeding $500K</strong> in the review period. <strong>Zero penetration</strong> of the $1M primary limits over 5 years. Frequency and severity both trending favorably in the most recent 24-month window following Samsara telematics deployment Q2 2024 and Lytx DriveCam rollout on Class 8 fleet.</p>
-  <div class="loss-summary-meta">
-    Effective Date Reviewed: <strong>5/1/2026</strong> &nbsp;·&nbsp; Valuation: <strong>3/31/2026</strong> &nbsp;·&nbsp; Period: <strong>5/1/2021 – 3/31/2026</strong> &nbsp;·&nbsp; Carriers: Starr Indemnity (GL), Great American (AL)
-  </div>
-</div>
-
-<div class="loss-section-title">General Liability Loss Information</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">Policy Year</th>
-      <th style="width:80px;">Claims</th>
-      <th>Incurred</th>
-      <th>Paid</th>
-      <th style="width:110px;">Date Valued</th>
-      <th>Historic Exposure</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td class="yr">2025-26</td><td class="num">4</td><td class="num">$30,700</td><td class="num">$18,400</td><td class="num">3/31/2026</td><td>$127M Rev · 75 PU</td></tr>
-    <tr><td class="yr">2024-25</td><td class="num">4</td><td class="num">$51,100</td><td class="num">$42,600</td><td class="num">3/31/2026</td><td>$118M Rev · 68 PU</td></tr>
-    <tr class="outlier"><td class="yr">2023-24</td><td class="num">6</td><td class="num">$48,200</td><td class="num">$48,200</td><td class="num">3/31/2026</td><td>$108M Rev · 62 PU</td></tr>
-    <tr><td class="yr">2022-23</td><td class="num">5</td><td class="num">$94,100</td><td class="num">$94,100</td><td class="num">3/31/2026</td><td>$95M Rev · 58 PU</td></tr>
-    <tr><td class="yr">2021-22</td><td class="num">3</td><td class="num">$28,100</td><td class="num">$28,100</td><td class="num">3/31/2026</td><td>$82M Rev · 54 PU</td></tr>
-  </tbody>
-  <tfoot>
-    <tr><td>TOTAL</td><td class="num">22</td><td class="num">$252,200</td><td class="num">$231,400</td><td></td><td></td></tr>
-  </tfoot>
-</table>
-
-<div class="loss-section-title">General Liability Large Losses ($500K+)</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">DOL</th>
-      <th style="width:130px;">Incurred</th>
-      <th style="width:130px;">Paid</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $500K in the 5-year review period. Largest GL loss: <strong>$62,400</strong> (3/2/23 — dropped object during steel erection, visiting contractor foot laceration requiring surgery, CLOSED).</td></tr>
-  </tbody>
-</table>
-
-<div class="loss-section-title">Auto Liability Loss Information</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">Policy Year</th>
-      <th style="width:80px;">Claims</th>
-      <th>Incurred</th>
-      <th>Paid</th>
-      <th style="width:110px;">Date Valued</th>
-      <th>Historic Exposure</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td class="yr">2025-26</td><td class="num">1</td><td class="num">$8,200</td><td class="num">$8,200</td><td class="num">3/31/2026</td><td>75 power units</td></tr>
-    <tr><td class="yr">2024-25</td><td class="num">4</td><td class="num">$12,100</td><td class="num">$12,100</td><td class="num">3/31/2026</td><td>68 power units</td></tr>
-    <tr class="outlier"><td class="yr">2023-24</td><td class="num">5</td><td class="num">$178,600</td><td class="num">$178,600</td><td class="num">3/31/2026</td><td>62 power units</td></tr>
-    <tr><td class="yr">2022-23</td><td class="num">4</td><td class="num">$18,400</td><td class="num">$18,400</td><td class="num">3/31/2026</td><td>58 power units</td></tr>
-    <tr><td class="yr">2021-22</td><td class="num">4</td><td class="num">$19,500</td><td class="num">$19,500</td><td class="num">3/31/2026</td><td>54 power units</td></tr>
-  </tbody>
-  <tfoot>
-    <tr><td>TOTAL</td><td class="num">18</td><td class="num">$236,800</td><td class="num">$236,800</td><td></td><td></td></tr>
-  </tfoot>
-</table>
-
-<div class="loss-section-title">Auto Liability Large Losses ($500K+)</div>
-<table class="loss-tbl">
-  <thead>
-    <tr>
-      <th style="width:110px;">DOL</th>
-      <th style="width:130px;">Incurred</th>
-      <th style="width:130px;">Paid</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $500K in the 5-year review period. Largest AL loss: <strong>$178,000</strong> (7/14/23 — Class 8 boom truck rear-ended passenger vehicle I-35 Dallas, cervical BI settled at primary limit inclusive of defense, CLOSED). This represents 17.8% of the $1M AL primary CSL and is the closest approach to primary in the review window.</td></tr>
-  </tbody>
-</table>
-
-<div class="loss-notes-block">
-  <div class="loss-notes-title">Analyst Notes</div>
-  <p><strong>Frequency.</strong> 5-year average 8.0 claims per year (4.4 GL + 3.6 AL). 2023-24 peak of 11 combined claims (38% above average) driven by Class 8 fleet operations pre-telematics. Frequency declined sharply after Samsara deployment Q2 2024: 8 combined claims in 2024-25, 5 in 2025-26. 55% reduction from peak, consistent with telematics-attributable frequency improvement benchmarks for heavy-fleet construction accounts.</p>
-  <p><strong>Severity.</strong> 5-year average paid severity $9.7K per claim. Skewed by single 2023-24 AL event ($178K I-35 Dallas rear-end). Excluding that outlier, average severity falls to $7.9K. Post-2023, no single loss has exceeded $70K across either line. AL severity clusters at Class 8 rear-end events on interstate corridors (TX/OK/LA); GL severity clusters at dropped-object and tilt-wall property damage.</p>
-  <p><strong>Trend.</strong> Both frequency and severity are trending down in the most recent 24-month window. The 2023-24 outlier appears to be a precipitating event for the telematics program rather than a symptom of emerging catastrophic exposure. $20,800 open reserves on 3 open GL claims are within expected range. No pattern shift detected in loss type, geography, or class of activity. Reserves have moved downward over time as claims have matured and closed at or below initial reserve levels.</p>
-  <p><strong>Attachment Penetration.</strong> Zero penetration of $1M GL primary or $1M AL CSL over 5 years. Closest approach was 17.8% of AL primary (2023 Dallas rear-end). No claim has approached the requested $2M lead excess attachment — a $2M excess attachment would have absorbed zero dollars of loss in the 5-year period. Residual excess exposure is driven primarily by AL nuclear-verdict corridor risk in TX/OK/LA rather than by frequency-adjusted severity trend. Primary carrier reserving patterns (ratio open-to-paid trending favorable) support reserve adequacy.</p>
-</div>
-
-</div>`,
-
-  gl_quote: `**Primary GL Summary**
-
-**Carrier & Administrative:**
-- Carrier: Starr Indemnity & Liability Company
-- AM Best: A XV
-- Form: CG 00 01 04 13
-- Policy Period: 05/01/2026 - 05/01/2027
-- Named Insured: Meridian Structural Group, LLC
-- Total Premium: $384,200
-
-**Coverage Structure:**
-- Each Occurrence: $1,000,000
-- General Aggregate: $2,000,000
-- Products/Completed Operations Aggregate: $2,000,000
-- Personal & Advertising Injury: $1,000,000
-- Damage to Premises Rented: $300,000
-- Medical Expense: $10,000
-- Self-Insured Retention: $25,000 per occurrence
-- Defense: Outside the limits
-- Aggregate Applies: Per Project (CG 25 03)
-
-**Classifications:**
-- Code 97655 - Metal Erection–Structural - 62%
-- Code 91560 - Concrete Construction (incl. Tilt-Up) - 20%
-- Code 91585 - Contractors–Subcontracted Work (Commercial Building) - 15%
-- Code 91580 - Contractors–Subcontracted Work (Single/Multiple Dwellings) - 3%
-
-**Key Endorsements Affecting Excess:**
-- CG 21 39 - Contractual Liability Limitation - NARROWING: limits insured-contract definition
-- CG 22 94 - Exclusion, Damages From Subsidence of Earth - CONCERNING for tilt-wall
-- CG 25 03 - Designated Construction Project(s) General Aggregate Limit - ALIGNS with project-based ops
-- MANU-001 - Residential 3+ Units New Construction Exclusion - ALIGNS with no-condo representation
-- MANU-002 - Crane and Rigging Exclusion DELETED - POSITIVE
-- CG 20 10 / CG 20 37 - Blanket Additional Insured - STANDARD
-
-**Source Extracts (verbatim)** + **Checklist** — all fields present. QC passed.`,
-
-  al_quote: `**Primary AL Summary**
-
-**Carrier & Administrative:**
-- Carrier: Great American Insurance Group
-- AM Best: A+ XV
-- Form: CA 00 01 11 20
-- Policy Period: 05/01/2026 - 05/01/2027
-- Named Insured: Meridian Structural Group, LLC
-- Total Premium: $218,400
-
-**Liability Structure:**
-- Combined Single Limit: $1,000,000
-- Covered Auto Symbol: 1 (Any Auto)
-- Hired and Non-Owned: Included
-- Medical Payments: $5,000
-- UM/UIM: $1,000,000 CSL (Texas stacking applicable)
-
-**Fleet Composition:**
-- Class 8 Boom/Flatbed Trucks: 12
-- Class 5-7 Stake/Flatbed: 19
-- Trailers: 28
-- Private Passenger: 9
-- Pickup/Service Vehicles: 16
-- Mobile Equipment (Cranes): 2
-
-**Garaging & Radius:**
-- Primary Garaging: Dallas, TX
-- Satellite: Oklahoma City, OK; Albuquerque, NM
-- Radius: 500 miles primary; annual long-haul to NY
-
-**Key Endorsements:**
-- CA 99 48 - Pollution Liability Broadened Coverage - ALIGNS with cargo/fuel
-- CA 23 20 - Fellow Employee Coverage - ALIGNS with multi-crew ops
-- CA 99 10 - Drive Other Car - ALIGNS with executive fleet use
-- MCS-90 ICC Filing - For hazmat placarded loads (surety-style, not coverage)
-
-**Source Extracts (verbatim)** + **Checklist** — all fields present. QC passed.`,
-
-  excess: `**Underlying Excess Program Tower**
-
-Note: No existing underlying excess layers — this is the lead excess placement at the $2M combined primary attachment.
-
-**Primary Layer:**
-- GL Primary: Starr Indemnity - A XV - $1M occ / $2M agg / $2M prod-CO - $384,200 premium
-- AL Primary: Great American - A+ XV - $1M CSL - $218,400 premium
-
-**Proposed Lead Excess Layer (Requested):**
-- Limit: $5,000,000 combined GL/AL
-- Attachment: $2,000,000 combined primary exhaustion
-- Effective: 05/01/2026
-- Follow-Form Strategy: follow-form over primary GL EXCEPT delete subsidence exclusion (CG 22 94) and broaden contractual liability (CG 21 39); follow-form over primary AL
-- Layer structure: $5M xs Primary (single-layer tower)
-
-**Tower Summary:**
-- Total Underlying Limits: $2,000,000 combined (no existing underlying excess)
-- Tower Coordination: No upper tower - LEAD placement
-- Carrier Downgrades: N/A - primary carriers both A/XV or better
-- Form Coordination: Follow-form with two specific manuscript departures
-
-**Attachment Coordination Flags:**
-- Standard $2M attachment for construction at this revenue band
-- Excess layer absorbs all shock losses from $2M to $7M
-- Primary GL aggregate on Per Project basis (CG 25 03); excess should clarify aggregate coordination
-
-**Source Extracts (verbatim)** + **Checklist** — all fields present. QC passed.`,
-
-  tower: `<div class="tower-output">
-
-<div class="tower-top-bar">
-  <div class="tower-title-group">
-    <span class="tower-tag-label">EXCESS TOWER</span>
-    <span class="tower-title">Meridian Structural Group · 5/1/2026</span>
-  </div>
-  <div class="tower-total">$2M primary bound · $5M proposed · tower complete</div>
-</div>
-
-<div class="tower-stack">
-
-  <div class="tower-layer proposed">
-    <div class="tower-layer-row-1">
-      <span class="tower-layer-badge proposed-badge">★ ZURICH</span>
-      <span class="tower-layer-carrier">Proposed Quote — Lead Excess</span>
-      <span class="tower-layer-limits">$5M xs Primary</span>
-    </div>
-    <div class="tower-layer-row-2">Follow-form GL+AL · Premium est $85K · AM Best A XV · Attaches at $2M combined primary exhaustion · Compliant with Zurich capacity and attachment guidelines for this class.</div>
-  </div>
-
-  <div class="tower-primaries-row">
-    <div class="tower-primary">
-      <div class="tower-layer-row-1">
-        <span class="tower-layer-badge primary-badge">GL</span>
-        <span class="tower-layer-carrier">Starr Indemnity</span>
-        <span class="tower-layer-limits">$1M / $2M</span>
-      </div>
-      <div class="tower-layer-row-2">CG 00 01 04 13 · Premium $384,200 · SIR $25K · AM Best A XV · Per-project agg (CG 25 03)</div>
-    </div>
-    <div class="tower-primary">
-      <div class="tower-layer-row-1">
-        <span class="tower-layer-badge primary-badge">AL</span>
-        <span class="tower-layer-carrier">Great American</span>
-        <span class="tower-layer-limits">$1M CSL</span>
-      </div>
-      <div class="tower-layer-row-2">CA 00 01 · Premium $218,400 · 75 power units · AM Best A+ XV · Symbol 1 covered auto</div>
-    </div>
-  </div>
-
-</div>
-
-<div class="tower-notes">
-  <p><strong>Ask vs Offer.</strong> Broker requested <strong>$5M xs Primary</strong> lead excess from Zurich — a single-layer placement attaching at the $2M combined primary exhaustion. Request is within Zurich E&S Excess Casualty capacity ($5M per layer) and within empowerment thresholds for this class. Compliant Zurich quote: <strong>$5M xs Primary · $85K est premium · Follow-form GL+AL with Additional Insured and Waiver of Subrogation endorsements</strong>.</p>
-  <p><strong>Tower Completion.</strong> Tower is <strong>complete at $7M</strong> total ($2M primary + $5M Zurich excess). No additional layers requested by broker. No open capacity to market. If Meridian subsequently needs a higher tower, Zurich is not capacity-capped on upper layers — could support $5M xs $7M or further excess placements at incremental premium.</p>
-  <p><strong>Primary Adequacy.</strong> Primary GL ($1M/$2M Starr, A XV) and Primary AL ($1M CSL Great American, A+ XV) both meet Zurich minimums. Combined primary exhaustion at $2M is standard for construction at this revenue band and aligns cleanly with Zurich's lead excess attachment. Verify Employers Liability limit at $500K minimum (not $1M — NOT operating in WV). Per-project aggregate on GL (CG 25 03) coordinates cleanly with excess layer. No corridor gap between primary layers.</p>
-</div>
-
-</div>`,
-
-  website: `**Website Intelligence Summary**
-
-**Services Extracted:**
-- Structural steel erection
-- Tilt-wall concrete construction
-- Precast panel installation
-- Design-build solutions
-- General contracting
-- Crane rental and heavy lift services
-- Scaffolding erection and rental
-- Pre-construction consulting
-
-**Target Markets / Industries:**
-- Commercial developers
-- Industrial developers
-- Multi-family developers
-
-**Geographic Presence:**
-- Texas (HQ)
-- Southwest (OK, NM, LA, AR, CO)
-- Northeast (NY)
-
-**Recent Projects:**
-- Frisco Tech Center (TX) - Commercial office - $14M
-- Austin Mixed-Use Tower (TX) - Mid-rise residential/retail - $31M
-- Santa Fe Resort Lodge (NM) - Hospitality - $22M
-- Albany Distribution Center (NY) - Industrial warehouse - $18M
-
-**Certifications / Credentials:**
-- AISC Certified Erector (Advanced + Seismic)
-- OSHA VPP Star (since 2021)
-- ABC STEP Platinum (8 consecutive years)
-
-**Discrepancies vs Application:**
-- Crane Rental / Heavy Lift Services promoted on website but NOT disclosed as a service line in the application
-- Scaffolding Erection and Rental promoted on website but NOT disclosed in application
-
-**Notable Promotional Claims:**
-- Careers page actively recruiting crane operators and scaffolding foremen — reinforces the scope gap
-
-**Source Extracts (verbatim)** + **Checklist** — all fields present. QC passed.`,
-
-  classcode: `**Primary Class Code Match(es):**
-
-- **Code 97655 — Metal Erection–Structural**
-  Rationale: Core operation (62% of revenue). Applies directly to erection of structural steel frame for commercial/industrial buildings. Includes welding as incidental. Meridian's description of structural steel erection up to 62 ft in commercial and light-industrial buildings lands squarely in this class.
-  NCCI WC cross-reference: 5040 Iron or Steel — Erection — Structural / 5057 Iron or Steel — Erection — NOC.
-  NAICS: 238120 Structural Steel and Precast Concrete Contractors.
-  SIC: 1791 Structural Steel Erection.
-
-- **Code 91560 — Concrete Construction**
-  Rationale: Major secondary operation (20% of revenue — tilt-wall concrete construction). This GL code covers concrete construction including tilt-up wall sections. Tilt-wall panels poured on slab and lifted into place fall under the NCCI WC 5214 code ("Concrete Construction — Erection of Precast and Prestressed Structural Concrete Products or Tilt-Up Wall Sections") which cross-references to GL 91560.
-  NCCI WC cross-reference: 5213 Concrete Construction — foundations / 5214 Precast/Tilt-Up Wall Sections.
-  NAICS: 238110 Poured Concrete Foundation and Structure Contractors / 238120 Structural Steel and Precast Concrete Contractors.
-  SIC: 1771 Concrete Work.
-
-**Alternative / Secondary Codes:**
-
-- **Code 97651 — Metal Erection–Frame Structures Iron Work on Outside of Buildings**
-  When to use: If the insured's primary work is specifically the erection of iron/steel frame structures on the EXTERIOR of buildings (vs. overall structural steel framing). Narrower scope than 97655.
-
-- **Code 97653 — Metal Erection–Nonstructural**
-  When to use: NOT appropriate for Meridian — their work is load-bearing structural steel. Included here for contrast; would apply to decorative metalwork or non-load-bearing installations only.
-
-- **Code 91585 — Contractors–Subcontracted Work–In Connection with Commercial Building Construction**
-  When to use: If Meridian acts as GC on some projects and subs out portions of work (MEP, finishes, roofing). Rated on cost of subcontracted work.
-
-**Split / Multi-Class Considerations:**
-
-Meridian's revenue mix requires a split-rated classification:
-- 62% Structural Steel Erection → **97655**
-- 20% Tilt-Wall Concrete Construction → **91560**
-- 18% Residential Construction (single-family + small multi-family) → requires additional review — if Meridian acts as GC on residential, 91580 (Contractors — Subcontracted Work — In Connection with Construction of Single or Multiple Dwellings) may apply on sub portion; direct residential structural work uses 97655 with residential exclusion endorsement attached
-
-Revenue-based allocation is acceptable for multi-class rating per most ISO filings.
-
-**Underwriting Notes:**
-
-- **Height exposure:** 97655 does not explicitly cap height. At 62 ft, this triggers the Zurich Work-from-Heights guideline (Ch.6) — $5M minimum attachment, $5M max capacity, no NY operations, Level 5 Empowerment for deviation.
-- **NY exposure:** 1% Albany operations triggers NY Contracting rules (Ch.6) — $5M min attachment in 5 boroughs, $5M max limit statewide.
-- **Class 97655 in appetite** per Chapter 6 (no prohibition), but structural steel erection at height is a severity-driven class with nuclear-verdict exposure in TX, FL, GA, and NY.
-- **Bridge Contractor classification** (NCCI 1622 SIC) would apply IF Meridian does bridge work — their description does not indicate bridge work, so standard structural steel applies.
-- **Residential 18%:** verify Meridian does NOT exceed 35 single-family home projects/year (Chapter 6 prohibition list). Also confirm no condo construction (hard prohibition).
-
-**Cross-Reference Summary:**
-- Primary SIC: 1791 Structural Steel Erection
-- Primary NAICS: 238120 Structural Steel and Precast Concrete Contractors
-- Primary NCCI WC: 5040 Iron or Steel — Erection — Structural
-- Secondary NAICS: 238110 Poured Concrete Foundation (for tilt-wall)
-
-**Source:** InsuranceXDate General Liability Class Codes — https://www.insurancexdate.com/gl.php`,
-
-  exposure: `**Exposure to Loss:**
-
-**Premises Exposure:**
-- Jobsite visitor injuries at active construction sites (architects, engineers, owners on walks) — fall-from-elevation, struck-by, trip-and-fall
-- Office/regional operating locations — invitee slip/fall, parking lot
-- Delivery and vendor personnel on project sites
-
-**Products Exposure:**
-- Limited direct — services/installation contractor, not manufacturer
-- Installed structural steel and tilt-wall concrete carry component-level product liability on installer-traced defect
-- Installed precast panels procured from third parties transfer manufacturing upstream
-
-**Completed Operations Exposure:**
-- Long-tail structural failure following project completion — TX statute of repose 10 yrs (§16.009)
-- Progressive collapse from latent design/installation defects discovered years later
-- Concrete form blowout / tilt-wall cracking to adjacent structures
-- Mid-rise residential 18% (Austin mixed-use tower) — envelope/water intrusion tail
-
-**Operations Exposure:**
-- Fall-from-elevation during steel erection at 62 ft — severity-skewed; industry leader in excess penetration
-- Struck-by / caught-between during crane and rigging ops; borrowed-servant exposure from operated crane leases
-- Dropped object / falling material during steel erection and tilt-wall panel placement
-- Excavation incidents at 14 ft depth — cave-in, struck-by equipment
-- Subsidence PD to adjacent buildings during tilt-wall (primary GL excludes subsidence via CG 22 94)
-- NY Labor Law §240/241 absolute-liability exposure (Albany project) — severity risk at 1% operations
-
-**Auto Liability:**
-- 12 Class 8 boom trucks in TX/OK/LA nuclear-verdict corridors — rear-underride, downgrade runaway, improper load securement
-- 19 Class 5-7 stake/flatbed hauling materials to jobsites
-- 28 trailers/lowboys transporting crane components/heavy equipment — securement / detachment claims
-- Non-owned/hired from subs and employee vehicles
-- Mobile equipment on-road (crane carriers) with permitting/escort requirements
-
-**Severity / Attachment Penetration Flags:**
-- Fatality from fall-from-elevation at 62 ft could produce >$5M judgment in NY (§240 absolute liability) or TX
-- Class 8 boom truck nuclear verdict in Dallas corridor — pedestrian fatality on I-35 corridor could produce $10M+
-- Subsidence to adjacent high-rise during tilt-wall placement — $2M+ PD scenarios plausible
-- Crane collapse or dropped load at urban site — potential for $10M+ third-party BI/PD`,
-
-  strengths: `**Strengths:**
-
-**Established expertise in Commercial Structural Construction:**
-- 18 years continuous operations since 2008 with consistent focus on structural steel and tilt-wall concrete
-- In-house expertise with 68% self-performance — greater operational control than typical GC at this revenue band
-- Proven capability on projects up to $31M (Austin Mixed-Use, Santa Fe Resort)
-- AISC Certified Erector (Advanced + Seismic) — third-party validation of steel competency
-
-**Commitment to safety:**
-- OSHA VPP Star continuously since 2021 — top-tier voluntary protection
-- ABC STEP Platinum 8 consecutive years — sustained safety excellence
-- 68-page written program rev. January 2026 with full-time CSP/CHST Safety Director (Patricia Chen, 7-year tenure)
-- 100% foremen OSHA 30-hour; 100% field OSHA 10-hour
-- EMR 0.81 (3-yr avg) materially below 1.00 industry benchmark; TRIR 2.1 below BLS NAICS 236220 average
-- Samsara telematics across all Class 5+ fleet; Lytx AI cameras on Class 8 boom trucks
-
-**Strong subcontractor management:**
-- Broad-form contractual indemnification with primary and non-contributory AI (CG 20 10 + CG 20 37) on ongoing + completed ops
-- Tiered umbrella by trade severity ($5M general; $10M structural/crane/rigging/roofing/electrical)
-- Waiver of subrogation on GL, AL, WC
-- Third-party COI tracking via myCOI with pre-mobilization verification
-- 5-year completed ops tail required of all subs
-
-**Low loss history:**
-- 5-year experience shows zero claims penetrating $2M primary attachment
-- 40 total claims across GL/AL in 5 years — low frequency relative to $127M revenue and 75-unit fleet
-- Total incurred $487K — very low severity
-- Largest single loss $178K (AL rear-end, 2023, closed paid) — only 9% of $2M attachment
-- Claim frequency trending down since 2023 peak (-55% to 2025) coinciding with Safety Director hire and Samsara telematics deployment
-- No fraud patterns or claim clustering anomalies detected`,
-
-  guidelines: `**Source Narrative Operational Details and Listed Products & Services (verbatim):**
-
-Meridian Structural Group, LLC — General contractor specializing in structural steel erection and concrete tilt-wall construction for commercial, light industrial, and select mid-rise residential projects. Maximum height of work: 62 ft. Maximum depth: 14 ft. Operations in AL, GA, NC, SC, FL, TX, and New York (1% — Albany warehouse). Revenue mix: 62% structural steel erection, 20% tilt-wall concrete, 18% residential (single-family + small multi-family, no condo).
-
-Products/Services:
-- Structural steel erection (frame structures)
-- Tilt-wall concrete construction
-- Light industrial construction
-- Mid-rise residential construction (single-family, small multi-family)
-
----
-
-**Operational Detail:** Structural steel erection at heights up to 62 feet (Work from Heights classification)
-**State:** All operating states (AL, GA, NC, SC, FL, TX, NY)
-**Guideline Conflict:** "Crane, Scaffolding, Window Washers, Glaziers & Masons UW Guideline (Work from Heights) — Minimum $5m ground up attachment point. Maximum capacity of $5m. No operations in New York State. Five or more years of industry experience. $25,000 minimum policy premium. Any deviations to the rules in this guideline require Level 5 Empowerment."
-**Explanation of Conflict:** Structural steel frame erection at height falls within the Work from Heights category. Requested $5M lead excess meets the $5M maximum capacity ceiling cleanly. TWO remaining rule conflicts:
-(1) Requested $2M attachment violates $5M minimum (Chapter 6 Work from Heights attachment floor).
-(2) Stated 1% NY operations directly conflicts with "No operations in New York State" rule for Work from Heights risks.
-Both deviations require LEVEL 5 EMPOWERMENT. Referral to Tiffany Fann (Chapter 6 Contact SME) mandatory. Note: $5,000 premium threshold satisfied (est $85K premium) and 18-year industry tenure exceeds 5-year minimum — two of five Chapter 6 checks clear.
-
----
-
-**Operational Detail:** Operations in New York State (1% — Albany warehouse)
-**State:** New York
-**Guideline Conflict:** "New York Contracting Operations — $5,000,000 minimum attachment point for any contractor operating in the 5 boroughs of New York City. $5,000,000 maximum limit for any contractor operating in New York State. Maximum limit of $7,500,000 as part of a quota share attaching at $10,000,000 or higher. Exceptions require Head of Zurich E&S empowerment."
-**Explanation of Conflict:** Even at 1% of operations, ANY exposure in New York State triggers the NY Contracting rules. Requested $5M lead excess at $2M attachment meets the $5M NY State maximum limit cleanly. Remaining concern: (1) $2M attachment below $5M NY minimum if any 5-boroughs exposure exists. For non-5-boroughs NY exposure (Albany), Designated Operations Exclusion U-EXS-345-B CW may be attached to remove the conflict — but must be explicit. Verify whether Albany warehouse involves any construction/installation/repair or is pure storage.
-
----
-
-**Product/Service:** Iron or Steel - Erection - Frame Structures (GL Class 91265, SIC 1622)
-**State:** All operating states
-**Guideline Conflict:** "All bridge contractors require a minimum $5m attachment point." (Applicable if Bridge Contractor classification is used.)
-**Explanation of Conflict:** The primary GL classification of the insured determines whether Bridge Contractor rules apply. Class 91265 (Iron or Steel - Erection - Frame Structures) is ONE of the classes listed in the Bridge Contractor guideline. Confirm whether Meridian's GL primary classification code falls under Bridge Contractor bucket. If yes, $5M minimum attachment applies regardless of height.
-
----
-
-**Operational Detail:** Tilt-wall concrete construction (20% of operations)
-**State:** All operating states
-**Guideline Conflict:** No conflict identified.
-**Explanation of Conflict:** Tilt-wall is within the construction appetite. No explicit prohibition or attachment rule. Subsidence exposure is a primary-level coverage decision (CG 22 94 subsidence exclusion typical).
-
----
-
-**Operational Detail:** Residential construction 18% — single-family + small multi-family, no condo
-**State:** AL (A-state), GA (A-state), NC (A-state), SC (C-state), FL (C-state), TX (C-state)
-**Guideline Conflict:** "Business classified as homebuilders (SIC 1521) with more than 35 single family home projects in any 12-month period" (PROHIBITED — Chapter 6 Construction Prohibited list).
-**Explanation of Conflict:** CONFIRM home project count. If Meridian performs >35 single-family home projects in any 12-month period AND is classified as homebuilders under SIC 1521, this is a HARD PROHIBITION with no empowerment path. Also: SC, FL, TX are C-states (restricted appetite) on the Residential State Appetite Grid — compare against state-level project volumes.
-
----
-
-**Operational Detail:** Residential mid-rise (small multi-family, non-condo)
-**State:** All
-**Guideline Conflict:** Review required against forms U-UMB-433 (Multi-Unit Residential Construction Exclusion) and related exclusion endorsements.
-**Explanation of Conflict:** If the Residential Operations Exclusion is to be waived/modified for multi-unit (non-condo) exposure, confirm proper form is on policy. Multi-family is NOT auto-prohibited but mandates explicit form handling (U-UMB-618 / U-EXS-348 for residential-solely-as-rental, etc.).
-
----
-
-**Request:** $5M xs Primary lead excess
-**State:** All
-**Guideline Conflict:** "Policy Limits: Up to $10,000,000 (Levels 1-4). $12,500,000 if p/o 50% quota share excess of $10m ground up."
-**Explanation of Conflict:** Requested $5M single-layer lead limit is well within the $10M Level 1-4 capacity cap. However, "Lead" placement is a specific Level 5 Empowerment item per Chapter 1 General Referral Triggers regardless of limit size — elevate to Level 5 for sign-off.
-
----
-
-**Underlying Program:** Primary GL $1M/$2M (Starr Indemnity), Primary AL $1M CSL (Great American)
-**State:** All
-**Guideline Conflict:** No conflict identified on underlying limits. "Minimum UL Limit for Employers Liability & Stop Gap: $500,000 / $500,000 / $500,000 (WV requires $1M/$1M/$1M)."
-**Explanation of Conflict:** Primary GL meets minimum. Primary AL meets minimum. Verify Employers Liability limit meets $500K minimum (or $1M in WV — does Meridian operate in WV? Not listed in operational states). Confirm A.M. Best ratings A-/VII or better for both Starr and Great American.
-
----
-
-**QUALITY-CONTROL CHECKLIST — Step 2**
-
-✔ Structural steel erection - AL, GA, NC, SC, FL, TX, NY
-✔ Tilt-wall concrete construction - All operating states
-✔ Light industrial construction - All operating states
-✔ Mid-rise residential (single-family / small multi-family) - AL, GA, NC, SC, FL, TX
-✔ Work from Heights (62 ft) - All operating states
-✔ NY operations (1% Albany) - New York
-✔ Class 91265 Iron/Steel Frame Erection - All operating states
-✔ Requested $5M xs Primary structure - All states
-✔ Underlying program adequacy - All states
-
-All operational details and products cross-referenced against guidelines for every identified state. Step 2 checklist 100% ✔. No rewrite required.
-
----
-
-**Referral Triggers:**
-- Work from Heights deviation (62 ft, structural steel frame): requires LEVEL 5 EMPOWERMENT → Tiffany Fann
-- Lead excess placement (any limit): LEVEL 5 EMPOWERMENT per Chapter 1 (Lead is a named Level 5 item)
-- $2M attachment vs $5M Work-from-Heights minimum: LEVEL 5 EMPOWERMENT required if deviating from attachment floor
-- NY State operations conflicts with "No operations in New York State" for Work from Heights: LEVEL 5 EMPOWERMENT required for deviation, OR attach U-EXS-345 Designated Operations Exclusion for NY
-
-**Prohibited Exposures:**
-- None hard-prohibited AS DESCRIBED, pending confirmation of:
-  (1) Single-family home project count stays ≤35/year (Chapter 6 prohibition list)
-  (2) Insured is not classified as SIC 1521 homebuilder above the 35-project threshold
-
-**Minimum Attachment Requirements:**
-- Work from Heights rule: $5M minimum — NOT met by requested $2M attachment
-- NY 5-boroughs (if applicable): $5M minimum — NOT met unless Albany confirmed as non-5-boroughs
-- Bridge Contractor class (if 91265 is primary): $5M minimum — NOT met by requested $2M`,
-
-  email: `Subject: Meridian Structural Group, LLC — 5/1/2026 — Referral for Senior UW Approval
-
-Hi team,
-
-Requesting senior UW review and approval on the following account:
-
-Account: Meridian Structural Group, LLC
-Effective: 5/1/2026
-Excess Target: $5M xs Primary
-Broker: AmWINS (Rachel Tran)
-
-Recommendation: Quote with conditions — 2 referral triggers require Senior UW approval.
-
-Referral Triggers:
-1. Maximum height of work 62 ft exceeds 40 ft no-referral threshold per Section 5.1. Height-in-Excess Questionnaire attached.
-2. NY Labor Law §240/241 exposure (1% ops, Albany warehouse) triggers mandatory referral per Section 6.1.
-
-Key Positives:
-- OSHA VPP Star since 2021; ABC STEP Platinum 8 consecutive years; AISC Certified Erector
-- EMR 0.81 / TRIR 2.1 — 19%+ better than NAICS 236220 benchmark
-- Broad-form hold-harmless + primary and non-contributory AI + tiered umbrella by trade severity
-
-Loss History: 40 claims over 5 years ($487K incurred). Zero penetration of $2M primary attachment. Largest loss $178K (17.8% of AL primary). Frequency -55% from 2023 peak after Samsara telematics deployment.
-
-Full workbench brief attached (generated by Speed to Market AI). Every fact cited to source. Pipeline run #[RUN_ID], model [MODEL], prompts v2.4.
-
-Please advise.
-
-Thanks,
-Justin`,
-
-  email_intel: `**Broker Email Intel Extract**
-
-**Named Insured / Entity:**
-- Value: Meridian Structural Group, LLC
-- Broker's Words: "Please find attached the renewal submission for Meridian Structural Group, LLC, effective 5/1/2026."
-
-**Effective Date:**
-- Value: 5/1/2026
-- Broker's Words: "effective 5/1/2026"
-
-**Requested Coverage:**
-- Limit: $5,000,000
-- Attachment: $2,000,000
-- Broker's Words: "Client is seeking a $5M lead excess at $2M attachment"
-
-**Operations Mentioned:**
-- Steel erection (primary discipline)
-- Tilt-wall concrete
-- "Most work is steel frame erection on commercial projects in Texas and surrounding states, with some tilt-wall."
-
-**States / Geographic Spread:**
-- Primarily TX, also OK, LA, AR
-- Broker's Words: "Ops are mostly Texas with some surrounding southwest states"
-
-**Fleet Details:**
-- Power Units: ~75 per broker
-- Broker's Words: "fleet of about 75 trucks, mostly Class 8 tractors and crew trucks"
-
-**Size Indicators:**
-- Revenue: ~$127M per broker
-- Broker's Words: "around $127M in revenue last year"
-
-**Loss / Safety Mentions:**
-- EMR mentioned as 0.85
-- Broker's Words: "EMR of 0.85, clean loss history last 3 years"
-
-**Summary for Pipeline:**
-Broker email provides operational context for Meridian Structural: steel erection primary, TX-centric with regional spread, ~75-unit fleet per broker claim (unverified against AL quote), $127M revenue, EMR 0.85 per broker. Discrepancy module should cross-check fleet count against the AL quote and loss history claims against the loss runs.
-
-**Source Extracts (verbatim)**
-- "Please find attached the renewal submission for Meridian Structural Group, LLC, effective 5/1/2026."
-- "Client is seeking a $5M lead excess at $2M attachment"
-- "Most work is steel frame erection on commercial projects in Texas and surrounding states, with some tilt-wall."
-- "fleet of about 75 trucks, mostly Class 8 tractors and crew trucks"
-- "around $127M in revenue last year"
-- "EMR of 0.85, clean loss history last 3 years"
-
-**Checklist**
-Named Insured ✔ · Effective ✔ · Requested ✔ · Operations ✔ · States ✔ · Fleet ✔ · Size ✔ · Loss/Safety ✔`,
-
-  discrepancy: `<div class="discrepancy-output">
-
-<div class="disc-header">
-  <div class="disc-header-label">Cross-Check Result</div>
-  <div class="disc-header-summary">4 matches · 1 minor variance · 1 material conflict</div>
-</div>
-
-<div class="disc-section">
-  <div class="disc-section-title">Material Conflicts</div>
-  <div class="disc-row disc-material" data-flag-id="c1">
-    <div class="disc-row-icon">✕</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">Fleet power units</div>
-      <div class="disc-row-compare">
-        <div class="disc-compare-side disc-broker">
-          <span class="disc-compare-label">Broker said</span>
-          <span class="disc-compare-value">"fleet of about 75 trucks, mostly Class 8 tractors and crew trucks"</span>
-        </div>
-        <div class="disc-compare-side disc-auth">
-          <span class="disc-compare-label">Primary AL Quote (A13)</span>
-          <span class="disc-compare-value">47 power units scheduled · 12 Class 8 tractors · 35 crew trucks / pickups</span>
-        </div>
-      </div>
-      <div class="disc-row-explanation">Broker claim is 59% higher than the scheduled units on the AL quote. If broker expected a 75-unit exposure, premium basis is understated. Verify fleet count with broker before binding.</div>
-    </div>
-    <button class="disc-dismiss" onclick="dismissDiscrepancyFlag('c1')">Clear flag</button>
-  </div>
-</div>
-
-<div class="disc-section">
-  <div class="disc-section-title">Minor Variances</div>
-  <div class="disc-row disc-minor" data-flag-id="m1">
-    <div class="disc-row-icon">⚠</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">EMR (Experience Modification Rate)</div>
-      <div class="disc-row-compare">
-        <div class="disc-compare-side disc-broker">
-          <span class="disc-compare-label">Broker said</span>
-          <span class="disc-compare-value">"EMR of 0.85"</span>
-        </div>
-        <div class="disc-compare-side disc-auth">
-          <span class="disc-compare-label">Safety Manual (A5)</span>
-          <span class="disc-compare-value">Current EMR 0.81 (effective 1/1/2026)</span>
-        </div>
-      </div>
-      <div class="disc-row-explanation">4-point rounding or stale data — broker likely quoting prior-year EMR. Use 0.81 from safety manual.</div>
-    </div>
-    <button class="disc-dismiss" onclick="dismissDiscrepancyFlag('m1')">Clear flag</button>
-  </div>
-</div>
-
-<div class="disc-section">
-  <div class="disc-section-title">Matches</div>
-  <div class="disc-row disc-match">
-    <div class="disc-row-icon">✓</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">Named Insured</div>
-      <div class="disc-row-match-note">Broker's "Meridian Structural Group, LLC" aligns with Supplemental Application.</div>
-    </div>
-  </div>
-  <div class="disc-row disc-match">
-    <div class="disc-row-icon">✓</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">Effective Date</div>
-      <div class="disc-row-match-note">Broker's 5/1/2026 aligns with GL Quote policy period start.</div>
-    </div>
-  </div>
-  <div class="disc-row disc-match">
-    <div class="disc-row-icon">✓</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">Requested Limits</div>
-      <div class="disc-row-match-note">Broker's $5M xs $2M aligns with Supplemental Application request.</div>
-    </div>
-  </div>
-  <div class="disc-row disc-match">
-    <div class="disc-row-icon">✓</div>
-    <div class="disc-row-body">
-      <div class="disc-row-field">Primary Operations</div>
-      <div class="disc-row-match-note">Broker's "steel frame erection" + "tilt-wall" aligns with Supplemental operations description.</div>
-    </div>
-  </div>
-</div>
-
-</div>`
-};
 
 // ============================================================================
 // PIPELINE DAG + CLASSIFIER + INCREMENTAL — moved to pipeline.js (Phase 8 step 6).
@@ -5905,7 +5031,7 @@ function renderExtractionCard(mid) {
   const confPct = Math.round(ext.confidence * 100);
   const modeBadge = ext.mode === 'live'
     ? '<span style="color: var(--signal-ink); font-weight: 700;">LIVE</span>'
-    : '<span style="color: var(--warning); font-weight: 700;">DEMO</span>';
+    : '<span style="color: var(--warning); font-weight: 700;">LOCAL</span>';
   const sourceText = ext.sourceInfo
     ? `from ${escapeHtml(ext.sourceInfo.length > 60 ? ext.sourceInfo.slice(0, 57) + '…' : ext.sourceInfo)}`
     : '';
@@ -7270,13 +6396,11 @@ function toggleTheme() {
 // global attachment.
 // ============================================================================
 
-// Top-level consts referenced by other extracted files (STATE: 100 refs;
-// sb: 37 refs; MOCKS: 3 refs; ACTIVE_GUIDELINE: 1 ref). The supabase-js
+// Top-level consts referenced by other extracted files. The supabase-js
 // CDN puts createClient on window.supabase already, but our wrapper `sb`
 // is local to this file — must be explicitly exported.
 window.STATE = STATE;
 window.sb = sb;
-window.MOCKS = MOCKS;
 window.SAFE_TAGS = SAFE_TAGS;
 window.SAFE_ATTRS = SAFE_ATTRS;
 window.SUB_STATUSES = SUB_STATUSES;

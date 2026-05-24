@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.43-loss-history-structured-contract-2026-05-23';
+window.STM_BUILD = 'v8.7.48-production-cleanup-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -563,40 +563,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
 
-        function updateRealSubmissionBanner(submission) {
-            try {
-                const banner = document.querySelector('.demo-mode-banner');
-                if (!banner || !submission) return;
-                const hasRealSnapshot = !!(submission.snapshot && Object.keys(submission.snapshot.extractions || {}).length);
-                const hasSubmissionId = !!submission.id;
-                if (hasSubmissionId || hasRealSnapshot) {
-                    banner.classList.add('is-real-submission');
-                    banner.innerHTML = '<strong>Live submission loaded from Platform:</strong> values may be extracted, inferred, or review-required. Use badges and the fill report to confirm before quoting.';
-                }
-            } catch (e) {
-                console.warn('[workbench] real-submission banner update skipped:', e && e.message);
-            }
-        }
-
         // FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
         // If the workbench was opened with ?submission=<id> in the URL,
         // wait for the Supabase client + signed-in session to be ready
         // (platform-auth.js initializes both on DOMContentLoaded after
         // the magic-link overlay resolves), then fetch the submission
         // row and park its full snapshot on window.workbenchActiveSubmission.
-        // Phase 2 will start reading from this global instead of the
-        // hardcoded SAMPLE_PACKET. For Phase 1 we ONLY load and show a
-        // topbar badge — no field writes, no behavior change for direct
-        // /workbench visits without the query param.
-        // FIX-PHASE-14.0.4-CANONICAL-DEMO-PIPELINE-2026-05-14
+        // Live Platform submissions are loaded from this global and resolved
+        // into the Workbench through the same production apply path.
+        // Direct /workbench visits without a query param remain unchanged.
+        // FIX-PHASE-14.0.4-LIVE-PIPELINE-APPLY-2026-05-14
         // The full phase pipeline (deal info → coverages → tower →
-        // subjectivities) as ONE reusable function. The live submission
-        // path (loadSubmissionFromUrl) calls it; the canonical clean
-        // demo (pipeline-bridge.js) calls it via the exposed global hook
-        // AFTER its packet renders, so subjectivity DOM decoration fires
-        // against a built panel (the v68 timing bug — appliers ran
-        // before the subjectivity DOM existed — is fixed by routing the
-        // demo through the same post-render call the live path uses).
+        // subjectivities) as ONE reusable function for live Platform
+        // submissions. loadSubmissionFromUrl() calls it after the
+        // Supabase snapshot is loaded so subjectivity DOM decoration fires
+        // against a built panel. The former bridge assets are no longer
+        // loaded as of v8.7.47.
         function applyFullPhasePipeline(data) {
             if (!window.WorkbenchRules
                 || typeof window.WorkbenchRules.resolveField !== 'function') {
@@ -757,8 +739,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
-        // Exposed so the canonical clean demo (pipeline-bridge.js) runs
-        // the IDENTICAL phase chain the live submission path uses.
+        // Exposed as a diagnostic hook only. The production path calls
+        // applyFullPhasePipeline(data) directly from loadSubmissionFromUrl().
         window.__stmApplyPhasePipeline = applyFullPhasePipeline;
 
         (async function loadSubmissionFromUrl() {
@@ -799,7 +781,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 window.workbenchActiveSubmission = data;
-                updateRealSubmissionBanner(data);
                 const extractionCount = data.snapshot?.extractions
                     ? Object.keys(data.snapshot.extractions).length
                     : 0;
@@ -829,7 +810,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // + computed values. No extraction-text parsing yet (that's
                 // Phase 3). The apply is best-effort: each field is tried
                 // independently and any miss leaves the field empty (no
-                // throws, no demo-data fallback). Console log summarizes
+                // throws, no sample-data fallback). Console log summarizes
                 // what got filled and what didn't.
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
@@ -999,7 +980,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14
             // Also mirror to #paperTxt in case the summary-card render
             // function fires after our apply and overwrites with the
-            // demo/legacy Crestline value.
+            // legacy Crestline value.
             setTimeout(() => {
                 const paperResolved = rules.resolveField('paper', submission);
                 if (!paperResolved || !paperResolved.value) return;
@@ -1248,7 +1229,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // FIX-PHASE-GO-LIVE-76-FOREIGN-SOURCE-BLEED-2026-05-16
             // Extension v8.6.75 audit found $185,000 (the GL premium)
-            // bleeding into EL "Bodily Injury by Disease" on the demo,
+            // bleeding into EL "Bodily Injury by Disease" on older test submissions,
             // because EL value fields fall back to gl_quote/al_quote for
             // genuine combined-package quotes — but when the submission
             // has NO real EL content, a generic premium/limit pattern
@@ -1518,7 +1499,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE-2026-05-16
-            // Re-applying the pipeline (demo double-trigger, OR a real
+            // Re-applying the pipeline (duplicate trigger, OR a real
             // re-apply after an upstream correction) previously cloned a
             // SECOND panel for this coverage every time, because the
             // clone was unconditional. Reuse an existing panel of the
@@ -3567,8 +3548,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
         // Positional fill for any coverage panel (#details-gl, #details-al,
         // #details-lead-excess, dynamically-added panels in Phase 4.1+).
-        // Mirrors the altInput-skip logic of pipeline-bridge.js fillPanel
-        // (FIX-2026-05-14-COVERAGE-ALIGNMENT) so we can write 8 values
+        // Mirrors the historical altInput-skip logic used during coverage
+        // alignment so we can write 8 values
         // into the 8 logical columns of #details-gl regardless of how
         // many DOM inputs flatpickr created.
         //
@@ -3579,8 +3560,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn('[workbench] Phase 4: panel not found:', panelSelector);
                 return { filled: 0, missed: valuesByPosition.length };
             }
-            // Same filter as pipeline-bridge.js fillPanel — exclude
-            // checkboxes and flatpickr altInput siblings so the index
+            // Exclude checkboxes and flatpickr altInput siblings so the index
             // matches the visible column order.
             const els = Array.from(panel.querySelectorAll('input, select, textarea'))
                 .filter(el => {
