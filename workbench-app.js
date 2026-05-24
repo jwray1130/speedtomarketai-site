@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.65-gradient-text-fix-2026-05-24';
+window.STM_BUILD = 'v8.7.66-revert-colors-and-counter-to-v53-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
