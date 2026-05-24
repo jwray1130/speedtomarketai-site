@@ -2617,6 +2617,10 @@ html.typo-choreographed h1.hero-title.chars-split .line {
 }
 
 /* ── Char-level reveal (.tc = typography char) ── */
+/* .tc-word: per-word inline-block container preventing the browser
+   from breaking a word at a .tc char boundary. */
+.tc-word { display: inline-block; white-space: nowrap; }
+
 .tc {
   display: inline-block;
   opacity: 0;
@@ -2760,85 +2764,57 @@ html:not(.typo-choreographed) .sl-text { opacity: 1; transform: none; }
 .stats-strip.sig-in .stat-line { width: 36px; }
 
 /* ── 2. TIME COMPRESSION — bar compression visual between BEFORE/AFTER ── */
-.compression-visual {
+/* ── BA-compress: redesigned middle-column stat between BEFORE/AFTER.
+   Replaces the old .compression-visual two-bar layout. Now: a bold
+   −83% stat in signal blue, a thin vertical accent line, and a small
+   mono caption with "60 min → 10 min". The percentage counts up via
+   the existing [data-count-target] mechanism in the Phase 3 IIFE
+   (time-compression section observer). */
+.ba-compress {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  padding: 24px 0;
-  min-height: 120px;
-}
-.compression-bars {
-  display: flex;
-  flex-direction: column;
+  padding: 16px 8px;
+  min-height: 140px;
   gap: 14px;
-  align-items: center;
-  width: 100%;
 }
-.compression-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  justify-content: center;
+.ba-compress-pct {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 5vw, 60px);
+  font-weight: 200;
+  font-variation-settings: "opsz" 30;
+  color: var(--signal);
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-style: italic;
 }
-.compression-bar {
-  height: 6px;
-  background: var(--muted-2);
-  border-radius: 3px;
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1);
+.ba-compress-pct-sign {
+  font-size: 0.6em;
+  font-style: normal;
+  font-weight: 300;
+  letter-spacing: 0;
+  margin-left: 2px;
+  opacity: 0.85;
 }
-.compression-bar.bar-before { width: 160px; background: var(--muted-2); opacity: 0.6; }
-.compression-bar.bar-after  {
-  width: 27px;
-  background: var(--signal);
-  box-shadow: 0 0 8px var(--signal);
+.ba-compress-line {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(to bottom, transparent 0%, var(--signal) 35%, var(--signal) 65%, transparent 100%);
+  opacity: 0.45;
 }
-#time-compression.sig-in .compression-bar.bar-before { transform: scaleX(1); transition-delay: 200ms; }
-#time-compression.sig-in .compression-bar.bar-after  { transform: scaleX(1); transition-delay: 800ms; }
-.compression-bar-tag {
+.ba-compress-detail {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-  min-width: 56px;
-  text-align: left;
-  opacity: 0;
-  transition: opacity 500ms ease;
-}
-.compression-bar.bar-after + .compression-bar-tag,
-.compression-bar-row .compression-bar.bar-after ~ .compression-bar-tag { color: var(--signal); font-weight: 600; }
-#time-compression.sig-in .compression-bar-row:nth-child(1) .compression-bar-tag { opacity: 1; transition-delay: 600ms; }
-#time-compression.sig-in .compression-bar-row:nth-child(2) .compression-bar-tag { opacity: 1; transition-delay: 1200ms; }
-.compression-readout {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 10.5px;
   color: var(--muted);
-  opacity: 0;
-  transition: opacity 600ms ease;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
 }
-#time-compression.sig-in .compression-readout { opacity: 1; transition-delay: 1500ms; }
-.compression-readout .arrow-glyph {
-  color: var(--signal);
-  margin: 0 8px;
-  font-size: 13px;
-}
-.compression-readout .pct {
-  color: var(--signal);
-  font-weight: 600;
-}
-
-/* Hide the original .ba-arrow when compression-visual is present, since
-   they occupy the same grid cell. */
-.ba-arrow:has(+ .compression-visual),
-.compression-visual ~ .ba-arrow { display: none; }
-/* But the ba-arrow grid cell becomes the compression-visual container */
 .ba-wrap .ba-arrow-cell { display: flex; align-items: center; justify-content: center; }
 
 /* ── 3. DIFFERENTIATION — check / X icon draw on each list item ── */
@@ -3028,9 +3004,9 @@ html:not(.typo-choreographed) .sl-text { opacity: 1; transform: none; }
 /* ── Reduced motion override: skip all transitions, show final states ── */
 @media (prefers-reduced-motion: reduce) {
   .stats-strip .stat-line { transition: none; width: 36px; }
-  .compression-bar { transition: none; transform: scaleX(1); }
-  .compression-bar-tag,
-  .compression-readout { opacity: 1; transition: none; }
+  .ba-compress-pct,
+  .ba-compress-line,
+  .ba-compress-detail { transition: none; opacity: 1; transform: none; }
   .diff-icon path { transition: none; stroke-dashoffset: 0; }
   .sec-icon svg * { transition: none; stroke-dashoffset: 0; }
   .roadmap-timeline .tl-line { transition: none; stroke-dashoffset: 0; }
@@ -3057,7 +3033,7 @@ html:not(.typo-choreographed) .sl-text { opacity: 1; transform: none; }
 /* ── Flow section: scroll-pinned ── */
 html.scroll-choreographed #how {
   padding: 0;
-  height: 220vh;
+  height: 140vh;
   position: relative;
 }
 html.scroll-choreographed #how > .section-inner {
@@ -3422,18 +3398,10 @@ html.scroll-choreographed .reveal {
           <li>Draft the referral email from scratch hoping you covered what the reviewer wants to see</li>
         </ul>
       </div>
-      <div class="ba-arrow compression-visual" aria-hidden="true">
-        <div class="compression-bars">
-          <div class="compression-bar-row">
-            <span class="compression-bar bar-before"></span>
-            <span class="compression-bar-tag">60 min</span>
-          </div>
-          <div class="compression-bar-row">
-            <span class="compression-bar bar-after"></span>
-            <span class="compression-bar-tag">10 min</span>
-          </div>
-        </div>
-        <div class="compression-readout">60 <span class="arrow-glyph">&rarr;</span> 10 min <span class="pct">&middot; -83%</span></div>
+      <div class="ba-arrow ba-compress" aria-hidden="true">
+        <div class="ba-compress-pct">&minus;<span data-count-target="83">0</span><span class="ba-compress-pct-sign">%</span></div>
+        <div class="ba-compress-line"></div>
+        <div class="ba-compress-detail">60 min &rarr; 10 min</div>
       </div>
       <div class="ba-col after">
         <div class="ba-label">AFTER</div>
@@ -7013,23 +6981,47 @@ if (!REDUCED) {
      fires only when at least half the element is on-screen — avoids
      firing when the user has just barely scrolled the bottom edge into
      view. Each target disconnects after its first intersect. */
+  /* Track which targets have animated so the fallback timer can pick
+     up any that the IntersectionObserver missed. */
+  const fired = new WeakSet();
+  function trigger(target) {
+    if (!target || !target.parsed || fired.has(target.el)) return;
+    fired.add(target.el);
+    animateCounter(target.textNode, target.parsed);
+  }
+
   if ('IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries, obs) => {
       entries.forEach(e => {
         if (!e.isIntersecting) return;
         const target = targets.find(t => t.el === e.target);
-        if (target && target.parsed) {
-          animateCounter(target.textNode, target.parsed);
-        }
+        trigger(target);
         obs.unobserve(e.target);
       });
-    }, { threshold: 0.5 });
-    targets.forEach(t => io.observe(t.el));
-  } else {
-    /* Fallback — no IntersectionObserver. Just play them all on load. */
-    targets.forEach(t => {
-      if (t.parsed) animateCounter(t.textNode, t.parsed);
+    }, {
+      /* threshold 0 + a slight negative bottom rootMargin: fires when
+         the element crosses 90% of viewport height on its way up.
+         Earlier and more reliable than the previous 0.5 threshold,
+         which depended on the element's own size. */
+      threshold: 0,
+      rootMargin: '0px 0px -10% 0px'
     });
+    targets.forEach(t => io.observe(t.el));
+
+    /* Belt-and-suspenders fallback. After 2.2 seconds, force-fire any
+       target whose element is already inside the viewport but hasn't
+       animated yet — covers cases where the IO never delivered an
+       entry (browser quirks, rapid scroll past, etc.). */
+    setTimeout(function() {
+      var vh = window.innerHeight;
+      targets.forEach(function(t) {
+        if (fired.has(t.el)) return;
+        var r = t.el.getBoundingClientRect();
+        if (r.top < vh && r.bottom > 0) trigger(t);
+      });
+    }, 2200);
+  } else {
+    targets.forEach(t => trigger(t));
   }
 })();
 </script>
@@ -7615,18 +7607,21 @@ function toggleTheme() {
 
     // Discrete state machine drives the stage classes. Hysteresis-free —
     // toggling classes is cheap and the CSS transitions handle smoothing.
-    //   0.00–0.10  state 0  nothing active (lede visible alone)
-    //   0.10–0.25  state 1  stage 1 active
-    //   0.25–0.40  state 2  + connector A flowing
-    //   0.40–0.55  state 3  + stage 2 active
-    //   0.55–0.70  state 4  + connector B flowing
-    //   0.70–1.00  state 5  + stage 3 active (held through end)
+    //   0.00–0.04  state 0  nothing active (lede visible alone)
+    //   0.04–0.16  state 1  stage 1 active
+    //   0.16–0.30  state 2  + connector A flowing
+    //   0.30–0.44  state 3  + stage 2 active
+    //   0.44–0.58  state 4  + connector B flowing
+    //   0.58–1.00  state 5  + stage 3 active (held through end)
+    // Tightened in v8.7.62 alongside the pin-height reduction so all
+    // three stages activate by ~60% of pin travel — gives the user a
+    // comfortable hold on the final state before the section unpins.
     var state = 0;
-    if (progress >= 0.10) state = 1;
-    if (progress >= 0.25) state = 2;
-    if (progress >= 0.40) state = 3;
-    if (progress >= 0.55) state = 4;
-    if (progress >= 0.70) state = 5;
+    if (progress >= 0.04) state = 1;
+    if (progress >= 0.16) state = 2;
+    if (progress >= 0.30) state = 3;
+    if (progress >= 0.44) state = 4;
+    if (progress >= 0.58) state = 5;
 
     if (state === prevFlowState) return;
     prevFlowState = state;
@@ -7814,17 +7809,27 @@ function toggleTheme() {
       var text = node.nodeValue;
       if (!text) return;
       var frag = document.createDocumentFragment();
-      for (var i = 0; i < text.length; i++) {
-        var ch = text.charAt(i);
-        if (/\S/.test(ch)) {
+      // Wrap each word's chars in a .tc-word inline-block container so
+      // the browser can't break inside a word at a .tc char boundary.
+      // Whitespace stays as plain text between word wrappers — those
+      // are the only legal line-break points.
+      var parts = text.split(/(\s+)/);
+      parts.forEach(function(part) {
+        if (!part) return;
+        if (/^\s+$/.test(part)) {
+          frag.appendChild(document.createTextNode(part));
+          return;
+        }
+        var wordWrap = document.createElement('span');
+        wordWrap.className = 'tc-word';
+        for (var i = 0; i < part.length; i++) {
           var span = document.createElement('span');
           span.className = 'tc';
-          span.textContent = ch;
-          frag.appendChild(span);
-        } else {
-          frag.appendChild(document.createTextNode(ch));
+          span.textContent = part.charAt(i);
+          wordWrap.appendChild(span);
         }
-      }
+        frag.appendChild(wordWrap);
+      });
       node.parentNode.replaceChild(frag, node);
     });
   }
