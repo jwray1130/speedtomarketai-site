@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.51-new-submission-doc-scope-2026-05-24';
+window.STM_BUILD = 'v8.7.52-card-depth-rest-state-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
