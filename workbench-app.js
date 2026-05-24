@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.68-remove-ba-compress-middle-2026-05-24';
+window.STM_BUILD = 'v8.7.69-pipeline-24-modules-3-waves-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

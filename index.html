@@ -4034,10 +4034,54 @@ html[data-theme="light"] .device-badge { background: rgba(5, 112, 222, 0.06); }
   grid-template-columns: 22px 30px 1fr 64px 44px;
   gap: 10px;
   align-items: center;
-  padding: 7px 10px;
+  padding: 5px 10px;
   border-radius: 4px;
   transition: background 400ms ease, color 400ms ease;
-  font-size: 11.5px;
+  font-size: 11px;
+}
+
+/* ── Wave header — section divider between the 3 pipeline waves ── */
+.pipe-wave-header {
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 10px 4px 10px;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.pipe-wave-header:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 4px;
+}
+html[data-theme="light"] .pipe-wave-header {
+  border-top-color: rgba(10, 37, 64, 0.08);
+}
+.pipe-wave-num {
+  color: var(--signal);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.pipe-wave-header[data-wave="1"].pipe-wave-active .pipe-wave-num,
+.pipe-wave-header[data-wave="2"].pipe-wave-active .pipe-wave-num,
+.pipe-wave-header[data-wave="3"].pipe-wave-active .pipe-wave-num {
+  color: var(--signal);
+}
+.pipe-wave-header[data-wave].pipe-wave-active {
+  color: var(--cream);
+}
+.pipe-wave-label {
+  color: var(--muted);
+}
+.pipe-wave-count {
+  color: var(--muted-2);
+  font-size: 9px;
 }
 .pipe-row[data-status="done"] {
   background: rgba(40, 200, 64, 0.04);
@@ -4441,87 +4485,186 @@ html[data-theme="light"] .showcase-cta-band {
                 </div>
               </div>
               <div class="pipe-runlog" id="pipeRunlog">
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A1</span>
-                  <span class="pipe-name">Submission Intake</span>
-                  <span class="pipe-pages">12 pp</span>
-                  <span class="pipe-time">1.4s</span>
+                <div class="pipe-wave-header" data-wave="1">
+                  <span class="pipe-wave-num">Wave 1</span>
+                  <span class="pipe-wave-label">Parallel Extractors</span>
+                  <span class="pipe-wave-count">17 modules</span>
                 </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A2</span>
-                  <span class="pipe-name">Document Crawler</span>
-                  <span class="pipe-pages">3,127 pp</span>
-                  <span class="pipe-time">8.1s</span>
-                </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A3</span>
-                  <span class="pipe-name">ACORD Extractor</span>
-                  <span class="pipe-pages">8 pp</span>
-                  <span class="pipe-time">2.3s</span>
-                </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A4</span>
-                  <span class="pipe-name">Subcontractor Agreements</span>
-                  <span class="pipe-pages">14 pp</span>
-                  <span class="pipe-time">4.2s</span>
-                </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A5</span>
-                  <span class="pipe-name">Vendor Agreements</span>
-                  <span class="pipe-pages">6 pp</span>
-                  <span class="pipe-time">3.1s</span>
-                </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A6</span>
-                  <span class="pipe-name">Safety Manual Parser</span>
-                  <span class="pipe-pages">22 pp</span>
-                  <span class="pipe-time">5.4s</span>
-                </div>
-                <div class="pipe-row" data-status="done">
-                  <span class="pipe-status-icon">&#10003;</span>
-                  <span class="pipe-id">A7</span>
-                  <span class="pipe-name">Loss History Extractor</span>
-                  <span class="pipe-pages">18 pp</span>
-                  <span class="pipe-time">6.7s</span>
-                </div>
-                <div class="pipe-row" data-status="running">
-                  <span class="pipe-status-icon"></span>
-                  <span class="pipe-id">A8</span>
-                  <span class="pipe-name">GL Quote / Policy Reader</span>
-                  <span class="pipe-pages">&mdash;</span>
-                  <span class="pipe-time">&hellip;</span>
-                </div>
-                <div class="pipe-row" data-status="running">
-                  <span class="pipe-status-icon"></span>
-                  <span class="pipe-id">A9</span>
-                  <span class="pipe-name">AL Quote / Policy Reader</span>
-                  <span class="pipe-pages">&mdash;</span>
-                  <span class="pipe-time">&hellip;</span>
-                </div>
-                <div class="pipe-row" data-status="pending">
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="3 pp" data-time="2.4s">
                   <span class="pipe-status-icon">&#9675;</span>
-                  <span class="pipe-id">A10</span>
-                  <span class="pipe-name">Excess Policies</span>
+                  <span class="pipe-id">A1</span>
+                  <span class="pipe-name">Website Intel</span>
                   <span class="pipe-pages">&mdash;</span>
                   <span class="pipe-time">&mdash;</span>
                 </div>
-                <div class="pipe-row" data-status="pending">
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="12 pp" data-time="4.8s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A2</span>
+                  <span class="pipe-name">Supplemental App</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="14 pp" data-time="5.6s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A3</span>
+                  <span class="pipe-name">Subcontract</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="6 pp" data-time="3.2s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A4</span>
+                  <span class="pipe-name">Vendor Agreement</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="22 pp" data-time="7.4s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A5</span>
+                  <span class="pipe-name">Safety Manual</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="18 pp" data-time="6.8s">
                   <span class="pipe-status-icon">&#9675;</span>
                   <span class="pipe-id">A11</span>
-                  <span class="pipe-name">Loss Reconciler</span>
+                  <span class="pipe-name">Loss History</span>
                   <span class="pipe-pages">&mdash;</span>
                   <span class="pipe-time">&mdash;</span>
                 </div>
-                <div class="pipe-row" data-status="pending">
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="24 pp" data-time="8.2s">
                   <span class="pipe-status-icon">&#9675;</span>
                   <span class="pipe-id">A12</span>
-                  <span class="pipe-name">Website Intelligence</span>
+                  <span class="pipe-name">Primary GL</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="18 pp" data-time="6.1s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A13</span>
+                  <span class="pipe-name">Primary AL</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="21 pp" data-time="7.6s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A14</span>
+                  <span class="pipe-name">Excess Policy</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="8 pp" data-time="2.8s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A16</span>
+                  <span class="pipe-name">Email Intel</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="14 pp" data-time="4.4s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A17</span>
+                  <span class="pipe-name">Employers Liability</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="9 pp" data-time="3.1s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A18</span>
+                  <span class="pipe-name">Employee Benefits Liab</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="7 pp" data-time="2.6s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A19</span>
+                  <span class="pipe-name">Aircraft Liability</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="10 pp" data-time="3.4s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A20</span>
+                  <span class="pipe-name">Garage Liability</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="8 pp" data-time="2.7s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A21</span>
+                  <span class="pipe-name">Liquor Liability</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="12 pp" data-time="4.1s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A22</span>
+                  <span class="pipe-name">Foreign GL</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="1" data-pages="10 pp" data-time="3.5s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A23</span>
+                  <span class="pipe-name">Foreign AL</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-wave-header" data-wave="2">
+                  <span class="pipe-wave-num">Wave 2</span>
+                  <span class="pipe-wave-label">Synthesis</span>
+                  <span class="pipe-wave-count">2 modules</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="2" data-pages="5 pp" data-time="14.8s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A6</span>
+                  <span class="pipe-name">Summary of Operations</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="2" data-pages="4 pp" data-time="8.1s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A15</span>
+                  <span class="pipe-name">Excess Tower</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-wave-header" data-wave="3">
+                  <span class="pipe-wave-num">Wave 3</span>
+                  <span class="pipe-wave-label">Analysis & Verify</span>
+                  <span class="pipe-wave-count">5 modules</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="3" data-pages="2 pp" data-time="6.2s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A7</span>
+                  <span class="pipe-name">Class Code Expert</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="3" data-pages="4 pp" data-time="8.4s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A8</span>
+                  <span class="pipe-name">Guideline Cross-Ref</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="3" data-pages="3 pp" data-time="7.2s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A9</span>
+                  <span class="pipe-name">Exposure to Loss</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="3" data-pages="2 pp" data-time="5.8s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A10</span>
+                  <span class="pipe-name">Account Strengths</span>
+                  <span class="pipe-pages">&mdash;</span>
+                  <span class="pipe-time">&mdash;</span>
+                </div>
+                <div class="pipe-row" data-status="pending" data-wave="3" data-pages="3 pp" data-time="4.6s">
+                  <span class="pipe-status-icon">&#9675;</span>
+                  <span class="pipe-id">A24</span>
+                  <span class="pipe-name">Discrepancy Check</span>
                   <span class="pipe-pages">&mdash;</span>
                   <span class="pipe-time">&mdash;</span>
                 </div>
@@ -4530,24 +4673,24 @@ html[data-theme="light"] .showcase-cta-band {
                 <div class="pipe-progress-bar">
                   <div class="pipe-progress-fill" id="pipeProgressFill"></div>
                 </div>
-                <div class="pipe-progress-label" id="pipeProgressLabel">7 of 17 modules complete &middot; 42%</div>
+                <div class="pipe-progress-label" id="pipeProgressLabel">0 of 24 modules complete &middot; idle</div>
               </div>
             </div>
           </div>
         </div>
         <div class="showcase-copy">
           <div class="showcase-eyebrow">01 &middot; The Pipeline</div>
-          <h3 class="showcase-headline">17 modules. <em>Parallel execution.</em> Watch them finish.</h3>
+          <h3 class="showcase-headline">24 modules. <em>Three parallel waves.</em> Watch them finish.</h3>
           <p class="showcase-desc">
             Each module is a specialist &mdash; ACORD reader, loss history extractor, subcontract agreement parser, GL/AL quote analyzer. They fire in parallel the second the submission lands, each citing the exact source page it pulled from. By the time you finish your coffee, the entire packet has been read and verified.
           </p>
           <ul class="showcase-feats">
-            <li>17 specialist modules &middot; parallel execution</li>
+            <li>24 specialist modules &middot; 3 parallel waves</li>
             <li>Page-level source citations on every extraction</li>
             <li>Self-verification loop per module</li>
             <li>Under 90 seconds total runtime</li>
           </ul>
-          <span class="showcase-stat">47 docs &middot; 3,127 pages &middot; 84 seconds</span>
+          <span class="showcase-stat">47 docs &middot; 3,127 pages &middot; 84 seconds end-to-end</span>
         </div>
       </div>
 
@@ -7148,65 +7291,161 @@ function toggleTheme() {
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ────────────────────────────────────────────────────────────────────
-  // Pipeline runlog — when scrolled in, advance the running rows to done
-  // and pending rows to running on a loop. Generates plausible timing.
+  // Pipeline runlog — wave-based animation mirroring the real engine.
+  // Wave 1 (17 extractors) runs in parallel, each module completing at
+  // staggered times. When the slowest Wave 1 module finishes, Wave 2
+  // (2 synthesis modules) kicks off. When Wave 2 finishes, Wave 3
+  // (5 analysis modules) kicks off. After all 24 finish the cycle
+  // holds for ~3s on "complete" then resets.
   // ────────────────────────────────────────────────────────────────────
-  var pipeRunlog       = document.getElementById('pipeRunlog');
-  var pipeProgressFill = document.getElementById('pipeProgressFill');
+  var pipeRunlog        = document.getElementById('pipeRunlog');
+  var pipeProgressFill  = document.getElementById('pipeProgressFill');
   var pipeProgressLabel = document.getElementById('pipeProgressLabel');
 
   if (pipeRunlog && !reduce) {
-    var pipeStates = [
-      { done: 7,  running: 2, pct: 42, label: '7 of 17 modules complete · 42%' },
-      { done: 9,  running: 2, pct: 56, label: '9 of 17 modules complete · 56%' },
-      { done: 11, running: 1, pct: 70, label: '11 of 17 modules complete · 70%' },
-      { done: 12, running: 0, pct: 75, label: '12 of 17 modules complete · 75%' }
-    ];
-    var pipeRows  = pipeRunlog.querySelectorAll('.pipe-row');
-    var pipeIdx   = 0;
-    var pipeTimer = null;
+    var pipeRows    = pipeRunlog.querySelectorAll('.pipe-row');
+    var waveHeaders = pipeRunlog.querySelectorAll('.pipe-wave-header');
+    var TOTAL       = pipeRows.length;
+    var WAVES       = ['1', '2', '3'];
+    var pipeTimer   = null;
+    var phaseTime   = 0;
 
-    function advancePipe() {
-      pipeIdx = (pipeIdx + 1) % pipeStates.length;
-      var state = pipeStates[pipeIdx];
-      pipeRows.forEach(function(row, i) {
-        if (i < state.done) {
-          row.setAttribute('data-status', 'done');
-          var icon = row.querySelector('.pipe-status-icon');
-          if (icon) icon.textContent = '\u2713';
-          var pages = row.querySelector('.pipe-pages');
-          var time  = row.querySelector('.pipe-time');
-          if (pages && (pages.textContent === '\u2014' || pages.textContent.indexOf('pp') === -1)) {
-            pages.textContent = (Math.floor(Math.random() * 18) + 4) + ' pp';
-          }
-          if (time && (time.textContent === '\u2014' || time.textContent === '\u2026')) {
-            time.textContent = (Math.random() * 7 + 1).toFixed(1) + 's';
-          }
-        } else if (i < state.done + state.running) {
-          row.setAttribute('data-status', 'running');
-          var rIcon = row.querySelector('.pipe-status-icon');
-          if (rIcon) rIcon.textContent = '';
-          var rTime = row.querySelector('.pipe-time');
-          if (rTime) rTime.textContent = '\u2026';
-        } else {
-          row.setAttribute('data-status', 'pending');
-          var pIcon = row.querySelector('.pipe-status-icon');
-          if (pIcon) pIcon.textContent = '\u25CB';
-        }
+    // Per-wave timing budget (ms) — compressed from the real engine.
+    // Real Wave 1 maxes at ~30s; here we compress to ~5s for the loop.
+    var WAVE_DURATION = { '1': 5200, '2': 3000, '3': 3000 };
+
+    function rowsInWave(w) {
+      return Array.prototype.filter.call(pipeRows, function(r) {
+        return r.getAttribute('data-wave') === w;
       });
-      if (pipeProgressFill)  pipeProgressFill.style.width = state.pct + '%';
-      if (pipeProgressLabel) pipeProgressLabel.textContent = state.label;
+    }
+
+    function setRowStatus(row, status) {
+      row.setAttribute('data-status', status);
+      var icon  = row.querySelector('.pipe-status-icon');
+      var pages = row.querySelector('.pipe-pages');
+      var time  = row.querySelector('.pipe-time');
+      if (status === 'done') {
+        if (icon) icon.textContent = '\u2713';
+        if (pages) pages.textContent = row.getAttribute('data-pages');
+        if (time)  time.textContent  = row.getAttribute('data-time');
+      } else if (status === 'running') {
+        if (icon) icon.textContent = '';
+        if (pages) pages.textContent = '\u2014';
+        if (time)  time.textContent  = '\u2026';
+      } else {
+        if (icon) icon.textContent = '\u25CB';
+        if (pages) pages.textContent = '\u2014';
+        if (time)  time.textContent  = '\u2014';
+      }
+    }
+
+    function setActiveWave(activeW) {
+      waveHeaders.forEach(function(h) {
+        if (h.getAttribute('data-wave') === activeW) h.classList.add('pipe-wave-active');
+        else h.classList.remove('pipe-wave-active');
+      });
+    }
+
+    function resetAll() {
+      pipeRows.forEach(function(r) { setRowStatus(r, 'pending'); });
+      waveHeaders.forEach(function(h) { h.classList.remove('pipe-wave-active'); });
+      if (pipeProgressFill)  pipeProgressFill.style.width = '0%';
+      if (pipeProgressLabel) pipeProgressLabel.textContent = '0 of ' + TOTAL + ' modules \u00b7 idle';
+    }
+
+    // Animation runs by elapsed-time stepping. We compute target state
+    // every 80ms and apply diffs. Total cycle ~13s.
+    function step() {
+      phaseTime += 80;
+      var t = phaseTime;
+
+      // Wave timings (cumulative ms milestones)
+      var W1_START =   400;            // Wave 1 starts after brief idle
+      var W1_END   = W1_START + WAVE_DURATION['1'];
+      var W2_START = W1_END + 250;
+      var W2_END   = W2_START + WAVE_DURATION['2'];
+      var W3_START = W2_END + 250;
+      var W3_END   = W3_START + WAVE_DURATION['3'];
+      var DONE_HOLD = 3200;
+      var CYCLE = W3_END + DONE_HOLD;
+
+      if (t >= CYCLE) {
+        phaseTime = 0;
+        resetAll();
+        return;
+      }
+
+      // Determine the active wave label
+      if      (t >= W3_START) setActiveWave('3');
+      else if (t >= W2_START) setActiveWave('2');
+      else if (t >= W1_START) setActiveWave('1');
+      else                    setActiveWave('');
+
+      // For each wave, compute progress and update its modules
+      function updateWave(waveKey, startT, endT) {
+        var rows = rowsInWave(waveKey);
+        if (t < startT) {
+          rows.forEach(function(r) {
+            if (r.getAttribute('data-status') !== 'pending') setRowStatus(r, 'pending');
+          });
+          return 0;
+        }
+        if (t >= endT) {
+          rows.forEach(function(r) {
+            if (r.getAttribute('data-status') !== 'done') setRowStatus(r, 'done');
+          });
+          return rows.length;
+        }
+        // In-progress wave — stagger module completion across the duration
+        var progress = (t - startT) / (endT - startT);
+        var doneCount = 0;
+        rows.forEach(function(r, idx) {
+          // Each module's "done threshold" within the wave; spread non-uniform
+          // across [0.15, 0.95] for a believable cascade.
+          var slot = 0.15 + (idx / Math.max(1, rows.length - 1)) * 0.80;
+          if (progress >= slot) {
+            if (r.getAttribute('data-status') !== 'done') setRowStatus(r, 'done');
+            doneCount++;
+          } else {
+            if (r.getAttribute('data-status') !== 'running') setRowStatus(r, 'running');
+          }
+        });
+        return doneCount;
+      }
+
+      var w1Done = updateWave('1', W1_START, W1_END);
+      var w2Done = updateWave('2', W2_START, W2_END);
+      var w3Done = updateWave('3', W3_START, W3_END);
+
+      var totalDone = w1Done + w2Done + w3Done;
+      var pct = Math.round((totalDone / TOTAL) * 100);
+      if (pipeProgressFill)  pipeProgressFill.style.width = pct + '%';
+      if (pipeProgressLabel) {
+        if (t < W1_START) {
+          pipeProgressLabel.textContent = 'submission landed \u00b7 waiting';
+        } else if (t >= W3_END) {
+          pipeProgressLabel.textContent = TOTAL + ' of ' + TOTAL + ' modules \u00b7 complete';
+        } else {
+          var activeWave = (t >= W3_START) ? '3' : (t >= W2_START) ? '2' : '1';
+          pipeProgressLabel.textContent = totalDone + ' of ' + TOTAL + ' modules \u00b7 wave ' + activeWave + ' \u00b7 ' + pct + '%';
+        }
+      }
     }
 
     var pipeObs = new IntersectionObserver(function(entries) {
       entries.forEach(function(entry) {
         if (entry.isIntersecting) {
-          if (!pipeTimer) pipeTimer = setInterval(advancePipe, 2400);
+          if (!pipeTimer) {
+            resetAll();
+            phaseTime = 0;
+            pipeTimer = setInterval(step, 80);
+          }
         } else {
           if (pipeTimer) { clearInterval(pipeTimer); pipeTimer = null; }
         }
       });
-    }, { threshold: 0.3 });
+    }, { threshold: 0.2 });
     pipeObs.observe(pipeRunlog);
   }
 
