@@ -4481,18 +4481,66 @@ html[data-theme="light"] .showcase-cta-band {
   }
 }
 @media (max-width: 640px) {
-  .device-body { padding: 14px 14px 16px 14px; }
+  /* ── Showcase device frames — tighten padding on small screens ── */
+  .device-body { padding: 12px 12px 14px 12px; }
+  .device-chrome { padding: 8px 10px; }
+  .device-title { font-size: 10px; }
+  .device-badge { font-size: 9px; padding: 3px 7px; }
+
+  /* ── Pipeline mockup — 4-col grid (icon | id | name | pages) ── */
   .pipe-header { grid-template-columns: 1fr 1fr; gap: 8px; }
   .pipe-header > div:first-child { grid-column: 1 / -1; }
-  .pipe-row { grid-template-columns: 20px 26px 1fr 44px; }
+  .pipe-row { grid-template-columns: 20px 26px 1fr 44px; padding: 4px 8px; gap: 8px; }
   .pipe-row .pipe-time { display: none; }
-  .pipe-name { font-size: 11px; }
-  .files-categories { grid-template-columns: repeat(2, 1fr); }
-  .files-thumbs { grid-template-columns: repeat(3, 1fr); }
+  .pipe-name { font-size: 10.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pipe-id { font-size: 9.5px; }
+  .pipe-wave-header { padding: 10px 8px 4px 8px; font-size: 8.5px; grid-template-columns: 40px 1fr auto; gap: 8px; }
+  .pipe-wave-count { font-size: 8px; }
+
+  /* ── File Manager — 2-col category grid + smaller cards ── */
+  .files-toolbar { margin-bottom: 10px; padding-bottom: 7px; }
+  .files-toolbar-label, .files-toolbar-counts { font-size: 9px; }
+  .files-categories-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .cat-card { padding: 7px 7px 7px 11px; gap: 2px; }
+  .cat-card-name { font-size: 10px; }
+  .cat-card-count { font-size: 11px; }
+  .cat-card-desc { font-size: 8px; letter-spacing: 0.02em; }
+  /* Flying docs need to be narrower so they don't overflow tiny device frames */
+  .flying-doc { width: 78px; font-size: 8.5px; padding: 3px 6px 3px 8px; }
+
+  /* ── Workbench mockup ── */
   .wb-tabs { overflow-x: auto; }
   .wb-tab { padding: 8px 10px; flex-shrink: 0; }
   .wb-row { grid-template-columns: 90px 1fr 32px; }
   .wb-tower-layer { grid-template-columns: 50px 60px 1fr; gap: 8px; }
+
+  /* ── Before/After cards — stack vertically on phones ── */
+  .ba-wrap { grid-template-columns: 1fr; gap: 16px; }
+  .ba-stat { font-size: 56px; }
+  .ba-col { padding: 22px 20px; }
+
+  /* ── Generic safety: any oversized grid in copy area should min-width: 0
+       so children can shrink below their content size ── */
+  .showcase-copy, .showcase-device, .pipe-runlog, .files-body {
+    min-width: 0;
+  }
+  .showcase-headline { font-size: 32px; line-height: 1.15; }
+  .showcase-desc { font-size: 14px; }
+  .showcase-feats li { font-size: 13px; }
+}
+
+/* ── Ultra-narrow phones (iPhone SE, small Android) ── */
+@media (max-width: 380px) {
+  .device-body { padding: 10px 10px 12px 10px; }
+  .pipe-row { grid-template-columns: 18px 24px 1fr 38px; gap: 6px; font-size: 10px; }
+  .pipe-name { font-size: 10px; }
+  .files-categories-grid { gap: 5px; }
+  .cat-card { padding: 6px 6px 6px 10px; }
+  .cat-card-name { font-size: 9.5px; }
+  .cat-card-desc { font-size: 7.5px; line-height: 1.25; }
+  .flying-doc { width: 70px; font-size: 8px; padding: 3px 5px 3px 7px; }
+  .ba-stat { font-size: 46px; }
+  .showcase-headline { font-size: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

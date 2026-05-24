@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.71-file-manager-12-cats-flying-docs-2026-05-24';
+window.STM_BUILD = 'v8.7.72-mobile-responsive-fix-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
