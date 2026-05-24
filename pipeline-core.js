@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.50-card-depth-light-mode-2026-05-24';
+window.STM_BUILD = 'v8.7.51-new-submission-doc-scope-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -875,6 +875,10 @@ const STATE = {
   // "No submissions yet" flash before their rows arrive.
   _queueHydrating: true,
   activeSubmissionId: null,   // which submission is currently loaded in the workbench
+  // v8.7.51: true only after + New Submission before a SUB-* id is minted.
+  // Used by File Manager to show an empty draft scope instead of falling
+  // back to all prior documents while the user is starting a new account.
+  newSubmissionDraftMode: false,
   // Tier 1 feedback collection — card-level reactions written to Supabase
   // `feedback_events` table via submitFeedbackEvent(). Stamped with reviewer
   // name. STATE.feedback is no longer the source of truth (Phase 4); admin
@@ -3218,6 +3222,7 @@ async function archiveCurrentSubmission(opts) {
     STATE.submissions.push(rec);
   }
   STATE.activeSubmissionId = rec.id;
+  STATE.newSubmissionDraftMode = false;
   // Cloud save — awaited inline. Returns a structured result so callers
   // can distinguish "pipeline complete + cloud saved" from "pipeline
   // complete + cloud save failed (kept in-memory)". Previous behavior
@@ -3442,6 +3447,7 @@ async function rehydrateSubmission(submissionId) {
   STATE.pipelineDone  = true;
   STATE.pipelineRunning = false;
   STATE.activeSubmissionId = submissionId;
+  STATE.newSubmissionDraftMode = false;
 
   // Phase 8.5 fix: overlay edits from submission_edits table on top of the
   // snapshot edits. The snapshot was captured at the last save; submission_edits
@@ -6040,6 +6046,7 @@ function switchView(name) {
   // submission, showStage will set the class again as needed.
   if (name !== 'submission') {
     document.body.classList.remove('docs-fullwidth');
+    if (typeof STATE !== 'undefined' && STATE) STATE.newSubmissionDraftMode = false;
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -6179,6 +6186,7 @@ async function startNewSubmission() {
   STATE.pipelineRunning = false;
   STATE.pipelineRun = null;
   STATE.activeSubmissionId = null;
+  STATE.newSubmissionDraftMode = true;
   STATE.edits = {};
   STATE.hiddenCards = {};
   STATE.customCards = [];
@@ -6280,8 +6288,9 @@ function showStage(stage, opts) {
     // (null, null) which clears scope and shows everything.
     const activateDocumentsView8707 = () => {
       if (window.docsView && typeof window.docsView.setSubmissionContext === 'function') {
+        const isNewDraft = !!(STATE && STATE.newSubmissionDraftMode && !STATE.activeSubmissionId);
         const sid = STATE && STATE.activeSubmissionId ? STATE.activeSubmissionId : null;
-        let title = null;
+        let title = isNewDraft ? 'New submission' : null;
         if (sid && STATE.submissions) {
           const rec = STATE.submissions.find(s => s.id === sid);
           if (rec) {
@@ -6289,11 +6298,19 @@ function showStage(stage, opts) {
             title = rec.account_name || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
           }
         }
-        window.docsView.setSubmissionContext(sid, title);
+        if (isNewDraft && typeof window.docsView.setDraftSubmissionContext === 'function') {
+          window.docsView.setDraftSubmissionContext(title);
+        } else {
+          window.docsView.setSubmissionContext(sid, title);
+        }
         // v8.7.08: the Systems dropdown should switch surfaces first, then
-        // refresh cloud/document metadata.  Running the cloud refresh in the
+        // refresh cloud/document metadata. Running the cloud refresh in the
         // same click turn made the dropdown feel frozen on large accounts.
-        if (typeof window.docsView.refreshFromCloud === 'function') {
+        // v8.7.51: for a brand-new unsaved submission, do NOT refresh with
+        // submissionId=null — that means "all documents" and would repopulate
+        // the File Manager with prior-account docs. Draft scope stays local
+        // and empty until the pipeline pre-mints a real SUB-* id.
+        if (!isNewDraft && typeof window.docsView.refreshFromCloud === 'function') {
           const doRefresh = () => window.docsView.refreshFromCloud({
             reason: opts.fastNav ? 'showStage_docs_fastNav' : 'showStage_docs',
             submissionId: sid,

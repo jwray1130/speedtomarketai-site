@@ -5553,6 +5553,7 @@ async function runPipeline() {
   if (!STATE.activeSubmissionId) {
     const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
     STATE.activeSubmissionId = preMintId;
+    STATE.newSubmissionDraftMode = false;
     if (typeof logAudit === 'function') {
       logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
     }

@@ -147,6 +147,7 @@ window.initDocumentsView = function() {
     activeSubmissionId: null,
     activeSubmissionTitle: null,
     submissionFilter: 'all',  // 'all' or a submission_id
+    draftSubmissionMode: false,
 
     // ══════ v8.5 HYDRATE STATE (auth-aware, self-healing) ══════
     // These fields prevent the "documents disappear on refresh" destructive
@@ -662,7 +663,10 @@ window.initDocumentsView = function() {
         // with retry guidance — not a generic empty state. The fetch
         // failure path used to silently return [] which made hydrate look
         // successful, so the user saw "No documents yet" with no recourse.
-        if (state._lastHydrateError && !state._hydratedOnce) {
+        if (state.draftSubmissionMode) {
+          titleEl.textContent = 'No documents yet for this new submission';
+          subEl.textContent   = 'Upload documents from the Submission intake to begin. Existing File Manager documents are hidden until this submission is created.';
+        } else if (state._lastHydrateError && !state._hydratedOnce) {
           titleEl.textContent = 'Sync paused — could not load documents';
           // v8.5.2: structured error. Show message + code prominently
           // so the failure mode is visible (e.g., 57014 = statement
@@ -724,8 +728,11 @@ window.initDocumentsView = function() {
       docs.forEach(doc => list.appendChild(buildDocItem(doc)));
     }
 
+    const visibleTotal = (state.submissionFilter && state.submissionFilter !== 'all')
+      ? state.docs.filter(d => d.submissionId === state.submissionFilter).length
+      : state.docs.length;
     $id('dvDocsCount').textContent = docs.length;
-    $id('totalDocs').textContent = state.docs.length;
+    $id('totalDocs').textContent = visibleTotal;
     updateTagsCount();
     renderCategoryGrid();
     // Notify Altitude's workbench so its Documents-tab count badge stays
@@ -4860,6 +4867,7 @@ window.initDocumentsView = function() {
   // re-renders the doc list with the filter applied.
   // Pass (null, null) to clear context entirely.
   function setSubmissionContext(submissionId, submissionTitle) {
+    state.draftSubmissionMode   = false;
     state.activeSubmissionId    = submissionId || null;
     state.activeSubmissionTitle = submissionTitle || null;
     state.submissionFilter      = submissionId ? submissionId : 'all';
@@ -4925,16 +4933,44 @@ window.initDocumentsView = function() {
     }
   }
 
+  // v8.7.51: New Submission has no persisted SUB-* id yet. Keep File
+  // Manager on an explicit empty draft scope instead of treating null
+  // context as the global "all documents" library. This is display-only:
+  // it does not delete, clear, or mutate stored documents.
+  function setDraftSubmissionContext(submissionTitle) {
+    state.draftSubmissionMode   = true;
+    state.activeSubmissionId    = null;
+    state.activeSubmissionTitle = submissionTitle || 'New submission';
+    state.submissionFilter      = '__stm_new_submission_draft__';
+    if (state.selectedIds && state.selectedIds.size > 0) {
+      state.selectedIds = new Set();
+      if (typeof updateBulkBar === 'function') updateBulkBar();
+    }
+    state.contextDoc = null;
+    updateSubmissionChip();
+    renderCategoryGrid();
+    renderDocsList();
+    renderTagsList();
+  }
+
   // Sync chip visibility + label to current submission state.
   function updateSubmissionChip() {
     const chip  = $id('submissionChip');
     const label = $id('submissionChipLabel');
     if (!chip) return;
+    const clearBtn = $id('submissionChipClear');
     if (state.submissionFilter && state.submissionFilter !== 'all') {
       chip.style.display = 'inline-flex';
-      label.textContent  = state.activeSubmissionTitle || 'This submission';
+      label.textContent  = state.draftSubmissionMode
+        ? 'New submission'
+        : (state.activeSubmissionTitle || 'This submission');
+      if (clearBtn) clearBtn.style.display = state.draftSubmissionMode ? 'none' : '';
+      chip.title = state.draftSubmissionMode
+        ? 'New submission draft — no documents uploaded yet.'
+        : 'Viewing only this submission\'s documents. Click × to show all.';
     } else {
       chip.style.display = 'none';
+      if (clearBtn) clearBtn.style.display = '';
     }
   }
 
@@ -4943,6 +4979,7 @@ window.initDocumentsView = function() {
   // can browse cross-submission docs. To fully detach, Altitude calls
   // setSubmissionContext(null, null) on submission close.
   function clearSubmissionFilter() {
+    state.draftSubmissionMode = false;
     state.submissionFilter = 'all';
     updateSubmissionChip();
     renderCategoryGrid();
@@ -4969,6 +5006,10 @@ window.initDocumentsView = function() {
       const sid   = submissionId ? String(submissionId) : null;
       const title = submissionTitle ? String(submissionTitle).slice(0, 200) : null;
       return setSubmissionContext(sid, title);
+    },
+    setDraftSubmissionContext: (submissionTitle) => {
+      const title = submissionTitle ? String(submissionTitle).slice(0, 200) : null;
+      return setDraftSubmissionContext(title);
     },
     clearSubmissionFilter,
     // v8.5: public refresh API. Idempotent — safe to call repeatedly.
