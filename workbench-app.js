@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.67-remove-phase4-theme-transition-2026-05-24';
+window.STM_BUILD = 'v8.7.68-remove-ba-compress-middle-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

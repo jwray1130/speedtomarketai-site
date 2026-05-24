@@ -2586,58 +2586,7 @@ input:focus-visible,
 .stats-strip.sig-in .stat-line { width: 36px; }
 
 /* ── 2. TIME COMPRESSION — bar compression visual between BEFORE/AFTER ── */
-/* ── BA-compress: redesigned middle-column stat between BEFORE/AFTER.
-   Replaces the old .compression-visual two-bar layout. Now: a bold
-   −83% stat in signal blue, a thin vertical accent line, and a small
-   mono caption with "60 min → 10 min". The percentage counts up via
-   the existing [data-count-target] mechanism in the Phase 3 IIFE
-   (time-compression section observer). */
-.ba-compress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 16px 8px;
-  min-height: 140px;
-  gap: 14px;
-}
-.ba-compress-pct {
-  font-family: var(--font-display);
-  font-size: clamp(40px, 5vw, 60px);
-  font-weight: 200;
-  font-variation-settings: "opsz" 30;
-  color: var(--signal);
-  letter-spacing: -0.04em;
-  line-height: 0.9;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 1px;
-  font-style: italic;
-}
-.ba-compress-pct-sign {
-  font-size: 0.6em;
-  font-style: normal;
-  font-weight: 300;
-  letter-spacing: 0;
-  margin-left: 2px;
-  opacity: 0.85;
-}
-.ba-compress-line {
-  width: 1px;
-  height: 28px;
-  background: linear-gradient(to bottom, transparent 0%, var(--signal) 35%, var(--signal) 65%, transparent 100%);
-  opacity: 0.45;
-}
-.ba-compress-detail {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  text-align: center;
-  white-space: nowrap;
-}
-.ba-wrap .ba-arrow-cell { display: flex; align-items: center; justify-content: center; }
+
 
 /* ── 3. DIFFERENTIATION — check / X icon draw on each list item ── */
 .diff-col ul { list-style: none; padding: 0; }
@@ -2826,9 +2775,6 @@ input:focus-visible,
 /* ── Reduced motion override: skip all transitions, show final states ── */
 @media (prefers-reduced-motion: reduce) {
   .stats-strip .stat-line { transition: none; width: 36px; }
-  .ba-compress-pct,
-  .ba-compress-line,
-  .ba-compress-detail { transition: none; opacity: 1; transform: none; }
   .diff-icon path { transition: none; stroke-dashoffset: 0; }
   .sec-icon svg * { transition: none; stroke-dashoffset: 0; }
   .roadmap-timeline .tl-line { transition: none; stroke-dashoffset: 0; }
@@ -3216,11 +3162,6 @@ html.scroll-choreographed .reveal {
           <li>Draft the referral email from scratch hoping you covered what the reviewer wants to see</li>
         </ul>
       </div>
-      <div class="ba-arrow ba-compress" aria-hidden="true">
-        <div class="ba-compress-pct">&minus;<span data-count-target="83">0</span><span class="ba-compress-pct-sign">%</span></div>
-        <div class="ba-compress-line"></div>
-        <div class="ba-compress-detail">60 min &rarr; 10 min</div>
-      </div>
       <div class="ba-col after">
         <div class="ba-label">AFTER</div>
         <div class="ba-stat">10&ndash;15 <span>min</span></div>
@@ -3267,7 +3208,7 @@ html.scroll-choreographed .reveal {
 /* ========== TIME COMPRESSION STYLES ========== */
 .ba-wrap {
   display: grid;
-  grid-template-columns: 1fr 60px 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
   align-items: stretch;
   margin-bottom: 56px;
