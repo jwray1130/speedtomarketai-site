@@ -2923,20 +2923,43 @@ window.initDocumentsView = function() {
     updateTagsCount();
   }
 
+  function isDefaultGeneratedDocName8753(doc) {
+    const name = String((doc && doc.displayName) || '').trim();
+    if (!name) return true;
+    const candidates = [doc && doc.nativeFileName, doc && doc.workbookFileName, doc && doc.name]
+      .filter(Boolean)
+      .map(v => String(v).trim());
+    for (const raw of candidates) {
+      const base = raw.replace(/\.[^.]+$/, '');
+      if (name === raw || name === base) return true;
+      const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('^' + esc + '\\s+[—-]\\s+Page\\s+\\d+$', 'i').test(name)) return true;
+    }
+    return false;
+  }
+
+  function manualTaggedDisplayName8753(doc) {
+    const name = String((doc && doc.displayName) || '').trim();
+    if (!name) return '';
+    if (doc && doc.relabeledByUser) return name;
+    // Backward-compat for documents renamed before v8.7.53, when rename
+    // saved display_name but did not yet persist relabeled_by_user. Only
+    // treat it as a manual label when there is no classifier chip and the
+    // visible name is not the generated source filename / "Page N" name.
+    if (doc && !doc.pipelineTag && !isDefaultGeneratedDocName8753(doc)) return name;
+    return '';
+  }
+
   function buildTaggedItem(doc) {
     const item = document.createElement('div');
     item.className = 'tagged-item' + (doc.color ? ' tag-' + doc.color : '');
-    // v8.6.11 (per Justin's review): show ONLY the tag. No filename
-    // subtext, no page number, nothing else. The Tagged Pages list is
-    // a clean inventory of what was identified — "ACORD 125", "Lead
-    // $5M", "AL Quote". The full filename is preserved in the title
-    // tooltip (hover) and accessible via click-through to the doc card.
-    //
-    // Falls back through:
-    //   1. pipelineTag           — the classifier's granular tag
-    //   2. tagColorLabels[color] — manual color tag (folder name)
-    //   3. displayName           — last resort if no tag at all
-    const tagText = doc.pipelineTag ||
+    // v8.7.53: manual document labels should survive color tagging.
+    // Color controls grouping/placement, but a user-renamed document like
+    // "$3M xs $2M Quote" should appear by that name in Tagged Pages instead
+    // of falling back to the generic color folder label "Underlying".
+    // Auto-classified docs keep their granular pipelineTag first.
+    const manualName = manualTaggedDisplayName8753(doc);
+    const tagText = manualName || doc.pipelineTag ||
       (doc.color ? CONFIG.tagColorLabels[doc.color] : '') ||
       doc.displayName;
     item.innerHTML = `
@@ -3018,7 +3041,8 @@ window.initDocumentsView = function() {
       if (v.length > 250) v = v.slice(0, 247) + '…';
       if (commit && v && v !== doc.displayName) {
         doc.displayName = v; doc.name = v;
-        _persist(docId, { display_name: v });
+        doc.relabeledByUser = true;
+        _persist(docId, { display_name: v, relabeled_by_user: true });
       }
       renderDocsList(); renderTagsList();
     };
@@ -4304,7 +4328,8 @@ window.initDocumentsView = function() {
         const doc = currentPreviewDoc();
         if (doc && v && v !== doc.displayName) {
           doc.displayName = v; doc.name = v;
-          _persist(doc.id, { display_name: v });
+          doc.relabeledByUser = true;
+          _persist(doc.id, { display_name: v, relabeled_by_user: true });
           renderDocsList(); renderTagsList();
         }
         input.setAttribute('readonly', 'true');
