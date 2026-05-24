@@ -746,7 +746,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
 
 <div class="loss-summary-block">
   <div class="loss-summary-label">Summary</div>
-  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $500K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
+  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $250K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
   <div class="loss-summary-meta">
     Named Insured: <strong>[name]</strong> &nbsp;·&nbsp; Effective Date Reviewed: <strong>[eff date]</strong> &nbsp;·&nbsp; Valuation: <strong>[valuation date]</strong> &nbsp;·&nbsp; Period: <strong>[start – end]</strong> &nbsp;·&nbsp; Carriers: [GL carrier] (GL), [AL carrier] (AL)
   </div>
@@ -774,7 +774,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   </tfoot>
 </table>
 
-<div class="loss-section-title">General Liability Large Losses ($500K+)</div>
+<div class="loss-section-title">General Liability Large Losses ($250K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -785,9 +785,9 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- If no GL claims ≥ $500K, use this single row: -->
-    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $500K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
-    <!-- Otherwise: one row per claim ≥ $500K -->
+    <!-- If no GL claims ≥ $250K, use this single row: -->
+    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $250K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
+    <!-- Otherwise: one row per claim ≥ $250K -->
     <!-- <tr><td class="num">[MM/DD/YYYY]</td><td class="num">[$]</td><td class="num">[$]</td><td>[Description + status]</td></tr> -->
   </tbody>
 </table>
@@ -814,7 +814,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
   </tfoot>
 </table>
 
-<div class="loss-section-title">Auto Liability Large Losses ($500K+)</div>
+<div class="loss-section-title">Auto Liability Large Losses ($250K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -825,8 +825,8 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $500K -->
-    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $500K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
+    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $250K -->
+    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $250K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
   </tbody>
 </table>
 
@@ -850,7 +850,7 @@ RULES
 4. Policy Year column uses class="yr" (mono, bold).
 5. All numeric columns (Claims, Paid, Reserve, Incurred, Date Valued) use class="num" (right-aligned, tabular).
 6. Never combine GL and AL claim counts — always keep two separate tables.
-7. Large-loss threshold is $500,000. If none exceed that, use the loss-empty-row message citing the largest loss in that LOB.
+7. Large-loss threshold is $250,000. If none exceed that, use the loss-empty-row message citing the largest loss in that LOB.
 8. Analyst Notes block is REQUIRED with all four paragraphs: Frequency / Severity / Trend / Attachment Penetration. Each paragraph leads with a bold label (<strong>).
 9. The Summary block at the top is REQUIRED — no exceptions.
 
@@ -860,7 +860,7 @@ QUALITY CONTROL (silent — do not output)
 
 Before returning, internally verify:
 - Every policy year × LOB combination in source is represented in the correct table
-- Every claim ≥ $500K appears in the matching LOB Large Losses table
+- Every claim ≥ $250K appears in the matching LOB Large Losses table
 - GL and AL totals foot correctly
 - Outlier years are flagged with class="outlier"
 - All four Analyst Notes paragraphs are present and begin with a <strong> label

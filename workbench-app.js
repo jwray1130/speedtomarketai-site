@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.48-production-cleanup-2026-05-24';
+window.STM_BUILD = 'v8.7.49-polish-hardening-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -743,10 +743,39 @@ document.addEventListener('DOMContentLoaded', () => {
         // applyFullPhasePipeline(data) directly from loadSubmissionFromUrl().
         window.__stmApplyPhasePipeline = applyFullPhasePipeline;
 
+        // v8.7.49: Workbench load-state messaging. With the retired demo
+        // card gone, direct /workbench visits and transient auth/Supabase
+        // failures need a visible, non-blocking explanation instead of a
+        // blank form plus console-only warnings. This banner is only about
+        // page load state; it does not touch resolver, loss, address, queue,
+        // or rating logic.
+        function setWorkbenchLoadStatus8749(kind, title, message) {
+            const box = document.getElementById('workbenchLoadStatus');
+            if (!box) return;
+            const titleEl = box.querySelector('.workbench-load-status-title');
+            const msgEl = box.querySelector('.workbench-load-status-message');
+            box.className = 'workbench-load-status is-visible' + (kind ? ' ' + kind : '');
+            if (titleEl) titleEl.textContent = title || '';
+            if (msgEl) msgEl.textContent = message || '';
+        }
+        function clearWorkbenchLoadStatus8749() {
+            const box = document.getElementById('workbenchLoadStatus');
+            if (!box) return;
+            box.classList.remove('is-visible', 'info', 'warn', 'error');
+        }
+
         (async function loadSubmissionFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const submissionId = params.get('submission');
-            if (!submissionId) return;
+            if (!submissionId) {
+                setWorkbenchLoadStatus8749(
+                    'info',
+                    'Open a submission from the Platform queue to begin.',
+                    'This Workbench page is ready, but no submission ID was provided in the URL.'
+                );
+                return;
+            }
+            setWorkbenchLoadStatus8749('info', 'Loading submission...', 'Retrieving the selected submission from the Platform queue.');
 
             // Poll for sb client + currentUser (set by platform-auth.js
             // after successful magic-link session check). 5-second cap.
@@ -757,10 +786,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!window.sb) {
                 console.warn('[workbench] Phase 1: Supabase client not available after 5s; submission load skipped');
+                setWorkbenchLoadStatus8749('error', 'Workbench could not connect.', 'Supabase was not ready after 5 seconds. Refresh the page, or return to the Platform queue and reopen the submission.');
                 return;
             }
             if (!window.currentUser) {
                 console.warn('[workbench] Phase 1: Not signed in; submission load skipped');
+                setWorkbenchLoadStatus8749('warn', 'Sign-in still pending.', 'Your session was not available after 5 seconds. Complete sign-in, then refresh or reopen the submission from the Platform queue.');
                 return;
             }
 
@@ -773,13 +804,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (error) {
                     console.warn('[workbench] Phase 1: submission fetch failed:', error.message, '· code:', error.code);
+                    setWorkbenchLoadStatus8749('error', 'Submission could not be loaded.', 'Supabase returned an error while retrieving this submission. Refresh and try again, or reopen it from the Platform queue.');
                     return;
                 }
                 if (!data) {
                     console.warn('[workbench] Phase 1: no submission found with id', submissionId);
+                    setWorkbenchLoadStatus8749('warn', 'Submission not found.', 'No submission matched this Workbench URL. Return to the Platform queue and open the submission again.');
                     return;
                 }
 
+                clearWorkbenchLoadStatus8749();
                 window.workbenchActiveSubmission = data;
                 const extractionCount = data.snapshot?.extractions
                     ? Object.keys(data.snapshot.extractions).length
@@ -820,6 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
+                setWorkbenchLoadStatus8749('error', 'Unexpected Workbench load error.', 'The submission could not be loaded. Refresh the page, or return to the Platform queue and reopen it.');
             }
         })();
 
@@ -2586,7 +2621,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 seenClaims98.add(key);
                 if (!bucket[period]) bucket[period] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
                 bucket[period].paid += num98(paid); bucket[period].reserve += num98(reserve); bucket[period].incurred += num98(incurred); bucket[period].claims += 1;
-                if (num98(incurred) >= 500000 || (lob === 'gl' && num98(incurred) >= 450000)) {
+                if (num98(incurred) >= 250000) {
                     const r = { dol, incurred: moneyFmt(incurred), paid: moneyFmt(paid), status: 'Closed', desc: String(desc || '').trim() };
                     if (lob === 'gl') out.largeGl.push(r); else out.largeAuto.push(r);
                 }

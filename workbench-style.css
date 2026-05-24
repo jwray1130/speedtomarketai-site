@@ -5629,3 +5629,39 @@ header.topbar .brand-text {
 .topbar-platform-btn {
   display: none !important;
 }
+
+
+/* v8.7.49: Workbench load-state banner for direct links, auth delay, and fetch errors. */
+.workbench-load-status {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: min(1180px, calc(100% - 40px));
+    margin: 16px auto 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line-warm);
+    border-radius: var(--radius-lg);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-sm);
+    color: var(--text-2);
+}
+.workbench-load-status.is-visible { display: flex; }
+.workbench-load-status.info { border-color: var(--signal-strong); background: var(--signal-pale); }
+.workbench-load-status.warn { border-color: rgba(160, 99, 9, 0.35); background: rgba(160, 99, 9, 0.08); }
+.workbench-load-status.error { border-color: rgba(193, 55, 55, 0.38); background: rgba(193, 55, 55, 0.08); }
+.workbench-load-status-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.workbench-load-status-title { color: var(--text); font-weight: 650; }
+.workbench-load-status-message { color: var(--text-2); font-size: 12.5px; }
+.workbench-load-status-link {
+    flex: 0 0 auto;
+    color: var(--signal-ink);
+    font-weight: 650;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.workbench-load-status-link:hover { text-decoration: underline; }
+@media (max-width: 760px) {
+    .workbench-load-status { align-items: flex-start; flex-direction: column; }
+}
