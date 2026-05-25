@@ -1037,6 +1037,9 @@ section.section {
   background: linear-gradient(165deg, rgba(5, 112, 222, 0.08) 0%, var(--bg) 80%);
   border-left: 3px solid var(--signal);
   position: relative;
+  /* Span the full grid width so the capstone never sits alone next to
+     empty cells when the module count doesn't divide evenly into columns. */
+  grid-column: 1 / -1;
 }
 .module.module-summary:hover {
   background: linear-gradient(165deg, rgba(5, 112, 222, 0.12) 0%, var(--surface) 80%);
