@@ -2266,7 +2266,6 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   footer,
   .theme-toggle,
   .hero-ctas,
-  .showcase-cta-band,
   .cta-section,
   .skip-link,
   .market-context,
@@ -2905,7 +2904,7 @@ html.scroll-choreographed .reveal {
 <div class="announce">
   <div class="announce-inner">
     <span class="tag">NEW</span>
-    <span>AI underwriting prep that turns 1-2 hours of submission work into 10-15 minutes</span>
+    <span>AI submission prep, built for commercial insurance underwriters</span>
     <a href="/platform" class="announce-link">Try it now &rarr;</a>
   </div>
 </div>
@@ -3003,7 +3002,7 @@ html.scroll-choreographed .reveal {
         <div class="mc-source">Per commercial submission</div>
       </div>
     </div>
-    <p class="mc-hook">A $502 billion commercial lines market. 127,000 underwriters. An hour of clerical drag before every decision. Speed to Market AI is built for that exact gap.</p>
+    <p class="mc-hook">Three numbers. One structural gap. Speed to Market AI is built to close it.</p>
   </div>
 </div>
 
@@ -4544,34 +4543,6 @@ html[data-theme="light"] .wb-field-source { background: rgba(5, 112, 222, 0.06);
   text-align: right;
 }
 
-/* ── Section CTA band ── */
-.showcase-cta-band {
-  margin-top: 96px;
-  padding: 38px 44px;
-  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
-  border: 1px solid var(--line-warm);
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-html[data-theme="light"] .showcase-cta-band {
-  box-shadow: 0 2px 4px rgba(10, 37, 64, 0.06), 0 12px 28px rgba(10, 37, 64, 0.08);
-}
-.showcase-cta-text {
-  font-family: var(--font-display);
-  font-size: clamp(20px, 2vw, 26px);
-  font-weight: 400;
-  color: var(--cream);
-  letter-spacing: -0.012em;
-  line-height: 1.3;
-}
-.showcase-cta-text em {
-  font-style: italic;
-  color: var(--signal);
-  font-weight: 300;
-}
 
 /* ── Responsive ── */
 @media (max-width: 980px) {
@@ -4585,11 +4556,6 @@ html[data-theme="light"] .showcase-cta-band {
   .device-frame, .showcase-row.reverse .device-frame { transform: none; }
   .device-frame:hover { transform: none; }
   .showcase-rows { gap: 110px; }
-  .showcase-cta-band {
-    flex-direction: column;
-    text-align: center;
-    padding: 28px 22px;
-  }
 }
 @media (max-width: 640px) {
   /* ── Showcase device frames — tighten padding on small screens ── */
