@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.80-modules-header-no-count-2026-05-25';
+window.STM_BUILD = 'v8.7.81-modules-grid-all-24-cards-2026-05-25';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
