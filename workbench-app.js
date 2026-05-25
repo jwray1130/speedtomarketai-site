@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.73-copy-revisions-remove-cta-2026-05-24';
+window.STM_BUILD = 'v8.7.74-file-manager-thumbnail-strip-2026-05-24';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -4333,6 +4333,116 @@ html[data-theme="light"] .pipe-row[data-status="running"] { background: rgba(5, 
 html[data-theme="light"] .cat-card     { background: var(--surface-2); }
 html[data-theme="light"] .flying-doc   { background: var(--surface); box-shadow: 0 4px 14px -4px rgba(10, 37, 64, 0.2); }
 
+/* ── Recently-tagged thumbnail strip — sits below the 12-cat grid.
+       Each thumb-card is a small page shape with a colored top bar
+       matching its source category, content "text lines" inside,
+       and a doc-name label at the bottom. Cards start hidden and
+       reveal one-by-one as their corresponding flying doc lands. ── */
+.files-thumb-strip {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.files-thumb-strip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 9px;
+}
+.files-thumb-strip-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.files-thumb-strip-count {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+}
+.files-thumb-strip-count #filesThumbCount {
+  color: var(--signal);
+  font-weight: 600;
+}
+.files-thumb-row {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 7px;
+}
+.thumb-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 11px 7px 14px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  /* Hidden by default — JS adds .thumb-shown when matching doc lands */
+  opacity: 0;
+  transform: translateY(8px) scale(0.92);
+  transition: opacity 400ms ease, transform 480ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 320ms ease;
+}
+.thumb-card.thumb-shown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.thumb-card.thumb-pulse {
+  box-shadow: 0 0 0 1px var(--cat-color), 0 0 14px -4px var(--cat-color);
+}
+.thumb-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--cat-color);
+}
+.thumb-card[data-color="red"]     { --cat-color: #DC2626; }
+.thumb-card[data-color="green"]   { --cat-color: #16A34A; }
+.thumb-card[data-color="yellow"]  { --cat-color: #EAB308; }
+.thumb-card[data-color="purple"]  { --cat-color: #7C3AED; }
+.thumb-card[data-color="pink"]    { --cat-color: #F472B6; }
+.thumb-card[data-color="orange"]  { --cat-color: #EA580C; }
+.thumb-card[data-color="maroon"]  { --cat-color: #991B1B; }
+.thumb-card[data-color="teal"]    { --cat-color: #14B8A6; }
+.thumb-card[data-color="magenta"] { --cat-color: #C026D3; }
+.thumb-card[data-color="blue"]    { --cat-color: #2563EB; }
+.thumb-card[data-color="coral"]   { --cat-color: #FB7185; }
+.thumb-card[data-color="black"]   { --cat-color: #525252; }
+.thumb-line {
+  height: 2px;
+  background: var(--line-warm);
+  border-radius: 1px;
+  width: 100%;
+  flex-shrink: 0;
+}
+.thumb-line:nth-child(2) { width: 78%; }
+.thumb-line:nth-child(3) { width: 92%; }
+.thumb-line:nth-child(4) { width: 58%; }
+.thumb-line:nth-child(5) { width: 82%; }
+.thumb-card-label {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--cream);
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(to top, var(--surface-2) 60%, transparent);
+  padding: 4px 2px 2px 2px;
+}
+html[data-theme="light"] .thumb-card { background: var(--surface-2); }
+html[data-theme="light"] .thumb-card-label { background: linear-gradient(to top, var(--surface-2) 60%, transparent); }
+
 
 /* ── Workbench mockup ── */
 .wb-tabs {
@@ -4507,6 +4617,16 @@ html[data-theme="light"] .showcase-cta-band {
   .cat-card-desc { font-size: 8px; letter-spacing: 0.02em; }
   /* Flying docs need to be narrower so they don't overflow tiny device frames */
   .flying-doc { width: 78px; font-size: 8.5px; padding: 3px 6px 3px 8px; }
+  /* Thumbnail strip — drop to 4 columns on phones; hide the rest */
+  .files-thumb-row { grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .thumb-card[data-doc-idx="4"],
+  .thumb-card[data-doc-idx="5"],
+  .thumb-card[data-doc-idx="6"],
+  .thumb-card[data-doc-idx="7"] { display: none; }
+  .thumb-card { padding: 9px 5px 12px 5px; }
+  .thumb-card-label { font-size: 7.5px; bottom: 3px; }
+  .files-thumb-strip { margin-top: 11px; padding-top: 9px; }
+  .files-thumb-strip-label, .files-thumb-strip-count { font-size: 8.5px; }
 
   /* ── Workbench mockup ── */
   .wb-tabs { overflow-x: auto; }
@@ -4539,6 +4659,9 @@ html[data-theme="light"] .showcase-cta-band {
   .cat-card-name { font-size: 9.5px; }
   .cat-card-desc { font-size: 7.5px; line-height: 1.25; }
   .flying-doc { width: 70px; font-size: 8px; padding: 3px 5px 3px 7px; }
+  .files-thumb-row { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .thumb-card[data-doc-idx="3"] { display: none; }
+  .thumb-card-label { font-size: 7px; }
   .ba-stat { font-size: 46px; }
   .showcase-headline { font-size: 28px; }
 }
@@ -4915,6 +5038,48 @@ html[data-theme="light"] .showcase-cta-band {
                       <span class="cat-card-count">0</span>
                     </div>
                     <span class="cat-card-desc">Internal UW notes · referrals · approvals</span>
+                  </div>
+                </div>
+              </div>
+              <!-- Recently-tagged thumbnail strip — page-shaped chips appear
+                   here as flying docs land in their categories. -->
+              <div class="files-thumb-strip">
+                <div class="files-thumb-strip-header">
+                  <span class="files-thumb-strip-label">RECENTLY TAGGED</span>
+                  <span class="files-thumb-strip-count"><span id="filesThumbCount">0</span> of 8 pages</span>
+                </div>
+                <div class="files-thumb-row" id="filesThumbRow">
+                  <div class="thumb-card" data-color="red"     data-doc-idx="0">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">Loss Run</span>
+                  </div>
+                  <div class="thumb-card" data-color="green"   data-doc-idx="1">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">ACORD 125</span>
+                  </div>
+                  <div class="thumb-card" data-color="yellow"  data-doc-idx="2">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">GL T&amp;C</span>
+                  </div>
+                  <div class="thumb-card" data-color="purple"  data-doc-idx="3">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">Site Plans</span>
+                  </div>
+                  <div class="thumb-card" data-color="pink"    data-doc-idx="4">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">Broker Email</span>
+                  </div>
+                  <div class="thumb-card" data-color="orange"  data-doc-idx="5">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">TRIA Letter</span>
+                  </div>
+                  <div class="thumb-card" data-color="green"   data-doc-idx="6">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">ACORD 126</span>
+                  </div>
+                  <div class="thumb-card" data-color="yellow"  data-doc-idx="7">
+                    <span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span><span class="thumb-line"></span>
+                    <span class="thumb-card-label">AL Quote</span>
                   </div>
                 </div>
               </div>
@@ -7658,6 +7823,12 @@ function toggleTheme() {
     var cycleTimer      = null;
     var landedTagged    = 0;
 
+    // Thumbnail strip — pre-built cards in DOM, revealed as matching docs land
+    var thumbRow   = document.getElementById('filesThumbRow');
+    var thumbCount = document.getElementById('filesThumbCount');
+    var thumbCards = thumbRow ? thumbRow.querySelectorAll('.thumb-card') : [];
+    var thumbShownCount = 0;
+
     function clearPending() {
       pendingTimeouts.forEach(function(id) { clearTimeout(id); });
       pendingTimeouts = [];
@@ -7676,11 +7847,17 @@ function toggleTheme() {
     function resetState() {
       clearPending();
       landedTagged = 0;
+      thumbShownCount = 0;
       if (taggedNum) taggedNum.textContent = '0';
+      if (thumbCount) thumbCount.textContent = '0';
       Object.keys(catCounts).forEach(function(k) {
         catCounts[k].cur = 0;
         catCounts[k].el.textContent = '0';
         catCounts[k].card.classList.remove('cat-pulse');
+      });
+      thumbCards.forEach(function(t) {
+        t.classList.remove('thumb-shown');
+        t.classList.remove('thumb-pulse');
       });
     }
 
@@ -7698,7 +7875,24 @@ function toggleTheme() {
       pendingTimeouts.push(pulseId);
     }
 
-    function spawnFlyingDoc(docDef) {
+    function revealThumbnail(docIdx) {
+      // Only the first 8 flying docs have matching thumbnails (data-doc-idx
+      // 0..7). Beyond that the doc still lands in its category but no
+      // thumbnail is created — keeps the strip from overflowing.
+      if (docIdx >= thumbCards.length) return;
+      var card = thumbCards[docIdx];
+      if (!card || card.classList.contains('thumb-shown')) return;
+      card.classList.add('thumb-shown');
+      card.classList.add('thumb-pulse');
+      thumbShownCount += 1;
+      if (thumbCount) thumbCount.textContent = String(thumbShownCount);
+      var pulseId = setTimeout(function() {
+        card.classList.remove('thumb-pulse');
+      }, 700);
+      pendingTimeouts.push(pulseId);
+    }
+
+    function spawnFlyingDoc(docDef, docIdx) {
       var targetCard = filesSection.querySelector('.cat-card[data-cat="' + docDef.cat + '"]');
       if (!targetCard) return;
 
@@ -7734,10 +7928,11 @@ function toggleTheme() {
       }, 400);
       pendingTimeouts.push(flyId);
 
-      // Phase 3 — count bump + card pulse when the transform completes
-      // (400ms spawn + 900ms flight = 1300ms).
+      // Phase 3 — count bump + card pulse + thumbnail reveal when the
+      // transform completes (400ms spawn + 900ms flight = 1300ms).
       var landId = setTimeout(function() {
         bumpCategory(docDef.cat);
+        revealThumbnail(docIdx);
         landedTagged += 1;
         if (taggedNum) taggedNum.textContent = String(landedTagged);
       }, FLIGHT_TIME);
@@ -7803,7 +7998,7 @@ function toggleTheme() {
       // Spawn each doc on a stagger
       FLYING_DOCS.forEach(function(doc, i) {
         var spawnDelay = IDLE_BEFORE + i * SPAWN_GAP;
-        schedule(function() { spawnFlyingDoc(doc); }, spawnDelay);
+        schedule(function() { spawnFlyingDoc(doc, i); }, spawnDelay);
       });
 
       // After last doc lands, bulk-fill the remaining un-named pages
@@ -7847,6 +8042,11 @@ function toggleTheme() {
     });
     var rmNum = document.getElementById('filesTaggedNum');
     if (rmNum) rmNum.textContent = String(rmTotal);
+    // Reveal all thumbnails too — static populated state
+    var rmThumbs = document.querySelectorAll('.thumb-card');
+    rmThumbs.forEach(function(t) { t.classList.add('thumb-shown'); });
+    var rmThumbCount = document.getElementById('filesThumbCount');
+    if (rmThumbCount) rmThumbCount.textContent = String(rmThumbs.length);
   }
 
   // ────────────────────────────────────────────────────────────────────
