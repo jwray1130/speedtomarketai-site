@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Under Construction</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      background: #05060A;
+      color: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: hidden;
+    }
+    .stage {
+      text-align: center;
+      max-width: 520px;
+      opacity: 0;
+      animation: fadeIn 1.2s ease-out 0.2s forwards;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      background: #9ec4ff;
+      border-radius: 50%;
+      margin: 0 auto 40px;
+      box-shadow: 0 0 18px rgba(158, 196, 255, 0.6);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    h1 {
+      font-size: clamp(32px, 6vw, 56px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin-bottom: 18px;
+    }
+    h1 em {
+      font-style: italic;
+      font-weight: 300;
+      color: #9ec4ff;
+    }
+    p {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #888;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.55; }
+    }
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .stage { animation: none; opacity: 1; }
+      .dot { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <div class="dot" aria-hidden="true"></div>
+    <h1>Under <em>construction.</em></h1>
+    <p>Check back later</p>
+  </main>
+</body>
+</html>
