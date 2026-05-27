@@ -2899,9 +2899,167 @@ html.scroll-choreographed .reveal {
 }
 
 </style>
+<!-- ════════════════════════════════════════════════════════════════════
+     LANDING PAGE PASSWORD GATE (v8.7.80)
+     Soft gate. Code is client-visible by design; for hard gating use
+     Vercel's password protection or move behind Supabase auth.
+     Swap sessionStorage → localStorage below for persistent unlock.
+     ════════════════════════════════════════════════════════════════════ -->
+<style>
+  html.stm-gated body > *:not(#stmLandingGate) { visibility: hidden !important; }
+  html.stm-gated, html.stm-gated body {
+    overflow: hidden !important;
+    height: 100% !important;
+  }
+  #stmLandingGate {
+    position: fixed; inset: 0; z-index: 2147483647;
+    display: flex; align-items: center; justify-content: center;
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0c;
+    visibility: visible !important;
+  }
+  #stmLandingGate::before {
+    content: ''; position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(158,196,255,.25), transparent 35%),
+      radial-gradient(circle at 75% 60%, rgba(255,97,171,.18), transparent 34%),
+      #0a0a0c;
+  }
+  .stm-gate-brand {
+    position: absolute; top: 24px; left: 32px; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    color: #fafafa; font-size: 14px; font-weight: 600;
+  }
+  .stm-gate-brand-mark {
+    display: inline-flex; width: 26px; height: 26px; border-radius: 6px;
+    border: 1.5px solid #9ec4ff; align-items: center; justify-content: center;
+    color: #9ec4ff; font-size: 13px;
+  }
+  .stm-gate-brand em { font-style: italic; color: #9ec4ff; margin-left: 2px; }
+  .stm-gate-card {
+    position: relative; z-index: 1;
+    background: rgba(20,20,23,.70);
+    backdrop-filter: blur(28px) saturate(150%);
+    -webkit-backdrop-filter: blur(28px) saturate(150%);
+    padding: 42px 38px 36px; border-radius: 18px;
+    width: 420px; max-width: 90%;
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.10);
+    text-align: left;
+  }
+  .stm-gate-kicker {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .18em;
+    color: #9ec4ff; text-transform: uppercase;
+    margin-bottom: 14px; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .stm-gate-kicker span {
+    display: inline-block; width: 14px; height: 1px; background: #9ec4ff;
+  }
+  .stm-gate-title {
+    font-size: 30px; color: #fafafa; font-weight: 650;
+    letter-spacing: -.025em; line-height: 1.1; margin-bottom: 10px;
+  }
+  .stm-gate-title em {
+    font-style: italic; font-weight: 500;
+    background: linear-gradient(180deg, #FF61AB 0%, #C8A2FF 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .stm-gate-sub {
+    font-size: 13.5px; color: #a0a0a8; line-height: 1.5; margin-bottom: 24px;
+  }
+  #stmGateInput {
+    width: 100%; box-sizing: border-box; padding: 13px 15px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+    background: rgba(10,10,12,.55); color: #fafafa;
+    font-size: 18px; font-family: 'Geist Mono', ui-monospace, monospace;
+    margin-bottom: 12px;
+    outline: none; letter-spacing: .35em; text-align: center;
+    transition: border-color .15s ease;
+  }
+  #stmGateInput:focus { border-color: rgba(158,196,255,.55); }
+  #stmGateBtn {
+    width: 100%; padding: 13px 18px; border-radius: 999px; border: 0;
+    background: linear-gradient(180deg, #c0d8ff 0%, #9ec4ff 100%);
+    color: #0a0a0c; font-weight: 700; font-size: 13.5px;
+    font-family: inherit; cursor: pointer;
+    box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 6px 18px -6px rgba(158,196,255,.5);
+    transition: transform .12s ease;
+  }
+  #stmGateBtn:hover { transform: translateY(-1px); }
+  #stmGateBtn:active { transform: translateY(0); }
+  #stmGateError {
+    color: #ff7a7a; font-size: 11.5px; margin-top: 14px; min-height: 14px;
+    font-family: 'Geist Mono', ui-monospace, monospace; letter-spacing: .04em;
+  }
+  @media (max-width: 480px) {
+    .stm-gate-brand { top: 18px; left: 18px; }
+    .stm-gate-card { padding: 34px 24px 28px; }
+    .stm-gate-title { font-size: 26px; }
+  }
+</style>
+<script>
+  // Pre-paint gate lock — runs before body renders to prevent landing-page flash.
+  (function () {
+    try {
+      if (sessionStorage.getItem('stm-landing-unlocked') !== '1') {
+        document.documentElement.classList.add('stm-gated');
+      }
+    } catch (e) {
+      document.documentElement.classList.add('stm-gated');
+    }
+  })();
+</script>
 </head>
 <body>
 <a href="#main-content" class="skip-link">Skip to main content</a>
+
+<!-- ====== LANDING PAGE PASSWORD GATE — DOM ====== -->
+<div id="stmLandingGate" role="dialog" aria-modal="true" aria-labelledby="stmGateTitle" style="display:none">
+  <div class="stm-gate-brand">
+    <span class="stm-gate-brand-mark">⌃</span>
+    Speed to Market <em>AI</em>
+  </div>
+  <div class="stm-gate-card">
+    <div class="stm-gate-kicker"><span></span>Private preview</div>
+    <div class="stm-gate-title" id="stmGateTitle">Enter access <em>code</em>.</div>
+    <div class="stm-gate-sub">This page is shared by invitation. Enter the access code provided to you to continue.</div>
+    <input id="stmGateInput" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" aria-label="Access code" maxlength="16" />
+    <button id="stmGateBtn" type="button">Continue →</button>
+    <div id="stmGateError" role="alert"></div>
+  </div>
+</div>
+<script>
+  (function () {
+    var gate = document.getElementById('stmLandingGate');
+    if (!gate) return;
+    var locked = document.documentElement.classList.contains('stm-gated');
+    if (!locked) { gate.remove(); return; }
+    gate.style.display = 'flex';
+    var input = document.getElementById('stmGateInput');
+    var btn   = document.getElementById('stmGateBtn');
+    var err   = document.getElementById('stmGateError');
+    var CODE  = '3081';
+    setTimeout(function () { try { input && input.focus(); } catch (e) {} }, 60);
+    function submit() {
+      if (!input) return;
+      if (String(input.value).trim() === CODE) {
+        try { sessionStorage.setItem('stm-landing-unlocked', '1'); } catch (e) {}
+        document.documentElement.classList.remove('stm-gated');
+        gate.remove();
+      } else {
+        if (err) err.textContent = 'Incorrect code. Try again.';
+        input.value = '';
+        input.focus();
+      }
+    }
+    btn && btn.addEventListener('click', submit);
+    input && input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      if (err && err.textContent) err.textContent = '';
+    });
+  })();
+</script>
 
 <!-- ========== ANNOUNCEMENT BAR ========== -->
 <div class="announce">
