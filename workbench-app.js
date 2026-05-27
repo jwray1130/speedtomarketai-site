@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.88-release4-final-copy-passes-2026-05-25';
+window.STM_BUILD = 'v8.7.84-showcase-rows-gap-bump-2026-05-25';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
