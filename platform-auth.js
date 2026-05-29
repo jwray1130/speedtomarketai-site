@@ -59,6 +59,31 @@
     }
   }
 
+  function applySignedInSession(user) {
+    if (!user) return;
+    window.currentUser = user;
+    updateSignedInUi(user);
+    const overlay = document.getElementById('stmAuthOverlay');
+    if (overlay) overlay.remove();
+    document.documentElement.classList.remove('stm-auth-pending');
+  }
+
+  let _authListenerWired = false;
+  function wireAuthStateListener() {
+    if (_authListenerWired) return;
+    const client = ensureClient();
+    if (!client) return;
+    _authListenerWired = true;
+    // Catch the post-redirect SIGNED_IN that fires after supabase-js finishes
+    // parsing the magic-link token out of the URL hash. Without this,
+    // getSession() can resolve before the hash is processed, leaving the
+    // overlay up until a manual refresh (and starving downstream pollers that
+    // wait on window.currentUser, e.g. workbench-app.js).
+    client.auth.onAuthStateChange((event, session) => {
+      if (session && session.user) applySignedInSession(session.user);
+    });
+  }
+
   async function checkAuth() {
     buildOverlay();
     const err = document.getElementById('stmAuthError');
@@ -67,17 +92,14 @@
       if (err) err.textContent = 'Supabase library failed to load.';
       return false;
     }
+    wireAuthStateListener();
     const { data, error } = await client.auth.getSession();
     if (error) {
       if (err) err.textContent = error.message;
       return false;
     }
     if (!data.session) return false;
-    window.currentUser = data.session.user;
-    updateSignedInUi(data.session.user);
-    const overlay = document.getElementById('stmAuthOverlay');
-    if (overlay) overlay.remove();
-    document.documentElement.classList.remove('stm-auth-pending');
+    applySignedInSession(data.session.user);
     return true;
   }
 

@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.84-showcase-rows-gap-bump-2026-05-25';
+window.STM_BUILD = 'v8.7.85-relabel-clobber-auth-redirect-fix-2026-05-28';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

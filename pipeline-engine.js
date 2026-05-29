@@ -1257,7 +1257,6 @@ async function incrementalProcess(newFiles) {
                   color: mapping.color,
                   category: mapping.category,
                   sectionClassifications: stmSectionClassificationsForDocs(f.classifications),
-                  relabeledByUser: false,
                 });
               }
             } catch (e) {
@@ -5701,7 +5700,6 @@ async function runPipeline() {
                   color: mapping.color,
                   category: mapping.category,
                   sectionClassifications: stmSectionClassificationsForDocs(f.classifications),
-                  relabeledByUser: false,
                 });
               }
             } catch (e) {

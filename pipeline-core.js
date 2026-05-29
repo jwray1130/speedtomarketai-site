@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.84-showcase-rows-gap-bump-2026-05-25';
+window.STM_BUILD = 'v8.7.85-relabel-clobber-auth-redirect-fix-2026-05-28';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -105,6 +105,18 @@ async function checkAuth() {
   if (typeof sbHydrate === 'function') { sbHydrate(); }
   return true;
 }
+
+// Post-redirect safety net: supabase-js parses the magic-link token out of the
+// URL hash asynchronously, so the init-time checkAuth() can run getSession()
+// before the session is established, leaving #authOverlay up until a manual
+// refresh. When SIGNED_IN lands, re-run checkAuth() if auth hasn't completed
+// yet so the overlay dismisses and STATE hydrates without a refresh. Guarded on
+// !window.currentUser so a normal successful init does not hydrate twice.
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session && !window.currentUser) {
+    checkAuth();
+  }
+});
 
 async function sendMagicLink() {
   const email = (document.getElementById('authEmail').value || '').trim();
