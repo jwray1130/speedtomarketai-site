@@ -556,36 +556,36 @@ function fmtCost(n) {
 const MODULES = {
   // WAVE 1 — parallel extractors triggered by file classification
   supplemental:  { code: 'A2',  name: 'Supplemental App',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  subcontract:   { code: 'A3',  name: 'Subcontract',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  vendor:        { code: 'A4',  name: 'Vendor Agreement',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  subcontract:   { code: 'A3',  name: 'Subcontract',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  vendor:        { code: 'A4',  name: 'Vendor Agreement',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
   safety:        { code: 'A5',  name: 'Safety Manual',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  losses:        { code: 'A11', name: 'Loss History',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  gl_quote:      { code: 'A12', name: 'Primary GL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  al_quote:      { code: 'A13', name: 'Primary AL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  el_quote:      { code: 'A17', name: 'Employers Liability',     wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  ebl_quote:     { code: 'A18', name: 'Employee Benefits Liab', wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  aircraft_quote:{ code: 'A19', name: 'Aircraft Liability',       wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  garage_quote:  { code: 'A20', name: 'Garage Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  liquor_quote:  { code: 'A21', name: 'Liquor Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  foreign_gl_quote:{ code: 'A22', name: 'Foreign GL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  foreign_al_quote:{ code: 'A23', name: 'Foreign AL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  losses:        { code: 'A11', name: 'Loss History',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  gl_quote:      { code: 'A12', name: 'Primary GL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  al_quote:      { code: 'A13', name: 'Primary AL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  el_quote:      { code: 'A17', name: 'Employers Liability',     wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  ebl_quote:     { code: 'A18', name: 'Employee Benefits Liab', wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  aircraft_quote:{ code: 'A19', name: 'Aircraft Liability',       wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  garage_quote:  { code: 'A20', name: 'Garage Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  liquor_quote:  { code: 'A21', name: 'Liquor Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  foreign_gl_quote:{ code: 'A22', name: 'Foreign GL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  foreign_al_quote:{ code: 'A23', name: 'Foreign AL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
   email_intel:   { code: 'A16', name: 'Email Intel',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 3, deps: ['summary-ops'], optionalDeps: ['gl_quote','supplemental'], inputsFrom: 'extractions', model: 'claude-opus-4-7'    },
+  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 3, deps: ['summary-ops'], optionalDeps: ['gl_quote','supplemental'], inputsFrom: 'extractions', model: 'claude-opus-4-8'    },
   // WAVE 2 — synthesize Summary of Ops from intake extractions + Excess Tower viz.
   // Email intel is an OPTIONAL dep: if present, its claims are used to fill gaps
   // the supplemental/website/docs leave open — never to override authoritative sources.
-  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-7' },
-  tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-7' },
+  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-8' },
+  tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-8' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
-  guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
-  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
-  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
+  guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
+  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
+  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
-  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-7' }
+  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-8' }
 };
 
 
@@ -4269,7 +4269,7 @@ async function classifyFile(file) {
     userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (full, ${file.text.length.toLocaleString()} chars):\n\n${docText}`;
 
     // Classifier runs on Opus — misclassification cascades through whole pipeline
-    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
+    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-8');
     if (result.usage) {
       STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
     }
