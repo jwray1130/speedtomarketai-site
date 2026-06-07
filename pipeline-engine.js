@@ -4662,16 +4662,26 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
     s = s.replace(/[.;,\]]+$/g, '').trim();
     if (s.length >= 4 && s.length <= 100 && !out.some(x => _gateNormalizeInsuredName(x) === _gateNormalizeInsuredName(s))) out.push(s);
   };
-  const labeled = [
-    /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
-    /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
-  ];
+  const labeled = moduleId === 'subcontract'
+    ? [
+        // In subcontract agreements, "Contractor" and "Subcontractor" are legal parties,
+        // not reliable named-insured labels. Only treat explicit insurance/applicant labels
+        // as applicant identity signals for this module.
+        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name)\s*[:\-]\s*([^\n]{3,120})/ig
+      ]
+    : [
+        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
+        /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
+      ];
   for (const re of labeled) {
     let m;
     while ((m = re.exec(text)) !== null) add(m[1]);
   }
   // For support-doc modules only, capture obvious legal-entity names with suffixes.
-  if (/^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId)) {
+  // Do not use this broad catch-all for subcontract agreements: those contracts
+  // routinely list owner, contractor, architect, and subcontractor legal entities
+  // that are not the submission named insured.
+  if (/^(?:safety|supplemental|vendor)$/.test(moduleId)) {
     const firstSlice = text.slice(0, 12000);
     const entityRe = /\b([A-Z][A-Za-z0-9&'.,()\- ]{2,90}\s+(?:LLC|L\.L\.C\.|Inc\.?|Incorporated|Corporation|Corp\.?|Company|Co\.?|Ltd\.?|Limited))\b/g;
     let em;
@@ -4752,7 +4762,22 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
 }
 
 // Build the diagnostic body for a refused module.
+function subcontractRequirementsNoInfoText() {
+  return '**Subcontractor Requirements:**\n\n' +
+    '- Type of Work Performed: No Information Provided.\n' +
+    '- Certificate of Insurance / COI: No Information Provided.\n' +
+    '- Waiver of Subrogation: No Information Provided.\n' +
+    '- Hold Harmless / Indemnification: No Information Provided.\n' +
+    '- Additional Insured / Primary and Non-Contributory: No Information Provided.\n' +
+    '- Limits Required: No Information Provided.';
+}
+
 function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
+  if (moduleId === 'subcontract') {
+    // Keep applicant-gate details in structured metadata/logs, but keep the
+    // visible underwriting card in the same clean format the underwriter expects.
+    return subcontractRequirementsNoInfoText();
+  }
   const moduleTitles = {
     gl_quote: 'primary GL quote',
     al_quote: 'primary AL quote',
@@ -4760,7 +4785,6 @@ function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
     excess: 'underlying excess policies',
     losses: 'loss runs',
     safety: 'safety program',
-    subcontract: 'subcontract agreement',
     vendor: 'vendor agreement'
   };
   const title = moduleTitles[moduleId] || moduleId;
@@ -4932,7 +4956,9 @@ function applyPostExtractionApplicantGate8723(accountName) {
       refused += 1;
       const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
       ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
-      ex.text = diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
+      ex.text = mid === 'subcontract'
+        ? diagnostic
+        : diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
       ex.confidence = 0;
       ex.mode = 'gated';
       ex.applicantGate = 'mismatch';
