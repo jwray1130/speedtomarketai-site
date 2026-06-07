@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.53-manual-doc-label-persist-2026-05-24';
+window.STM_BUILD = 'v8.7.54-support-doc-test-mismatch-2026-06-07';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

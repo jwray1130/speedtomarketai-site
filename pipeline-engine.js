@@ -4694,6 +4694,45 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
   return out;
 }
 
+// v8.7.54 - Test/frankenstein packet escape hatch for support-doc extraction.
+// The applicant gate remains strict for production submissions and all coverage
+// modules. When the user intentionally builds a test packet from mixed sample
+// documents (for example files named "TEST 5 - SUPP.pdf"), allow the
+// Supplemental App and Subcontract modules to extract so the card/prompt can be
+// QA'd. The mismatch is still preserved in structured metadata and audit logs.
+function isTestPacketContext8754(context) {
+  try {
+    const parts = [];
+    if (context && context.account_name) parts.push(context.account_name);
+    if (context && context.original_account_name) parts.push(context.original_account_name);
+    if (typeof STATE !== 'undefined') {
+      if (STATE.activeSubmissionId) parts.push(STATE.activeSubmissionId);
+      if (Array.isArray(STATE.files)) {
+        STATE.files.forEach(function(f) {
+          if (!f) return;
+          parts.push(f.name || f.fileName || f.filename || f.title || '');
+          parts.push(f.originalName || f.displayName || f.label || '');
+        });
+      }
+      if (Array.isArray(STATE.submissions) && STATE.activeSubmissionId) {
+        const sub = STATE.submissions.find(function(x){ return x && x.id === STATE.activeSubmissionId; });
+        if (sub) {
+          parts.push(sub.title || sub.account_name || sub.account || sub.named_insured || sub.insured_name || sub.name || '');
+        }
+      }
+    }
+    return parts.some(function(v) {
+      return /(?:^|[\s._\-])(?:test|demo|sample|frankenstein)(?:[\s._\-]|$)/i.test(String(v || ''));
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+function applicantMismatchAllowedForSupportDocTest8754(moduleId, context) {
+  return /^(?:supplemental|subcontract)$/.test(moduleId) && isTestPacketContext8754(context || {});
+}
+
 function localApplicantGate8718(moduleId, userContent, context) {
   if (!APPLICANT_GATED_MODULES.has(moduleId)) return null;
   if (!context || !context.account_name || context.account_name === '(unknown)') return null;
@@ -4707,11 +4746,20 @@ function localApplicantGate8718(moduleId, userContent, context) {
   // This prevents mixed Anahuac/Carroll style payloads from contaminating
   // Summary, Guidelines, Exposure and Strengths.
   const strictSupportDoc = /^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId);
+  const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(moduleId, context);
   if (strictSupportDoc && nonMatches.length) {
+    if (mismatchAllowedForExtraction) {
+      console.warn('[applicant-gate] ' + moduleId + ' LOCAL MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
+      return { proceed: true, reason: 'local_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+    }
     console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
     return { proceed: false, reason: 'local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8723' } } };
   }
   if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
+  if (mismatchAllowedForExtraction) {
+    console.warn('[applicant-gate] ' + moduleId + ' LOCAL NO-MATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
+    return { proceed: true, reason: 'local_no_match_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: detected, matchedInsureds: [], allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+  }
   console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
   return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
 }
@@ -4751,6 +4799,19 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
       precheck
     };
   }
+  if (applicantMismatchAllowedForSupportDocTest8754(moduleId, context)) {
+    console.warn('[applicant-gate] ' + moduleId + ' PRECHECK MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name +
+      '". Documents reference: ' + precheck.detected.join(', '));
+    return {
+      proceed: true,
+      reason: 'precheck_mismatch_allowed_test_packet_v8754',
+      mismatchAllowed: true,
+      detectedInsureds: precheck.detected,
+      matchedInsureds: [],
+      allDetected: precheck.detected,
+      precheck
+    };
+  }
   console.warn('[applicant-gate] ' + moduleId + ' REFUSED. Submission insured: "' + context.account_name +
     '". Documents reference: ' + precheck.detected.join(', '));
   return {
@@ -4772,11 +4833,42 @@ function subcontractRequirementsNoInfoText() {
     '- Limits Required: No Information Provided.';
 }
 
+function supplementalNoInfoText8754() {
+  return '**Supplemental Application Summary**\n\n' +
+    '- Company Name: No information provided.\n' +
+    '- Years in Business: No information provided.\n\n' +
+    '**Operations:**\n' +
+    '- Description: No information provided.\n' +
+    '- Max Height of Work: No information provided.\n' +
+    '- Max Depth of Work: No information provided.\n' +
+    '- Crane Usage: No information provided. Details: No information provided.\n\n' +
+    '**Geographic Spread:**\n' +
+    '- No information provided.\n\n' +
+    '**Work Mix:**\n' +
+    '- Direct / Self-Performed: No information provided.\n' +
+    '- Subcontracted: No information provided.\n' +
+    '- Commercial: No information provided.\n' +
+    '- Residential: No information provided.\n\n' +
+    '**Subcontractor Risk-Transfer:**\n' +
+    '- Additional Insured Required: No information provided.\n' +
+    '- COIs Retained: No information provided.\n' +
+    '- Indemnification / Hold-Harmless: No information provided.\n' +
+    '- Minimum Insurance Limits: No information provided.\n\n' +
+    '**Safety Program:**\n' +
+    '- Formal Written Program: No information provided.\n' +
+    '- Additional Safety Details: No information provided.';
+}
+
 function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
   if (moduleId === 'subcontract') {
     // Keep applicant-gate details in structured metadata/logs, but keep the
     // visible underwriting card in the same clean format the underwriter expects.
     return subcontractRequirementsNoInfoText();
+  }
+  if (moduleId === 'supplemental') {
+    // Same visible-output principle for Supplemental App: don't show local-gate
+    // internals in the card body. Metadata/audit still preserve the mismatch.
+    return supplementalNoInfoText8754();
   }
   const moduleTitles = {
     gl_quote: 'primary GL quote',
@@ -4953,10 +5045,22 @@ function applyPostExtractionApplicantGate8723(accountName) {
     const matches = detected.filter(function(n){ return _gateInsuredMatches(n, accountName); });
     const nonMatches = detected.filter(function(n){ return !_gateInsuredMatches(n, accountName); });
     if (nonMatches.length) {
+      const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(mid, { account_name: accountName });
+      if (mismatchAllowedForExtraction) {
+        ex.applicantGate = 'mismatch_allowed_test_packet_v8754';
+        ex.applicantGateReason = 'post_wave_mismatch_allowed_test_packet_v8754';
+        ex.applicant_match = 'mismatch_allowed_test_packet_v8754';
+        ex.detectedInsureds = nonMatches;
+        ex.matchedInsureds = matches;
+        ex.submissionInsured = accountName;
+        ex.gateDetails = { proceed: true, reason: 'post_wave_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
+        logAudit('Pipeline', 'Applicant mismatch allowed for test packet in ' + (MODULES[mid] ? MODULES[mid].code : mid) + ' after account context refresh · extracted anyway (' + nonMatches.join(', ') + ')', 'WARN v8.7.54');
+        return;
+      }
       refused += 1;
       const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
       ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
-      ex.text = mid === 'subcontract'
+      ex.text = (mid === 'subcontract' || mid === 'supplemental')
         ? diagnostic
         : diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
       ex.confidence = 0;
@@ -5237,6 +5341,18 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     if (gateResult.matchedInsureds && gateResult.matchedInsureds.length > 0) {
       enrichedContext = Object.assign({}, context || {}, {
         matched_insureds_csv: gateResult.matchedInsureds.join(', ')
+      });
+    }
+    // v8.7.54: When a TEST/demo/frankenstein packet intentionally mixes
+    // insured names, let support-doc extractors run. For a pure no-match,
+    // substitute account_name as "(unknown)" so the supplemental prompt does
+    // not self-refuse before extraction. The real submission account remains
+    // preserved in gateDetails/submissionInsured metadata.
+    if (gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) {
+      enrichedContext = Object.assign({}, enrichedContext || context || {}, {
+        original_account_name: context && context.account_name ? context.account_name : null,
+        account_name: '(unknown)',
+        mismatch_allowed: 'true'
       });
     }
 

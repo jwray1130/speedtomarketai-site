@@ -586,7 +586,9 @@ If a Subcontract/Sub Agreement extraction exists and contains risk-transfer fact
 
 QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, COI, waiver, indemnity/hold harmless, AI/PNC, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
-  supplemental: `ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
+  supplemental: `VISIBLE OUTPUT RULE: Return only the Supplemental Application Summary format below. Do NOT print Source Extracts, checklists, QC logs, rewrite steps, validation artifacts, or a separate Subject Insured header. Perform QC silently and show only useful extracted fields.
+
+ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured (as previously identified, may be empty for first-pass): "\${account_name}".
@@ -594,8 +596,8 @@ This submission's named insured (as previously identified, may be empty for firs
 Before extracting ANY data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. If "\${account_name}" is a real name (not "(unknown)"): check whether any stated insured matches it (allow minor variants).
-3. If at least one document matches: extract ONLY for the matching insured. State the selected insured at the top of your output: **Subject Insured: <name as it appears>**.
-4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured (first named in cover note, or insured with most documents) and extract for that one only. State it at the top.
+3. If at least one document matches: extract ONLY for the matching insured. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
+4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured internally (first named in cover note, or insured with most documents) and extract for that one only. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
 5. If NO document's stated insured matches "\${account_name}" (and account_name is known): your ENTIRE output MUST be exactly:
    **No matching supplemental application found for this insured.**
    — nothing else. No template, no fields, no caveats.
