@@ -4694,43 +4694,63 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
   return out;
 }
 
-// v8.7.54 - Test/frankenstein packet escape hatch for support-doc extraction.
-// The applicant gate remains strict for production submissions and all coverage
-// modules. When the user intentionally builds a test packet from mixed sample
-// documents (for example files named "TEST 5 - SUPP.pdf"), allow the
-// Supplemental App and Subcontract modules to extract so the card/prompt can be
-// QA'd. The mismatch is still preserved in structured metadata and audit logs.
+// v8.7.55 - Deliberate test/frankenstein packet escape hatch.
+// Production submissions stay strict. But when the packet is clearly a QA/test
+// fixture (for example several files named "TEST 1 - QUOTE.pdf",
+// "TEST 5 - SUPP.pdf", etc.), do not let named-insured mismatch prevent
+// modules from producing results. This lets Justin QA document routing and
+// extraction on mixed sample packets while preserving mismatch details in
+// structured metadata/audit logs.
+//
+// Important safety guard: this does NOT trigger on a generic word "test"
+// inside a normal production filename like "soil test report.pdf". It needs
+// an explicit fixture-style filename or submission label.
 function isTestPacketContext8754(context) {
   try {
-    const parts = [];
-    if (context && context.account_name) parts.push(context.account_name);
-    if (context && context.original_account_name) parts.push(context.original_account_name);
+    const labels = [];
+    const fileNames = [];
+    const addLabel = function(v) { if (v) labels.push(String(v)); };
+    const addFile = function(v) { if (v) fileNames.push(String(v)); };
+
+    if (context && context.account_name) addLabel(context.account_name);
+    if (context && context.original_account_name) addLabel(context.original_account_name);
     if (typeof STATE !== 'undefined') {
-      if (STATE.activeSubmissionId) parts.push(STATE.activeSubmissionId);
+      if (STATE.activeSubmissionId) addLabel(STATE.activeSubmissionId);
       if (Array.isArray(STATE.files)) {
         STATE.files.forEach(function(f) {
           if (!f) return;
-          parts.push(f.name || f.fileName || f.filename || f.title || '');
-          parts.push(f.originalName || f.displayName || f.label || '');
+          addFile(f.name || f.fileName || f.filename || f.title || '');
+          addFile(f.originalName || f.displayName || f.label || '');
         });
       }
       if (Array.isArray(STATE.submissions) && STATE.activeSubmissionId) {
         const sub = STATE.submissions.find(function(x){ return x && x.id === STATE.activeSubmissionId; });
         if (sub) {
-          parts.push(sub.title || sub.account_name || sub.account || sub.named_insured || sub.insured_name || sub.name || '');
+          addLabel(sub.title || sub.account_name || sub.account || sub.named_insured || sub.insured_name || sub.name || '');
         }
       }
     }
-    return parts.some(function(v) {
-      return /(?:^|[\s._\-])(?:test|demo|sample|frankenstein)(?:[\s._\-]|$)/i.test(String(v || ''));
-    });
+
+    const strongFixtureFile = function(v) {
+      const s = String(v || '').trim();
+      return /^\s*(?:test|demo|sample)\s*(?:\d+|fixture|packet|submission|case)?\s*[-_]/i.test(s) ||
+        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
+    };
+    const strongFixtureLabel = function(v) {
+      const s = String(v || '').trim();
+      return /\b(?:test|demo|sample|frankenstein)\s+(?:submission|packet|account|fixture|case|qa)\b/i.test(s) ||
+        /\b(?:submission|packet|account|fixture|case|qa)\s+(?:test|demo|sample|frankenstein)\b/i.test(s) ||
+        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
+    };
+
+    return fileNames.some(strongFixtureFile) || labels.some(strongFixtureLabel);
   } catch (e) {
     return false;
   }
 }
 
 function applicantMismatchAllowedForSupportDocTest8754(moduleId, context) {
-  return /^(?:supplemental|subcontract)$/.test(moduleId) && isTestPacketContext8754(context || {});
+  return APPLICANT_GATED_MODULES.has(moduleId) && isTestPacketContext8754(context || {});
 }
 
 function localApplicantGate8718(moduleId, userContent, context) {
@@ -5060,9 +5080,9 @@ function applyPostExtractionApplicantGate8723(accountName) {
       refused += 1;
       const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
       ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
-      ex.text = (mid === 'subcontract' || mid === 'supplemental')
-        ? diagnostic
-        : diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
+      // Keep local-gate internals out of the visible card body. The mismatch
+      // details remain preserved in applicantGate/gateDetails/audit metadata.
+      ex.text = diagnostic;
       ex.confidence = 0;
       ex.mode = 'gated';
       ex.applicantGate = 'mismatch';
@@ -5343,8 +5363,8 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
         matched_insureds_csv: gateResult.matchedInsureds.join(', ')
       });
     }
-    // v8.7.54: When a TEST/demo/frankenstein packet intentionally mixes
-    // insured names, let support-doc extractors run. For a pure no-match,
+    // v8.7.55: When a deliberate TEST/demo/frankenstein packet intentionally mixes
+    // insured names, let applicant-gated modules run. For a pure no-match,
     // substitute account_name as "(unknown)" so the supplemental prompt does
     // not self-refuse before extraction. The real submission account remains
     // preserved in gateDetails/submissionInsured metadata.
