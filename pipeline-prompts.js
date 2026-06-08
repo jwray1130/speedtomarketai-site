@@ -574,21 +574,16 @@ OUTPUT FORMAT — use exactly this structure:
 - [Safety Practice 2]
 
 **Subcontractor Requirements:**
-- Type of Work Performed: [subcontracted work/scope/trades, or "No Information Provided."]
-- Certificate of Insurance / COI: [COI requirement and timing, or "No Information Provided."]
-- Waiver of Subrogation: [waiver requirement and protected parties, or "No Information Provided."]
-- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or "No Information Provided."]
-- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or "No Information Provided."]
-- Limits Required: [GL/AL/Umbrella limits exactly as provided, or "No Information Provided."]
+- Subcontracted Work: [work performed by subcontractors, or "No information provided."]
+- Risk Transfer: [COIs, hold-harmless/indemnity, AI, PNC, waiver, or "No information provided."]
+- Liability Limits: [GL/AL/Umbrella limits exactly as provided, or "No information provided."]
 
 IMPORTANT SUBCONTRACT RULE:
-If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements** using the six bullets above. Do not write "No Information Provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
+If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements**. Do not write "No information provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
 
-QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, COI, waiver, indemnity/hold harmless, AI/PNC, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
+QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, risk transfer, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
-  supplemental: `VISIBLE OUTPUT RULE: Return only the Supplemental Application Summary format below. Do NOT print Source Extracts, checklists, QC logs, rewrite steps, validation artifacts, or a separate Subject Insured header. Perform QC silently and show only useful extracted fields.
-
-ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
+  supplemental: `ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured (as previously identified, may be empty for first-pass): "\${account_name}".
@@ -596,8 +591,8 @@ This submission's named insured (as previously identified, may be empty for firs
 Before extracting ANY data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. If "\${account_name}" is a real name (not "(unknown)"): check whether any stated insured matches it (allow minor variants).
-3. If at least one document matches: extract ONLY for the matching insured. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
-4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured internally (first named in cover note, or insured with most documents) and extract for that one only. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
+3. If at least one document matches: extract ONLY for the matching insured. State the selected insured at the top of your output: **Subject Insured: <name as it appears>**.
+4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured (first named in cover note, or insured with most documents) and extract for that one only. State it at the top.
 5. If NO document's stated insured matches "\${account_name}" (and account_name is known): your ENTIRE output MUST be exactly:
    **No matching supplemental application found for this insured.**
    — nothing else. No template, no fields, no caveats.
@@ -642,28 +637,22 @@ QUALITY CONTROL (silent — do not output): Internally verify every field agains
 
   subcontract: `Role: Excess casualty insurance underwriter reviewing an uploaded subcontract/subcontractor agreement.
 
-Task: Extract only subcontractor risk-transfer requirements relevant to excess casualty underwriting.
+Primary Task: Locate risk-transfer provisions and return a clean bullet-point digest. Report only what the contract states. Do not infer, interpret, or add outside knowledge. If the agreement is silent on an item, state "Not Provided". Do not include Professional Liability or Workers' Compensation details because they do not apply to excess casualty review.
 
-Output only the section and bullets below. Do not include source extracts, explanations, checklists, legal analysis, QC logs, rewrite steps, or commentary. Do not infer or assume anything. Report only what the agreement states. If a field is not found, write exactly: No Information Provided.
-
-Ignore Professional Liability, Workers' Compensation, and Employer's Liability requirements.
+Output exactly this structure:
 
 **Subcontractor Requirements:**
+- Subcontracted Work: [trade/scope stated in agreement, or Not Provided]
+- Risk Transfer: [COI, hold-harmless/indemnity, AI, PNC, waiver, or Not Provided]
+- Liability Limits: [GL/AL/Umbrella limits in format like GL $1M/$2M/$2M/$1M, AL $1M, Umbrella $5M, or Not Provided]
 
-- Type of Work Performed: [subcontracted work/scope/trades stated in the agreement, or No Information Provided.]
-- Certificate of Insurance / COI: [COI requirement and timing, or No Information Provided.]
-- Waiver of Subrogation: [waiver requirement and protected parties, or No Information Provided.]
-- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or No Information Provided.]
-- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or No Information Provided.]
-- Limits Required: [only GL, Auto Liability, and Umbrella/Excess limits; use clean shorthand where possible, e.g. GL $1M/$2M, AL $1M, Umbrella $5M. If no applicable limits are stated, No Information Provided.]
+Additional details may be included only if expressly stated and relevant to excess casualty:
+- Additional Insured: [requirement/parties, or Not Provided]
+- Primary & Non-Contributory: [Yes/No/Not Provided]
+- Waiver of Subrogation: [Yes/No/Not Provided]
+- Completed Operations / Tail / Duration: [requirement or Not Provided]
 
-Rules:
-- Keep each bullet short and easy to follow.
-- Do not include Professional Liability.
-- Do not include Workers' Compensation or Employer's Liability.
-- Do not add underwriting opinions.
-- Do not summarize unrelated contract provisions.
-- Do not include any checklist or source-extract section.`,
+QUALITY CONTROL (silent — do not output): Internally verify source clauses used, required fields, and missing fields. Do NOT print Source Extracts, a checklist, rewrite log, or QC table in the visible output.`,
 
   vendor: `ROLE: Excess casualty underwriter reviewing a vendor / equipment lessor / material supplier agreement. Extract risk-transfer only. Exclude PL and WC. Silent = "Not Provided".
 
@@ -757,7 +746,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
 
 <div class="loss-summary-block">
   <div class="loss-summary-label">Summary</div>
-  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $250K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
+  <p class="loss-summary-text"><strong>[N total claims] over [N policy years]</strong> ([X GL] + [Y AL]). Combined incurred [$]. Largest single loss [$] [LOB] ([brief description], [status]). [Commentary sentence about attachment penetration — "No claims exceeding $500K" / "Zero penetration of $1M primary" / "One claim penetrated primary"]. [Commentary on trend direction in the most recent 24-month window].</p>
   <div class="loss-summary-meta">
     Named Insured: <strong>[name]</strong> &nbsp;·&nbsp; Effective Date Reviewed: <strong>[eff date]</strong> &nbsp;·&nbsp; Valuation: <strong>[valuation date]</strong> &nbsp;·&nbsp; Period: <strong>[start – end]</strong> &nbsp;·&nbsp; Carriers: [GL carrier] (GL), [AL carrier] (AL)
   </div>
@@ -769,23 +758,22 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     <tr>
       <th style="width:110px;">Policy Year</th>
       <th style="width:80px;">Claims</th>
-      <th>Paid</th>
-      <th>Reserve</th>
       <th>Incurred</th>
+      <th>Paid</th>
       <th style="width:110px;">Date Valued</th>
       <th>Historic Exposure</th>
     </tr>
   </thead>
   <tbody>
-    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[revenue or exposure basis]</td></tr>
-    <!-- One row per policy year. Add class="outlier" to any <tr> with markedly elevated claim count OR incurred vs other years. Reserve is required even when $0. Example: <tr class="outlier"><td class="yr">2023</td>... -->
+    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$]</td><td class="num">[$]</td><td class="num">[MM/DD/YYYY]</td><td>[revenue or exposure basis]</td></tr>
+    <!-- One row per policy year. Add class="outlier" to any <tr> with markedly elevated claim count OR incurred vs other years. Example: <tr class="outlier"><td class="yr">2023</td>... -->
   </tbody>
   <tfoot>
-    <tr><td>TOTAL</td><td class="num">[N]</td><td class="num">[$paid total]</td><td class="num">[$reserve total]</td><td class="num">[$incurred total]</td><td></td><td></td></tr>
+    <tr><td>TOTAL</td><td class="num">[N]</td><td class="num">[$]</td><td class="num">[$]</td><td></td><td></td></tr>
   </tfoot>
 </table>
 
-<div class="loss-section-title">General Liability Large Losses ($250K+)</div>
+<div class="loss-section-title">General Liability Large Losses ($500K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -796,9 +784,9 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- If no GL claims ≥ $250K, use this single row: -->
-    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $250K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
-    <!-- Otherwise: one row per claim ≥ $250K -->
+    <!-- If no GL claims ≥ $500K, use this single row: -->
+    <tr><td colspan="4" class="loss-empty-row">No GL claims exceeding $500K in the reported period. Largest GL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]).</td></tr>
+    <!-- Otherwise: one row per claim ≥ $500K -->
     <!-- <tr><td class="num">[MM/DD/YYYY]</td><td class="num">[$]</td><td class="num">[$]</td><td>[Description + status]</td></tr> -->
   </tbody>
 </table>
@@ -809,23 +797,22 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     <tr>
       <th style="width:110px;">Policy Year</th>
       <th style="width:80px;">Claims</th>
-      <th>Paid</th>
-      <th>Reserve</th>
       <th>Incurred</th>
+      <th>Paid</th>
       <th style="width:110px;">Date Valued</th>
       <th>Historic Exposure</th>
     </tr>
   </thead>
   <tbody>
-    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[fleet size or exposure basis]</td></tr>
-    <!-- One row per policy year. Use class="outlier" for markedly elevated years. Reserve is required even when $0. -->
+    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$]</td><td class="num">[$]</td><td class="num">[MM/DD/YYYY]</td><td>[fleet size or exposure basis]</td></tr>
+    <!-- One row per policy year. Use class="outlier" for markedly elevated years. -->
   </tbody>
   <tfoot>
-    <tr><td>TOTAL</td><td class="num">[N]</td><td class="num">[$paid total]</td><td class="num">[$reserve total]</td><td class="num">[$incurred total]</td><td></td><td></td></tr>
+    <tr><td>TOTAL</td><td class="num">[N]</td><td class="num">[$]</td><td class="num">[$]</td><td></td><td></td></tr>
   </tfoot>
 </table>
 
-<div class="loss-section-title">Auto Liability Large Losses ($250K+)</div>
+<div class="loss-section-title">Auto Liability Large Losses ($500K+)</div>
 <table class="loss-tbl">
   <thead>
     <tr>
@@ -836,8 +823,8 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $250K -->
-    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $250K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
+    <!-- Same pattern as GL: empty-row message if none, or one row per claim ≥ $500K -->
+    <tr><td colspan="4" class="loss-empty-row">No AL claims exceeding $500K in the reported period. Largest AL loss: <strong>[$]</strong> ([DOL] — [brief description], [status]). This represents [X%] of the [$] AL primary CSL and is the closest approach to primary in the review window.</td></tr>
   </tbody>
 </table>
 
@@ -859,9 +846,9 @@ RULES
 2. Apply class="outlier" to any <tr> where the year stands out for claim count or incurred $ — elevates the visual treatment with an amber tint.
 3. Dollar amounts always include $ and commas (e.g., $178,000).
 4. Policy Year column uses class="yr" (mono, bold).
-5. All numeric columns (Claims, Paid, Reserve, Incurred, Date Valued) use class="num" (right-aligned, tabular).
+5. All numeric columns (Claims, Incurred, Paid, Date Valued) use class="num" (right-aligned, tabular).
 6. Never combine GL and AL claim counts — always keep two separate tables.
-7. Large-loss threshold is $250,000. If none exceed that, use the loss-empty-row message citing the largest loss in that LOB.
+7. Large-loss threshold is $500,000. If none exceed that, use the loss-empty-row message citing the largest loss in that LOB.
 8. Analyst Notes block is REQUIRED with all four paragraphs: Frequency / Severity / Trend / Attachment Penetration. Each paragraph leads with a bold label (<strong>).
 9. The Summary block at the top is REQUIRED — no exceptions.
 
@@ -871,48 +858,12 @@ QUALITY CONTROL (silent — do not output)
 
 Before returning, internally verify:
 - Every policy year × LOB combination in source is represented in the correct table
-- Every claim ≥ $250K appears in the matching LOB Large Losses table
+- Every claim ≥ $500K appears in the matching LOB Large Losses table
 - GL and AL totals foot correctly
 - Outlier years are flagged with class="outlier"
 - All four Analyst Notes paragraphs are present and begin with a <strong> label
 
-If any check fails, rewrite internally before returning. Do NOT include a visible checklist.
-
-═══════════════════════════════════════════════════════════════════════
-STRUCTURED OUTPUT — JSON CONTRACT (REQUIRED, EXACT SHAPE)
-═══════════════════════════════════════════════════════════════════════
-
-After the HTML output, emit ONE fenced JSON block exactly as shown below. This block is the machine-readable contract for the Workbench Loss History tab. Field names, nesting, and types are fixed — do not invent alternate keys, do not nest by LOB, and do not omit fields.
-
-\`\`\`json loss_history_structured
-{
-  "valuation_date": "MM/DD/YYYY",
-  "policy_years": [
-    { "policy_year": "YYYY-YY", "lob": "GL", "claims": 0, "paid": 0, "reserve": 0, "incurred": 0 },
-    { "policy_year": "YYYY-YY", "lob": "AL", "claims": 0, "paid": 0, "reserve": 0, "incurred": 0 }
-  ],
-  "large_losses": [
-    { "lob": "GL", "claim_number": "0", "dol": "MM/DD/YYYY", "paid": 0, "reserve": 0, "incurred": 0, "status": "Closed", "description": "..." }
-  ],
-  "coverage_totals": {
-    "gl":   { "claims": 0, "paid": 0, "reserve": 0, "incurred": 0 },
-    "auto": { "claims": 0, "paid": 0, "reserve": 0, "incurred": 0 }
-  }
-}
-\`\`\`
-
-JSON RULES (HARD CONTRACT — non-negotiable):
-
-1. \`policy_years\` is a FLAT ARRAY at the top level. Do NOT nest under \`general_liability\`, \`auto_liability\`, \`gl\`, \`al\`, \`gl_loss_information\`, \`auto_loss_information\`, or any other LOB-named wrapper.
-2. Every \`policy_years\` row carries \`"lob"\` as the literal string \`"GL"\` or \`"AL"\`. No other values, no synonyms, no abbreviations.
-3. \`policy_year\` is formatted \`YYYY-YY\` (e.g. \`"2025-26"\`). Not \`"2025"\`, not \`"25-26"\`, not \`"5/1/2025 - 4/30/2026"\`.
-4. \`claims\`, \`paid\`, \`reserve\`, and \`incurred\` are JSON NUMBERS — no dollar sign, no commas, no quotes. Use \`0\` (not \`null\`, not \`"—"\`, not \`"n/a"\`) when unknown.
-5. \`reserve\` is REQUIRED on every \`policy_years\` row and every \`large_losses\` row. If the loss run shows zero reserve, emit \`"reserve": 0\`. Never omit the field.
-6. Emit ONE row per policy year per LOB. If a policy year has zero claims for an LOB, still emit that row with all four numeric fields set to \`0\`. This guarantees the workbench gets a row for every year visible in the HTML.
-7. \`large_losses\` includes every claim where \`incurred >= 250000\` regardless of LOB. \`status\` is \`"Open"\` or \`"Closed"\`.
-8. \`coverage_totals.gl\` and \`coverage_totals.auto\` must reconcile to the sum of \`policy_years\` rows for that LOB. The HTML totals must match these exactly.
-
-Before returning, internally verify the JSON contract. If any required field is missing, mis-typed, mis-named, or mis-nested, REWRITE the JSON block before returning. The HTML may be perfect — the JSON is what the Workbench reads, and a broken JSON contract leaves the underwriter staring at empty form fields.`,
+If any check fails, rewrite internally before returning. Do NOT include a visible checklist.`,
 
   gl_quote: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
 

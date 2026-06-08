@@ -157,7 +157,7 @@
 /* --- Dark mode opt-in (html[data-theme="dark"]) -------------
    v8.6.40 "Slate Workbench": warm slate base (#15171c) replaces
    the royal-blue dark surfaces. Lower color temperature reads
-   as a professional tool and is gentler on the
+   as "professional tool" not "tech demo" and is gentler on the
    eyes during long underwriting sessions. The bright royal-blue
    --signal in the previous dark mode was high-fatigue against
    navy surfaces; this softer Slate blue (#82b3ff) sits more
@@ -5317,11 +5317,13 @@ body {
 }
 
 /* FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14
-   Subtle ring + amber-tinted background on fields populated from the
-   active Platform submission. Phase 21+ may surface per-field source
-   attribution as tooltips; for now the ring is the visual signal. Applied
-   via classList.add('autofilled-from-platform') in workbench-app.js
-   applyResolvedToElement(). */
+   Subtle ring + amber-tinted background on fields that Phase 2 filled
+   from the active submission. Distinct from the existing
+   .autofilled-field (used by the demo) so we can visually separate
+   real-data fills from demo fills during testing. Phase 21+ may surface
+   per-field source attribution as tooltips; for now the ring is the
+   visual signal. Applied via classList.add('autofilled-from-platform')
+   in workbench-app.js applyResolvedToElement(). */
 .autofilled-from-platform {
     box-shadow: 0 0 0 2px var(--accent-pale, rgba(255, 209, 0, 0.18)) !important;
     border-color: var(--accent-tint, rgba(255, 209, 0, 0.45)) !important;
@@ -5396,15 +5398,20 @@ html[data-theme="dark"] .subjectivity-suggest-chip--strong {
 
 
 /* ============================================================
-   v8.7.47 — workbench topbar after production UI cleanup
-   1) Keep the wrapped topbar layout that prevents header/nav/status overlap.
-   2) Move the long layer-review pill onto its own readable full-width line
-      instead of forcing it into the action cluster.
-   3) With the retired banner removed, the topbar anchors directly to
-      the viewport top.
+   v8.6.88 — prepaid QA fixes
+   1) Prevent sticky header/nav/status overlap by making topbar a
+      two-row wrapped layout at all normal workbench widths.
+   2) Move the long layer-review pill onto its own readable full-width
+      line instead of forcing it into the action cluster.
+   3) Keep the live-submission banner and topbar stacked predictably.
    ============================================================ */
-header.topbar {
+.demo-mode-banner {
+    position: sticky;
     top: 0;
+    z-index: 120;
+}
+header.topbar {
+    top: 39px;
     z-index: 110;
     display: flex !important;
     flex-wrap: wrap !important;
@@ -5628,40 +5635,4 @@ header.topbar .brand-text {
 .topbar-workbench-btn,
 .topbar-platform-btn {
   display: none !important;
-}
-
-
-/* v8.7.49: Workbench load-state banner for direct links, auth delay, and fetch errors. */
-.workbench-load-status {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    width: min(1180px, calc(100% - 40px));
-    margin: 16px auto 0;
-    padding: 12px 14px;
-    border: 1px solid var(--line-warm);
-    border-radius: var(--radius-lg);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-sm);
-    color: var(--text-2);
-}
-.workbench-load-status.is-visible { display: flex; }
-.workbench-load-status.info { border-color: var(--signal-strong); background: var(--signal-pale); }
-.workbench-load-status.warn { border-color: rgba(160, 99, 9, 0.35); background: rgba(160, 99, 9, 0.08); }
-.workbench-load-status.error { border-color: rgba(193, 55, 55, 0.38); background: rgba(193, 55, 55, 0.08); }
-.workbench-load-status-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.workbench-load-status-title { color: var(--text); font-weight: 650; }
-.workbench-load-status-message { color: var(--text-2); font-size: 12.5px; }
-.workbench-load-status-link {
-    flex: 0 0 auto;
-    color: var(--signal-ink);
-    font-weight: 650;
-    font-size: 12px;
-    text-decoration: none;
-    white-space: nowrap;
-}
-.workbench-load-status-link:hover { text-decoration: underline; }
-@media (max-width: 760px) {
-    .workbench-load-status { align-items: flex-start; flex-direction: column; }
 }

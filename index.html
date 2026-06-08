@@ -518,7 +518,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   max-width: var(--max-w);
   margin: 0 auto;
   padding: 0 var(--gutter);
-  /* Single-column hero — device preview removed, text reflows left.
+  /* Single-column hero — device mockup removed, text reflows left.
      Constrain inner max-width so the headline doesn't sprawl across the
      full 1280px container; ~720px keeps the type rhythm tight. */
   display: block;
@@ -4510,7 +4510,7 @@ if (!REDUCED) {
         if (i >= fullText.length) {
           clearInterval(interval);
           /* Leave the caret blinking for ~1.2s after typing completes,
-             then remove it. Stripe uses this pattern on auto-typing examples. */
+             then remove it. Stripe does this on their auto-typing demos. */
           setTimeout(() => { captionEl.dataset.typing = 'false'; }, 1200);
           return;
         }

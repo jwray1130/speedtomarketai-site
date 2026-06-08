@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.56-summary-card-row-align-2026-06-07';
+window.STM_BUILD = 'v8.7.39-address-modal-sync-fix-2026-05-20';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -563,22 +563,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
 
+        function updateRealSubmissionBanner(submission) {
+            try {
+                const banner = document.querySelector('.demo-mode-banner');
+                if (!banner || !submission) return;
+                const hasRealSnapshot = !!(submission.snapshot && Object.keys(submission.snapshot.extractions || {}).length);
+                const hasSubmissionId = !!submission.id;
+                if (hasSubmissionId || hasRealSnapshot) {
+                    banner.classList.add('is-real-submission');
+                    banner.innerHTML = '<strong>Live submission loaded from Platform:</strong> values may be extracted, inferred, or review-required. Use badges and the fill report to confirm before quoting.';
+                }
+            } catch (e) {
+                console.warn('[workbench] real-submission banner update skipped:', e && e.message);
+            }
+        }
+
         // FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
         // If the workbench was opened with ?submission=<id> in the URL,
         // wait for the Supabase client + signed-in session to be ready
         // (platform-auth.js initializes both on DOMContentLoaded after
         // the magic-link overlay resolves), then fetch the submission
         // row and park its full snapshot on window.workbenchActiveSubmission.
-        // Live Platform submissions are loaded from this global and resolved
-        // into the Workbench through the same production apply path.
-        // Direct /workbench visits without a query param remain unchanged.
-        // FIX-PHASE-14.0.4-LIVE-PIPELINE-APPLY-2026-05-14
+        // Phase 2 will start reading from this global instead of the
+        // hardcoded SAMPLE_PACKET. For Phase 1 we ONLY load and show a
+        // topbar badge — no field writes, no behavior change for direct
+        // /workbench visits without the query param.
+        // FIX-PHASE-14.0.4-CANONICAL-DEMO-PIPELINE-2026-05-14
         // The full phase pipeline (deal info → coverages → tower →
-        // subjectivities) as ONE reusable function for live Platform
-        // submissions. loadSubmissionFromUrl() calls it after the
-        // Supabase snapshot is loaded so subjectivity DOM decoration fires
-        // against a built panel. The former bridge assets are no longer
-        // loaded as of v8.7.47.
+        // subjectivities) as ONE reusable function. The live submission
+        // path (loadSubmissionFromUrl) calls it; the canonical clean
+        // demo (pipeline-bridge.js) calls it via the exposed global hook
+        // AFTER its packet renders, so subjectivity DOM decoration fires
+        // against a built panel (the v68 timing bug — appliers ran
+        // before the subjectivity DOM existed — is fixed by routing the
+        // demo through the same post-render call the live path uses).
         function applyFullPhasePipeline(data) {
             if (!window.WorkbenchRules
                 || typeof window.WorkbenchRules.resolveField !== 'function') {
@@ -739,43 +757,14 @@ document.addEventListener('DOMContentLoaded', () => {
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
-        // Exposed as a diagnostic hook only. The production path calls
-        // applyFullPhasePipeline(data) directly from loadSubmissionFromUrl().
+        // Exposed so the canonical clean demo (pipeline-bridge.js) runs
+        // the IDENTICAL phase chain the live submission path uses.
         window.__stmApplyPhasePipeline = applyFullPhasePipeline;
-
-        // v8.7.49: Workbench load-state messaging. With the retired demo
-        // card gone, direct /workbench visits and transient auth/Supabase
-        // failures need a visible, non-blocking explanation instead of a
-        // blank form plus console-only warnings. This banner is only about
-        // page load state; it does not touch resolver, loss, address, queue,
-        // or rating logic.
-        function setWorkbenchLoadStatus8749(kind, title, message) {
-            const box = document.getElementById('workbenchLoadStatus');
-            if (!box) return;
-            const titleEl = box.querySelector('.workbench-load-status-title');
-            const msgEl = box.querySelector('.workbench-load-status-message');
-            box.className = 'workbench-load-status is-visible' + (kind ? ' ' + kind : '');
-            if (titleEl) titleEl.textContent = title || '';
-            if (msgEl) msgEl.textContent = message || '';
-        }
-        function clearWorkbenchLoadStatus8749() {
-            const box = document.getElementById('workbenchLoadStatus');
-            if (!box) return;
-            box.classList.remove('is-visible', 'info', 'warn', 'error');
-        }
 
         (async function loadSubmissionFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const submissionId = params.get('submission');
-            if (!submissionId) {
-                setWorkbenchLoadStatus8749(
-                    'info',
-                    'Open a submission from the Platform queue to begin.',
-                    'This Workbench page is ready, but no submission ID was provided in the URL.'
-                );
-                return;
-            }
-            setWorkbenchLoadStatus8749('info', 'Loading submission...', 'Retrieving the selected submission from the Platform queue.');
+            if (!submissionId) return;
 
             // Poll for sb client + currentUser (set by platform-auth.js
             // after successful magic-link session check). 5-second cap.
@@ -786,12 +775,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!window.sb) {
                 console.warn('[workbench] Phase 1: Supabase client not available after 5s; submission load skipped');
-                setWorkbenchLoadStatus8749('error', 'Workbench could not connect.', 'Supabase was not ready after 5 seconds. Refresh the page, or return to the Platform queue and reopen the submission.');
                 return;
             }
             if (!window.currentUser) {
                 console.warn('[workbench] Phase 1: Not signed in; submission load skipped');
-                setWorkbenchLoadStatus8749('warn', 'Sign-in still pending.', 'Your session was not available after 5 seconds. Complete sign-in, then refresh or reopen the submission from the Platform queue.');
                 return;
             }
 
@@ -804,17 +791,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (error) {
                     console.warn('[workbench] Phase 1: submission fetch failed:', error.message, '· code:', error.code);
-                    setWorkbenchLoadStatus8749('error', 'Submission could not be loaded.', 'Supabase returned an error while retrieving this submission. Refresh and try again, or reopen it from the Platform queue.');
                     return;
                 }
                 if (!data) {
                     console.warn('[workbench] Phase 1: no submission found with id', submissionId);
-                    setWorkbenchLoadStatus8749('warn', 'Submission not found.', 'No submission matched this Workbench URL. Return to the Platform queue and open the submission again.');
                     return;
                 }
 
-                clearWorkbenchLoadStatus8749();
                 window.workbenchActiveSubmission = data;
+                updateRealSubmissionBanner(data);
                 const extractionCount = data.snapshot?.extractions
                     ? Object.keys(data.snapshot.extractions).length
                     : 0;
@@ -844,7 +829,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // + computed values. No extraction-text parsing yet (that's
                 // Phase 3). The apply is best-effort: each field is tried
                 // independently and any miss leaves the field empty (no
-                // throws, no sample-data fallback). Console log summarizes
+                // throws, no demo-data fallback). Console log summarizes
                 // what got filled and what didn't.
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
@@ -854,7 +839,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
-                setWorkbenchLoadStatus8749('error', 'Unexpected Workbench load error.', 'The submission could not be loaded. Refresh the page, or return to the Platform queue and reopen it.');
             }
         })();
 
@@ -866,33 +850,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // We log a per-field outcome so Justin can see exactly what got
         // filled, from which source, and what was missed for Phase 3 to
         // pick up.
-        async function syncResolvedInsuredToQueue8741(submission) {
-            try {
-                const rules = window.WorkbenchRules;
-                if (!submission || !submission.id || !rules || typeof rules.resolveField !== 'function') return;
-                if (!window.sb || !window.currentUser) return;
-                const resolved = rules.resolveField('insured_name', submission);
-                const nextName = resolved && resolved.value ? String(resolved.value).trim() : '';
-                if (!nextName) return;
-                if (/\b(?:unknown|does\s+not\s+state|extracted\s+pages|acord\s+ap|verify\s+in\s+file\s+manager)\b/i.test(nextName)) return;
-                const current = String(submission.account_name || submission.title || '').trim();
-                if (current && current.toLowerCase() === nextName.toLowerCase()) return;
-                const patch = { account_name: nextName, title: nextName };
-                const { error } = await window.sb
-                    .from('submissions')
-                    .update(patch)
-                    .eq('id', submission.id);
-                if (error) throw error;
-                submission.account_name = nextName;
-                submission.title = nextName;
-                const badgeValue = document.querySelector('#workbenchSubmissionBadge .submission-badge-value');
-                if (badgeValue) badgeValue.textContent = nextName;
-                console.log('[workbench] v8.7.41 synced resolved insured to queue row:', submission.id, current || '(blank)', '→', nextName);
-            } catch (err) {
-                console.warn('[workbench] v8.7.41 queue insured sync failed:', err && err.message ? err.message : err);
-            }
-        }
-
         function applyDealInfoFromActiveSubmission(submission) {
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
@@ -999,13 +956,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (missed.length)  console.log('[workbench] Phase 3 missed:',  missed);
             if (skipped.length) console.log('[workbench] Phase 3 skipped:', skipped);
 
-            // v8.7.41: Workbench may resolve a cleaner insured than the
-            // platform queue flat account_name, especially on frankenstein
-            // test packets. Patch only the display fields so Queue matches
-            // the Workbench; do not touch files, extraction text, rating, or
-            // source priority.
-            syncResolvedInsuredToQueue8741(submission);
-
             // FIX-v8.6.49-PAPER-OVERRIDE-GUARD
             // Belt-and-suspenders for #paper: if any async handler fires
             // after our apply loop and clobbers paper, this re-applies
@@ -1015,7 +965,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // FIX-PHASE-5.1-PAPERTXT-MIRROR-2026-05-14
             // Also mirror to #paperTxt in case the summary-card render
             // function fires after our apply and overwrites with the
-            // legacy Crestline value.
+            // demo/legacy Crestline value.
             setTimeout(() => {
                 const paperResolved = rules.resolveField('paper', submission);
                 if (!paperResolved || !paperResolved.value) return;
@@ -1264,7 +1214,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // FIX-PHASE-GO-LIVE-76-FOREIGN-SOURCE-BLEED-2026-05-16
             // Extension v8.6.75 audit found $185,000 (the GL premium)
-            // bleeding into EL "Bodily Injury by Disease" on older test submissions,
+            // bleeding into EL "Bodily Injury by Disease" on the demo,
             // because EL value fields fall back to gl_quote/al_quote for
             // genuine combined-package quotes — but when the submission
             // has NO real EL content, a generic premium/limit pattern
@@ -1534,7 +1484,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             // FIX-PHASE-GO-LIVE-76-IDEMPOTENT-CLONE-2026-05-16
-            // Re-applying the pipeline (duplicate trigger, OR a real
+            // Re-applying the pipeline (demo double-trigger, OR a real
             // re-apply after an upstream correction) previously cloned a
             // SECOND panel for this coverage every time, because the
             // clone was unconditional. Reuse an existing panel of the
@@ -1939,7 +1889,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function normalizeGlDesc91(desc, code) {
             const ref = lookupGlClassRef92(code);
             let d = String(desc || '').replace(/\s+/g, ' ').replace(/[-–—]\s*$/, '').trim();
-            d = d.replace(/\bCLASSIFICATION\b|\bCODE#\b|\bPREMIUM BASIS\b|\bRATE BASIS\b|\bPREM\/OPS\b/gi, '').trim();
+            d = d.replace(/CLASSIFICATION|CODE#|PREMIUM BASIS|RATE BASIS|PREM\/OPS/gi, '').trim();
             if (!d || d.length < 3 || /quote number|naic|policy|coverage|premium|limit|building|vehicle|pickup|ford|location|application/i.test(d)) {
                 d = ref && ref.description ? ref.description : '';
             }
@@ -2118,57 +2068,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return Math.round(n).toLocaleString('en-US');
             }
             function num98(v) { return Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, '')) || 0; }
-
-            // v8.7.42: paid-loss reconciliation for structured A11 schema drift.
-            // The paid run can return policy-year rows with claims/reserve/incurred
-            // but omit paid, even when the underlying loss run shows reserve = $0.
-            // Since incurred = paid + reserve, a zero reserve plus positive incurred
-            // means paid should equal incurred.  This is a general insurance math
-            // guard, not an account-specific hardcode, and it only fires when paid
-            // is blank/zero.
-            function reconcilePaidFromIncurred8742(row) {
-                if (!row || typeof row !== 'object') return row;
-                const incurred = num98(row.incurred);
-                const reserve = num98(row.reserve);
-                const paid = num98(row.paid);
-                if (incurred > 0 && reserve === 0 && paid === 0) {
-                    row.paid = moneyFmt(incurred);
-                    row.__paidReconciled = 'incurred_minus_zero_reserve';
-                }
-                return row;
-            }
-            function reconcileRows8742(rows) {
-                (rows || []).forEach(reconcilePaidFromIncurred8742);
-                return rows || [];
-            }
-            function isLossDateLike8742(v) {
-                return /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(String(v || ''));
-            }
-            function pickLossVal8742(o, keys) {
-                if (!o || typeof o !== 'object') return null;
-                for (const k of keys) if (o[k] != null && o[k] !== '') return o[k];
-                const wanted = keys.map(k => String(k).replace(/[^a-z0-9]/gi, '').toLowerCase());
-                for (const [k, v] of Object.entries(o)) {
-                    const nk = String(k || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-                    if (wanted.includes(nk) && v != null && v !== '') return v;
-                }
-                return null;
-            }
-            function normalizeLargeLoss8742(x) {
-                const rawDate = pickLossVal8742(x, ['dol','DOL','date_of_loss','dateOfLoss','loss_date','lossDate','date']);
-                const incurred = pickLossVal8742(x, ['incurred','total_incurred','totalIncurred','total_incurred_loss','gross_incurred','grossIncurred','total']);
-                const reserve = pickLossVal8742(x, ['reserve','res','reserves','case_reserve','caseReserve','outstanding','outstanding_reserve','outstandingReserve']);
-                let paid = pickLossVal8742(x, ['paid','total_paid','totalPaid','paid_loss','paidLoss','paid_losses','paidLosses','payment','payments']);
-                const tmp = { incurred: moneyFmt(incurred), reserve: moneyFmt(reserve), paid: moneyFmt(paid) };
-                reconcilePaidFromIncurred8742(tmp);
-                return {
-                    dol: isLossDateLike8742(rawDate) ? String(rawDate).trim() : '',
-                    incurred: tmp.incurred,
-                    paid: tmp.paid,
-                    status: x.status || x.claim_status || x.claimStatus || 'Closed',
-                    desc: x.description || x.notes || x.claim_description || x.claimDescription || x.desc || ''
-                };
-            }
             function normPeriod(v) {
                 const s0 = String(v || '').trim();
                 if (!s0) return '';
@@ -2249,27 +2148,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (typeof x !== 'object') return;
                     if (seen.has(x)) return; seen.add(x);
-                    // FIX-PHASE-LOSSES-8743-COLLECTOR-LOB-BUCKETS-2026-05-23
-                    // Detect Shape A / E roots: { general_liability: {...},
-                    // auto_liability: {...} } or { gl_loss_information: [...],
-                    // auto_loss_information: [...] }. Without this, the
-                    // collector descends into the LOB inner objects and can
-                    // parse them as bare {policy_years:[...]} candidates with
-                    // no LOB tag. The root object is the only candidate where
-                    // the coercer can add the correct GL/AL context.
-                    const hasTopLevelLobBucket = !!(
-                        (x.general_liability && typeof x.general_liability === 'object') ||
-                        (x.auto_liability && typeof x.auto_liability === 'object') ||
-                        (x.general_liability_loss_information && typeof x.general_liability_loss_information === 'object') ||
-                        (x.auto_liability_loss_information && typeof x.auto_liability_loss_information === 'object') ||
-                        (x.gl_loss_information && typeof x.gl_loss_information === 'object') ||
-                        (x.auto_loss_information && typeof x.auto_loss_information === 'object') ||
-                        (x.al_loss_information && typeof x.al_loss_information === 'object') ||
-                        (x.gl && typeof x.gl === 'object' && (Array.isArray(x.gl) || Array.isArray(x.gl.policy_years) || Array.isArray(x.gl.years) || Array.isArray(x.gl.loss_history_by_year))) ||
-                        (x.al && typeof x.al === 'object' && (Array.isArray(x.al) || Array.isArray(x.al.policy_years) || Array.isArray(x.al.years) || Array.isArray(x.al.loss_history_by_year))) ||
-                        (x.auto && typeof x.auto === 'object' && (Array.isArray(x.auto) || Array.isArray(x.auto.policy_years) || Array.isArray(x.auto.years) || Array.isArray(x.auto.loss_history_by_year)))
-                    );
-                    if (Array.isArray(x.policy_years) || Array.isArray(x.loss_history_by_year) || x.coverage_totals || Array.isArray(x.large_losses) || hasTopLevelLobBucket) objectCandidates.push(x);
+                    if (Array.isArray(x.policy_years) || Array.isArray(x.loss_history_by_year) || x.coverage_totals || Array.isArray(x.large_losses)) objectCandidates.push(x);
                     if (/loss/i.test(String(key || '')) && (x.text || x.output || x.content || x.result)) {
                         textCandidates.push(String(x.text || x.output || x.content || x.result || ''));
                     }
@@ -2292,56 +2171,6 @@ document.addEventListener('DOMContentLoaded', () => {
             function normalizeStructured98(obj) {
                 if (!obj || typeof obj !== 'object') return null;
                 if (obj.loss_history_structured && typeof obj.loss_history_structured === 'object') obj = obj.loss_history_structured;
-                // FIX-PHASE-LOSSES-8743-TOP-LEVEL-LOB-SHAPE-2026-05-23
-                // The A11 LLM can emit JSON with top-level LOB-named buckets
-                // instead of the canonical flat policy_years array, especially
-                // because the visual report has separate General Liability and
-                // Auto Liability sections. Coerce those legacy/drifted roots
-                // into the v8.7.22 flat-with-lob shape so existing readers can
-                // consume them and so already-saved Supabase rows heal without
-                // requiring another paid run.
-                function coerceTopLevelLobToFlat8743(o) {
-                    if (!o || typeof o !== 'object') return o;
-                    if (Array.isArray(o.policy_years) || Array.isArray(o.loss_history_by_year)) return o;
-                    const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
-                    const extractYears = v => {
-                        if (Array.isArray(v)) return v;
-                        if (!isObj(v)) return null;
-                        return Array.isArray(v.policy_years) ? v.policy_years
-                            : Array.isArray(v.years) ? v.years
-                            : Array.isArray(v.loss_history_by_year) ? v.loss_history_by_year
-                            : null;
-                    };
-                    let glYears = null, alYears = null;
-                    let glLarge = null, alLarge = null;
-                    for (const [k, v] of Object.entries(o)) {
-                        const lk = String(k || '').toLowerCase();
-                        const isGL = /(?:^|[_\s])(gl|cgl|general[_\s-]*liability)(?:[_\s]|$)/.test(lk) && !/auto|automobile/.test(lk);
-                        const isAL = /(?:^|[_\s])(al|auto|automobile|business[_\s-]*auto)(?:[_\s]|$)/.test(lk) && !/(?:^|[_\s])general(?:[_\s]|$)/.test(lk);
-                        if (isGL && !glYears) {
-                            const y = extractYears(v);
-                            if (y && y.length) glYears = y;
-                            if (isObj(v) && Array.isArray(v.large_losses)) glLarge = v.large_losses;
-                        } else if (isAL && !alYears) {
-                            const y = extractYears(v);
-                            if (y && y.length) alYears = y;
-                            if (isObj(v) && Array.isArray(v.large_losses)) alLarge = v.large_losses;
-                        }
-                    }
-                    if (!glYears && !alYears) return o;
-                    const flat = [];
-                    (glYears || []).forEach(r => flat.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'GL' })));
-                    (alYears || []).forEach(r => flat.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'AL' })));
-                    const out = Object.assign({}, o, { policy_years: flat });
-                    if (!Array.isArray(out.large_losses)) {
-                        const ll = [];
-                        if (glLarge) glLarge.forEach(r => ll.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'GL' })));
-                        if (alLarge) alLarge.forEach(r => ll.push(Object.assign({}, r, { lob: r && r.lob ? r.lob : 'AL' })));
-                        if (ll.length) out.large_losses = ll;
-                    }
-                    return out;
-                }
-                obj = coerceTopLevelLobToFlat8743(obj);
                 // v8.7.24: schema-drift fix. The pipeline (parseLossStructuredForArchive98)
                 // persists policy_years as an LOB-KEYED OBJECT:
                 //   policy_years: { GL: [{year,claims,paid,incurred}], AL: [...] }
@@ -2547,41 +2376,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (hasMoney8720(flatByLob8722.auto)) rows.auto = flatByLob8722.auto;
                 rows.gl = fillMissingYears98(rows.gl, 8);
                 rows.auto = fillMissingYears98(rows.auto, 8);
-                reconcileRows8742(rows.gl);
-                reconcileRows8742(rows.auto);
                 (Array.isArray(obj.large_losses) ? obj.large_losses : []).forEach(x => {
-                    const r = normalizeLargeLoss8742(x);
-                    if (/^A|auto/i.test(String(x.lob || x.coverage || x.line || ''))) rows.largeAuto.push(r);
+                    const r = { dol: x.dol || x.date || '', incurred: moneyFmt(x.incurred), paid: moneyFmt(x.paid), status: x.status || 'Closed', desc: x.description || x.notes || '' };
+                    if (/^A|auto/i.test(String(x.lob || x.coverage || ''))) rows.largeAuto.push(r);
                     else rows.largeGl.push(r);
                 });
-                reconcileRows8742(rows.largeGl);
-                reconcileRows8742(rows.largeAuto);
-                rows.__source = 'loss_history_structured_reconciled8742';
-                // FIX-PHASE-LOSSES-8743-REJECT-CONFIDENCELESS-ZERO-2026-05-23
-                // A bare inner LOB bucket can look like { policy_years: [...] }
-                // but the rows have no LOB tag and no gl_*/al_* prefixed keys.
-                // If that candidate produces no claim/money values and no LOB
-                // disambiguation signal, return null so parseStructuredLoss98
-                // continues to the root candidate where the 8743 coercer can
-                // reconstruct GL/Auto rows correctly. True no-loss accounts
-                // under the pinned schema are preserved because they include
-                // row-level lob tags.
-                const hasMoneyFinal = (rows.gl || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || num98(r.claims))
-                    || (rows.auto || []).some(r => num98(r.paid) || num98(r.reserve) || num98(r.incurred) || num98(r.claims));
-                const hasLobSignal = (years || []).some(py =>
-                    (py && (py.lob || py.line || py.coverage || py.coverage_type || py.coverageType || py.type)) ||
-                    Object.keys(py || {}).some(k => /^(gl|al|auto|general_liability|automobile|auto_liability)_/i.test(k)) ||
-                    (py && typeof py === 'object' && (
-                        (py.gl && typeof py.gl === 'object') ||
-                        (py.al && typeof py.al === 'object') ||
-                        (py.general_liability && typeof py.general_liability === 'object') ||
-                        (py.auto_liability && typeof py.auto_liability === 'object')
-                    ))
-                );
-                if (!hasMoneyFinal && !hasLobSignal) {
-                    console.log('[workbench] v8.7.43 normalizeStructured98 rejecting confidence-less zero result; continuing candidate loop.');
-                    return null;
-                }
+                rows.__source = 'loss_history_structured';
                 return rows;
             }
             function parseStructuredLoss98() {
@@ -2621,7 +2421,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 seenClaims98.add(key);
                 if (!bucket[period]) bucket[period] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
                 bucket[period].paid += num98(paid); bucket[period].reserve += num98(reserve); bucket[period].incurred += num98(incurred); bucket[period].claims += 1;
-                if (num98(incurred) >= 250000) {
+                if (num98(incurred) >= 500000 || (lob === 'gl' && num98(incurred) >= 450000)) {
                     const r = { dol, incurred: moneyFmt(incurred), paid: moneyFmt(paid), status: 'Closed', desc: String(desc || '').trim() };
                     if (lob === 'gl') out.largeGl.push(r); else out.largeAuto.push(r);
                 }
@@ -3583,8 +3383,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // FIX-PHASE-4-GL-PRIMARY-COVERAGE-2026-05-14
         // Positional fill for any coverage panel (#details-gl, #details-al,
         // #details-lead-excess, dynamically-added panels in Phase 4.1+).
-        // Mirrors the historical altInput-skip logic used during coverage
-        // alignment so we can write 8 values
+        // Mirrors the altInput-skip logic of pipeline-bridge.js fillPanel
+        // (FIX-2026-05-14-COVERAGE-ALIGNMENT) so we can write 8 values
         // into the 8 logical columns of #details-gl regardless of how
         // many DOM inputs flatpickr created.
         //
@@ -3595,7 +3395,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn('[workbench] Phase 4: panel not found:', panelSelector);
                 return { filled: 0, missed: valuesByPosition.length };
             }
-            // Exclude checkboxes and flatpickr altInput siblings so the index
+            // Same filter as pipeline-bridge.js fillPanel — exclude
+            // checkboxes and flatpickr altInput siblings so the index
             // matches the visible column order.
             const els = Array.from(panel.querySelectorAll('input, select, textarea'))
                 .filter(el => {
@@ -3739,38 +3540,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function applyResolvedAddressToWorkbench8739(fieldName, rawValue) {
             const parsed = parseWorkbenchAddress8739(rawValue);
-            const formatted = parsed ? formatAddressParts8739(parsed) : '';
+            const formatted = parsed ? formatAddressParts8739(parsed) : cleanWorkbenchAddressText8739(rawValue);
+            if (!formatted) return false;
 
             if (fieldName === 'mailing_address') {
-                if (!formatted) return false;
                 const mailTxt = document.getElementById('mailingTxt');
                 if (mailTxt) mailTxt.textContent = formatted;
                 if (parsed) setAddressFormParts8739('mail', parsed, false);
 
                 const ctrlTxt = document.getElementById('controllingTxt');
-                const ctrlParsed = parseWorkbenchAddress8739(ctrlTxt && ctrlTxt.textContent);
-                if (ctrlTxt && (!ctrlParsed || isBlankAddressText8739(ctrlTxt.textContent))) {
+                if (ctrlTxt && isBlankAddressText8739(ctrlTxt.textContent)) {
                     ctrlTxt.textContent = formatted;
                     if (parsed) setAddressFormParts8739('risk', parsed, true);
                     setSameAsMailing8739(true);
                 }
             } else if (fieldName === 'controlling_address') {
                 const ctrlTxt = document.getElementById('controllingTxt');
-                if (!parsed || !formatted) {
-                    // v8.7.41: never display raw controlling-address prose.
-                    // If the controlling resolver returns an exclusion/note
-                    // sentence instead of a parseable address, inherit mailing.
-                    const mailParsed = parseWorkbenchAddress8739(document.getElementById('mailingTxt')?.textContent);
-                    if (!mailParsed) return false;
-                    const mailFormatted = formatAddressParts8739(mailParsed);
-                    if (ctrlTxt) ctrlTxt.textContent = mailFormatted;
-                    setAddressFormParts8739('risk', mailParsed, true);
-                    setSameAsMailing8739(true);
-                    setTimeout(() => applyStateGuideposts8703('address-autofill-v8741'), 0);
-                    return true;
-                }
                 if (ctrlTxt) ctrlTxt.textContent = formatted;
-                setAddressFormParts8739('risk', parsed, false);
+                if (parsed) setAddressFormParts8739('risk', parsed, false);
                 setSameAsMailing8739(false);
             } else {
                 return false;

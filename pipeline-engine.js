@@ -4271,13 +4271,36 @@ async function classifyFile(file) {
 
     // Classifier runs on Opus — misclassification cascades through whole pipeline
     const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
-    if (result.usage) {
+    if (!result.mock && result.usage) {
       STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
     }
 
-    const jm = result.text.match(/\{[\s\S]*\}/);
-    if (!jm) throw new Error('classifier did not return JSON');
-    parsed = JSON.parse(jm[0]);
+    if (result.mock) {
+      // Demo mode — match by filename substring or content heuristic, still support combined
+      let key = 'default';
+      for (const k of Object.keys(MOCKS.classifier)) {
+        if (k === 'default') continue;
+        if (file.name.toLowerCase().includes(k.toLowerCase())) { key = k; break; }
+      }
+      if (key === 'default') {
+        const lc = file.text.toLowerCase().slice(0, 8000);
+        if (/loss run|valuation date|date of loss|claim.{0,20}(count|number)/.test(lc)) key = 'Loss';
+        else if (/subcontract|subcontractor|indemnification|additional insured/.test(lc)) key = 'Subk';
+        else if (/^from:|^subject:|^to:/m.test(file.text.slice(0, 1000))) key = 'RE_Meridian';
+        else if (/supplemental|application|max height|crane use/.test(lc)) key = 'Commercial_App';
+        else if (/each occurrence|general aggregate|cg 00 01/.test(lc)) key = 'Starr';
+        else if (/combined single limit|covered auto|ca 00 01/.test(lc)) key = 'GreatAm';
+        else if (/safety program|emr|trir|osha 30/.test(lc)) key = 'Safety';
+        else if (/equipment lease|crane.{0,20}lessor|operated equipment/.test(lc)) key = 'Vendor';
+        else if (/follow.?form|excess liability|umbrella|attachment/.test(lc)) key = 'Excess';
+        else if (/www\.|http|homepage/.test(lc)) key = 'Website';
+      }
+      parsed = MOCKS.classifier[key] || MOCKS.classifier.default;
+    } else {
+      const jm = result.text.match(/\{[\s\S]*\}/);
+      if (!jm) throw new Error('classifier did not return JSON');
+      parsed = JSON.parse(jm[0]);
+    }
 
     parsed = stmApplyClassifierGuards(parsed, file);
 
@@ -4287,7 +4310,7 @@ async function classifyFile(file) {
     logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
-    // Verify in live mode when enabled.
+    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
     if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
       try {
         // Sample from MIDDLE + END of the document for verification
@@ -4297,7 +4320,7 @@ async function classifyFile(file) {
         const verifyMsg = `FILENAME: ${file.name}\nTOTAL LENGTH: ${file.text.length.toLocaleString()} chars\n\nFIRST-PASS CLASSIFICATION:\n${JSON.stringify(parsed, null, 2)}\n\n--- MIDDLE SECTION SAMPLE ---\n\n${midSample}\n\n--- END OF DOCUMENT SAMPLE ---\n\n${tailSample}`;
         // Verify pass runs on Sonnet — second-pass sanity check, cheaper
         const verifyResult = await callLLM(PROMPTS.classifier_verify, verifyMsg, 'claude-sonnet-4-6');
-        if (verifyResult.usage) {
+        if (!verifyResult.mock && verifyResult.usage) {
           STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(verifyResult.usage);
         }
         const vjm = verifyResult.text && verifyResult.text.match(/\{[\s\S]*\}/);
@@ -4662,26 +4685,16 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
     s = s.replace(/[.;,\]]+$/g, '').trim();
     if (s.length >= 4 && s.length <= 100 && !out.some(x => _gateNormalizeInsuredName(x) === _gateNormalizeInsuredName(s))) out.push(s);
   };
-  const labeled = moduleId === 'subcontract'
-    ? [
-        // In subcontract agreements, "Contractor" and "Subcontractor" are legal parties,
-        // not reliable named-insured labels. Only treat explicit insurance/applicant labels
-        // as applicant identity signals for this module.
-        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name)\s*[:\-]\s*([^\n]{3,120})/ig
-      ]
-    : [
-        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
-        /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
-      ];
+  const labeled = [
+    /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
+    /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
+  ];
   for (const re of labeled) {
     let m;
     while ((m = re.exec(text)) !== null) add(m[1]);
   }
   // For support-doc modules only, capture obvious legal-entity names with suffixes.
-  // Do not use this broad catch-all for subcontract agreements: those contracts
-  // routinely list owner, contractor, architect, and subcontractor legal entities
-  // that are not the submission named insured.
-  if (/^(?:safety|supplemental|vendor)$/.test(moduleId)) {
+  if (/^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId)) {
     const firstSlice = text.slice(0, 12000);
     const entityRe = /\b([A-Z][A-Za-z0-9&'.,()\- ]{2,90}\s+(?:LLC|L\.L\.C\.|Inc\.?|Incorporated|Corporation|Corp\.?|Company|Co\.?|Ltd\.?|Limited))\b/g;
     let em;
@@ -4692,65 +4705,6 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
     }
   }
   return out;
-}
-
-// v8.7.55 - Deliberate test/frankenstein packet escape hatch.
-// Production submissions stay strict. But when the packet is clearly a QA/test
-// fixture (for example several files named "TEST 1 - QUOTE.pdf",
-// "TEST 5 - SUPP.pdf", etc.), do not let named-insured mismatch prevent
-// modules from producing results. This lets Justin QA document routing and
-// extraction on mixed sample packets while preserving mismatch details in
-// structured metadata/audit logs.
-//
-// Important safety guard: this does NOT trigger on a generic word "test"
-// inside a normal production filename like "soil test report.pdf". It needs
-// an explicit fixture-style filename or submission label.
-function isTestPacketContext8754(context) {
-  try {
-    const labels = [];
-    const fileNames = [];
-    const addLabel = function(v) { if (v) labels.push(String(v)); };
-    const addFile = function(v) { if (v) fileNames.push(String(v)); };
-
-    if (context && context.account_name) addLabel(context.account_name);
-    if (context && context.original_account_name) addLabel(context.original_account_name);
-    if (typeof STATE !== 'undefined') {
-      if (STATE.activeSubmissionId) addLabel(STATE.activeSubmissionId);
-      if (Array.isArray(STATE.files)) {
-        STATE.files.forEach(function(f) {
-          if (!f) return;
-          addFile(f.name || f.fileName || f.filename || f.title || '');
-          addFile(f.originalName || f.displayName || f.label || '');
-        });
-      }
-      if (Array.isArray(STATE.submissions) && STATE.activeSubmissionId) {
-        const sub = STATE.submissions.find(function(x){ return x && x.id === STATE.activeSubmissionId; });
-        if (sub) {
-          addLabel(sub.title || sub.account_name || sub.account || sub.named_insured || sub.insured_name || sub.name || '');
-        }
-      }
-    }
-
-    const strongFixtureFile = function(v) {
-      const s = String(v || '').trim();
-      return /^\s*(?:test|demo|sample)\s*(?:\d+|fixture|packet|submission|case)?\s*[-_]/i.test(s) ||
-        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
-    };
-    const strongFixtureLabel = function(v) {
-      const s = String(v || '').trim();
-      return /\b(?:test|demo|sample|frankenstein)\s+(?:submission|packet|account|fixture|case|qa)\b/i.test(s) ||
-        /\b(?:submission|packet|account|fixture|case|qa)\s+(?:test|demo|sample|frankenstein)\b/i.test(s) ||
-        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
-    };
-
-    return fileNames.some(strongFixtureFile) || labels.some(strongFixtureLabel);
-  } catch (e) {
-    return false;
-  }
-}
-
-function applicantMismatchAllowedForSupportDocTest8754(moduleId, context) {
-  return APPLICANT_GATED_MODULES.has(moduleId) && isTestPacketContext8754(context || {});
 }
 
 function localApplicantGate8718(moduleId, userContent, context) {
@@ -4766,20 +4720,11 @@ function localApplicantGate8718(moduleId, userContent, context) {
   // This prevents mixed Anahuac/Carroll style payloads from contaminating
   // Summary, Guidelines, Exposure and Strengths.
   const strictSupportDoc = /^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId);
-  const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(moduleId, context);
   if (strictSupportDoc && nonMatches.length) {
-    if (mismatchAllowedForExtraction) {
-      console.warn('[applicant-gate] ' + moduleId + ' LOCAL MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
-      return { proceed: true, reason: 'local_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
-    }
     console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
     return { proceed: false, reason: 'local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8723' } } };
   }
   if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
-  if (mismatchAllowedForExtraction) {
-    console.warn('[applicant-gate] ' + moduleId + ' LOCAL NO-MATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
-    return { proceed: true, reason: 'local_no_match_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: detected, matchedInsureds: [], allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
-  }
   console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
   return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
 }
@@ -4819,19 +4764,6 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
       precheck
     };
   }
-  if (applicantMismatchAllowedForSupportDocTest8754(moduleId, context)) {
-    console.warn('[applicant-gate] ' + moduleId + ' PRECHECK MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name +
-      '". Documents reference: ' + precheck.detected.join(', '));
-    return {
-      proceed: true,
-      reason: 'precheck_mismatch_allowed_test_packet_v8754',
-      mismatchAllowed: true,
-      detectedInsureds: precheck.detected,
-      matchedInsureds: [],
-      allDetected: precheck.detected,
-      precheck
-    };
-  }
   console.warn('[applicant-gate] ' + moduleId + ' REFUSED. Submission insured: "' + context.account_name +
     '". Documents reference: ' + precheck.detected.join(', '));
   return {
@@ -4843,53 +4775,7 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
 }
 
 // Build the diagnostic body for a refused module.
-function subcontractRequirementsNoInfoText() {
-  return '**Subcontractor Requirements:**\n\n' +
-    '- Type of Work Performed: No Information Provided.\n' +
-    '- Certificate of Insurance / COI: No Information Provided.\n' +
-    '- Waiver of Subrogation: No Information Provided.\n' +
-    '- Hold Harmless / Indemnification: No Information Provided.\n' +
-    '- Additional Insured / Primary and Non-Contributory: No Information Provided.\n' +
-    '- Limits Required: No Information Provided.';
-}
-
-function supplementalNoInfoText8754() {
-  return '**Supplemental Application Summary**\n\n' +
-    '- Company Name: No information provided.\n' +
-    '- Years in Business: No information provided.\n\n' +
-    '**Operations:**\n' +
-    '- Description: No information provided.\n' +
-    '- Max Height of Work: No information provided.\n' +
-    '- Max Depth of Work: No information provided.\n' +
-    '- Crane Usage: No information provided. Details: No information provided.\n\n' +
-    '**Geographic Spread:**\n' +
-    '- No information provided.\n\n' +
-    '**Work Mix:**\n' +
-    '- Direct / Self-Performed: No information provided.\n' +
-    '- Subcontracted: No information provided.\n' +
-    '- Commercial: No information provided.\n' +
-    '- Residential: No information provided.\n\n' +
-    '**Subcontractor Risk-Transfer:**\n' +
-    '- Additional Insured Required: No information provided.\n' +
-    '- COIs Retained: No information provided.\n' +
-    '- Indemnification / Hold-Harmless: No information provided.\n' +
-    '- Minimum Insurance Limits: No information provided.\n\n' +
-    '**Safety Program:**\n' +
-    '- Formal Written Program: No information provided.\n' +
-    '- Additional Safety Details: No information provided.';
-}
-
 function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
-  if (moduleId === 'subcontract') {
-    // Keep applicant-gate details in structured metadata/logs, but keep the
-    // visible underwriting card in the same clean format the underwriter expects.
-    return subcontractRequirementsNoInfoText();
-  }
-  if (moduleId === 'supplemental') {
-    // Same visible-output principle for Supplemental App: don't show local-gate
-    // internals in the card body. Metadata/audit still preserve the mismatch.
-    return supplementalNoInfoText8754();
-  }
   const moduleTitles = {
     gl_quote: 'primary GL quote',
     al_quote: 'primary AL quote',
@@ -4897,6 +4783,7 @@ function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
     excess: 'underlying excess policies',
     losses: 'loss runs',
     safety: 'safety program',
+    subcontract: 'subcontract agreement',
     vendor: 'vendor agreement'
   };
   const title = moduleTitles[moduleId] || moduleId;
@@ -5065,24 +4952,10 @@ function applyPostExtractionApplicantGate8723(accountName) {
     const matches = detected.filter(function(n){ return _gateInsuredMatches(n, accountName); });
     const nonMatches = detected.filter(function(n){ return !_gateInsuredMatches(n, accountName); });
     if (nonMatches.length) {
-      const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(mid, { account_name: accountName });
-      if (mismatchAllowedForExtraction) {
-        ex.applicantGate = 'mismatch_allowed_test_packet_v8754';
-        ex.applicantGateReason = 'post_wave_mismatch_allowed_test_packet_v8754';
-        ex.applicant_match = 'mismatch_allowed_test_packet_v8754';
-        ex.detectedInsureds = nonMatches;
-        ex.matchedInsureds = matches;
-        ex.submissionInsured = accountName;
-        ex.gateDetails = { proceed: true, reason: 'post_wave_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
-        logAudit('Pipeline', 'Applicant mismatch allowed for test packet in ' + (MODULES[mid] ? MODULES[mid].code : mid) + ' after account context refresh · extracted anyway (' + nonMatches.join(', ') + ')', 'WARN v8.7.54');
-        return;
-      }
       refused += 1;
       const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
       ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
-      // Keep local-gate internals out of the visible card body. The mismatch
-      // details remain preserved in applicantGate/gateDetails/audit metadata.
-      ex.text = diagnostic;
+      ex.text = diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
       ex.confidence = 0;
       ex.mode = 'gated';
       ex.applicantGate = 'mismatch';
@@ -5363,18 +5236,6 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
         matched_insureds_csv: gateResult.matchedInsureds.join(', ')
       });
     }
-    // v8.7.55: When a deliberate TEST/demo/frankenstein packet intentionally mixes
-    // insured names, let applicant-gated modules run. For a pure no-match,
-    // substitute account_name as "(unknown)" so the supplemental prompt does
-    // not self-refuse before extraction. The real submission account remains
-    // preserved in gateDetails/submissionInsured metadata.
-    if (gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) {
-      enrichedContext = Object.assign({}, enrichedContext || context || {}, {
-        original_account_name: context && context.account_name ? context.account_name : null,
-        account_name: '(unknown)',
-        mismatch_allowed: 'true'
-      });
-    }
 
     // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
     // Substitute ${account_name} and any other ${var} placeholders in the
@@ -5414,7 +5275,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       }
     }
     const elapsed = (Date.now() - t0) / 1000;
-    const text = result.text;
+    const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
     const hasQc = /checklist|source extracts/i.test(text);
     const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
     const cost = calcCost(usage);
@@ -5422,7 +5283,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       text: text,
       confidence: estimateExtractionConfidence(text),
       timing: elapsed,
-      mode: 'live',
+      mode: result.mock ? 'mock' : 'live',
       sourceInfo: sourceInfo,
       usage: usage,
       cost: cost,
@@ -5458,7 +5319,9 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
     setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · ✓ QC');
     // Include model + cost in the audit meta so UW can see which model ran each module
-    const auditMeta = (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
+    const auditMeta = result.mock
+      ? 'mock'
+      : (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
     logAudit('Pipeline', 'Completed ' + MODULES[moduleId].code + ' · ' + MODULES[moduleId].name + ' (' + elapsed.toFixed(1) + 's)', auditMeta);
     // Refresh the submission sidebar's cost row if it's rendered
     if (typeof renderSubmissionSidebar === 'function') renderSubmissionSidebar();
@@ -5715,7 +5578,6 @@ async function runPipeline() {
   if (!STATE.activeSubmissionId) {
     const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
     STATE.activeSubmissionId = preMintId;
-    STATE.newSubmissionDraftMode = false;
     if (typeof logAudit === 'function') {
       logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
     }
@@ -6402,7 +6264,7 @@ async function runPipeline() {
 // Initialize the pipeline nodes when the view loads
 renderPipelineNodes();
 // Now that updateDecisionPaneIdle is defined, refresh the Decision pane meta-rows
-// so initial paint reflects the real API mode from the current signed-in state
+// so initial paint reflects the real API mode (was showing hardcoded "DEMO" before)
 if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
 if (typeof updateQueueKpi === 'function') updateQueueKpi();
 // Render persisted submissions into the Queue on first paint (loadSubmissions

@@ -247,7 +247,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   transition: all 0.15s;
   border: 1px solid;
 }
-.api-pill.offline { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
+.api-pill.demo { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
 .api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(5, 112, 222, 0.28); }
 .api-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .api-pill .dot {
@@ -1770,10 +1770,6 @@ table.queue {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  /* Keep 2-up cards from stretching to the height of a taller row mate.
-     A collapsed card body is display:none; without top alignment the card
-     still stretches to match the expanded neighbor, creating a blank panel. */
-  align-items: start;
   /* Explicit width cap + min-width 0 so this grid can never force its parent wider than the container.
      Without minmax(0, 1fr), grid items default to min-content and can blow out the track. */
   min-width: 0;
@@ -1824,7 +1820,6 @@ table.queue {
   max-width: 100%;
 }
 .sc-card {
-  align-self: start;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
