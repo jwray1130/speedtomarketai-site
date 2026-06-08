@@ -2898,6 +2898,66 @@ html.scroll-choreographed .reveal {
 </style>
 </head>
 <body>
+<!-- ============================================================
+     Marketing access gate — client-side passcode (code: 3081)
+     Purely client-side: the code is visible in page source. Keeps the
+     page out of casual view pre-launch; not a real security control.
+     Self-contained: remove this block + the <script> below it to disable.
+     ============================================================ -->
+<div id="stmGate" role="dialog" aria-modal="true" aria-label="Enter access code" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0a0a0c;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;">
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,rgba(158,196,255,.25),transparent 35%),radial-gradient(circle at 75% 60%,rgba(255,97,171,.18),transparent 34%),#0a0a0c;"></div>
+  <div style="position:absolute;top:24px;left:32px;z-index:2;display:flex;align-items:center;gap:10px;color:#fafafa;font-size:14px;font-weight:600;">
+    <span style="display:inline-flex;width:26px;height:26px;border-radius:6px;border:1.5px solid #9ec4ff;align-items:center;justify-content:center;color:#9ec4ff;">&#8963;</span>
+    Speed to Market <em style="font-style:italic;color:#9ec4ff;margin-left:2px;">AI</em>
+  </div>
+  <div style="position:relative;z-index:1;background:rgba(20,20,23,.70);backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%);padding:42px 38px 36px;border-radius:18px;width:400px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.10);text-align:left;">
+    <div style="font-family:ui-monospace,'Geist Mono',monospace;font-size:10px;letter-spacing:.18em;color:#9ec4ff;text-transform:uppercase;margin-bottom:14px;display:inline-flex;align-items:center;gap:8px;"><span style="display:inline-block;width:14px;height:1px;background:#9ec4ff;"></span>Private preview</div>
+    <div style="font-size:30px;color:#fafafa;font-weight:650;letter-spacing:-.025em;line-height:1.1;margin-bottom:10px;">Enter your <em style="font-style:italic;font-weight:500;background:linear-gradient(180deg,#FF61AB 0%,#C8A2FF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;">access code</em>.</div>
+    <div style="font-size:13.5px;color:#a0a0a8;line-height:1.5;margin-bottom:24px;">This page isn&#39;t public yet. Enter the code to continue.</div>
+    <input id="stmGateInput" type="password" inputmode="numeric" autocomplete="off" autofocus placeholder="&#8226;&#8226;&#8226;&#8226;" aria-label="Access code" style="width:100%;box-sizing:border-box;padding:13px 15px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(10,10,12,.55);color:#fafafa;font-size:18px;letter-spacing:.3em;font-family:inherit;margin-bottom:12px;outline:none;text-align:center;" />
+    <button id="stmGateBtn" type="button" style="width:100%;padding:13px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#c0d8ff 0%,#9ec4ff 100%);color:#0a0a0c;font-weight:700;font-size:13.5px;font-family:inherit;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 6px 18px -6px rgba(158,196,255,.5);">Unlock &#8594;</button>
+    <div id="stmGateError" role="alert" style="color:#ff7a7a;font-size:11.5px;margin-top:14px;min-height:14px;font-family:ui-monospace,'Geist Mono',monospace;letter-spacing:.04em;"></div>
+  </div>
+</div>
+<script>
+(function () {
+  var CODE = '3081';
+  var KEY = 'stm_gate_ok';
+  var unlocked = false;
+  try { unlocked = sessionStorage.getItem(KEY) === '1'; } catch (e) {}
+  var gate = document.getElementById('stmGate');
+  if (unlocked) { if (gate && gate.parentNode) gate.parentNode.removeChild(gate); return; }
+  var htmlEl = document.documentElement, bodyEl = document.body;
+  var prevHtml = htmlEl.style.overflow, prevBody = bodyEl.style.overflow;
+  htmlEl.style.overflow = 'hidden'; bodyEl.style.overflow = 'hidden';
+  var input = document.getElementById('stmGateInput');
+  var btn = document.getElementById('stmGateBtn');
+  var err = document.getElementById('stmGateError');
+  function fail() {
+    if (err) err.textContent = 'Incorrect code. Try again.';
+    if (input) {
+      input.value = ''; input.focus();
+      if (input.animate) input.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 240 });
+    }
+  }
+  function tryUnlock() {
+    if (!input) return;
+    if (input.value.trim() === CODE) {
+      try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+      htmlEl.style.overflow = prevHtml; bodyEl.style.overflow = prevBody;
+      if (gate) {
+        gate.style.transition = 'opacity .35s ease';
+        gate.style.opacity = '0';
+        setTimeout(function () { if (gate.parentNode) gate.parentNode.removeChild(gate); }, 360);
+      }
+    } else { fail(); }
+  }
+  if (btn) btn.addEventListener('click', tryUnlock);
+  if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); tryUnlock(); } });
+  setTimeout(function () { if (input) input.focus(); }, 50);
+})();
+</script>
+<!-- end marketing access gate -->
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <!-- ========== ANNOUNCEMENT BAR ========== -->
@@ -3791,7 +3851,7 @@ html[data-theme="light"] .flow-card.is-active { box-shadow: 0 0 0 1px var(--sign
         <div class="flow-card-sub">Exposures, limits, premiums &mdash; auto-populated.</div>
         <div class="flow-viz">
           <div class="wb-form" aria-hidden="true">
-            <div class="wb-field"><span class="wb-label">Account</span><span class="wb-value">W. Ellery Kellum</span></div>
+            <div class="wb-field"><span class="wb-label">Account</span><span class="wb-value">Expert Crane Service</span></div>
             <div class="wb-field"><span class="wb-label">Effective</span><span class="wb-value">07/01/2026</span></div>
             <div class="wb-field"><span class="wb-label">GL Underlying</span><span class="wb-value">$1M / $2M / $2M</span></div>
             <div class="wb-field"><span class="wb-label">AL Fleet</span><span class="wb-value">23 PPT &middot; 41 LT &middot; 12 HT</span></div>
@@ -4663,7 +4723,7 @@ html[data-theme="light"] .wb-field-source { background: rgba(5, 112, 222, 0.06);
               <div class="pipe-header">
                 <div>
                   <span class="pipe-meta-label">Submission</span>
-                  <span class="pipe-meta-value">W. Ellery Kellum, Inc.</span>
+                  <span class="pipe-meta-value">Expert Crane Service, LLC</span>
                 </div>
                 <div>
                   <span class="pipe-meta-label">Documents</span>
@@ -4904,7 +4964,7 @@ html[data-theme="light"] .wb-field-source { background: rgba(5, 112, 222, 0.06);
           <div class="device-frame device-files">
             <div class="device-chrome">
               <div class="device-dots"><span></span><span></span><span></span></div>
-              <span class="device-title">document.library &middot; Kellum</span>
+              <span class="device-title">document.library &middot; Expert Crane Service</span>
               <span class="device-badge">47 docs</span>
             </div>
             <div class="device-body files-body">
@@ -5064,7 +5124,7 @@ html[data-theme="light"] .wb-field-source { background: rgba(5, 112, 222, 0.06);
           <div class="device-frame device-workbench">
             <div class="device-chrome">
               <div class="device-dots"><span></span><span></span><span></span></div>
-              <span class="device-title">workbench.deal &middot; Kellum &middot; 07/01/2026</span>
+              <span class="device-title">workbench.deal &middot; Expert Crane Service &middot; 07/01/2026</span>
               <span class="device-badge">47 auto-filled</span>
             </div>
             <div class="device-body wb-body">
@@ -5079,7 +5139,7 @@ html[data-theme="light"] .wb-field-source { background: rgba(5, 112, 222, 0.06);
                 <div class="wb-section-label">Account</div>
                 <div class="wb-row">
                   <span class="wb-field-label">Named Insured</span>
-                  <span class="wb-field-value">W. Ellery Kellum, Inc.</span>
+                  <span class="wb-field-value">Expert Crane Service, LLC</span>
                   <span class="wb-field-source">A3</span>
                 </div>
                 <div class="wb-row">
