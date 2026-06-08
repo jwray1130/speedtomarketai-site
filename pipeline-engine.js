@@ -521,7 +521,7 @@ function docsViewMappingFor(classifierType, tag) {
 // Prices are per-million-tokens in USD. Update here when Anthropic changes pricing.
 // ============================================================================
 const MODEL_PRICING = {
-  'claude-opus-4-7':      { input:  5.00, output: 25.00 },
+  'claude-opus-4-8':      { input:  5.00, output: 25.00 },
   'claude-opus-4-6':      { input:  5.00, output: 25.00 },
   'claude-sonnet-4-6':    { input:  3.00, output: 15.00 },
   'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
@@ -556,36 +556,36 @@ function fmtCost(n) {
 const MODULES = {
   // WAVE 1 — parallel extractors triggered by file classification
   supplemental:  { code: 'A2',  name: 'Supplemental App',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  subcontract:   { code: 'A3',  name: 'Subcontract',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  vendor:        { code: 'A4',  name: 'Vendor Agreement',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  subcontract:   { code: 'A3',  name: 'Subcontract',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  vendor:        { code: 'A4',  name: 'Vendor Agreement',        wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
   safety:        { code: 'A5',  name: 'Safety Manual',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  losses:        { code: 'A11', name: 'Loss History',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  gl_quote:      { code: 'A12', name: 'Primary GL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  al_quote:      { code: 'A13', name: 'Primary AL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  el_quote:      { code: 'A17', name: 'Employers Liability',     wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  ebl_quote:     { code: 'A18', name: 'Employee Benefits Liab', wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  aircraft_quote:{ code: 'A19', name: 'Aircraft Liability',       wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  garage_quote:  { code: 'A20', name: 'Garage Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  liquor_quote:  { code: 'A21', name: 'Liquor Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  foreign_gl_quote:{ code: 'A22', name: 'Foreign GL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  foreign_al_quote:{ code: 'A23', name: 'Foreign AL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
-  website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-7'    },
+  losses:        { code: 'A11', name: 'Loss History',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  gl_quote:      { code: 'A12', name: 'Primary GL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  al_quote:      { code: 'A13', name: 'Primary AL',              wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  el_quote:      { code: 'A17', name: 'Employers Liability',     wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  ebl_quote:     { code: 'A18', name: 'Employee Benefits Liab', wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  aircraft_quote:{ code: 'A19', name: 'Aircraft Liability',       wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  garage_quote:  { code: 'A20', name: 'Garage Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  liquor_quote:  { code: 'A21', name: 'Liquor Liability',         wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  foreign_gl_quote:{ code: 'A22', name: 'Foreign GL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  foreign_al_quote:{ code: 'A23', name: 'Foreign AL',            wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  excess:        { code: 'A14', name: 'Excess Policy',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
+  website:       { code: 'A1',  name: 'Website Intel',           wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-opus-4-8'    },
   email_intel:   { code: 'A16', name: 'Email Intel',             wave: 1, deps: [], inputsFrom: 'file',        model: 'claude-sonnet-4-6' },
-  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 3, deps: ['summary-ops'], optionalDeps: ['gl_quote','supplemental'], inputsFrom: 'extractions', model: 'claude-opus-4-7'    },
+  classcode:     { code: 'A7',  name: 'Class Code Expert',       wave: 3, deps: ['summary-ops'], optionalDeps: ['gl_quote','supplemental'], inputsFrom: 'extractions', model: 'claude-opus-4-8'    },
   // WAVE 2 — synthesize Summary of Ops from intake extractions + Excess Tower viz.
   // Email intel is an OPTIONAL dep: if present, its claims are used to fill gaps
   // the supplemental/website/docs leave open — never to override authoritative sources.
-  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-7' },
-  tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-7' },
+  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-8' },
+  tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-8' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
-  guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
-  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
-  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-7'    },
+  guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
+  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
+  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
-  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-7' }
+  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-8' }
 };
 
 
@@ -4270,7 +4270,7 @@ async function classifyFile(file) {
     userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (full, ${file.text.length.toLocaleString()} chars):\n\n${docText}`;
 
     // Classifier runs on Opus — misclassification cascades through whole pipeline
-    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
+    const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-8');
     if (result.usage) {
       STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
     }
@@ -4662,16 +4662,26 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
     s = s.replace(/[.;,\]]+$/g, '').trim();
     if (s.length >= 4 && s.length <= 100 && !out.some(x => _gateNormalizeInsuredName(x) === _gateNormalizeInsuredName(s))) out.push(s);
   };
-  const labeled = [
-    /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
-    /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
-  ];
+  const labeled = moduleId === 'subcontract'
+    ? [
+        // In subcontract agreements, "Contractor" and "Subcontractor" are legal parties,
+        // not reliable named-insured labels. Only treat explicit insurance/applicant labels
+        // as applicant identity signals for this module.
+        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name)\s*[:\-]\s*([^\n]{3,120})/ig
+      ]
+    : [
+        /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant|Company\s+Name|Contractor|Subcontractor)\s*[:\-]\s*([^\n]{3,120})/ig,
+        /(?:Written\s+Safety\s+Program\s+Summary|Safety\s+Program)\s*(?:for|:)?\s*([^\n]{3,120})/ig
+      ];
   for (const re of labeled) {
     let m;
     while ((m = re.exec(text)) !== null) add(m[1]);
   }
   // For support-doc modules only, capture obvious legal-entity names with suffixes.
-  if (/^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId)) {
+  // Do not use this broad catch-all for subcontract agreements: those contracts
+  // routinely list owner, contractor, architect, and subcontractor legal entities
+  // that are not the submission named insured.
+  if (/^(?:safety|supplemental|vendor)$/.test(moduleId)) {
     const firstSlice = text.slice(0, 12000);
     const entityRe = /\b([A-Z][A-Za-z0-9&'.,()\- ]{2,90}\s+(?:LLC|L\.L\.C\.|Inc\.?|Incorporated|Corporation|Corp\.?|Company|Co\.?|Ltd\.?|Limited))\b/g;
     let em;
@@ -4682,6 +4692,65 @@ function detectNamedInsuredsLocal8718(userContent, moduleId) {
     }
   }
   return out;
+}
+
+// v8.7.55 - Deliberate test/frankenstein packet escape hatch.
+// Production submissions stay strict. But when the packet is clearly a QA/test
+// fixture (for example several files named "TEST 1 - QUOTE.pdf",
+// "TEST 5 - SUPP.pdf", etc.), do not let named-insured mismatch prevent
+// modules from producing results. This lets Justin QA document routing and
+// extraction on mixed sample packets while preserving mismatch details in
+// structured metadata/audit logs.
+//
+// Important safety guard: this does NOT trigger on a generic word "test"
+// inside a normal production filename like "soil test report.pdf". It needs
+// an explicit fixture-style filename or submission label.
+function isTestPacketContext8754(context) {
+  try {
+    const labels = [];
+    const fileNames = [];
+    const addLabel = function(v) { if (v) labels.push(String(v)); };
+    const addFile = function(v) { if (v) fileNames.push(String(v)); };
+
+    if (context && context.account_name) addLabel(context.account_name);
+    if (context && context.original_account_name) addLabel(context.original_account_name);
+    if (typeof STATE !== 'undefined') {
+      if (STATE.activeSubmissionId) addLabel(STATE.activeSubmissionId);
+      if (Array.isArray(STATE.files)) {
+        STATE.files.forEach(function(f) {
+          if (!f) return;
+          addFile(f.name || f.fileName || f.filename || f.title || '');
+          addFile(f.originalName || f.displayName || f.label || '');
+        });
+      }
+      if (Array.isArray(STATE.submissions) && STATE.activeSubmissionId) {
+        const sub = STATE.submissions.find(function(x){ return x && x.id === STATE.activeSubmissionId; });
+        if (sub) {
+          addLabel(sub.title || sub.account_name || sub.account || sub.named_insured || sub.insured_name || sub.name || '');
+        }
+      }
+    }
+
+    const strongFixtureFile = function(v) {
+      const s = String(v || '').trim();
+      return /^\s*(?:test|demo|sample)\s*(?:\d+|fixture|packet|submission|case)?\s*[-_]/i.test(s) ||
+        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
+    };
+    const strongFixtureLabel = function(v) {
+      const s = String(v || '').trim();
+      return /\b(?:test|demo|sample|frankenstein)\s+(?:submission|packet|account|fixture|case|qa)\b/i.test(s) ||
+        /\b(?:submission|packet|account|fixture|case|qa)\s+(?:test|demo|sample|frankenstein)\b/i.test(s) ||
+        /(?:^|[\s._-])frankenstein(?:[\s._-]|$)/i.test(s);
+    };
+
+    return fileNames.some(strongFixtureFile) || labels.some(strongFixtureLabel);
+  } catch (e) {
+    return false;
+  }
+}
+
+function applicantMismatchAllowedForSupportDocTest8754(moduleId, context) {
+  return APPLICANT_GATED_MODULES.has(moduleId) && isTestPacketContext8754(context || {});
 }
 
 function localApplicantGate8718(moduleId, userContent, context) {
@@ -4697,11 +4766,20 @@ function localApplicantGate8718(moduleId, userContent, context) {
   // This prevents mixed Anahuac/Carroll style payloads from contaminating
   // Summary, Guidelines, Exposure and Strengths.
   const strictSupportDoc = /^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId);
+  const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(moduleId, context);
   if (strictSupportDoc && nonMatches.length) {
+    if (mismatchAllowedForExtraction) {
+      console.warn('[applicant-gate] ' + moduleId + ' LOCAL MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
+      return { proceed: true, reason: 'local_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+    }
     console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
     return { proceed: false, reason: 'local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8723' } } };
   }
   if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
+  if (mismatchAllowedForExtraction) {
+    console.warn('[applicant-gate] ' + moduleId + ' LOCAL NO-MATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
+    return { proceed: true, reason: 'local_no_match_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: detected, matchedInsureds: [], allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+  }
   console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
   return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
 }
@@ -4741,6 +4819,19 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
       precheck
     };
   }
+  if (applicantMismatchAllowedForSupportDocTest8754(moduleId, context)) {
+    console.warn('[applicant-gate] ' + moduleId + ' PRECHECK MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name +
+      '". Documents reference: ' + precheck.detected.join(', '));
+    return {
+      proceed: true,
+      reason: 'precheck_mismatch_allowed_test_packet_v8754',
+      mismatchAllowed: true,
+      detectedInsureds: precheck.detected,
+      matchedInsureds: [],
+      allDetected: precheck.detected,
+      precheck
+    };
+  }
   console.warn('[applicant-gate] ' + moduleId + ' REFUSED. Submission insured: "' + context.account_name +
     '". Documents reference: ' + precheck.detected.join(', '));
   return {
@@ -4752,7 +4843,53 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
 }
 
 // Build the diagnostic body for a refused module.
+function subcontractRequirementsNoInfoText() {
+  return '**Subcontractor Requirements:**\n\n' +
+    '- Type of Work Performed: No Information Provided.\n' +
+    '- Certificate of Insurance / COI: No Information Provided.\n' +
+    '- Waiver of Subrogation: No Information Provided.\n' +
+    '- Hold Harmless / Indemnification: No Information Provided.\n' +
+    '- Additional Insured / Primary and Non-Contributory: No Information Provided.\n' +
+    '- Limits Required: No Information Provided.';
+}
+
+function supplementalNoInfoText8754() {
+  return '**Supplemental Application Summary**\n\n' +
+    '- Company Name: No information provided.\n' +
+    '- Years in Business: No information provided.\n\n' +
+    '**Operations:**\n' +
+    '- Description: No information provided.\n' +
+    '- Max Height of Work: No information provided.\n' +
+    '- Max Depth of Work: No information provided.\n' +
+    '- Crane Usage: No information provided. Details: No information provided.\n\n' +
+    '**Geographic Spread:**\n' +
+    '- No information provided.\n\n' +
+    '**Work Mix:**\n' +
+    '- Direct / Self-Performed: No information provided.\n' +
+    '- Subcontracted: No information provided.\n' +
+    '- Commercial: No information provided.\n' +
+    '- Residential: No information provided.\n\n' +
+    '**Subcontractor Risk-Transfer:**\n' +
+    '- Additional Insured Required: No information provided.\n' +
+    '- COIs Retained: No information provided.\n' +
+    '- Indemnification / Hold-Harmless: No information provided.\n' +
+    '- Minimum Insurance Limits: No information provided.\n\n' +
+    '**Safety Program:**\n' +
+    '- Formal Written Program: No information provided.\n' +
+    '- Additional Safety Details: No information provided.';
+}
+
 function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
+  if (moduleId === 'subcontract') {
+    // Keep applicant-gate details in structured metadata/logs, but keep the
+    // visible underwriting card in the same clean format the underwriter expects.
+    return subcontractRequirementsNoInfoText();
+  }
+  if (moduleId === 'supplemental') {
+    // Same visible-output principle for Supplemental App: don't show local-gate
+    // internals in the card body. Metadata/audit still preserve the mismatch.
+    return supplementalNoInfoText8754();
+  }
   const moduleTitles = {
     gl_quote: 'primary GL quote',
     al_quote: 'primary AL quote',
@@ -4760,7 +4897,6 @@ function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
     excess: 'underlying excess policies',
     losses: 'loss runs',
     safety: 'safety program',
-    subcontract: 'subcontract agreement',
     vendor: 'vendor agreement'
   };
   const title = moduleTitles[moduleId] || moduleId;
@@ -4929,10 +5065,24 @@ function applyPostExtractionApplicantGate8723(accountName) {
     const matches = detected.filter(function(n){ return _gateInsuredMatches(n, accountName); });
     const nonMatches = detected.filter(function(n){ return !_gateInsuredMatches(n, accountName); });
     if (nonMatches.length) {
+      const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(mid, { account_name: accountName });
+      if (mismatchAllowedForExtraction) {
+        ex.applicantGate = 'mismatch_allowed_test_packet_v8754';
+        ex.applicantGateReason = 'post_wave_mismatch_allowed_test_packet_v8754';
+        ex.applicant_match = 'mismatch_allowed_test_packet_v8754';
+        ex.detectedInsureds = nonMatches;
+        ex.matchedInsureds = matches;
+        ex.submissionInsured = accountName;
+        ex.gateDetails = { proceed: true, reason: 'post_wave_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
+        logAudit('Pipeline', 'Applicant mismatch allowed for test packet in ' + (MODULES[mid] ? MODULES[mid].code : mid) + ' after account context refresh · extracted anyway (' + nonMatches.join(', ') + ')', 'WARN v8.7.54');
+        return;
+      }
       refused += 1;
       const diagnostic = buildRefusalDiagnostic(mid, accountName, nonMatches);
       ex.originalTextBeforeApplicantGate = raw.slice(0, 8000);
-      ex.text = diagnostic + '\n\n[LOCAL REFUSED v8.7.23 — source document named insured mismatch. The mismatched names are preserved only in structured gate metadata, not in narrative text.]';
+      // Keep local-gate internals out of the visible card body. The mismatch
+      // details remain preserved in applicantGate/gateDetails/audit metadata.
+      ex.text = diagnostic;
       ex.confidence = 0;
       ex.mode = 'gated';
       ex.applicantGate = 'mismatch';
@@ -5211,6 +5361,18 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     if (gateResult.matchedInsureds && gateResult.matchedInsureds.length > 0) {
       enrichedContext = Object.assign({}, context || {}, {
         matched_insureds_csv: gateResult.matchedInsureds.join(', ')
+      });
+    }
+    // v8.7.55: When a deliberate TEST/demo/frankenstein packet intentionally mixes
+    // insured names, let applicant-gated modules run. For a pure no-match,
+    // substitute account_name as "(unknown)" so the supplemental prompt does
+    // not self-refuse before extraction. The real submission account remains
+    // preserved in gateDetails/submissionInsured metadata.
+    if (gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) {
+      enrichedContext = Object.assign({}, enrichedContext || context || {}, {
+        original_account_name: context && context.account_name ? context.account_name : null,
+        account_name: '(unknown)',
+        mismatch_allowed: 'true'
       });
     }
 

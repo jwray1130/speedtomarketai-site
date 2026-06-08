@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.78-final-polish-dead-css-mc-hook-announce-2026-05-25';
+window.STM_BUILD = 'v8.7.56-summary-card-row-align-2026-06-07';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

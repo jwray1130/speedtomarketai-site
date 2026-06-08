@@ -574,16 +574,21 @@ OUTPUT FORMAT — use exactly this structure:
 - [Safety Practice 2]
 
 **Subcontractor Requirements:**
-- Subcontracted Work: [work performed by subcontractors, or "No information provided."]
-- Risk Transfer: [COIs, hold-harmless/indemnity, AI, PNC, waiver, or "No information provided."]
-- Liability Limits: [GL/AL/Umbrella limits exactly as provided, or "No information provided."]
+- Type of Work Performed: [subcontracted work/scope/trades, or "No Information Provided."]
+- Certificate of Insurance / COI: [COI requirement and timing, or "No Information Provided."]
+- Waiver of Subrogation: [waiver requirement and protected parties, or "No Information Provided."]
+- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or "No Information Provided."]
+- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or "No Information Provided."]
+- Limits Required: [GL/AL/Umbrella limits exactly as provided, or "No Information Provided."]
 
 IMPORTANT SUBCONTRACT RULE:
-If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements**. Do not write "No information provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
+If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements** using the six bullets above. Do not write "No Information Provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
 
-QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, risk transfer, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
+QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, COI, waiver, indemnity/hold harmless, AI/PNC, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
-  supplemental: `ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
+  supplemental: `VISIBLE OUTPUT RULE: Return only the Supplemental Application Summary format below. Do NOT print Source Extracts, checklists, QC logs, rewrite steps, validation artifacts, or a separate Subject Insured header. Perform QC silently and show only useful extracted fields.
+
+ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "No information provided."
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured (as previously identified, may be empty for first-pass): "\${account_name}".
@@ -591,8 +596,8 @@ This submission's named insured (as previously identified, may be empty for firs
 Before extracting ANY data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. If "\${account_name}" is a real name (not "(unknown)"): check whether any stated insured matches it (allow minor variants).
-3. If at least one document matches: extract ONLY for the matching insured. State the selected insured at the top of your output: **Subject Insured: <name as it appears>**.
-4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured (first named in cover note, or insured with most documents) and extract for that one only. State it at the top.
+3. If at least one document matches: extract ONLY for the matching insured. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
+4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured internally (first named in cover note, or insured with most documents) and extract for that one only. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
 5. If NO document's stated insured matches "\${account_name}" (and account_name is known): your ENTIRE output MUST be exactly:
    **No matching supplemental application found for this insured.**
    — nothing else. No template, no fields, no caveats.
@@ -637,22 +642,28 @@ QUALITY CONTROL (silent — do not output): Internally verify every field agains
 
   subcontract: `Role: Excess casualty insurance underwriter reviewing an uploaded subcontract/subcontractor agreement.
 
-Primary Task: Locate risk-transfer provisions and return a clean bullet-point digest. Report only what the contract states. Do not infer, interpret, or add outside knowledge. If the agreement is silent on an item, state "Not Provided". Do not include Professional Liability or Workers' Compensation details because they do not apply to excess casualty review.
+Task: Extract only subcontractor risk-transfer requirements relevant to excess casualty underwriting.
 
-Output exactly this structure:
+Output only the section and bullets below. Do not include source extracts, explanations, checklists, legal analysis, QC logs, rewrite steps, or commentary. Do not infer or assume anything. Report only what the agreement states. If a field is not found, write exactly: No Information Provided.
+
+Ignore Professional Liability, Workers' Compensation, and Employer's Liability requirements.
 
 **Subcontractor Requirements:**
-- Subcontracted Work: [trade/scope stated in agreement, or Not Provided]
-- Risk Transfer: [COI, hold-harmless/indemnity, AI, PNC, waiver, or Not Provided]
-- Liability Limits: [GL/AL/Umbrella limits in format like GL $1M/$2M/$2M/$1M, AL $1M, Umbrella $5M, or Not Provided]
 
-Additional details may be included only if expressly stated and relevant to excess casualty:
-- Additional Insured: [requirement/parties, or Not Provided]
-- Primary & Non-Contributory: [Yes/No/Not Provided]
-- Waiver of Subrogation: [Yes/No/Not Provided]
-- Completed Operations / Tail / Duration: [requirement or Not Provided]
+- Type of Work Performed: [subcontracted work/scope/trades stated in the agreement, or No Information Provided.]
+- Certificate of Insurance / COI: [COI requirement and timing, or No Information Provided.]
+- Waiver of Subrogation: [waiver requirement and protected parties, or No Information Provided.]
+- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or No Information Provided.]
+- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or No Information Provided.]
+- Limits Required: [only GL, Auto Liability, and Umbrella/Excess limits; use clean shorthand where possible, e.g. GL $1M/$2M, AL $1M, Umbrella $5M. If no applicable limits are stated, No Information Provided.]
 
-QUALITY CONTROL (silent — do not output): Internally verify source clauses used, required fields, and missing fields. Do NOT print Source Extracts, a checklist, rewrite log, or QC table in the visible output.`,
+Rules:
+- Keep each bullet short and easy to follow.
+- Do not include Professional Liability.
+- Do not include Workers' Compensation or Employer's Liability.
+- Do not add underwriting opinions.
+- Do not summarize unrelated contract provisions.
+- Do not include any checklist or source-extract section.`,
 
   vendor: `ROLE: Excess casualty underwriter reviewing a vendor / equipment lessor / material supplier agreement. Extract risk-transfer only. Exclude PL and WC. Silent = "Not Provided".
 

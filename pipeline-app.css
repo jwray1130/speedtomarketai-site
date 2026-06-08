@@ -1770,6 +1770,10 @@ table.queue {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  /* Keep 2-up cards from stretching to the height of a taller row mate.
+     A collapsed card body is display:none; without top alignment the card
+     still stretches to match the expanded neighbor, creating a blank panel. */
+  align-items: start;
   /* Explicit width cap + min-width 0 so this grid can never force its parent wider than the container.
      Without minmax(0, 1fr), grid items default to min-content and can blow out the track. */
   min-width: 0;
@@ -1820,6 +1824,7 @@ table.queue {
   max-width: 100%;
 }
 .sc-card {
+  align-self: start;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);

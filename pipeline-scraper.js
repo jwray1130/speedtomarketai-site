@@ -586,7 +586,7 @@ Do NOT summarize or paraphrase — return the raw extracted text. Downstream mod
 START CRAWLING.`;
 
   const body = {
-    model: STATE.api.model || 'claude-opus-4-7',
+    model: STATE.api.model || 'claude-opus-4-8',
     max_tokens: 16000,
     messages: [{ role: 'user', content: crawlPrompt }],
     tools: [{ type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 25 }]
@@ -749,7 +749,7 @@ Return exactly one of:
 
   // Use Anthropic's web_search tool — server handles the actual search
   const body = {
-    model: STATE.api.model || 'claude-opus-4-7',
+    model: STATE.api.model || 'claude-opus-4-8',
     max_tokens: 1024,
     messages: [{ role: 'user', content: userPrompt }],
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]

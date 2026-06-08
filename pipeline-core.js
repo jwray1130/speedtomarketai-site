@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.78-final-polish-dead-css-mc-hook-announce-2026-05-25';
+window.STM_BUILD = 'v8.7.57-opus-4-8-model-swap-2026-06-07';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
