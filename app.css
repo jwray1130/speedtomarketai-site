@@ -20,85 +20,71 @@
    ======================================================================== */
 
 :root {
-  /* ════════════════════════════════════════════════════════════════════
-     Carbon dark theme (v8.6.46). True neutral grays, zero color
-     temperature in surfaces, soft cool-blue signal. Designed for
-     6+ hour underwriting sessions — easier on eyes than royal navy.
-     Brand amber preserved at the action layer for BUILD pill and
-     accent moments. Light mode override below at line 62 unchanged.
-     ════════════════════════════════════════════════════════════════════ */
-  /* Brand signal — softer cool blue replacing the bright royal blue */
-  --signal: #9ec4ff;
-  --signal-hover: #c0d8ff;
-  --signal-dim: #6f99d4;
-  --signal-ink: #c6dcff;
-  --signal-pale: rgba(158, 196, 255, 0.10);
-  --signal-tint: rgba(158, 196, 255, 0.18);
-  --amber: #66d8ff;
-  --success: #5ddd9f;
-  --warning: #ffcf40;
-  --danger: #ff7a7a;
+  /* Brand signal — stays chartreuse in both modes */
+  --signal: #C6F432;
+  --signal-hover: #DBFF5C;
+  --signal-dim: #96BA25;
+  --signal-ink: #C6F432;
+  --signal-pale: rgba(198, 244, 50, 0.10);
+  --signal-tint: rgba(198, 244, 50, 0.18);
+  --amber: #FF9448;
+  --success: #7DD88A;
+  --warning: #FBBF24;
+  --danger: #F87171;
 
-  /* Surfaces — Carbon (true neutral, no blue bleed) */
-  --bg: #0a0a0c;
-  --surface: #141417;
-  --surface-2: #1a1a1e;
-  --surface-3: #202024;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-warm: rgba(255, 255, 255, 0.13);
+  /* Surfaces — dark mode default */
+  --bg: #0A0E1A;
+  --surface: #111724;
+  --surface-2: #1A2236;
+  --surface-3: #212A3F;
+  --line: #1F2636;
+  --line-warm: #2A3449;
 
-  --text: #fafafa;
-  --text-2: #a0a0a8;
-  --text-3: #62646c;
+  --text: #F1ECE2;
+  --text-2: #8B95A8;
+  --text-3: #5A6478;
 
-  --backdrop: rgba(10, 10, 12, 0.82);
-  --grain-opacity: 0.32;
+  --backdrop: rgba(10, 14, 26, 0.75);
+  --grain-opacity: 0.38;
   --grain-blend: overlay;
 
-  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Geist', -apple-system, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
 
   --radius: 6px;
   --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.42);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.62);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 html[data-theme="light"] {
-  /* Carbon-era v8.6.46: signal must be redefined here so it doesn't
-     inherit the soft blue from the dark :root. Light mode keeps the
-     original Stripe-bright royal blue for max contrast on white. */
-  --signal: #0570DE;
-  --signal-hover: #3B82F6;
-  --signal-dim: #0469C5;
-  --signal-ink: #0469C5;
-  --signal-pale: rgba(5, 112, 222, 0.22);
-  --signal-tint: rgba(5, 112, 222, 0.35);
-  --amber: #00D4FF;
+  --signal-ink: #4A6815;
+  --signal-pale: rgba(198, 244, 50, 0.22);
+  --signal-tint: rgba(198, 244, 50, 0.35);
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
 
-  --bg: #F6F9FC;
+  --bg: #F7F5F0;
   --surface: #FFFFFF;
-  --surface-2: #EBF0F5;
-  --surface-3: #DDE5EE;
-  --line: #E3E8EE;
-  --line-warm: #C0CCDA;
+  --surface-2: #F0ECE2;
+  --surface-3: #E8E3D4;
+  --line: #E4DECE;
+  --line-warm: #C9C1AC;
 
-  --text: #0A2540;
-  --text-2: #708099;
-  --text-3: #697386;
+  --text: #1A1F2E;
+  --text-2: #5A6478;
+  --text-3: #8A94A6;
 
-  --backdrop: rgba(255, 255, 255, 0.75);
+  --backdrop: rgba(247, 245, 240, 0.75);
   --grain-opacity: 0.10;
   --grain-blend: multiply;
 
-  --shadow-sm: 0 1px 2px rgba(10, 37, 64, 0.04);
-  --shadow: 0 4px 16px rgba(10, 37, 64, 0.06);
-  --shadow-lg: 0 20px 60px rgba(10, 37, 64, 0.14);
+  --shadow-sm: 0 1px 2px rgba(26, 31, 46, 0.04);
+  --shadow: 0 4px 16px rgba(26, 31, 46, 0.06);
+  --shadow-lg: 0 20px 60px rgba(26, 31, 46, 0.14);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -121,7 +107,7 @@ body::before {
   z-index: 999;
   mix-blend-mode: var(--grain-blend);
 }
-::selection { background: var(--signal); color: #0A2540; }
+::selection { background: var(--signal); color: #0A0E1A; }
 button, input, textarea, select { font-family: inherit; font-size: inherit; border: none; background: none; color: inherit; cursor: pointer; }
 
 * { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
@@ -248,7 +234,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   border: 1px solid;
 }
 .api-pill.demo { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
-.api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(5, 112, 222, 0.28); }
+.api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(198, 244, 50, 0.28); }
 .api-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .api-pill .dot {
   width: 6px; height: 6px;
@@ -269,7 +255,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
 /* ============ SETTINGS MODAL ============ */
 .modal-backdrop {
   position: fixed; inset: 0;
-  background: rgba(10, 37, 64, 0.75);
+  background: rgba(10, 14, 26, 0.75);
   backdrop-filter: blur(6px);
   display: none;
   align-items: center;
@@ -361,10 +347,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
 }
 .btn:hover { border-color: var(--signal); color: var(--signal-ink); }
 .btn-primary {
-  background: var(--signal); color: #0A2540;
+  background: var(--signal); color: #0A0E1A;
   border-color: var(--signal); font-weight: 700;
 }
-.btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); color: #0A2540; }
+.btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); color: #0A0E1A; }
 
 /* ============ REVIEW GATE MODAL ROWS ============ */
 .review-row {
@@ -453,7 +439,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   cursor: pointer;
 }
 .review-row-controls .btn-confirm:hover { background: var(--signal-pale); }
-.review-row.confirmed .btn-confirm { background: var(--signal); color: #0A2540; font-weight: 700; }
+.review-row.confirmed .btn-confirm { background: var(--signal); color: #0A0E1A; font-weight: 700; }
 .review-row-signatures {
   display: flex;
   gap: 4px;
@@ -544,7 +530,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   height: 22px;
   padding: 0 8px;
   background: var(--warning);
-  color: #0A2540;
+  color: #0A0E1A;
   border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -640,7 +626,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   display: inline-block;
   padding: 2px 8px;
   background: var(--warning);
-  color: #0A2540;
+  color: #0A0E1A;
   border-radius: 3px;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -720,7 +706,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   cursor: pointer;
   border: 1px solid var(--signal);
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   margin-top: 16px; /* align with select below the label */
 }
 .cr-controls button:hover { background: var(--signal-hover); }
@@ -755,7 +741,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   cursor: pointer;
   border: 1px solid var(--signal);
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
 }
 .cr-footer button:hover { background: var(--signal-hover); }
 .cr-footer button:disabled {
@@ -918,7 +904,7 @@ table.queue {
   text-transform: uppercase;
   border: 1px solid transparent;
 }
-.badge.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(5, 112, 222, 0.28); }
+.badge.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(198, 244, 50, 0.28); }
 .badge.amber { background: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.28); }
 .badge.green { background: rgba(125, 216, 138, 0.1); color: var(--success); border-color: rgba(125, 216, 138, 0.28); }
 .badge.red { background: rgba(248, 113, 113, 0.1); color: var(--danger); border-color: rgba(248, 113, 113, 0.28); }
@@ -967,7 +953,7 @@ table.queue {
   text-transform: uppercase;
   border: 1px solid transparent;
 }
-.sub-pill.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(5, 112, 222, 0.28); }
+.sub-pill.signal { background: var(--signal-pale); color: var(--signal-ink); border-color: rgba(198, 244, 50, 0.28); }
 .sub-pill.amber { background: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.28); }
 
 /* ============ 3-PANE SUBMISSION VIEW ============ */
@@ -1261,7 +1247,7 @@ table.queue {
   width: 100%;
   padding: 11px 16px;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   font-weight: 700;
   font-size: 12.5px;
   letter-spacing: -0.01em;
@@ -1272,7 +1258,7 @@ table.queue {
   justify-content: center;
   gap: 8px;
   transition: all 0.15s;
-  box-shadow: 0 4px 16px -4px rgba(5, 112, 222, 0.35);
+  box-shadow: 0 4px 16px -4px rgba(198, 244, 50, 0.35);
 }
 .btn-run:hover:not(:disabled) { background: var(--signal-hover); transform: translateY(-1px); }
 .btn-run:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; background: var(--surface-3); color: var(--text-3); }
@@ -1318,7 +1304,7 @@ table.queue {
   font-weight: 700;
   color: var(--text);
 }
-.stage-tab.active .count { background: var(--signal); color: #0A2540; }
+.stage-tab.active .count { background: var(--signal); color: #0A0E1A; }
 
 /* ============ PIPELINE VIEW ============ */
 .pipeline-empty {
@@ -1460,91 +1446,6 @@ table.queue {
 .pipe-node.queued {
   opacity: 0.42;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   PIPELINE NODE FX  ·  v8.6.36
-   "PROCESSING" wave-reveal overlay that appears only while a node
-   is .running, and disappears the instant it transitions to .done
-   (or back to queued/error). Sits inside the existing 54px node
-   footprint — name/timing become invisibility:hidden so the layout
-   never reflows when modules start or finish. Royal blue letters,
-   amber covers lifting letter-by-letter in a staggered wave.
-   ═══════════════════════════════════════════════════════════════ */
-.pipe-node-fx {
-  display: none;
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 32px;
-  bottom: 6px;
-  align-items: center;
-  justify-content: flex-start;
-  pointer-events: none;
-  z-index: 2;
-}
-.pipe-node.running .pipe-node-fx { display: flex; }
-.pipe-node.running .pipe-node-name,
-.pipe-node.running .pipe-node-timing {
-  visibility: hidden;
-}
-.pipe-node-fx-text {
-  position: relative;
-  height: 14px;
-  overflow: hidden;
-  font-family: var(--font-mono, 'SF Mono', 'Courier New', monospace);
-  font-weight: 700;
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  color: var(--signal-ink, #0e46a3);
-  text-transform: uppercase;
-  line-height: 14px;
-  user-select: none;
-}
-.pipe-node-fx-letters {
-  display: flex;
-  gap: 1px;
-  position: relative;
-}
-.pipe-node-fx-letters span {
-  display: inline-block;
-  width: 10px;
-  text-align: center;
-  line-height: 14px;
-}
-.pipe-node-fx-covers {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  gap: 1px;
-  pointer-events: none;
-}
-.pipe-node-fx-covers span {
-  display: inline-block;
-  width: 10px;
-  height: 14px;
-  background: linear-gradient(180deg, #ffd100 0%, #e0b500 100%);
-  box-shadow: 0 1px 2px rgba(184, 140, 0, 0.35);
-  animation: pipeNodeFxSweep 1.6s infinite ease-in-out;
-}
-.pipe-node-fx-covers span:nth-child(1)  { animation-delay: 0s; }
-.pipe-node-fx-covers span:nth-child(2)  { animation-delay: 0.13s; }
-.pipe-node-fx-covers span:nth-child(3)  { animation-delay: 0.26s; }
-.pipe-node-fx-covers span:nth-child(4)  { animation-delay: 0.39s; }
-.pipe-node-fx-covers span:nth-child(5)  { animation-delay: 0.52s; }
-.pipe-node-fx-covers span:nth-child(6)  { animation-delay: 0.65s; }
-.pipe-node-fx-covers span:nth-child(7)  { animation-delay: 0.78s; }
-.pipe-node-fx-covers span:nth-child(8)  { animation-delay: 0.91s; }
-.pipe-node-fx-covers span:nth-child(9)  { animation-delay: 1.04s; }
-.pipe-node-fx-covers span:nth-child(10) { animation-delay: 1.17s; }
-@keyframes pipeNodeFxSweep {
-  0%   { transform: translateY(0); }
-  18%  { transform: translateY(-100%); }
-  50%  { transform: translateY(0); }
-  100% { transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pipe-node-fx-covers span { animation: none; transform: translateY(-100%); }
-}
 /* Skipped modules — visually distinct from queued so UW knows they were intentionally
    bypassed (not just unstarted). Dimmer than queued, with a subtle strikethrough-adjacent
    treatment on the tag. */
@@ -1649,13 +1550,9 @@ table.queue {
 .pipe-node.done .pipe-node-timing { color: var(--signal-ink); font-weight: 600; }
 
 .pipeline-done {
-  /* v8.6.48: switched from signal/blue to success/green so the
-     pipeline-complete moment feels like a celebration, not just a
-     status update. Same spotlight recipe — diagonal pale-tint
-     gradient → surface — but green-tuned for "look here, success". */
   padding: 18px 22px;
-  background: linear-gradient(135deg, rgba(93, 221, 159, 0.10) 0%, var(--surface-2) 80%);
-  border: 1px solid rgba(93, 221, 159, 0.35);
+  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
+  border: 1px solid rgba(198, 244, 50, 0.35);
   border-radius: var(--radius);
   margin-top: 20px;
   display: flex;
@@ -1665,9 +1562,8 @@ table.queue {
 .pipeline-done-icon {
   width: 40px; height: 40px;
   border-radius: 50%;
-  /* v8.6.48: was --signal navy text; now --success green w/ dark text */
-  background: var(--success);
-  color: #0a0a0c;
+  background: var(--signal);
+  color: #0A0E1A;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1678,12 +1574,12 @@ table.queue {
   flex-shrink: 0;
 }
 .pipeline-done-text { flex: 1; font-size: 13px; }
-.pipeline-done-text strong { color: var(--success); display: block; font-size: 14px; margin-bottom: 2px; font-style: italic; font-family: var(--font-display); letter-spacing: -0.01em; font-weight: 500; }
+.pipeline-done-text strong { color: var(--text); display: block; font-size: 14px; margin-bottom: 2px; }
 .pipeline-done-text p { color: var(--text-2); font-size: 12px; font-family: var(--font-mono); letter-spacing: 0.03em; }
 .btn-view-summary {
   padding: 9px 18px;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   font-weight: 700;
   font-size: 12px;
   border-radius: var(--radius);
@@ -1836,7 +1732,7 @@ table.queue {
   letter-spacing: 0.12em;
   color: var(--signal-ink);
   background: var(--signal-pale);
-  border: 1px solid rgba(5, 112, 222, 0.3);
+  border: 1px solid rgba(198, 244, 50, 0.3);
   padding: 2px 7px;
   border-radius: 3px;
   font-weight: 600;
@@ -2061,15 +1957,15 @@ table.queue {
 }
 .disc-row.disc-material .disc-row-icon {
   background: var(--danger);
-  color: #0A2540;
+  color: #0A0E1A;
 }
 .disc-row.disc-minor .disc-row-icon {
   background: var(--warning);
-  color: #0A2540;
+  color: #0A0E1A;
 }
 .disc-row.disc-match .disc-row-icon {
   background: var(--success);
-  color: #0A2540;
+  color: #0A0E1A;
 }
 .disc-row-body {
   flex: 1;
@@ -2220,8 +2116,8 @@ table.loss-tbl {
   margin-bottom: 4px;
 }
 table.loss-tbl thead th {
-  background: var(--surface-2);
-  color: var(--text);
+  background: #0B1D3A;
+  color: #F1ECE2;
   padding: 9px 12px;
   text-align: left;
   font-size: 10.5px;
@@ -2254,7 +2150,7 @@ table.loss-tbl td.yr {
   letter-spacing: 0.02em;
 }
 table.loss-tbl tbody tr.outlier td {
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(255, 148, 72, 0.08);
   font-weight: 600;
 }
 table.loss-tbl tfoot td {
@@ -2315,19 +2211,19 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
   font-weight: 700;
   text-transform: uppercase;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   margin-left: 8px;
   flex-shrink: 0;
   animation: updatedPulse 1.8s ease-out 1;
 }
 @keyframes updatedPulse {
-  0%   { box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.6); transform: scale(1); }
-  40%  { box-shadow: 0 0 0 8px rgba(5, 112, 222, 0); transform: scale(1.06); }
-  100% { box-shadow: 0 0 0 0 rgba(5, 112, 222, 0); transform: scale(1); }
+  0%   { box-shadow: 0 0 0 0 rgba(198, 244, 50, 0.6); transform: scale(1); }
+  40%  { box-shadow: 0 0 0 8px rgba(198, 244, 50, 0); transform: scale(1.06); }
+  100% { box-shadow: 0 0 0 0 rgba(198, 244, 50, 0); transform: scale(1); }
 }
 .sc-card.was-updated {
-  border-color: rgba(5, 112, 222, 0.35);
-  box-shadow: 0 0 0 1px rgba(5, 112, 222, 0.1);
+  border-color: rgba(198, 244, 50, 0.35);
+  box-shadow: 0 0 0 1px rgba(198, 244, 50, 0.1);
 }
 .incremental-banner {
   position: fixed;
@@ -2357,7 +2253,7 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
 .ib-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(5, 112, 222, 0.2);
+  border: 2px solid rgba(198, 244, 50, 0.2);
   border-top-color: var(--signal);
   border-radius: 50%;
   animation: ibspin 700ms linear infinite;
@@ -2383,8 +2279,8 @@ table.loss-tbl tfoot td:last-child { border-right: none; }
   display: none;
   margin: 12px 16px;
   padding: 10px 14px;
-  background: rgba(5, 112, 222, 0.05);
-  border: 1px solid rgba(5, 112, 222, 0.25);
+  background: rgba(198, 244, 50, 0.05);
+  border: 1px solid rgba(198, 244, 50, 0.25);
   border-left: 3px solid var(--signal);
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -2457,7 +2353,7 @@ body.pipeline-complete-mode .intake-incremental-cue { display: block; }
 .sub-pill.handoff-pill.returned {
   background: var(--signal-pale);
   color: var(--signal-ink);
-  border-color: rgba(5, 112, 222, 0.3);
+  border-color: rgba(198, 244, 50, 0.3);
 }
 
 /* Handoff action buttons in Decision pane */
@@ -2515,8 +2411,8 @@ body.pipeline-complete-mode .intake-incremental-cue { display: block; }
   border-bottom: 1px solid rgba(251, 191, 36, 0.18);
 }
 .handoff-note-banner.from-assistant .hnb-head {
-  background: linear-gradient(180deg, rgba(5, 112, 222, 0.06) 0%, var(--surface-2) 100%);
-  border-bottom-color: rgba(5, 112, 222, 0.18);
+  background: linear-gradient(180deg, rgba(198, 244, 50, 0.06) 0%, var(--surface-2) 100%);
+  border-bottom-color: rgba(198, 244, 50, 0.18);
 }
 .hnb-head-left {
   display: flex;
@@ -2530,7 +2426,7 @@ body.pipeline-complete-mode .intake-incremental-cue { display: block; }
   height: 28px;
   border-radius: 50%;
   background: var(--warning);
-  color: #0A2540;
+  color: #0A0E1A;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2683,12 +2579,12 @@ body.viewing-as-assistant .actions-pane {
 }
 .tower-layer.bound {
   background: var(--signal-pale);
-  border: 1px solid rgba(5, 112, 222, 0.28);
+  border: 1px solid rgba(198, 244, 50, 0.28);
   border-left: 3px solid var(--signal);
 }
 .tower-layer.bound:hover {
-  background: rgba(5, 112, 222, 0.09);
-  border-color: rgba(5, 112, 222, 0.42);
+  background: rgba(198, 244, 50, 0.09);
+  border-color: rgba(198, 244, 50, 0.42);
 }
 .tower-layer-row-1 {
   display: flex;
@@ -2719,8 +2615,8 @@ body.viewing-as-assistant .actions-pane {
   display: inline-flex;
   align-items: center;
 }
-.tower-layer-badge.bound-badge { background: var(--signal); color: #0A2540; }
-.tower-layer-badge.proposed-badge { background: var(--warning); color: #0A2540; }
+.tower-layer-badge.bound-badge { background: var(--signal); color: #0A0E1A; }
+.tower-layer-badge.proposed-badge { background: var(--warning); color: #0A0E1A; }
 .tower-layer-badge.open-badge {
   background: transparent;
   border: 1px dashed var(--line-warm);
@@ -2754,7 +2650,7 @@ body.viewing-as-assistant .actions-pane {
   flex-shrink: 0;
 }
 .tower-layer.proposed .tower-layer-limits { color: var(--warning); background: rgba(251, 191, 36, 0.05); border-color: rgba(251, 191, 36, 0.25); }
-.tower-layer.bound .tower-layer-limits { color: var(--signal-ink); background: rgba(5, 112, 222, 0.05); border-color: rgba(5, 112, 222, 0.25); }
+.tower-layer.bound .tower-layer-limits { color: var(--signal-ink); background: rgba(198, 244, 50, 0.05); border-color: rgba(198, 244, 50, 0.25); }
 .tower-primaries-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2922,7 +2818,7 @@ body.viewing-as-assistant .actions-pane {
 .fb-chip:hover { color: var(--text); border-color: var(--line-warm); }
 .fb-chip.active {
   background: var(--warning);
-  color: #0A2540;
+  color: #0A0E1A;
   border-color: var(--warning);
 }
 .fb-popover-textarea {
@@ -2967,7 +2863,7 @@ body.viewing-as-assistant .actions-pane {
 .fb-btn-cancel:hover { color: var(--text); border-color: var(--text-3); }
 .fb-btn-submit {
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   border: 1px solid var(--signal);
 }
 .fb-btn-submit:hover { background: var(--signal-hover); border-color: var(--signal-hover); }
@@ -3010,7 +2906,7 @@ body.viewing-as-assistant .actions-pane {
 .edit-toolbar .tb-hint { color: var(--text-3); margin-left: auto; letter-spacing: 0.04em; }
 
 .sc-card.custom { border-color: var(--signal); border-left: 3px solid var(--signal); }
-.sc-card.custom .sc-tag { background: var(--warning); color: #0A2540; border-color: var(--warning); }
+.sc-card.custom .sc-tag { background: var(--warning); color: #0A0E1A; border-color: var(--warning); }
 
 .sc-card-title-edit {
   font-family: var(--font-display);
@@ -3200,7 +3096,7 @@ table.loss {
   border-bottom: 1px solid var(--line);
 }
 .loss tbody tr:last-child td { border-bottom: none; }
-.loss tbody tr:nth-child(even) td { background: rgba(5, 112, 222, 0.03); }
+.loss tbody tr:nth-child(even) td { background: rgba(198, 244, 50, 0.03); }
 .loss td.num { font-family: var(--font-mono); text-align: right; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .loss td.yr { font-family: var(--font-mono); font-weight: 700; color: var(--signal-ink); }
 .loss tfoot td {
@@ -3249,14 +3145,11 @@ table.loss {
 .verdict-card {
   padding: 14px;
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  /* v8.6.48: was hardcoded rgba(5, 112, 222, 0.32) royal blue. Now uses
-     --signal-tint so it adapts to Carbon (soft cool blue tint) AND
-     light mode (royal blue tint) automatically. */
-  border: 1px solid var(--signal-tint);
+  border: 1px solid rgba(198, 244, 50, 0.32);
   border-radius: var(--radius);
   margin-bottom: 14px;
 }
-.verdict-card.ref { background: linear-gradient(135deg, rgba(255, 207, 64, 0.08) 0%, var(--surface-2) 80%); border-color: rgba(255, 207, 64, 0.32); }
+.verdict-card.ref { background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, var(--surface-2) 80%); border-color: rgba(251, 191, 36, 0.32); }
 .verdict-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -3277,90 +3170,6 @@ table.loss {
 }
 .verdict-card.ref .verdict-value { color: var(--warning); }
 .verdict-sub { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
-
-/* ════════════════════════════════════════════════════════════════════
-   SPOTLIGHT CARDS (v8.6.48)
-   ────────────────────────────────────────────────────────────────────
-   A reusable variant system distilled from the .verdict-card recipe
-   that Justin liked. Used SPARINGLY — only for AI-synthesized moments
-   that deserve attention: takeaways, recommendations, guideline
-   citations, risk flags, and completion banners. Never for data tables,
-   buttons, repeating list items, or status pills — overuse kills the
-   "look here" effect that makes the pattern work.
-   
-   Recipe:
-   - Diagonal pale-tint → surface gradient (the spotlight)
-   - 1px translucent border matching the accent
-   - Tiny mono uppercase eyebrow label
-   - Italic display title in the accent's ink color
-   - Body sub-text underneath
-   
-   Variants:
-   .spotlight-card.signal   — blue (AI synthesis, default)
-   .spotlight-card.ref      — amber (guidelines / citations / reference)
-   .spotlight-card.warn     — red (risk flags / referral required)
-   .spotlight-card.success  — green (completion / pipeline done)
-   ════════════════════════════════════════════════════════════════════ */
-.spotlight-card {
-  padding: 14px;
-  border-radius: var(--radius);
-  border: 1px solid;
-  margin-bottom: 14px;
-  /* Defaults to signal/blue; override per variant below */
-  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border-color: var(--signal-tint);
-}
-.spotlight-card.signal {
-  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-2) 80%);
-  border-color: var(--signal-tint);
-}
-.spotlight-card.ref {
-  background: linear-gradient(135deg, rgba(255, 207, 64, 0.08) 0%, var(--surface-2) 80%);
-  border-color: rgba(255, 207, 64, 0.32);
-}
-.spotlight-card.warn {
-  background: linear-gradient(135deg, rgba(255, 122, 122, 0.08) 0%, var(--surface-2) 80%);
-  border-color: rgba(255, 122, 122, 0.32);
-}
-.spotlight-card.success {
-  background: linear-gradient(135deg, rgba(93, 221, 159, 0.08) 0%, var(--surface-2) 80%);
-  border-color: rgba(93, 221, 159, 0.32);
-}
-
-/* Internal pieces — keyed to .spotlight-card so they don't collide with
-   .verdict-label / .verdict-value (which keep their old names). */
-.spotlight-label {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  color: var(--text-3);
-  font-weight: 600;
-  text-transform: uppercase;
-  margin-bottom: 5px;
-}
-.spotlight-value {
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 500;
-  font-style: italic;
-  letter-spacing: -0.01em;
-  color: var(--signal-ink);
-  margin-bottom: 5px;
-}
-.spotlight-card.ref .spotlight-value { color: var(--warning); }
-.spotlight-card.warn .spotlight-value { color: var(--danger); }
-.spotlight-card.success .spotlight-value { color: var(--success); }
-.spotlight-sub { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
-
-/* Centered variant for empty/awaiting states. Same recipe; just
-   center-aligned and roomier. Used in pipeline/docs/tags empty states. */
-.spotlight-card.centered {
-  text-align: center;
-  padding: 36px 30px;
-}
-.spotlight-card.centered .spotlight-label { margin-bottom: 8px; }
-.spotlight-card.centered .spotlight-value { font-size: 22px; margin-bottom: 8px; }
-.spotlight-card.centered .spotlight-sub { max-width: 340px; margin: 0 auto; }
 
 .action-btns { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .act-btn {
@@ -3384,7 +3193,7 @@ table.loss {
 .act-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .act-btn.primary {
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   border-color: var(--signal);
   font-weight: 700;
 }
@@ -3535,10 +3344,10 @@ table.loss {
 }
 .queue tbody tr.sub-row:hover { background: var(--surface-2); }
 .queue tbody tr.sub-row.sub-active {
-  background: rgba(5, 112, 222, 0.04);
+  background: rgba(198, 244, 50, 0.04);
 }
 .queue tbody tr.sub-row.sub-active:hover {
-  background: rgba(5, 112, 222, 0.08);
+  background: rgba(198, 244, 50, 0.08);
 }
 .queue tbody tr.sub-row.sub-active td:first-child {
   border-left: 3px solid var(--signal);
@@ -3552,7 +3361,7 @@ table.loss {
   letter-spacing: 0.12em;
   padding: 1px 6px;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   border-radius: 3px;
   margin-left: 8px;
   vertical-align: middle;
@@ -3699,7 +3508,7 @@ table.loss {
 .status-pill.status-quoted {
   background: var(--signal-pale);
   color: var(--signal-ink);
-  border-color: rgba(5, 112, 222, 0.42);
+  border-color: rgba(198, 244, 50, 0.42);
 }
 .status-pill.status-declined {
   background: rgba(248, 113, 113, 0.10);

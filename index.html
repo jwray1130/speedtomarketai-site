@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="Speed to Market AI — commercial underwriting prep, compressed. What used to take 1-2 hours per submission now takes 10-15 minutes. AI agents deliver a decision-ready brief before the day starts. Every output source-cited, audit-logged, QC-verified.">
-<meta name="theme-color" content="#0A2540">
+<meta name="theme-color" content="#0A0E1A">
 <meta property="og:title" content="Speed to Market AI · Commercial Underwriting, 10x Faster">
 <meta property="og:description" content="From 2 hours to 15 minutes per submission. 17 AI modules. 10+ document formats. 3-5x underwriter throughput. Every output cited, audit-logged.">
 <meta property="og:type" content="website">
@@ -25,69 +25,49 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght,ital@14..32,100..900,0..1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
-<!-- ===== THREE.JS — Stripe-style WebGL gradient hero + orbital module sphere ===== -->
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
-  }
-}
-</script>
-
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,200..900,0..100;1,9..144,200..900,0..100&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* ════════════════════════════════════════════════════════════════════
-     Carbon dark theme (v8.6.46). Marketing site base — true neutral
-     grays, no color cast. The hero flame shader keeps its own
-     pink/peach/blue/lavender palette so the marbled gradient still
-     pops against this neutral charcoal canvas.
-     ════════════════════════════════════════════════════════════════════ */
-  /* Palette */
-  --bg: #0a0a0c;           /* True neutral charcoal — no blue cast */
-  --surface: #141417;      /* Elevated surface */
-  --surface-2: #1a1a1e;    /* Secondary elevation */
-  --line: rgba(255, 255, 255, 0.07);  /* Subtle rule lines */
-  --line-warm: rgba(255, 255, 255, 0.13);
-  --signal: #9ec4ff;       /* Soft cool blue — restrained vs royal */
-  --signal-dim: #6f99d4;
-  --amber: #66d8ff;        /* Cool cyan secondary */
-  --cream: #fafafa;        /* Near-white body text */
-  --muted: #a0a0a8;        /* Dim text */
-  --muted-2: #62646c;      /* Deeper dim */
-  /* Backdrop — for sticky nav, modals. Carbon neutral translucent. */
-  --backdrop: rgba(10, 10, 12, 0.82);
+  /* Palette — deliberate, not derivative */
+  --bg: #0A0E1A;           /* Deep charcoal, slight cool cast — NOT pure black */
+  --surface: #111724;      /* Elevated surface */
+  --surface-2: #1A2236;    /* Secondary elevation */
+  --line: #1F2636;         /* Subtle rule lines */
+  --line-warm: #2A3449;    /* Warmer line accent */
+  --signal: #C6F432;       /* Electric chartreuse — the hero accent, velocity & market-green */
+  --signal-dim: #96BA25;   /* Signal when dimmed */
+  --amber: #FF9448;        /* Warm secondary accent, used sparingly */
+  --cream: #F1ECE2;        /* Warm off-white body text */
+  --muted: #8B95A8;        /* Dim text */
+  --muted-2: #5A6478;      /* Deeper dim */
   /* Type */
-  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
+  --font-body: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
   /* Rhythm */
   --gutter: clamp(20px, 4vw, 48px);
   --max-w: 1320px;
   /* Grain overlay opacity (overridden in light mode) */
-  --grain-opacity: 0.38;
-  /* Hero device shadow — Carbon variant (neutral, no blue tint in halo) */
-  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 60px 120px -40px rgba(0, 0, 0, 0.42);
+  --grain-opacity: 0.45;
+  /* Hero device shadow (overridden in light mode) */
+  --device-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(198, 244, 50, 0.08), 0 60px 120px -40px rgba(198, 244, 50, 0.12);
 }
 
 /* ===== LIGHT MODE THEME ===== */
 :root[data-theme="light"] {
-  --bg: #FFFFFF;          /* Warm cream background — NOT pure white */
+  --bg: #F7F5F0;          /* Warm cream background — NOT pure white */
   --surface: #FFFFFF;     /* Elevated surfaces are pure white */
-  --surface-2: #F6F9FC;   /* Secondary surface — deeper warm tone */
-  --line: #E3E8EE;        /* Subtle warm rule lines */
-  --line-warm: #C0CCDA;   /* Warmer line accent */
-  --signal: #0570DE;      /* Brighter chartreuse-olive — AA readable, carries punch */
-  --signal-dim: #0469C5;  /* Signal when dimmed */
-  --amber: #0570DE;       /* Slightly warmer amber for contrast on cream */
-  --cream: #0A2540;       /* "Cream" = dark text on light */
-  --muted: #425466;       /* Muted text */
-  --muted-2: #697386;     /* Deeper dim — was too light at #697386 */
-  /* Backdrop — for sticky nav, modals. Light translucent. */
-  --backdrop: rgba(255, 255, 255, 0.75);
+  --surface-2: #EEEAE0;   /* Secondary surface — deeper warm tone */
+  --line: #E0DACE;        /* Subtle warm rule lines */
+  --line-warm: #CFC8B9;   /* Warmer line accent */
+  --signal: #7FA820;      /* Brighter chartreuse-olive — AA readable, carries punch */
+  --signal-dim: #96BA25;  /* Signal when dimmed */
+  --amber: #B84E15;       /* Slightly warmer amber for contrast on cream */
+  --cream: #1A1F2E;       /* "Cream" = dark text on light */
+  --muted: #5A6375;       /* Muted text */
+  --muted-2: #6F7A8E;     /* Deeper dim — was too light at #8A94A6 */
   --grain-opacity: 0.08;  /* Much less grain in light mode */
-  --device-shadow: 0 20px 50px -20px rgba(10, 37, 64, 0.15), 0 0 0 1px rgba(5, 112, 222, 0.14), 0 40px 80px -30px rgba(5, 112, 222, 0.10);
+  --device-shadow: 0 20px 50px -20px rgba(26, 31, 46, 0.15), 0 0 0 1px rgba(127, 168, 32, 0.14), 0 40px 80px -30px rgba(127, 168, 32, 0.10);
 }
 
 /* Smooth theme transitions */
@@ -108,7 +88,7 @@ html, body {
   font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.55;
-  font-feature-settings: "ss01" on, "ss03" on, "cv11" on, "cv05" on;
+  font-feature-settings: "ss01" on, "ss02" on, "cv11" on;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   min-height: 100vh;
@@ -175,13 +155,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   position: sticky;
   top: 0;
   z-index: 50;
-  /* v8.6.47: was hardcoded rgba(10, 37, 64, 0.82) — old royal navy
-     translucent. That bypassed the theme variable system so the topbar
-     stayed navy regardless of Carbon dark / light mode toggle. Now uses
-     --backdrop so it adapts: Carbon (rgba(10,10,12,0.82)) in dark mode,
-     rgba(255,255,255,0.75) in light mode. The theme toggle now visibly
-     changes the topbar instead of looking like it "didn't stick". */
-  background: var(--backdrop);
+  background: rgba(10, 14, 26, 0.82);
   backdrop-filter: blur(16px) saturate(130%);
   -webkit-backdrop-filter: blur(16px) saturate(130%);
   border-bottom: 1px solid var(--line);
@@ -249,7 +223,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   letter-spacing: -0.01em;
   transition: all 0.18s ease;
 }
-.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.55); }
+.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 22px -6px rgba(198, 244, 50, 0.55); }
 .nav-cta svg { width: 13px; height: 13px; transition: transform 0.18s; }
 .nav-cta:hover svg { transform: translateX(3px); }
 .nav-toggle { display: none; }
@@ -298,17 +272,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Nav CTA already works because it references --signal and --bg */
 [data-theme="light"] .nav-cta { color: #FFFFFF; }
-[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(5, 112, 222, 0.32); }
+[data-theme="light"] .nav-cta:hover { box-shadow: 0 6px 22px -6px rgba(127, 168, 32, 0.32); }
 
 /* Primary buttons — white text on the darker chartreuse reads cleanly */
 [data-theme="light"] .btn-primary { color: #FFFFFF; }
-[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.35); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 10px 28px -8px rgba(127, 168, 32, 0.35); }
 
 /* Hero accent ribbon — soften the signal tint on cream */
 [data-theme="light"] .hero-accent {
   background:
-    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.16) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.11) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(127, 168, 32, 0.06) 47%, rgba(127, 168, 32, 0.16) 50%, rgba(127, 168, 32, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(127, 168, 32, 0.04) 59%, rgba(127, 168, 32, 0.11) 61%, rgba(127, 168, 32, 0.04) 63%, transparent 64%);
   mix-blend-mode: multiply;
 }
 
@@ -319,29 +293,29 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Device chunk styles — amber alert and signal tints */
 [data-theme="light"] .chunk.alert {
-  background: rgba(5, 112, 222, 0.08);
+  background: rgba(194, 84, 28, 0.08);
 }
 
 /* Wedge callout — signal tint on warm cream */
 [data-theme="light"] .wedge-callout {
-  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(127, 168, 32, 0.06) 0%, transparent 65%);
 }
 
 /* Time compression "after" card — the signal-tinted one */
 [data-theme="light"] .ba-col.after {
-  border-color: rgba(5, 112, 222, 0.35);
-  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05), var(--surface) 60%);
+  border-color: rgba(127, 168, 32, 0.35);
+  background: linear-gradient(180deg, rgba(127, 168, 32, 0.05), var(--surface) 60%);
 }
 
 /* Roadmap "now" card */
 [data-theme="light"] .roadmap-col.now {
-  border-color: rgba(5, 112, 222, 0.32);
-  background: linear-gradient(180deg, rgba(5, 112, 222, 0.05) 0%, var(--surface) 70%);
+  border-color: rgba(127, 168, 32, 0.32);
+  background: linear-gradient(180deg, rgba(127, 168, 32, 0.05) 0%, var(--surface) 70%);
 }
 
 /* Built-by section radial glow */
 [data-theme="light"] .builtby::before {
-  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.07), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(127, 168, 32, 0.07), transparent 60%);
 }
 
 /* Built-by avatar — flip ring color to darker chartreuse for contrast */
@@ -357,7 +331,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Career timeline */
 [data-theme="light"] .ct-item.active .ct-dot {
-  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
+  box-shadow: 0 0 0 4px rgba(127, 168, 32, 0.18);
 }
 
 /* Testimonials quote mark */
@@ -367,12 +341,12 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Use case tab active — softer signal highlight */
 [data-theme="light"] .uc-tab.active {
-  background: linear-gradient(90deg, rgba(5, 112, 222, 0.07), transparent);
+  background: linear-gradient(90deg, rgba(127, 168, 32, 0.07), transparent);
 }
 
 /* Nav backdrop blur — stronger white behind so it doesn't wash out */
 [data-theme="light"] .nav {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(247, 245, 240, 0.85);
 }
 
 /* Selection color stays chartreuse on white text */
@@ -383,10 +357,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* Footer email pill hover */
 [data-theme="light"] .foot-email:hover {
-  background: rgba(5, 112, 222, 0.07);
+  background: rgba(127, 168, 32, 0.07);
 }
 [data-theme="light"] .foot-social:hover {
-  background: rgba(5, 112, 222, 0.07);
+  background: rgba(127, 168, 32, 0.07);
 }
 
 /* Stats strip numbers — signal italic */
@@ -471,7 +445,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--surface-2);
   border-color: var(--line-warm);
   color: var(--cream);
-  box-shadow: 0 6px 16px -6px rgba(10, 37, 64, 0.18);
+  box-shadow: 0 6px 16px -6px rgba(26, 31, 46, 0.18);
 }
 
 /* Brand mark SVG in light mode — darken strokes for visibility on cream */
@@ -507,8 +481,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 62%;
   height: 130%;
   background:
-    linear-gradient(125deg, transparent 46%, rgba(5, 112, 222, 0.06) 47%, rgba(5, 112, 222, 0.18) 50%, rgba(5, 112, 222, 0.06) 53%, transparent 54%),
-    linear-gradient(125deg, transparent 58%, rgba(5, 112, 222, 0.04) 59%, rgba(5, 112, 222, 0.12) 61%, rgba(5, 112, 222, 0.04) 63%, transparent 64%);
+    linear-gradient(125deg, transparent 46%, rgba(198, 244, 50, 0.06) 47%, rgba(198, 244, 50, 0.18) 50%, rgba(198, 244, 50, 0.06) 53%, transparent 54%),
+    linear-gradient(125deg, transparent 58%, rgba(198, 244, 50, 0.04) 59%, rgba(198, 244, 50, 0.12) 61%, rgba(198, 244, 50, 0.04) 63%, transparent 64%);
   mix-blend-mode: screen;
   pointer-events: none;
 }
@@ -518,13 +492,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   max-width: var(--max-w);
   margin: 0 auto;
   padding: 0 var(--gutter);
-  /* Single-column hero — device mockup removed, text reflows left.
-     Constrain inner max-width so the headline doesn't sprawl across the
-     full 1280px container; ~720px keeps the type rhythm tight. */
-  display: block;
+  display: grid;
+  grid-template-columns: 1fr 0.85fr;
+  gap: 60px;
+  align-items: center;
 }
-.hero-inner > div { max-width: 720px; }
 @media (max-width: 980px) {
+  .hero-inner { grid-template-columns: 1fr; gap: 48px; }
   .hero { padding: 54px 0 80px 0; }
 }
 
@@ -556,7 +530,7 @@ h1.hero-title {
   color: var(--cream);
   font-weight: 350;
   margin-bottom: 28px;
-  font-variation-settings: "opsz" 32;
+  font-variation-settings: "opsz" 144, "SOFT" 40;
 }
 h1.hero-title .line {
   display: block;
@@ -605,7 +579,7 @@ h1.hero-title em {
   background: var(--signal);
   color: var(--bg);
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(5, 112, 222, 0.6); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px rgba(198, 244, 50, 0.6); }
 .btn-ghost {
   background: transparent;
   color: var(--cream);
@@ -707,7 +681,7 @@ h1.hero-title em {
   color: var(--muted);
 }
 .chunk.alert {
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(255, 148, 72, 0.08);
   border-left-color: var(--amber);
 }
 .chunk.alert .label { color: var(--amber); }
@@ -804,7 +778,7 @@ h1.hero-title em {
   line-height: 1;
   color: var(--cream);
   font-weight: 300;
-  font-variation-settings: "opsz" 24;
+  font-variation-settings: "opsz" 144, "SOFT" 20;
   margin-bottom: 6px;
 }
 .stat-num em { font-style: italic; color: var(--signal); font-weight: 300; }
@@ -853,7 +827,7 @@ section.section {
   font-weight: 350;
   max-width: 920px;
   margin-bottom: 18px;
-  font-variation-settings: "opsz" 28;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
 }
 .section-title em { font-style: italic; color: var(--signal); font-weight: 300; }
 .section-lede {
@@ -991,12 +965,12 @@ section.section {
 
 /* ===== FINAL UW SUMMARY capstone card ===== */
 .module.module-summary {
-  background: linear-gradient(165deg, rgba(5, 112, 222, 0.08) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(198, 244, 50, 0.08) 0%, var(--bg) 80%);
   border-left: 3px solid var(--signal);
   position: relative;
 }
 .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(5, 112, 222, 0.12) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(198, 244, 50, 0.12) 0%, var(--surface) 80%);
 }
 .module.module-summary::before {
   /* Subtle diagonal sheen in the corner */
@@ -1004,7 +978,7 @@ section.section {
   position: absolute;
   top: 0; right: 0;
   width: 90px; height: 90px;
-  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.16), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(198, 244, 50, 0.16), transparent 70%);
   pointer-events: none;
 }
 .module-tag.summary-tag {
@@ -1033,8 +1007,8 @@ section.section {
   font-size: 9.5px;
   letter-spacing: 0.1em;
   color: var(--signal);
-  background: rgba(5, 112, 222, 0.08);
-  border: 1px solid rgba(5, 112, 222, 0.28);
+  background: rgba(198, 244, 50, 0.08);
+  border: 1px solid rgba(198, 244, 50, 0.28);
   padding: 3px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1060,17 +1034,17 @@ section.section {
 
 /* Light-mode adjustments for the capstone card */
 [data-theme="light"] .module.module-summary {
-  background: linear-gradient(165deg, rgba(5, 112, 222, 0.09) 0%, var(--bg) 80%);
+  background: linear-gradient(165deg, rgba(127, 168, 32, 0.09) 0%, var(--bg) 80%);
 }
 [data-theme="light"] .module.module-summary:hover {
-  background: linear-gradient(165deg, rgba(5, 112, 222, 0.13) 0%, var(--surface) 80%);
+  background: linear-gradient(165deg, rgba(127, 168, 32, 0.13) 0%, var(--surface) 80%);
 }
 [data-theme="light"] .module.module-summary::before {
-  background: radial-gradient(circle at top right, rgba(5, 112, 222, 0.14), transparent 70%);
+  background: radial-gradient(circle at top right, rgba(127, 168, 32, 0.14), transparent 70%);
 }
 [data-theme="light"] .summary-chip {
-  background: rgba(5, 112, 222, 0.09);
-  border-color: rgba(5, 112, 222, 0.3);
+  background: rgba(127, 168, 32, 0.09);
+  border-color: rgba(127, 168, 32, 0.3);
 }
 
 
@@ -1107,7 +1081,7 @@ section.section {
 .uc-tab.active {
   color: var(--cream);
   border-left-color: var(--signal);
-  background: linear-gradient(90deg, rgba(5, 112, 222, 0.05), transparent);
+  background: linear-gradient(90deg, rgba(198, 244, 50, 0.05), transparent);
 }
 @media (max-width: 880px) {
   .uc-tab { border-left: none; border-bottom: 2px solid transparent; }
@@ -1162,7 +1136,7 @@ section.section {
 /* ========== WEDGE CALLOUT ========== */
 .wedge-callout {
   position: relative;
-  background: linear-gradient(135deg, rgba(5, 112, 222, 0.06) 0%, transparent 65%);
+  background: linear-gradient(135deg, rgba(198, 244, 50, 0.06) 0%, transparent 65%);
   border: 1px solid var(--line-warm);
   border-left: 3px solid var(--signal);
   border-radius: 14px;
@@ -1188,7 +1162,7 @@ section.section {
   color: var(--cream);
   font-weight: 350;
   letter-spacing: -0.015em;
-  font-variation-settings: "opsz" 28;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
   margin: 0;
 }
 .wedge-line em {
@@ -1334,7 +1308,7 @@ section.section {
   right: -10%;
   width: 60%;
   height: 200%;
-  background: radial-gradient(ellipse at center, rgba(5, 112, 222, 0.08), transparent 60%);
+  background: radial-gradient(ellipse at center, rgba(198, 244, 50, 0.08), transparent 60%);
   pointer-events: none;
 }
 .builtby-avatar {
@@ -1416,7 +1390,7 @@ section.section {
   font-weight: 300;
   max-width: 900px;
   margin: 0 auto 32px auto;
-  font-variation-settings: "opsz" 32;
+  font-variation-settings: "opsz" 144, "SOFT" 40;
 }
 .cta-huge em { font-style: italic; color: var(--signal); font-weight: 300; }
 .cta-sub {
@@ -1475,7 +1449,7 @@ footer {
   border-radius: 999px;
   transition: all 0.2s;
 }
-.foot-email:hover { border-color: var(--signal); background: rgba(5, 112, 222, 0.05); }
+.foot-email:hover { border-color: var(--signal); background: rgba(198, 244, 50, 0.05); }
 
 /* ========== FOOTER SOCIAL LINKS ========== */
 .foot-socials {
@@ -1501,7 +1475,7 @@ footer {
 }
 .foot-social:hover {
   border-color: var(--signal);
-  background: rgba(5, 112, 222, 0.05);
+  background: rgba(198, 244, 50, 0.05);
   transform: translateY(-1px);
 }
 .foot-social:hover .fs-icon { color: var(--signal); }
@@ -1585,581 +1559,6 @@ footer {
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
 .reveal.in { opacity: 1; transform: translateY(0); }
-
-/* ════════════════════════════════════════════════════════════════════════
-   STRIPE-STYLE OVERHAUL — design tokens, canvases, parallelogram crops,
-   refined type scale, and the WebGL gradient hero. Everything below this
-   line was added in the Stripe pass; nothing above was structurally changed
-   beyond the palette + typography swap.
-   ════════════════════════════════════════════════════════════════════════ */
-
-/* Inter Variable optical sizing on display copy. Inter ships an `opsz` axis
-   that pulls in tighter spacing + reduced contrast at large sizes — the
-   closest free analog to Söhne's display cut. */
-h1, h2, h3, .hero-title, .section-title, .cta-huge, .stat-num, .mc-num, .ba-stat {
-  font-feature-settings: "ss01" on, "ss03" on, "cv11" on, "cv05" on;
-  font-variation-settings: "opsz" 32;
-  letter-spacing: -0.025em;        /* Stripe sets display type tight; -2.5% is canonical */
-}
-h1.hero-title, .cta-huge {
-  letter-spacing: -0.035em;        /* Even tighter on the giants — Stripe's headline cut */
-  font-weight: 600;                /* Stripe display weight is roughly 600 (semi-demi) */
-}
-h1.hero-title em, .cta-huge em, .section-title em, .builtby h3 em, .wedge-line em {
-  font-style: normal;              /* Drop italic; Stripe uses color contrast, not italics */
-  font-weight: 600;
-  color: var(--signal);
-}
-.hero-sub strong { color: var(--signal); font-weight: 600; }
-
-/* ───── HERO WebGL flame gradient canvas ─────
-   Stripe's current homepage flame ribbons. The shader's fragment program
-   handles its own alpha fade (right-opaque, left-transparent), so we don't
-   apply a skew or mask on the canvas itself — that would double-fade.
-   The canvas overflows the hero on the right so the ribbons can drift
-   off-screen, mirroring how Stripe.com's flame extends past the viewport. */
-.hero { isolation: isolate; }
-.hero-gradient-canvas {
-  position: absolute;
-  inset: -8% -10% -8% -2%;
-  width: 112%;
-  height: 116%;
-  z-index: 0;
-  pointer-events: none;
-  /* No skew, no mask — the shader does it. Just a subtle blend with the page. */
-  mix-blend-mode: normal;
-}
-.hero-grid { z-index: 1; opacity: 0.12; }
-.hero-accent { z-index: 1; opacity: 0; }   /* flame replaces the old SVG accent ribbon */
-.hero-inner { position: relative; z-index: 2; }
-
-[data-theme="light"] .hero-grid { opacity: 0.22; }
-
-/* ───── MODULES orbital sphere canvas ─────
-   Sits behind the modules-grid (Stripe-style "globe of nodes"). 17 points
-   plotted on a Fibonacci sphere, drifting with a subtle simplex noise
-   perturbation, with line connections drawn to the 4 nearest neighbors. */
-#modules { position: relative; isolation: isolate; }
-.modules-orbit-canvas {
-  position: absolute;
-  top: 0; right: -8%;
-  width: 60%;
-  height: 100%;
-  max-height: 720px;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.55;
-  mask-image: radial-gradient(ellipse 70% 60% at 70% 50%, black 30%, transparent 90%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 70% 50%, black 30%, transparent 90%);
-}
-[data-theme="light"] .modules-orbit-canvas { opacity: 0.32; }
-#modules .section-inner { position: relative; z-index: 1; }
-@media (max-width: 880px) {
-  .modules-orbit-canvas {
-    top: -40px; right: -30%;
-    width: 110%; height: 320px;
-    opacity: 0.35;
-  }
-}
-
-/* ───── CTA flame gradient — full-width softer wave ───── */
-.cta-section { position: relative; isolation: isolate; overflow: hidden; }
-.cta-gradient-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
-  /* Shader controls its own fade. */
-}
-.cta-section .section-inner { position: relative; z-index: 1; }
-
-/* ───── STRIPE-FAITHFUL BUTTONS ─────
-   Stripe pills are fully rounded, slightly tighter padding, and the
-   primary CTA carries a faint inner highlight + crisp shadow. */
-.btn-primary {
-  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);   /* lighter top → Stripe Blue bottom */
-  color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.55);
-}
-.btn-primary:hover {
-  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.65);
-  transform: translateY(-1px);
-}
-.nav-cta {
-  background: linear-gradient(180deg, #1E7BE6 0%, #0570DE 100%);
-  color: #FFFFFF;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 4px 14px -4px rgba(5, 112, 222, 0.45);
-}
-.nav-cta:hover {
-  background: linear-gradient(180deg, #3B82F6 0%, #0570DE 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 22px -6px rgba(5, 112, 222, 0.6);
-}
-
-/* ───── STAT NUMBERS — Stripe-style: bigger, tighter, gradient ─────
-   Stripe's big stats ("$1.9T", "135+") use a vertical gradient from the
-   primary indigo into a slightly desaturated tone for visual depth. */
-.stat-num em, .mc-num em, .ba-stat em {
-  background: linear-gradient(180deg, var(--signal) 0%, var(--signal-dim) 100%);
-  -webkit-background-clip: text;
-          background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-style: normal;
-  font-weight: 600;
-}
-
-/* ───── SKEWED SECTION DIVIDERS — the parallelogram move ─────
-   Three sections get a thin gradient stripe at top that's skewed -8deg,
-   echoing Stripe's customer-story photo crops. We use ::before on the
-   section so the rule is purely decorative and doesn't affect layout. */
-.market-context, #time-compression, #usecases {
-  position: relative;
-}
-.market-context::before, #time-compression::before, #usecases::before {
-  content: "";
-  position: absolute;
-  top: -1px; left: -2%;
-  width: 104%; height: 1px;
-  background: linear-gradient(90deg, transparent 0%, var(--signal) 25%, var(--signal-dim) 50%, var(--signal) 75%, transparent 100%);
-  opacity: 0.5;
-  transform: skewY(-1.5deg);
-  transform-origin: 0 0;
-  pointer-events: none;
-}
-
-/* ───── BENTO-STYLE MODULE GRID — Stripe-faithful refinements ─────
-   Stripe's bento cells share a unifying 24px border-radius, subtle inner
-   gradients, and an indigo accent corner. The existing layout is preserved;
-   only the visual finish is upgraded. */
-.modules-grid {
-  border-radius: 24px;
-  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.45);
-}
-.module {
-  position: relative;
-  overflow: hidden;
-}
-.module::after {
-  content: "";
-  position: absolute;
-  top: 0; right: 0;
-  width: 60%; height: 100%;
-  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.06), transparent 60%);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-}
-.module:hover::after { opacity: 1; }
-[data-theme="light"] .module::after {
-  background: radial-gradient(ellipse at top right, rgba(5, 112, 222, 0.08), transparent 60%);
-}
-
-/* ───── Brand mark — Stripe-style hover ───── */
-.brand-mark svg rect, .brand-mark svg path {
-  transition: stroke 0.25s ease;
-}
-.brand:hover .brand-mark svg rect,
-.brand:hover .brand-mark svg path {
-  stroke: var(--signal);
-}
-
-/* ───── HERO TITLE — Stripe-faithful triple-stack text trick ─────
-   Stripe duplicates the headline with mix-blend-mode to pick up the
-   gradient color. We replicate this via the three .line spans by giving
-   the third one (containing <em>) a stronger color treatment. */
-h1.hero-title .line:has(em) em {
-  background: linear-gradient(135deg, #0570DE 0%, #00D4FF 100%);
-  -webkit-background-clip: text;
-          background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* ───── DEVICE FRAME — Stripe-product-card aesthetic ─────
-   Stripe's product cards on stripe.com use a slim border + lifted shadow
-   with a faint indigo glow. We bake that in here for the .device-frame. */
-.device-frame {
-  background: var(--surface);
-  border-color: rgba(5, 112, 222, 0.14);
-  box-shadow:
-    0 0 0 1px rgba(5, 112, 222, 0.08),
-    0 30px 80px -30px rgba(0, 0, 0, 0.7),
-    0 60px 120px -40px rgba(5, 112, 222, 0.18);
-}
-[data-theme="light"] .device-frame {
-  border-color: rgba(5, 112, 222, 0.16);
-  box-shadow:
-    0 0 0 1px rgba(5, 112, 222, 0.1),
-    0 20px 50px -20px rgba(10, 37, 64, 0.15),
-    0 40px 80px -30px rgba(5, 112, 222, 0.18);
-}
-
-/* ───── REDUCED MOTION — Three.js animations pause for users who request it ───── */
-@media (prefers-reduced-motion: reduce) {
-  .hero-gradient-canvas, .modules-orbit-canvas, .cta-gradient-canvas {
-    animation: none !important;
-  }
-  /* The Three.js loop checks the same media query and stops the rAF chain. */
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 1 — "THE LIVE PIPELINE"
-   The hero device frame becomes a living object: 3D mouse-tilt parallax,
-   auto-cycling active chunk with proximity-based dimming, scan-line WebGL
-   sweep, magnetic float tags, and a typewriter caption. All driven by
-   the Session 1 script block at the end of <body>.
-   ════════════════════════════════════════════════════════════════════════ */
-
-/* The visual side of the hero needs perspective + 3D context for the tilt
-   transform to actually render in 3D rather than as a 2D matrix. */
-.hero-visual {
-  perspective: 1400px;
-  perspective-origin: 50% 50%;
-}
-.device-frame {
-  /* The JS rotates --tx, --ty (radians, clamped). Default to 0 so the frame
-     sits flat until the cursor is over the hero. transition smooths the
-     return-to-rest when the cursor leaves. */
-  --tx: 0deg;
-  --ty: 0deg;
-  --tz: 0px;
-  transform-style: preserve-3d;
-  transform: perspective(1400px) rotateX(var(--ty)) rotateY(var(--tx)) translateZ(var(--tz));
-  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
-  will-change: transform;
-}
-.hero-visual.is-tilting .device-frame {
-  /* When mouse is moving inside the hero, drop the transition so the tilt
-     follows the cursor in real time. The transition kicks back in only on
-     mouseleave (when .is-tilting is removed). */
-  transition: transform 0.08s linear;
-}
-/* Float tags get the same perspective context so their magnetic pull also
-   reads as a slight 3D shift, not just a flat translate. */
-.float-tag {
-  --mx: 0px;
-  --my: 0px;
-  transform: translate(var(--mx), var(--my));
-  transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
-  will-change: transform;
-}
-.hero-visual.is-magnetizing .float-tag {
-  /* Real-time follow when cursor is in proximity */
-  transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
-/* ───── ACTIVE CHUNK CYCLING ─────
-   Chunks pass through three states as the cycle advances:
-     .chunk--active : the focused row, brighter, slightly enlarged, glowing
-     .chunk--near   : within ±1 of active, lifted slightly
-     .chunk--far    : everything else, dimmed
-   The cycle starts ~3.5s after page load (after entry stagger finishes)
-   and pauses while the cursor is over the device frame so the user can
-   read normally. */
-.chunk {
-  transition:
-    transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1),
-    background-color 0.55s ease,
-    border-left-color 0.55s ease,
-    box-shadow 0.55s ease,
-    opacity 0.55s ease;
-  position: relative;
-  /* Keep chunks above the scanline canvas */
-  z-index: 2;
-}
-.chunk--active {
-  transform: translateX(0) scale(1.015);
-  background-color: rgba(5, 112, 222, 0.10);
-  border-left-color: var(--signal);
-  box-shadow:
-    0 0 0 1px rgba(5, 112, 222, 0.20),
-    0 6px 18px -8px rgba(5, 112, 222, 0.55),
-    inset 2px 0 0 var(--signal);
-  z-index: 3;
-}
-.chunk--active .label {
-  color: var(--signal);
-}
-.chunk--near {
-  opacity: 0.94;
-}
-.chunk--far {
-  opacity: 0.62;
-}
-/* Alert chunks already have their own border color — preserve that even
-   when active (just intensify the glow). */
-.chunk.alert.chunk--active {
-  background-color: rgba(0, 212, 255, 0.10);
-  border-left-color: var(--amber);
-  box-shadow:
-    0 0 0 1px rgba(0, 212, 255, 0.22),
-    0 6px 18px -8px rgba(0, 212, 255, 0.55),
-    inset 2px 0 0 var(--amber);
-}
-.chunk.alert.chunk--active .label {
-  color: var(--amber);
-}
-[data-theme="light"] .chunk--active {
-  background-color: rgba(5, 112, 222, 0.06);
-  box-shadow:
-    0 0 0 1px rgba(5, 112, 222, 0.18),
-    0 6px 18px -8px rgba(5, 112, 222, 0.40),
-    inset 2px 0 0 var(--signal);
-}
-
-/* ───── SCAN-LINE CANVAS ─────
-   Sits inside .device-body, absolutely positioned, paints a thin moving
-   horizontal sweep with an indigo halo following the active chunk's Y
-   position. mix-blend-mode: screen lightens whatever's beneath it, so
-   the sweep visibly passes through the chunks. */
-.device-scanline-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1;            /* below chunks (z-index: 2), above device-body bg */
-  mix-blend-mode: screen;
-  opacity: 0.85;
-}
-[data-theme="light"] .device-scanline-canvas {
-  mix-blend-mode: multiply;
-  opacity: 0.45;
-}
-
-/* ───── TYPEWRITER CAPTION ─────
-   The .device-caption-typer span is initially emptied by JS, then filled
-   character-by-character. The blinking caret appears via ::after only
-   while the typer has [data-typing="true"]. */
-.device-caption-typer {
-  position: relative;
-}
-.device-caption-typer[data-typing="true"]::after {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 2px;
-  background: var(--signal);
-  vertical-align: text-bottom;
-  animation: typerCaret 0.7s steps(1) infinite;
-}
-@keyframes typerCaret {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 5 — POLISH CLOSER
-   View-transition radial reveal, custom cursor, click ripple, and
-   universal theme transitions for the slow color-flow effect.
-   ════════════════════════════════════════════════════════════════════════ */
-
-/* ───── VIEW TRANSITION — radial reveal from the toggle button ─────
-   The browser captures pre/post snapshots of the page when document.
-   startViewTransition() runs, then composites them via these pseudos.
-   We keep the OLD snapshot underneath, animated, and clip-path the NEW
-   snapshot from a 0% circle at the toggle button to a 150% circle that
-   covers the full viewport. Result: the new theme literally radiates
-   out from the click point. */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;             /* override default crossfade */
-  mix-blend-mode: normal;
-}
-::view-transition-old(root) {
-  z-index: 0;
-}
-::view-transition-new(root) {
-  z-index: 1;
-  clip-path: circle(0% at var(--vt-cx, 50%) var(--vt-cy, 50%));
-  animation: vt-reveal 700ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-@keyframes vt-reveal {
-  to { clip-path: circle(160% at var(--vt-cx, 50%) var(--vt-cy, 50%)); }
-}
-
-/* Universal theme transitions — for browsers without View Transitions API,
-   this keeps the old/new states crossfading harmoniously across all
-   themed properties. The few properties listed cover ~95% of theme
-   changes; anything not listed snaps instantly, which is fine. */
-body, .topbar, .nav-links a, .module, .device-frame, .device-body,
-.chunk, .ba-col, .roadmap-col, .stats-strip, .mc-stat, .uc-pane,
-.foot-bottom, .builtby, .ct-content, .ct-dot, .float-tag, .announce {
-  transition:
-    background-color 600ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color     600ms cubic-bezier(0.4, 0, 0.2, 1),
-    color            450ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ───── CUSTOM CURSOR ───── */
-.custom-cursor {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  margin-top: -4px;
-  background: var(--signal);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 99998;
-  opacity: 0;
-  transition:
-    width 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
-    height 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
-    margin 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
-    background 0.22s ease,
-    border 0.22s ease,
-    opacity 0.18s ease;
-  /* The element follows the cursor via JS-applied transform; we don't
-     want CSS transitions on transform itself or the lerp would compound. */
-  will-change: transform;
-}
-.custom-cursor.cursor--visible { opacity: 0.85; }
-.custom-cursor.cursor--hover {
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
-  margin-top: -14px;
-  background: transparent;
-  border: 1.5px solid var(--signal);
-  opacity: 0.7;
-}
-/* Hide on touch devices — the @media query in JS already gates creation,
-   but defense in depth in case the JS race-condition-creates one. */
-@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
-  .custom-cursor { display: none !important; }
-}
-
-/* ───── CLICK RIPPLE ─────
-   White expanding circle from click point, scales 0 → 1 over 600ms with
-   the standard cubic-bezier curve. Pill buttons clip via overflow:hidden
-   (set by JS at runtime if not already on the element). */
-.ripple {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.45);
-  pointer-events: none;
-  transform: scale(0);
-  opacity: 1;
-  animation: rippleExpand 600ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-@keyframes rippleExpand {
-  to {
-    transform: scale(1);
-    opacity: 0;
-  }
-}
-/* Light-mode buttons are blue with white text — white ripple looks great.
-   Light-mode .btn-secondary is white-ish though, so the ripple needs a
-   darker tint there. */
-[data-theme="light"] .btn-secondary .ripple {
-  background: rgba(5, 112, 222, 0.20);
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 3 — BIDIRECTIONAL BINDING (sphere ↔ bento)
-   The orbital sphere is now a navigation device.
-   .module--linked    : applied when the sphere node hover matches this card
-   .module--target-pulse : brief flash after a sphere-click scrolls to it
-   ════════════════════════════════════════════════════════════════════════ */
-.module--linked {
-  /* Distinct from the default .module:hover state (which has the indigo
-     radial corner glow). The "linked from sphere" treatment is a Stripe
-     Blue ring + a slight lift, so the user can tell which interaction
-     triggered which highlight. */
-  border-color: var(--signal) !important;
-  box-shadow:
-    0 0 0 2px rgba(5, 112, 222, 0.32),
-    0 12px 28px -10px rgba(5, 112, 222, 0.40);
-  transform: translateY(-2px);
-  z-index: 2;
-}
-.module--linked .module-tag,
-.module--linked .module-name {
-  color: var(--signal);
-}
-[data-theme="light"] .module--linked {
-  box-shadow:
-    0 0 0 2px rgba(5, 112, 222, 0.28),
-    0 12px 28px -10px rgba(5, 112, 222, 0.30);
-}
-
-/* Scroll-target pulse — fires after a sphere-node click smooth-scrolls to
-   the matching card. Two-stage: bright halo → fade. The class is auto-
-   removed after the animation duration so the card returns to baseline. */
-.module--target-pulse {
-  animation: modulePulse 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-@keyframes modulePulse {
-  0% {
-    box-shadow:
-      0 0 0 0 rgba(5, 112, 222, 0.85),
-      0 0 0 8px rgba(5, 112, 222, 0.0);
-  }
-  20% {
-    box-shadow:
-      0 0 0 8px rgba(5, 112, 222, 0.0),
-      0 0 0 0 rgba(5, 112, 222, 0.85);
-    transform: translateY(-3px) scale(1.015);
-  }
-  100% {
-    box-shadow:
-      0 0 0 0 rgba(5, 112, 222, 0.0),
-      0 0 0 0 rgba(5, 112, 222, 0.0);
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* Light-mode variant of the pulse — same shape, lower max alpha so it
-   doesn't overpower the white background */
-[data-theme="light"] .module--target-pulse {
-  animation: modulePulseLight 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-@keyframes modulePulseLight {
-  0% {
-    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.50);
-  }
-  20% {
-    box-shadow: 0 0 0 12px rgba(5, 112, 222, 0.0);
-    transform: translateY(-3px) scale(1.015);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(5, 112, 222, 0.0);
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* The .module element already has a transition for hover via the existing
-   ::after psuedo. Make sure transform + box-shadow + border-color have
-   transitions too so .module--linked feels smooth, not snappy. */
-.module {
-  transition:
-    transform 0.32s cubic-bezier(0.2, 0.7, 0.2, 1),
-    box-shadow 0.32s cubic-bezier(0.2, 0.7, 0.2, 1),
-    border-color 0.32s ease;
-}
-
-/* ───── LIGHT-MODE HERO TEXT LEGIBILITY ─────
-   In light mode the WebGL gradient sits on a white page and lifts to a
-   pastel indigo / pink wash. The hero text needs a tiny boost so it stays
-   crisp on top. Stripe.com handles this same problem with a subtle white
-   panel under the headline; we go subtler with text-shadow. */
-[data-theme="light"] h1.hero-title {
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-[data-theme="light"] .hero-sub {
-  color: #2D3B52;     /* darker than --muted so it sits cleanly on the pastel gradient */
-}
-[data-theme="light"] .hero-sub strong { color: #0A2540; }
-
-/* ───── CTA SECTION — text legibility on the bottom gradient ───── */
-[data-theme="light"] .cta-huge {
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
-}
 </style>
 </head>
 <body>
@@ -2169,7 +1568,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   <div class="announce-inner">
     <span class="tag">NEW</span>
     <span>AI underwriting prep that turns 1-2 hours of submission work into 10-15 minutes</span>
-    <a href="/platform" class="announce-link">Try it now &rarr;</a>
+    <a href="/app" class="announce-link">Try it now &rarr;</a>
   </div>
 </div>
 
@@ -2179,9 +1578,9 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
     <a href="#" class="brand">
       <span class="brand-mark">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
-          <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+          <rect x="2" y="2" width="36" height="36" rx="9" stroke="#C6F432" stroke-width="1.5"/>
+          <path d="M12 22 L20 14 L28 22" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 28 L20 20 L28 28" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
         </svg>
       </span>
       <span>Speed to Market <em>AI</em></span>
@@ -2205,7 +1604,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
     </button>
-    <a href="/platform" class="nav-cta">
+    <a href="/app" class="nav-cta">
       Launch platform
       <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
@@ -2217,7 +1616,6 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 
 <!-- ========== HERO ========== -->
 <section class="hero">
-  <canvas class="hero-gradient-canvas" id="heroGradientCanvas" aria-hidden="true"></canvas>
   <div class="hero-grid"></div>
   <div class="hero-accent"></div>
   <div class="hero-inner">
@@ -2236,11 +1634,87 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
           Request access
           <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
-        <a href="/platform" class="btn btn-ghost">
+        <a href="/app" class="btn btn-ghost">
           Try the platform
           <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L15 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
       </div>
+    </div>
+    <div class="hero-visual">
+      <div class="float-tag float-tag-1"><span class="dot"></span>RUNNING &middot; 17 MODULES</div>
+      <div class="device-frame">
+        <div class="device-topbar">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="device-body">
+          <div class="chunk">
+            <div class="label">A1 &middot; WEBSITE INTEL</div>
+            <div class="content">meridianstructural.com &middot; <span class="mono-data">Scope aligns w/ app &middot; no red flags</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A2 &middot; SUPPLEMENTAL</div>
+            <div class="content">Meridian Structural Group &middot; 18 yrs &middot; <span class="mono-data">Max height 62 ft &middot; 75-unit fleet</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A3 &middot; SUBCONTRACTOR</div>
+            <div class="content">AI + $2M required &middot; <span class="mono-data">Primary &amp; non-contrib &middot; full transfer</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A4 &middot; VENDOR</div>
+            <div class="content">Crane lease &middot; <span class="mono-data">Borrowed-servant exposure flagged</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A5 &middot; SAFETY MANUAL</div>
+            <div class="content">EMR 0.82 &middot; TRIR 2.1 &middot; <span class="mono-data">&lt; NAICS avg &middot; OSHA 10/30 logged</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A6 &middot; SUMMARY OF OPS</div>
+            <div class="content">Structural steel erection &middot; <span class="mono-data">NYC / NJ / PA commercial</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A7 &middot; CLASS CODE</div>
+            <div class="content">ISO 91580 &middot; <span class="mono-data">Iron/steel erection &ndash; frame</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A8 &middot; GUIDELINE</div>
+            <div class="content">In appetite &middot; <span class="mono-data">2 referral triggers (see flags)</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A9 &middot; EXPOSURE</div>
+            <div class="content">NY &sect;240 severity &middot; <span class="mono-data">&gt;$2M attachment penetration likely</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A10 &middot; STRENGTHS</div>
+            <div class="content">18-yr tenure &middot; <span class="mono-data">VPP Star &middot; 4:1 sub-to-FTE oversight</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A11 &middot; LOSS HISTORY</div>
+            <div class="content">40 claims / 5 yrs &middot; <span class="mono-data">$487K incurred &middot; 0 primary penetration</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A12 &middot; PRIMARY GL</div>
+            <div class="content">Starr &middot; A/XV &middot; <span class="mono-data">$1M/$2M/$2M &middot; CG 22 94 subsidence excl.</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A13 &middot; PRIMARY AL</div>
+            <div class="content">75 units &middot; <span class="mono-data">60 PPT / 15 trucks &middot; 150mi radius</span></div>
+          </div>
+          <div class="chunk">
+            <div class="label">A14 &middot; EXCESS</div>
+            <div class="content">$10M xs $2M &middot; <span class="mono-data">Follow-form &middot; Ironshore A/XV</span></div>
+          </div>
+          <div class="chunk alert">
+            <div class="label">&#9670; GUIDELINE FLAG</div>
+            <div class="content">Height 62 ft exceeds 40 ft threshold &middot; <span class="mono-data">HIE Questionnaire required</span></div>
+          </div>
+          <div class="chunk alert">
+            <div class="label">&#9670; GUIDELINE FLAG</div>
+            <div class="content">NY Labor Law &sect;240/241 exposure &middot; <span class="mono-data">Senior UW referral</span></div>
+          </div>
+        </div>
+        <div class="device-caption">Generated in 47 seconds &middot; all 17 modules &middot; source-cited</div>
+      </div>
+      <div class="float-tag float-tag-2"><span class="dot"></span>QC CHECK &middot; &#10003; 17/17</div>
     </div>
   </div>
 </section>
@@ -2335,7 +1809,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   color: var(--cream);
   font-weight: 300;
   letter-spacing: -0.025em;
-  font-variation-settings: "opsz" 28;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
   margin-bottom: 10px;
   display: inline-flex;
   align-items: baseline;
@@ -2495,8 +1969,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   border-color: var(--line-warm);
 }
 .ba-col.after {
-  border-color: rgba(5, 112, 222, 0.32);
-  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04), var(--surface) 60%);
+  border-color: rgba(198, 244, 50, 0.32);
+  background: linear-gradient(180deg, rgba(198, 244, 50, 0.04), var(--surface) 60%);
 }
 .ba-label {
   font-family: var(--font-mono);
@@ -2516,7 +1990,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   font-weight: 300;
   letter-spacing: -0.025em;
   margin-bottom: 16px;
-  font-variation-settings: "opsz" 32;
+  font-variation-settings: "opsz" 144, "SOFT" 40;
 }
 .ba-col.after .ba-stat { color: var(--signal); }
 .ba-stat span {
@@ -2695,7 +2169,6 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 
 <!-- ========== MODULES ========== -->
 <section class="section reveal" id="modules" style="padding-top: 40px;">
-  <canvas class="modules-orbit-canvas" id="modulesOrbitCanvas" aria-hidden="true"></canvas>
   <div class="section-inner">
     <div class="section-label">The Engines</div>
     <h2 class="section-title">Seventeen specialists. <em>One workbench.</em></h2>
@@ -3162,8 +2635,8 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 }
 .roadmap-col:hover { border-color: var(--signal); transform: translateY(-3px); }
 .roadmap-col.now {
-  border-color: rgba(5, 112, 222, 0.35);
-  background: linear-gradient(180deg, rgba(5, 112, 222, 0.04) 0%, var(--surface) 70%);
+  border-color: rgba(198, 244, 50, 0.35);
+  background: linear-gradient(180deg, rgba(198, 244, 50, 0.04) 0%, var(--surface) 70%);
 }
 .rm-horizon {
   font-family: var(--font-mono);
@@ -3273,7 +2746,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 <section class="section reveal" id="builtby" style="padding-top: 40px;">
   <div class="section-inner">
     <div class="builtby">
-      <div class="builtby-avatar"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640' viewBox='0 0 640 640'%3E%3Crect width='640' height='640' fill='%23141417'/%3E%3Ccircle cx='320' cy='250' r='105' fill='%239ec4ff' opacity='.28'/%3E%3Crect x='155' y='390' width='330' height='120' rx='60' fill='%239ec4ff' opacity='.18'/%3E%3Ctext x='320' y='570' text-anchor='middle' font-family='Inter,Arial' font-size='28' fill='%23fafafa'%3ESpeed to Market AI%3C/text%3E%3C/svg%3E" alt="Justin Wray" /></div>
+      <div class="builtby-avatar"><img src="/justin-wray.jpg" alt="Justin Wray" /></div>
       <div class="builtby-content">
         <h3>Built by someone who has done <em>every job</em> it automates.</h3>
         <p><strong>Justin Wray, CPCU</strong> has spent <strong>13 years in underwriting</strong> &mdash; ground-up, from a clearance seat to Executive Casualty Underwriter &mdash; plus <strong>5 years applying AI</strong> to underwriting workflows and guideline automation. He carries the <strong>CPCU designation</strong> (completed 2024), the industry&rsquo;s gold-standard technical credential. Every module on this platform automates a task Justin personally performed thousands of times. Nothing ships until it would survive his own audit.</p>
@@ -3402,7 +2875,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 .ct-item.active .ct-dot {
   background: var(--signal);
   border-color: var(--signal);
-  box-shadow: 0 0 0 4px rgba(5, 112, 222, 0.18);
+  box-shadow: 0 0 0 4px rgba(198, 244, 50, 0.18);
 }
 .ct-item:hover .ct-dot {
   border-color: var(--signal);
@@ -3453,7 +2926,6 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
 
 <!-- ========== CTA ========== -->
 <section class="cta-section reveal" id="cta">
-  <canvas class="cta-gradient-canvas" id="ctaGradientCanvas" aria-hidden="true"></canvas>
   <div class="section-inner">
     <div class="section-label" style="justify-content: center;">Early Access</div>
     <div class="cta-huge">
@@ -3467,7 +2939,7 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
         Request pilot access
         <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </a>
-      <a href="/platform" class="btn btn-ghost">
+      <a href="/app" class="btn btn-ghost">
         Try the platform
       </a>
     </div>
@@ -3482,9 +2954,9 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
         <a href="#" class="brand">
           <span class="brand-mark">
             <svg viewBox="0 0 40 40" fill="none">
-              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#0570DE" stroke-width="1.5"/>
-              <path d="M12 22 L20 14 L28 22" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 28 L20 20 L28 28" stroke="#0570DE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <rect x="2" y="2" width="36" height="36" rx="9" stroke="#C6F432" stroke-width="1.5"/>
+              <path d="M12 22 L20 14 L28 22" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 28 L20 20 L28 28" stroke="#C6F432" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </span>
           <span>Speed to Market <em>AI</em></span>
@@ -3552,1162 +3024,6 @@ body, .topbar, .nav-links a, .module, .device-frame, .device-body,
   </div>
 </footer>
 
-<script type="module">
-/* ════════════════════════════════════════════════════════════════════════
-   STRIPE FLAME GRADIENT v2 — Domain-warped FBM ribbons.
-
-   This replaces the v1 vertex-displacement "lava lamp" gradient (which is
-   how Stripe.com looked circa 2018-2020) with their CURRENT 2024+ flowing
-   ribbon gradient. The technique is fundamentally different:
-
-     v1 (old): displace plane vertices with simplex noise, color per vertex,
-               GPU-interpolate across triangles. Looks like soft waves.
-
-     v2 (new): single full-screen quad, all work in fragment shader.
-               Two-pass DOMAIN WARPING — sample FBM noise, use that as
-               offset to sample FBM AGAIN, use THAT as offset to sample
-               a third time. Result is flowing, ribbon-like, organic.
-               Iñigo Quílez published this technique in 2002. It's the
-               same idea behind Stripe's current homepage hero.
-
-   Three.js usage:
-     • ShaderMaterial with transparent: true + premultipliedAlpha
-     • PlaneGeometry(2, 2) — no segments needed (no vertex work)
-     • OrthographicCamera (full-screen quad)
-     • THREE.Color for sRGB-correct uniforms
-     • MutationObserver on data-theme — palette swap on theme toggle
-     • IntersectionObserver — pause rAF when off-screen
-     • 30fps render cap (frame skip)
-   ════════════════════════════════════════════════════════════════════════ */
-import * as THREE from 'three';
-
-const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-/* ───── Ashima Arts simplex 2D noise — the building block of FBM ───── */
-const SIMPLEX_2D = /* glsl */ `
-vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
-float snoise(vec2 v){
-  const vec4 C = vec4(0.211324865405187, 0.366025403784439,
-                     -0.577350269189626, 0.024390243902439);
-  vec2 i  = floor(v + dot(v, C.yy));
-  vec2 x0 = v -   i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-  vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = mod(i, 289.0);
-  vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
-        + i.x + vec3(0.0, i1.x, 1.0));
-  vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
-                          dot(x12.zw,x12.zw)), 0.0);
-  m = m*m; m = m*m;
-  vec3 x = 2.0 * fract(p * C.www) - 1.0;
-  vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5);
-  vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-  vec3 g;
-  g.x  = a0.x  * x0.x   + h.x  * x0.y;
-  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-  return 130.0 * dot(m, g);
-}
-
-/* Fractal Brownian Motion — sum of simplex octaves at decreasing amplitudes.
-   5 octaves is the sweet spot: enough complexity to look organic, cheap
-   enough to render at 30fps on integrated GPUs. */
-float fbm(vec2 p) {
-  float v = 0.0;
-  float a = 0.5;
-  vec2 shift = vec2(100.0);
-  mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.50));
-  for (int i = 0; i < 5; i++) {
-    v += a * snoise(p);
-    p = rot * p * 2.0 + shift;
-    a *= 0.5;
-  }
-  return v;
-}
-`;
-
-/* ════════════════════════════════════════════════════════════════════════
-   1. HERO FLAME GRADIENT — the centerpiece
-   ════════════════════════════════════════════════════════════════════════ */
-function buildHeroFlame(canvas, opts = {}) {
-  if (!canvas) return null;
-
-  const renderer = new THREE.WebGLRenderer({
-    canvas, antialias: true, alpha: true,
-    premultipliedAlpha: false,
-    powerPreference: 'high-performance',
-  });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-  camera.position.z = 1;
-
-  /* Single full-screen quad. No segments — fragment shader does everything. */
-  const geometry = new THREE.PlaneGeometry(2, 2);
-
-  /* TWO PALETTES.
-     Stripe's current homepage flame: hot pink, peach/orange, light blue,
-     a touch of lavender. We mirror those, with a clean fade-out on the
-     left side so the headline stays readable.
-
-     Light-mode flame is brighter / more saturated (sits on white page).
-     Dark-mode flame is slightly dimmed (already glows on slate page). */
-  const PALETTES = {
-    light: {
-      base:    '#FFFFFF',  // page bleed-through (transparent in practice)
-      flameA:  '#FF61AB',  // hot pink — the dominant ribbon
-      flameB:  '#FFA75E',  // peach/orange — wraps across the bottom
-      flameC:  '#5BD2FF',  // light blue — the cool counterpoint top-left
-      accent:  '#C8A2FF',  // lavender highlight — picks out the brightest peaks
-    },
-    dark: {
-      base:    '#0A2540',
-      flameA:  '#E63B85',  // pink, slightly deeper for dark mode legibility
-      flameB:  '#FF8E3C',  // orange, hotter
-      flameC:  '#3FB8E8',  // sky blue
-      accent:  '#9F7BFF',  // violet — yes, the flame KEEPS purple in it
-                            // (Stripe's flame has lavender/purple ribbons too)
-    },
-  };
-  function currentPalette() {
-    return document.documentElement.getAttribute('data-theme') === 'light'
-      ? PALETTES.light : PALETTES.dark;
-  }
-
-  const p = currentPalette();
-  const uniforms = {
-    u_time:   { value: 0 },
-    u_base:   { value: new THREE.Color(p.base) },
-    u_flameA: { value: new THREE.Color(p.flameA) },
-    u_flameB: { value: new THREE.Color(p.flameB) },
-    u_flameC: { value: new THREE.Color(p.flameC) },
-    u_accent: { value: new THREE.Color(p.accent) },
-    u_alphaCenterX:  { value: opts.alphaCenterX ?? 0.55 },   // where the fade transitions
-    u_alphaSpread:   { value: opts.alphaSpread  ?? 0.45 },   // how soft the fade is
-    u_alphaMax:      { value: opts.alphaMax     ?? 0.95 },
-    u_baseFade:      { value: opts.baseFade     ?? 1.0 },    // 1=show base, 0=transparent base
-    /* SESSION 2 — interactive uniforms.
-       u_mouse  : normalized cursor position over the hero, 0..1 each axis.
-                  Defaults to (0.5, 0.5) so the gradient looks centered when
-                  the cursor isn't tracked yet.
-       u_scrollProgress : 0 when hero is at the top of viewport, 1 when the
-                  hero has been fully scrolled past. Used to dim the flame
-                  as the user reads further down the page. */
-    u_mouse:           { value: new THREE.Vector2(0.5, 0.5) },
-    u_scrollProgress:  { value: 0 },
-  };
-
-  /* Theme toggle — re-tune palette on data-theme change without page reload */
-  const obs = new MutationObserver(() => {
-    const np = currentPalette();
-    uniforms.u_base.value.set(np.base);
-    uniforms.u_flameA.value.set(np.flameA);
-    uniforms.u_flameB.value.set(np.flameB);
-    uniforms.u_flameC.value.set(np.flameC);
-    uniforms.u_accent.value.set(np.accent);
-  });
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
-  const vertexShader = /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `;
-
-  /* DOMAIN WARPING — Iñigo Quílez technique.
-     Three samples of FBM, each fed through warped UV coords from the previous.
-     The result is the organic, ribbon-like flow we see on Stripe.com — way
-     more complex than what a single FBM lookup produces. */
-  const fragmentShader = /* glsl */ `
-    ${SIMPLEX_2D}
-    varying vec2 vUv;
-    uniform float u_time;
-    uniform vec3 u_base, u_flameA, u_flameB, u_flameC, u_accent;
-    uniform float u_alphaCenterX, u_alphaSpread, u_alphaMax, u_baseFade;
-    uniform vec2 u_mouse;             /* Session 2 — cursor pos, 0..1 */
-    uniform float u_scrollProgress;   /* Session 2 — 0=hero in view, 1=past */
-
-    void main() {
-      /* Stretch UV so the flame reads horizontally — Stripe's ribbons
-         flow left-to-right across a wide hero, not up-down. */
-      vec2 uv = vUv;
-      uv.x *= 1.6;
-
-      /* SESSION 2: cursor warp.
-         Add a small offset to the uv based on cursor position. Mouse is
-         centered at (0.5, 0.5), so we shift by (mouse - 0.5) * strength.
-         The ribbons appear to bend toward the cursor without being so
-         strong that the gradient feels "stuck to" the pointer. */
-      vec2 mouseOffset = (u_mouse - 0.5) * 0.15;
-      uv += mouseOffset;
-
-      float t = u_time * 0.08;
-
-      /* First domain warp — slowly drifting offset field */
-      vec2 q;
-      q.x = fbm(uv + vec2(0.0, 0.0) + t * 0.5);
-      q.y = fbm(uv + vec2(5.2, 1.3) + t * 0.4);
-
-      /* Second domain warp — uses q to perturb the next sample.
-         This is the move that turns FBM from "noise" into "ribbons". */
-      vec2 r;
-      r.x = fbm(uv + 4.0 * q + vec2(1.7, 9.2) + t * 0.6);
-      r.y = fbm(uv + 4.0 * q + vec2(8.3, 2.8) + t * 0.5);
-
-      /* Final FBM sample, perturbed by the warped field.
-         SESSION 2: cursor proximity adds subtle additional warp via
-         u_mouse — the flame intensifies slightly toward the cursor. */
-      float mouseHeat = 1.0 - smoothstep(0.0, 0.6, length((vUv - u_mouse) * vec2(1.4, 1.0)));
-      float f = fbm(uv + 3.5 * r + t * 0.3) + mouseHeat * 0.18;
-
-      /* COLOR MIXING — three layers stacked, each driven by a different
-         flow signal. This is what gives the gradient its painterly,
-         multi-color richness instead of looking like a single tinted blob. */
-      vec3 color = u_base;
-      color = mix(color, u_flameA, clamp(length(q) * 0.65, 0.0, 1.0));
-      color = mix(color, u_flameB, clamp(length(r) * 0.55, 0.0, 1.0));
-      color = mix(color, u_flameC, clamp(f * f * 1.2 + 0.1, 0.0, 1.0));
-      /* Accent highlight — only on the brightest peaks, sparingly */
-      color = mix(color, u_accent, clamp(pow(f, 4.0) * 1.8, 0.0, 0.5));
-
-      /* ALPHA MASK — fade left so the text column stays clean.
-         smoothstep(center - spread, center + spread, x) gives a soft
-         transition from transparent (left) to opaque (right). The exact
-         center+spread are tuned per canvas via uniforms. */
-      float alpha = smoothstep(
-        u_alphaCenterX - u_alphaSpread,
-        u_alphaCenterX + u_alphaSpread,
-        vUv.x
-      );
-
-      /* Slight vertical edge fade — keeps the flame from butting hard
-         against the section borders at top/bottom */
-      alpha *= smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
-
-      alpha *= u_alphaMax;
-
-      /* SESSION 2: scroll-driven dim. As the user reads further down,
-         the hero flame slowly recedes — drops to ~50% intensity by the
-         time it's fully scrolled past. Subtle but pervasive. */
-      alpha *= mix(1.0, 0.5, u_scrollProgress);
-
-      /* Optionally fade the base color too — when u_baseFade=0, the
-         base color goes transparent so the page bleeds through cleanly */
-      vec3 finalColor = mix(color, color, u_baseFade);  /* placeholder for clarity */
-
-      gl_FragColor = vec4(finalColor, alpha);
-    }
-  `;
-
-  const material = new THREE.ShaderMaterial({
-    uniforms, vertexShader, fragmentShader,
-    transparent: true,
-    depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  scene.add(mesh);
-
-  function resize() {
-    const { clientWidth, clientHeight } = canvas;
-    if (clientWidth === 0 || clientHeight === 0) return;
-    renderer.setSize(clientWidth, clientHeight, false);
-  }
-  resize();
-  window.addEventListener('resize', resize);
-
-  return { renderer, scene, camera, uniforms, mesh, resize };
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   2. ORBITAL MODULE SPHERE — 17 nodes on a Fibonacci sphere.
-   Same as v1 structurally, but retinted from indigo to Stripe Blue.
-   ════════════════════════════════════════════════════════════════════════ */
-function buildModulesOrbit(canvas) {
-  if (!canvas) return null;
-
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-  camera.position.set(0, 0, 4.5);
-
-  const POINT_COUNT = 17;
-  const phi = Math.PI * (3.0 - Math.sqrt(5.0));
-  const points = [];
-  for (let i = 0; i < POINT_COUNT; i++) {
-    const y = 1 - (i / (POINT_COUNT - 1)) * 2;
-    const radius = Math.sqrt(1 - y * y);
-    const theta = phi * i;
-    points.push(new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius));
-  }
-
-  /* Wireframe sphere — now blue */
-  const sphereGeo = new THREE.IcosahedronGeometry(1, 3);
-  const sphereMat = new THREE.MeshBasicMaterial({
-    color: 0x0570DE, wireframe: true, transparent: true, opacity: 0.10,
-  });
-  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
-  scene.add(sphere);
-
-  /* Nodes — 14 in Stripe Blue, 3 in cyan as visual variety */
-  const nodeGroup = new THREE.Group();
-  const nodeGeo = new THREE.SphereGeometry(0.045, 16, 16);
-  const nodeMat = new THREE.MeshBasicMaterial({ color: 0x0570DE });
-  const nodeAccentMat = new THREE.MeshBasicMaterial({ color: 0x00D4FF });
-  points.forEach((p, i) => {
-    const mat = (i % 5 === 0) ? nodeAccentMat : nodeMat;
-    const node = new THREE.Mesh(nodeGeo, mat);
-    node.position.copy(p);
-    node.userData.basePos = p.clone();
-    node.userData.phase = Math.random() * Math.PI * 2;
-    nodeGroup.add(node);
-  });
-  scene.add(nodeGroup);
-
-  /* Connection lines — nearest 3 neighbors, deduped */
-  const connections = [];
-  points.forEach((p, i) => {
-    points.map((q, j) => ({ j, d: p.distanceTo(q) }))
-      .filter(x => x.j !== i)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 3)
-      .forEach(({ j }) => { if (i < j) connections.push([i, j]); });
-  });
-
-  const linePositions = new Float32Array(connections.length * 6);
-  const lineGeo = new THREE.BufferGeometry();
-  lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x0570DE, transparent: true, opacity: 0.25 });
-  const lines = new THREE.LineSegments(lineGeo, lineMat);
-  scene.add(lines);
-
-  function resize() {
-    const { clientWidth, clientHeight } = canvas;
-    if (clientWidth === 0 || clientHeight === 0) return;
-    renderer.setSize(clientWidth, clientHeight, false);
-    camera.aspect = clientWidth / clientHeight;
-    camera.updateProjectionMatrix();
-  }
-  resize();
-  window.addEventListener('resize', resize);
-
-  function update(t) {
-    sphere.rotation.y = t * 0.12;
-    nodeGroup.rotation.y = t * 0.12;
-    nodeGroup.children.forEach((node) => {
-      const drift = Math.sin(t * 0.6 + node.userData.phase) * 0.04;
-      node.position.copy(node.userData.basePos).multiplyScalar(1 + drift);
-
-      /* Session 3 — animate scale toward target. When a node is highlighted
-         (.userData.highlighted = true), it lerps to scale 1.6; otherwise
-         lerps back to 1.0. Same trick as the smoothed mouse uniforms above. */
-      const targetScale = node.userData.highlighted ? 1.6 : 1.0;
-      const cur = node.scale.x;
-      const next = cur + (targetScale - cur) * 0.18;
-      node.scale.setScalar(next);
-    });
-    nodeGroup.updateMatrixWorld();
-    const tmp = new THREE.Vector3();
-    let idx = 0;
-    connections.forEach(([i, j]) => {
-      tmp.setFromMatrixPosition(nodeGroup.children[i].matrixWorld);
-      linePositions[idx++] = tmp.x; linePositions[idx++] = tmp.y; linePositions[idx++] = tmp.z;
-      tmp.setFromMatrixPosition(nodeGroup.children[j].matrixWorld);
-      linePositions[idx++] = tmp.x; linePositions[idx++] = tmp.y; linePositions[idx++] = tmp.z;
-    });
-    lineGeo.attributes.position.needsUpdate = true;
-  }
-
-  /* ─────────────────────────────────────────────────────────────────
-     Session 3 — bidirectional binding API.
-     The orbital sphere becomes interactive: hover a node → light up the
-     corresponding bento card; hover a card → light up the corresponding
-     node. Click either side → smooth-scroll to the matching module.
-     ───────────────────────────────────────────────────────────────── */
-  const raycaster = new THREE.Raycaster();
-  /* Generous threshold on the line-test distance for sphere meshes —
-     the nodes are small (radius 0.045) and we want a hit zone slightly
-     larger than the visual so it doesn't feel finicky. */
-  raycaster.params.Mesh = { threshold: 0.05 };
-
-  function setHighlight(idx) {
-    nodeGroup.children.forEach((node, i) => {
-      node.userData.highlighted = (i === idx);
-      /* Highlighted nodes adopt the cyan accent material so they stand
-         out from their indigo siblings even when not currently scaled. */
-      if (i === idx) node.material = nodeAccentMat;
-      else node.material = (i % 5 === 0) ? nodeAccentMat : nodeMat;
-    });
-  }
-  function clearHighlight() { setHighlight(-1); }
-
-  /* Hit-test: given clientX/Y screen coords, return the index of the
-     hovered node, or -1 if none. The mouse coords are converted to NDC
-     against the canvas's bounding rect. */
-  function getHoveredIdx(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    /* Bail early if the cursor isn't inside the canvas rect — saves a
-       raycast on every page-wide mousemove. */
-    if (clientX < rect.left || clientX > rect.right ||
-        clientY < rect.top  || clientY > rect.bottom) return -1;
-    const x = ((clientX - rect.left) / rect.width)  * 2 - 1;
-    const y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera({ x, y }, camera);
-    const hits = raycaster.intersectObjects(nodeGroup.children, false);
-    return hits.length > 0 ? nodeGroup.children.indexOf(hits[0].object) : -1;
-  }
-
-  return {
-    renderer, scene, camera, update, resize,
-    setHighlight, clearHighlight, getHoveredIdx,
-    nodes: nodeGroup.children,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   3. CTA FLAME — same shader, softer palette, full-width fade-in
-   ════════════════════════════════════════════════════════════════════════ */
-function buildCtaFlame(canvas) {
-  /* No alpha mask — we want the gradient full-bleed across the CTA section */
-  return buildHeroFlame(canvas, {
-    alphaCenterX: 0.5,
-    alphaSpread:  0.65,
-    alphaMax:     0.55,
-  });
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   ORCHESTRATION
-   ════════════════════════════════════════════════════════════════════════ */
-const heroCanvas    = document.getElementById('heroGradientCanvas');
-const modulesCanvas = document.getElementById('modulesOrbitCanvas');
-const ctaCanvas     = document.getElementById('ctaGradientCanvas');
-
-const hero    = !REDUCED_MOTION && heroCanvas    ? buildHeroFlame(heroCanvas)    : null;
-const modules = !REDUCED_MOTION && modulesCanvas ? buildModulesOrbit(modulesCanvas) : null;
-const cta     = !REDUCED_MOTION && ctaCanvas     ? buildCtaFlame(ctaCanvas)      : null;
-
-/* IntersectionObserver gating — only render visible canvases */
-const visible = new Map();
-const visObserver = new IntersectionObserver(entries => {
-  entries.forEach(e => visible.set(e.target, e.isIntersecting));
-}, { threshold: 0 });
-[heroCanvas, modulesCanvas, ctaCanvas].forEach(c => { if (c) visObserver.observe(c); });
-
-/* ───────────────────────────────────────────────────────────────────────
-   SESSION 2 — interactive shader drivers.
-
-   Mouse: track cursor position relative to the .hero element. Smoothed
-   with linear interpolation toward the target so the flame doesn't snap
-   on every pixel of cursor movement — feels like the gradient has weight.
-
-   Scroll: compute hero bounding-rect against viewport. progress=0 when
-   the hero top is at the top of viewport, progress=1 when the hero has
-   been fully scrolled past. Used by the hero shader's u_scrollProgress
-   uniform to taper the flame's alpha as the user reads further down.
-   ─────────────────────────────────────────────────────────────────────── */
-const heroEl = document.querySelector('.hero');
-const mouseTarget = { x: 0.5, y: 0.5 };   /* what we want u_mouse to be */
-const mouseSmoothed = { x: 0.5, y: 0.5 }; /* what we actually pass to GPU */
-let scrollProgressTarget = 0;
-let scrollProgressSmoothed = 0;
-
-if (heroEl) {
-  /* mousemove on the hero only — outside the hero, the cursor is irrelevant.
-     We use clientX/Y because the hero is in normal document flow with no
-     transforms between body and hero. */
-  heroEl.addEventListener('mousemove', e => {
-    const r = heroEl.getBoundingClientRect();
-    mouseTarget.x = (e.clientX - r.left) / r.width;
-    /* Y is inverted because GLSL UV has 0 at bottom; we want 0=top in JS */
-    mouseTarget.y = 1 - (e.clientY - r.top) / r.height;
-  });
-  heroEl.addEventListener('mouseleave', () => {
-    mouseTarget.x = 0.5;
-    mouseTarget.y = 0.5;
-  });
-
-  /* scroll progress — recompute on scroll AND on resize */
-  function updateScrollProgress() {
-    const r = heroEl.getBoundingClientRect();
-    /* progress 0 when r.top >= 0 (hero at or below viewport top)
-       progress 1 when r.bottom <= 0 (hero fully above viewport)  */
-    if (r.bottom <= 0) {
-      scrollProgressTarget = 1;
-    } else if (r.top >= 0) {
-      scrollProgressTarget = 0;
-    } else {
-      scrollProgressTarget = -r.top / r.height;
-    }
-  }
-  window.addEventListener('scroll', updateScrollProgress, { passive: true });
-  window.addEventListener('resize', updateScrollProgress);
-  updateScrollProgress();
-}
-
-let frameCount = 0;
-const start = performance.now();
-
-function tick() {
-  requestAnimationFrame(tick);
-  if (document.hidden) return;
-  frameCount++;
-  if (frameCount % 2 !== 0) return;   /* 30fps cap */
-
-  const t = (performance.now() - start) / 1000;
-
-  /* Smooth cursor + scroll values toward their targets.
-     Lerp factor ~0.12 = critically damped feel at 30fps — fast enough
-     to follow casual movement, slow enough to dampen jitter. */
-  mouseSmoothed.x += (mouseTarget.x - mouseSmoothed.x) * 0.12;
-  mouseSmoothed.y += (mouseTarget.y - mouseSmoothed.y) * 0.12;
-  scrollProgressSmoothed += (scrollProgressTarget - scrollProgressSmoothed) * 0.15;
-
-  if (hero    && visible.get(heroCanvas))    {
-    hero.uniforms.u_time.value = t;
-    hero.uniforms.u_mouse.value.set(mouseSmoothed.x, mouseSmoothed.y);
-    hero.uniforms.u_scrollProgress.value = scrollProgressSmoothed;
-    hero.renderer.render(hero.scene, hero.camera);
-  }
-  if (modules && visible.get(modulesCanvas)) {
-    modules.update(t);
-    modules.renderer.render(modules.scene, modules.camera);
-  }
-  if (cta     && visible.get(ctaCanvas))     {
-    cta.uniforms.u_time.value = t * 0.5;   /* slower drift on CTA */
-    cta.renderer.render(cta.scene, cta.camera);
-  }
-}
-tick();
-
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 3 — BIDIRECTIONAL BINDING (sphere ↔ bento)
-
-   The orbital sphere becomes a navigation device, not just decoration.
-     • Hover a sphere node      → corresponding module card glows + scales
-     • Hover a module card      → corresponding sphere node enlarges + cyans
-     • Click a sphere node      → smooth-scroll to that module + pulse it
-     • Click a module card      → already there, native behavior preserved
-
-   Sphere has 17 nodes; the grid has 16 visible cards (15 + 1 summary).
-   We bind nodes 0–15 to cards 0–15. Node 16 stays decorative.
-
-   The canvas keeps `pointer-events: none` so it never steals events from
-   the bento grid below it. We listen on the #modules section instead and
-   dispatch hits through the orbit's getHoveredIdx() raycaster.
-   ════════════════════════════════════════════════════════════════════════ */
-if (modules) {
-  const modulesSection = document.getElementById('modules');
-  /* Match the order in the DOM — each .module corresponds to a sphere node
-     by index. The "summary" card is the last one, so it'll bind to node 15. */
-  const moduleCards = Array.from(modulesSection.querySelectorAll('.module'));
-
-  let lastHovered = -1;       /* avoid re-applying class every mousemove frame */
-
-  function setLinkedCard(idx) {
-    if (idx === lastHovered) return;
-    lastHovered = idx;
-    moduleCards.forEach((card, i) => {
-      card.classList.toggle('module--linked', i === idx);
-    });
-    if (modules.setHighlight) modules.setHighlight(idx);
-  }
-
-  if (modulesSection) {
-    /* Cursor moves anywhere in the modules section → raycast against the
-       sphere. Throttle to one hit-test every other frame using a flag set
-       in rAF — keeps the CPU cool during fast cursor traversal. */
-    let rafScheduled = false;
-    let lastEv = null;
-    modulesSection.addEventListener('mousemove', e => {
-      lastEv = e;
-      if (rafScheduled) return;
-      rafScheduled = true;
-      requestAnimationFrame(() => {
-        rafScheduled = false;
-        if (!lastEv) return;
-        const idx = modules.getHoveredIdx(lastEv.clientX, lastEv.clientY);
-        if (idx >= 0 && idx < moduleCards.length) {
-          setLinkedCard(idx);
-          modulesSection.style.cursor = 'pointer';
-        } else {
-          /* Cursor isn't on a node. Only clear the link if it's also not
-             over any card — otherwise the card's own mouseenter is already
-             handling the highlight. */
-          const overCard = moduleCards.some(c => {
-            const r = c.getBoundingClientRect();
-            return lastEv.clientX >= r.left && lastEv.clientX <= r.right &&
-                   lastEv.clientY >= r.top  && lastEv.clientY <= r.bottom;
-          });
-          if (!overCard && lastHovered !== -1) {
-            setLinkedCard(-1);
-          }
-          modulesSection.style.cursor = '';
-        }
-      });
-    });
-    modulesSection.addEventListener('mouseleave', () => {
-      setLinkedCard(-1);
-      modulesSection.style.cursor = '';
-    });
-
-    /* Click on the sphere → scroll to + pulse the card.
-       Card-side click is left alone — the user already sees the card. */
-    modulesSection.addEventListener('click', e => {
-      const idx = modules.getHoveredIdx(e.clientX, e.clientY);
-      if (idx < 0 || idx >= moduleCards.length) return;
-      const card = moduleCards[idx];
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      /* Brief "scrolled-to" flash so the user can spot the target card after
-         the scroll completes. Class auto-removes after the CSS animation. */
-      card.classList.add('module--target-pulse');
-      setTimeout(() => card.classList.remove('module--target-pulse'), 1200);
-    });
-  }
-
-  /* Reverse direction — hovering a card lights up its sphere node */
-  moduleCards.forEach((card, idx) => {
-    card.addEventListener('mouseenter', () => {
-      if (modules.setHighlight) modules.setHighlight(idx);
-      lastHovered = idx;
-    });
-    card.addEventListener('mouseleave', () => {
-      /* Tiny delay so cursor moving between adjacent cards doesn't flicker */
-      setTimeout(() => {
-        if (lastHovered === idx) {
-          modules.clearHighlight();
-          lastHovered = -1;
-        }
-      }, 30);
-    });
-  });
-}
-
-/* Reduced-motion fallback — single static frame */
-if (REDUCED_MOTION) {
-  const heroStatic = heroCanvas ? buildHeroFlame(heroCanvas) : null;
-  const ctaStatic  = ctaCanvas  ? buildCtaFlame(ctaCanvas)   : null;
-  if (heroStatic) heroStatic.renderer.render(heroStatic.scene, heroStatic.camera);
-  if (ctaStatic)  ctaStatic.renderer.render(ctaStatic.scene, ctaStatic.camera);
-}
-</script>
-
-<script type="module">
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 1 — "THE LIVE PIPELINE"
-
-   The hero device frame is the centerpiece of the page and was sitting
-   inert. Five interactions to make it feel alive:
-
-     1. Mouse-tilt 3D parallax on .device-frame  — cursor position over
-        the hero translates to rotateX/rotateY, capped at ±6deg. CSS vars
-        --tx, --ty drive the transform. Resets smoothly on mouseleave.
-
-     2. Auto-cycling active chunk — every 1500ms a new chunk takes focus.
-        Active chunk gets a glow + 1.015× scale + indigo accent rule.
-        Chunks within ±1 stay near full opacity; everything else dims to
-        62%. Pauses on device-frame hover so the user can read.
-
-     3. WebGL scan-line canvas — a Three.js plane shader paints a thin
-        horizontal sweep traveling top→bottom on a 4s cycle, plus an
-        indigo halo whose Y position is set from JS to track the active
-        chunk. mix-blend-mode: screen so it visibly passes through chunks.
-
-     4. Magnetic float tags — the two .float-tag chips bend toward the
-        cursor when within 220px. Slack-rope behavior: pull strength
-        falls off with distance squared, max displacement 14px.
-
-     5. Typewriter caption — when the device frame enters viewport, the
-        caption is wiped and re-typed character-by-character at ~30 chars/s
-        with a blinking caret. Fires once per page load.
-
-   All five effects respect prefers-reduced-motion. None of them touch
-   the chunks' content, the float-tag text, or the caption text — just
-   how they animate.
-   ════════════════════════════════════════════════════════════════════════ */
-import * as THREE from 'three';
-
-const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-if (!REDUCED) {
-  const heroVisual  = document.querySelector('.hero-visual');
-  const deviceFrame = document.querySelector('.device-frame');
-  const deviceBody  = document.querySelector('.device-body');
-  const chunks      = Array.from(document.querySelectorAll('.device-body .chunk'));
-  const floatTags   = Array.from(document.querySelectorAll('.float-tag'));
-  const scanCanvas  = document.getElementById('deviceScanline');
-  const captionEl   = document.querySelector('.device-caption-typer');
-
-  /* ─────────────────────────────────────────────────────────────────
-     1. MOUSE-TILT 3D PARALLAX
-     We track mouse position relative to the hero-visual element and
-     map it to a rotation. The transform is applied via CSS custom
-     properties so the original transform syntax (perspective + rotate)
-     stays in the stylesheet where it belongs.
-     ───────────────────────────────────────────────────────────────── */
-  if (heroVisual && deviceFrame) {
-    const TILT_MAX = 6;       /* degrees, peak-to-peak each axis */
-    const TILT_LIFT = 8;      /* px translateZ on hover, gives it a "lift" */
-
-    function onTilt(e) {
-      const rect = heroVisual.getBoundingClientRect();
-      /* Normalize cursor pos to -1..1 within the visual region */
-      const nx = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-      const ny = ((e.clientY - rect.top)  / rect.height) * 2 - 1;
-      /* Y rotates around X (up/down tilts), X rotates around Y (left/right) */
-      const rx = -ny * TILT_MAX;
-      const ry =  nx * TILT_MAX;
-      deviceFrame.style.setProperty('--tx', ry.toFixed(2) + 'deg');
-      deviceFrame.style.setProperty('--ty', rx.toFixed(2) + 'deg');
-      deviceFrame.style.setProperty('--tz', TILT_LIFT + 'px');
-      heroVisual.classList.add('is-tilting');
-    }
-    function onTiltEnd() {
-      deviceFrame.style.setProperty('--tx', '0deg');
-      deviceFrame.style.setProperty('--ty', '0deg');
-      deviceFrame.style.setProperty('--tz', '0px');
-      heroVisual.classList.remove('is-tilting');
-    }
-    heroVisual.addEventListener('mousemove', onTilt);
-    heroVisual.addEventListener('mouseleave', onTiltEnd);
-  }
-
-  /* ─────────────────────────────────────────────────────────────────
-     2. AUTO-CYCLING ACTIVE CHUNK
-     Walks through the 16 chunks every 1500ms. State is tracked in a
-     single integer. Pauses while the device frame is hovered.
-     The active chunk's Y center (relative to the device-body) is also
-     written to a shared `state` object so the WebGL scan-line shader
-     can drop a halo at that position.
-     ───────────────────────────────────────────────────────────────── */
-  const state = {
-    activeIdx: 0,
-    haloY: 0.5,           /* normalized 0..1, top→bottom */
-    paused: false,
-  };
-
-  function applyActive(idx) {
-    state.activeIdx = idx;
-    chunks.forEach((chunk, i) => {
-      chunk.classList.remove('chunk--active', 'chunk--near', 'chunk--far');
-      const dist = Math.abs(i - idx);
-      if (dist === 0) chunk.classList.add('chunk--active');
-      else if (dist === 1) chunk.classList.add('chunk--near');
-      else chunk.classList.add('chunk--far');
-    });
-    /* Compute halo Y (normalized) for the scan shader */
-    if (deviceBody && chunks[idx]) {
-      const bodyRect = deviceBody.getBoundingClientRect();
-      const chunkRect = chunks[idx].getBoundingClientRect();
-      state.haloY = (chunkRect.top + chunkRect.height / 2 - bodyRect.top) / bodyRect.height;
-      state.haloY = Math.max(0, Math.min(1, state.haloY));
-    }
-  }
-
-  if (chunks.length) {
-    /* Wait for the chunk-entry stagger animation to finish before starting
-       the cycle. Last chunk has animation-delay 3.05s + 0.55s duration. */
-    const CYCLE_START_DELAY = 3700;
-    const CYCLE_INTERVAL    = 1500;
-
-    setTimeout(() => {
-      applyActive(0);
-      setInterval(() => {
-        if (state.paused) return;
-        const next = (state.activeIdx + 1) % chunks.length;
-        applyActive(next);
-      }, CYCLE_INTERVAL);
-    }, CYCLE_START_DELAY);
-
-    /* Pause cycling on hover so users can read */
-    if (deviceFrame) {
-      deviceFrame.addEventListener('mouseenter', () => { state.paused = true; });
-      deviceFrame.addEventListener('mouseleave', () => { state.paused = false; });
-    }
-  }
-
-  /* ─────────────────────────────────────────────────────────────────
-     3. WEBGL SCAN-LINE CANVAS
-     A single full-body shader plane that paints:
-       (a) a thin moving horizontal line, top→bottom on a 4s loop, and
-       (b) a soft indigo halo at u_haloY (set from the active chunk).
-     Both composite via mix-blend-mode: screen on the parent canvas
-     element, so they only LIGHTEN whatever is underneath.
-     ───────────────────────────────────────────────────────────────── */
-  if (scanCanvas) {
-    const renderer = new THREE.WebGLRenderer({
-      canvas: scanCanvas, antialias: true, alpha: true,
-      premultipliedAlpha: false,
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 1;
-    const geometry = new THREE.PlaneGeometry(2, 2);
-
-    const uniforms = {
-      u_time:     { value: 0 },
-      u_haloY:    { value: 0.5 },
-      u_scanColor: { value: new THREE.Color('#5BD2FF') },   /* sky blue scan */
-      u_haloColor: { value: new THREE.Color('#0570DE') },   /* Stripe blue halo */
-    };
-
-    const vertexShader = `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    /* Two effects, both alpha-blended over transparent.
-       Scan line: a narrow horizontal band whose Y moves with time,
-       wrapped via mod() so it loops top-to-bottom seamlessly.
-       Halo: a soft Gaussian-ish radial falloff centered on (0.5, u_haloY). */
-    const fragmentShader = `
-      varying vec2 vUv;
-      uniform float u_time;
-      uniform float u_haloY;
-      uniform vec3 u_scanColor;
-      uniform vec3 u_haloColor;
-
-      void main() {
-        /* vUv.y is 0 at bottom, 1 at top in WebGL. We invert so y=0 = top. */
-        float y = 1.0 - vUv.y;
-        float scanY = mod(u_time * 0.18, 1.05) - 0.025;     /* loops 0→1 every ~5.5s */
-
-        /* Scan line — sharp band ~3% of body height with feathered edges */
-        float scanDist = abs(y - scanY);
-        float scanIntensity = smoothstep(0.06, 0.0, scanDist) * 0.65;
-
-        /* Halo — softer, broader glow tracking the active chunk */
-        float haloDist = abs(y - u_haloY);
-        float haloIntensity = smoothstep(0.18, 0.0, haloDist) * 0.30;
-
-        /* Edge fade left/right so the effects don't butt against the
-           device frame border with a hard line */
-        float edgeFade = smoothstep(0.0, 0.05, vUv.x) *
-                         smoothstep(1.0, 0.95, vUv.x);
-
-        vec3 color = u_scanColor * scanIntensity + u_haloColor * haloIntensity;
-        float alpha = (scanIntensity + haloIntensity) * edgeFade;
-
-        gl_FragColor = vec4(color, alpha);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      uniforms, vertexShader, fragmentShader,
-      transparent: true,
-      depthWrite: false,
-    });
-    scene.add(new THREE.Mesh(geometry, material));
-
-    function resize() {
-      const { clientWidth, clientHeight } = scanCanvas;
-      if (clientWidth === 0 || clientHeight === 0) return;
-      renderer.setSize(clientWidth, clientHeight, false);
-    }
-    resize();
-    window.addEventListener('resize', resize);
-    /* Re-measure when chunks animate in or the layout shifts */
-    if ('ResizeObserver' in window && deviceBody) {
-      const ro = new ResizeObserver(resize);
-      ro.observe(deviceBody);
-    }
-
-    const start = performance.now();
-    let frame = 0;
-    function tick() {
-      requestAnimationFrame(tick);
-      if (document.hidden) return;
-      frame++;
-      if (frame % 2 !== 0) return;       /* 30fps cap */
-      uniforms.u_time.value = (performance.now() - start) / 1000;
-      uniforms.u_haloY.value = state.haloY;
-      renderer.render(scene, camera);
-    }
-    tick();
-  }
-
-  /* ─────────────────────────────────────────────────────────────────
-     4. MAGNETIC FLOAT TAGS
-     For each tag, on every mousemove inside the hero we compute the
-     distance from the cursor to the tag center. Within MAG_RADIUS the
-     tag pulls toward the cursor by an amount that falls off with
-     distance squared (slack-rope feel). At MAG_RADIUS exactly, pull = 0.
-     ───────────────────────────────────────────────────────────────── */
-  if (floatTags.length && heroVisual) {
-    const MAG_RADIUS = 220;     /* px */
-    const MAG_PULL_MAX = 14;    /* px max displacement */
-
-    function onMagMove(e) {
-      let anyClose = false;
-      floatTags.forEach(tag => {
-        const r = tag.getBoundingClientRect();
-        const cx = r.left + r.width / 2;
-        const cy = r.top  + r.height / 2;
-        const dx = e.clientX - cx;
-        const dy = e.clientY - cy;
-        const dist = Math.hypot(dx, dy);
-        if (dist < MAG_RADIUS) {
-          /* Falloff: 1 at dist=0, 0 at dist=MAG_RADIUS, quadratic */
-          const t = 1 - dist / MAG_RADIUS;
-          const pull = t * t * MAG_PULL_MAX;
-          /* Direction unit vector */
-          const ux = dist > 0 ? dx / dist : 0;
-          const uy = dist > 0 ? dy / dist : 0;
-          tag.style.setProperty('--mx', (ux * pull).toFixed(2) + 'px');
-          tag.style.setProperty('--my', (uy * pull).toFixed(2) + 'px');
-          anyClose = true;
-        } else {
-          tag.style.setProperty('--mx', '0px');
-          tag.style.setProperty('--my', '0px');
-        }
-      });
-      heroVisual.classList.toggle('is-magnetizing', anyClose);
-    }
-    function onMagLeave() {
-      floatTags.forEach(tag => {
-        tag.style.setProperty('--mx', '0px');
-        tag.style.setProperty('--my', '0px');
-      });
-      heroVisual.classList.remove('is-magnetizing');
-    }
-    heroVisual.addEventListener('mousemove', onMagMove);
-    heroVisual.addEventListener('mouseleave', onMagLeave);
-  }
-
-  /* ─────────────────────────────────────────────────────────────────
-     5. TYPEWRITER CAPTION
-     The caption text is read from data-final, the visible text is
-     wiped, then characters are appended one at a time. We use HTML
-     entities (&middot;) which need to be respected — so we set
-     innerHTML and walk the *decoded* string character-by-character.
-     The blinking caret is CSS-driven via [data-typing="true"]::after.
-     ───────────────────────────────────────────────────────────────── */
-  if (captionEl) {
-    const decoder = document.createElement('textarea');
-    decoder.innerHTML = captionEl.dataset.final || captionEl.innerHTML;
-    const fullText = decoder.value;
-    const TYPE_SPEED = 28;       /* ms per character */
-    let typed = false;
-
-    function startTyping() {
-      if (typed) return;
-      typed = true;
-      captionEl.textContent = '';
-      captionEl.dataset.typing = 'true';
-      let i = 0;
-      const interval = setInterval(() => {
-        if (i >= fullText.length) {
-          clearInterval(interval);
-          /* Leave the caret blinking for ~1.2s after typing completes,
-             then remove it. Stripe does this on their auto-typing demos. */
-          setTimeout(() => { captionEl.dataset.typing = 'false'; }, 1200);
-          return;
-        }
-        captionEl.textContent += fullText[i++];
-      }, TYPE_SPEED);
-    }
-
-    /* Trigger once when the caption (and its parent device frame) first
-       enters the viewport. We watch the device frame, not the caption,
-       so the typewriter fires while the caption is still off-screen at
-       the bottom of the frame, giving the user something to read by the
-       time they scan down. */
-    if ('IntersectionObserver' in window && deviceFrame) {
-      const captionIO = new IntersectionObserver((entries, obs) => {
-        entries.forEach(e => {
-          if (e.isIntersecting) {
-            /* Delay slightly so it doesn't fire during the chunk stagger */
-            setTimeout(startTyping, 1800);
-            obs.disconnect();
-          }
-        });
-      }, { threshold: 0.3 });
-      captionIO.observe(deviceFrame);
-    } else {
-      /* No IntersectionObserver — just type immediately */
-      setTimeout(startTyping, 1800);
-    }
-  }
-}
-</script>
-
-<script>
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 2 — STAT COUNT-UP ANIMATIONS
-
-   Every "big number" on the page (4 market-context stats, 4 stats-strip
-   stats, 2 before/after time blocks) animates from 0 to its target value
-   when it enters the viewport. Cubic-out easing, 1400ms per number,
-   triggers exactly once per element (IntersectionObserver disconnect
-   after first intersect).
-
-   The number string can have:
-     • prefix:   $       e.g. "$502B"
-     • value:    integer or decimal, optionally a range "1-2" or "10–15"
-     • suffix:   T/B/K/%/x/+/hrs/min — kept literal, never animated
-   Format detection regex captures all four parts. Decimals preserve the
-   target's decimal places during animation (so $1.05T counts as 0.00 →
-   1.05, not 0 → 1).
-
-   .ba-stat is special: the number is a text node directly inside the
-   parent (followed by a <span> for unit), so we walk childNodes to find
-   the right text node rather than touching textContent of the whole div.
-   ════════════════════════════════════════════════════════════════════════ */
-(function () {
-  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (REDUCED) return;   /* leave numbers at their final values */
-
-  /* Find the text node inside an element that holds our number — for
-     <em> targets it's the only text node. For .ba-stat it's the first
-     text-node child (skipping element children like <span>hrs</span>). */
-  function getTextNode(el) {
-    return Array.from(el.childNodes).find(n =>
-      n.nodeType === Node.TEXT_NODE && n.nodeValue.trim().length > 0
-    );
-  }
-
-  /* Parse a number string into its components.
-       "$1.05T"  → { prefix: "$",  a: 1.05, b: null,  suffix: "T",   decimals: 2 }
-       "$502B"   → { prefix: "$",  a: 502,  b: null,  suffix: "B",   decimals: 0 }
-       "1-2+"    → { prefix: "",   a: 1,    b: 2,     suffix: "+",   decimals: 0 }
-       "10–15"   → { prefix: "",   a: 10,   b: 15,    suffix: "",    decimals: 0 }
-       "100%"    → { prefix: "",   a: 100,  b: null,  suffix: "%",   decimals: 0 }
-       "3-5x"    → { prefix: "",   a: 3,    b: 5,     suffix: "x",   decimals: 0 }
-     The regex tolerates both ASCII hyphen "-" and en-dash "–" as range
-     separators (the original markup uses &ndash; in some places). */
-  function parseNumber(str) {
-    /* Decode HTML entities (e.g., &ndash; → –) by going through textarea */
-    const decoder = document.createElement('textarea');
-    decoder.innerHTML = str;
-    str = decoder.value.trim();
-
-    const m = str.match(/^([^\d.-]*)([\d.]+)(?:[\-–]([\d.]+))?(.*)$/);
-    if (!m) return null;
-    const a = parseFloat(m[2]);
-    const b = m[3] ? parseFloat(m[3]) : null;
-    /* Determine decimal precision from the original string */
-    const decimals = (m[2].split('.')[1] || '').length;
-    return { prefix: m[1] || '', a, b, suffix: (m[4] || '').trim(), decimals };
-  }
-
-  /* Format a number to the same precision as the parsed original.
-     Pads with trailing zeros if needed (so 1.0 displays as "1.0" not "1"
-     when the target is "1.05" — keeps the visual width steady). */
-  function fmt(value, decimals) {
-    return value.toFixed(decimals);
-  }
-
-  /* Cubic-out easing — fast start, gentle finish. Stripe-feel.
-     1 - (1 - t)^3 */
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  /* Animate a single counter from 0 (or first value if range) to target.
-     Returns immediately; uses rAF internally, total wall time = duration. */
-  function animateCounter(textNode, parsed, duration = 1400) {
-    const { prefix, a, b, suffix, decimals } = parsed;
-
-    /* For ranges we animate both numbers in lockstep. Starting values:
-         — single number  : start at 0
-         — range           : start at 0 → a, AND 0 → b (so 1-2 counts up
-                             from 0-0 through 1-1 to the final 1-2). This
-                             feels more dramatic than just animating "a"
-                             while keeping "b" frozen at its target. */
-    const t0 = performance.now();
-    /* The original text contains an en-dash for &ndash;, regular dash for
-       "-" — we preserve whichever was in the original by checking the
-       node value before clearing it. */
-    const sep = (textNode.nodeValue.includes('–')) ? '–' : '-';
-
-    function frame() {
-      const t = Math.min(1, (performance.now() - t0) / duration);
-      const e = easeOutCubic(t);
-      const av = a * e;
-      let str = prefix + fmt(av, decimals);
-      if (b !== null) {
-        const bv = b * e;
-        str += sep + fmt(bv, decimals);
-      }
-      if (suffix) str += suffix;
-      /* For .ba-stat the trailing space before the unit-span is part of
-         the original text node — preserve it. */
-      if (textNode.nodeValue.endsWith(' ')) str += ' ';
-      textNode.nodeValue = str;
-      if (t < 1) requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  }
-
-  /* Find every counter target. Three selectors cover all 10 stat numbers:
-       .mc-num em      — market context (4 of them)
-       .stat-num em    — stats strip (4 of them)
-       .ba-stat        — before/after time (2 of them, text inside the div)
-     For .ba-stat we target the parent and operate on its first text node;
-     the others are simple <em> elements. */
-  const targets = [];
-  document.querySelectorAll('.mc-num em, .stat-num em').forEach(el => {
-    targets.push({ el, textNode: el.firstChild, original: el.textContent });
-  });
-  document.querySelectorAll('.ba-stat').forEach(el => {
-    const textNode = getTextNode(el);
-    if (textNode) targets.push({ el, textNode, original: textNode.nodeValue });
-  });
-
-  /* Wire each up: parse the original, hide the displayed value (set to
-     "0" or "0-0"), then trigger animation when the element enters view. */
-  targets.forEach(target => {
-    const parsed = parseNumber(target.original);
-    if (!parsed) return;
-    /* Set initial display to zero — same format as the target so the
-       layout doesn't jump when the animation starts. */
-    let zeroStr = parsed.prefix + fmt(0, parsed.decimals);
-    if (parsed.b !== null) {
-      const sep = target.original.includes('–') ? '–' : '-';
-      zeroStr += sep + fmt(0, parsed.decimals);
-    }
-    if (parsed.suffix) zeroStr += parsed.suffix;
-    if (target.textNode.nodeValue.endsWith(' ')) zeroStr += ' ';
-    target.textNode.nodeValue = zeroStr;
-    target.parsed = parsed;
-  });
-
-  /* Single shared IntersectionObserver. threshold 0.5 means the counter
-     fires only when at least half the element is on-screen — avoids
-     firing when the user has just barely scrolled the bottom edge into
-     view. Each target disconnects after its first intersect. */
-  if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver((entries, obs) => {
-      entries.forEach(e => {
-        if (!e.isIntersecting) return;
-        const target = targets.find(t => t.el === e.target);
-        if (target && target.parsed) {
-          animateCounter(target.textNode, target.parsed);
-        }
-        obs.unobserve(e.target);
-      });
-    }, { threshold: 0.5 });
-    targets.forEach(t => io.observe(t.el));
-  } else {
-    /* Fallback — no IntersectionObserver. Just play them all on load. */
-    targets.forEach(t => {
-      if (t.parsed) animateCounter(t.textNode, t.parsed);
-    });
-  }
-})();
-</script>
-
 <script>
 // Use case tabs
 document.querySelectorAll('.uc-tab').forEach(tab => {
@@ -4735,206 +3051,21 @@ document.querySelectorAll('.nav-links a').forEach(a => {
   a.addEventListener('click', () => document.getElementById('navLinks').classList.remove('open'));
 });
 
-/* ════════════════════════════════════════════════════════════════════════
-   SESSION 5 — POLISH CLOSER
-
-   Three small interactions that, taken together, push the site from
-   "well-built" to "expensive". None of them are flashy on their own —
-   they're all about reducing the ambient roughness of the page.
-
-     1. Custom cursor — a small Stripe Blue dot follows the cursor with
-        lerp smoothing. Grows + outlines on interactive elements. Hides
-        on touch devices and when prefers-reduced-motion is on. Doesn't
-        replace the native cursor; sits alongside it.
-
-     2. Magnetic buttons — primary CTAs, nav CTA, and use-case tabs
-        drift toward the cursor when it's hovering them. Capped at 8px
-        of displacement. Composes with existing :hover translateY by
-        applying inline transform (which CSS rules cleanly take back
-        over on mouseleave when we clear the inline style).
-
-     3. Click ripple — Material-style expanding circle from click point,
-        clipped to the button's pill shape via overflow:hidden. White at
-        50% opacity, fades and scales over 600ms, then DOM-removed.
-
-   All three respect prefers-reduced-motion. All three are pointer-aware
-   (skipped on touch-only devices). All three were the smallest possible
-   amount of code that lands the polish — no animation libraries, no
-   GSAP, all native APIs.
-   ════════════════════════════════════════════════════════════════════════ */
-(function () {
-  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const HAS_HOVER = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-  if (REDUCED || !HAS_HOVER) return;
-
-  /* ─────────────────────────────────────────────────────────────────
-     1. CUSTOM CURSOR
-     A single fixed-position element that lerps toward the actual cursor.
-     The lerp factor (0.22) is tuned so motion feels weighted but not
-     laggy — too low and it drags, too high and it just sticks to the
-     pointer like a regular cursor. Pointer-events: none so it never
-     blocks clicks. mix-blend-mode: difference on light backgrounds
-     would invert prettily but interacts badly with the WebGL flame, so
-     we use a simple Stripe Blue fill with a subtle outline ring instead.
-     ───────────────────────────────────────────────────────────────── */
-  const cursor = document.createElement('div');
-  cursor.className = 'custom-cursor';
-  cursor.setAttribute('aria-hidden', 'true');
-  document.body.appendChild(cursor);
-
-  let cx = -100, cy = -100;     /* current rendered position */
-  let tx = -100, ty = -100;     /* target position from mouse */
-  let cursorVisible = false;
-
-  document.addEventListener('mousemove', e => {
-    tx = e.clientX;
-    ty = e.clientY;
-    if (!cursorVisible) {
-      /* First mousemove — snap to position to avoid a fly-in from origin */
-      cx = tx; cy = ty;
-      cursor.classList.add('cursor--visible');
-      cursorVisible = true;
-    }
-  });
-  document.addEventListener('mouseleave', () => {
-    cursor.classList.remove('cursor--visible');
-    cursorVisible = false;
-  });
-
-  /* Single rAF loop just for the cursor — separate from the bento and
-     three.js loops because cursor smoothness matters at 60fps, not 30. */
-  function tickCursor() {
-    requestAnimationFrame(tickCursor);
-    cx += (tx - cx) * 0.22;
-    cy += (ty - cy) * 0.22;
-    cursor.style.transform = `translate(${cx}px, ${cy}px)`;
-  }
-  tickCursor();
-
-  /* Hover-state targets — the cursor enlarges + becomes ring-only when
-     over interactive elements. Selectors picked to cover everything that
-     would otherwise show a pointer cursor. */
-  const interactiveSelector = 'a, button, .module, .uc-tab, .ct-item, [role="button"], .float-tag';
-  function setHover(on) { cursor.classList.toggle('cursor--hover', on); }
-  document.querySelectorAll(interactiveSelector).forEach(el => {
-    el.addEventListener('mouseenter', () => setHover(true));
-    el.addEventListener('mouseleave', () => setHover(false));
-  });
-
-  /* ─────────────────────────────────────────────────────────────────
-     2. MAGNETIC BUTTONS
-     On mousemove inside a magnetic button, translate the button toward
-     the cursor by 25% of the cursor-to-center offset, capped at 8px.
-     Composes with the existing :hover translateY(-1px) by including
-     the -1 directly in the inline transform.
-
-     We also pull the cursor itself toward the button's center by 30%
-     — gives the satisfying "snap" feeling that good Linear/Apple sites
-     have. Cursor pull lives here, not in the cursor block, because we
-     only know the snap target inside this hover lifecycle.
-     ───────────────────────────────────────────────────────────────── */
-  const MAG_STRENGTH = 0.25;       /* fraction of cursor offset applied */
-  const MAG_CAP = 8;               /* px max displacement */
-  const CURSOR_SNAP = 0.30;        /* how much the cursor pulls toward center */
-
-  document.querySelectorAll('.btn-primary, .btn-secondary, .nav-cta, .uc-tab').forEach(el => {
-    let active = false;
-    el.addEventListener('mouseenter', () => { active = true; });
-    el.addEventListener('mousemove', e => {
-      if (!active) return;
-      const r = el.getBoundingClientRect();
-      const ccx = r.left + r.width  / 2;
-      const ccy = r.top  + r.height / 2;
-      let dx = (e.clientX - ccx) * MAG_STRENGTH;
-      let dy = (e.clientY - ccy) * MAG_STRENGTH;
-      /* Cap at MAG_CAP px each axis */
-      if (Math.abs(dx) > MAG_CAP) dx = Math.sign(dx) * MAG_CAP;
-      if (Math.abs(dy) > MAG_CAP) dy = Math.sign(dy) * MAG_CAP;
-      /* Compose with existing hover lift (-1px on Y) */
-      el.style.transform = `translate(${dx.toFixed(1)}px, ${(dy - 1).toFixed(1)}px)`;
-      /* Cursor snap — pull cursor target toward button center */
-      tx = e.clientX - (e.clientX - ccx) * CURSOR_SNAP;
-      ty = e.clientY - (e.clientY - ccy) * CURSOR_SNAP;
-    });
-    el.addEventListener('mouseleave', () => {
-      active = false;
-      /* Clear inline transform — CSS :hover and base rules take back over */
-      el.style.transform = '';
-    });
-  });
-
-  /* ─────────────────────────────────────────────────────────────────
-     3. CLICK RIPPLE
-     On click, append a span sized 2× the larger button dimension,
-     positioned so its center is at the click point. CSS keyframe
-     scales it from 0 to 1 and fades it out over 600ms, then we DOM-
-     remove the element. Pill buttons (border-radius: 999px) clip the
-     ripple to the pill via overflow:hidden in the .ripple CSS rule.
-     ───────────────────────────────────────────────────────────────── */
-  document.querySelectorAll('.btn-primary, .btn-secondary, .nav-cta').forEach(el => {
-    /* Make sure button can host an absolute child with overflow clipping */
-    const cs = getComputedStyle(el);
-    if (cs.position === 'static') el.style.position = 'relative';
-    if (cs.overflow === 'visible') el.style.overflow = 'hidden';
-
-    el.addEventListener('click', e => {
-      const ripple = document.createElement('span');
-      ripple.className = 'ripple';
-      const r = el.getBoundingClientRect();
-      const size = Math.max(r.width, r.height) * 2.2;
-      ripple.style.width = ripple.style.height = size + 'px';
-      ripple.style.left = (e.clientX - r.left - size / 2) + 'px';
-      ripple.style.top  = (e.clientY - r.top  - size / 2) + 'px';
-      el.appendChild(ripple);
-      /* Self-clean after the animation duration. Match the CSS keyframe. */
-      setTimeout(() => ripple.remove(), 650);
-    });
-  });
-})();
-
 // ===== THEME TOGGLE =====
 function applyTheme(theme) {
   if (theme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FFFFFF');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#F7F5F0');
   } else {
     document.documentElement.removeAttribute('data-theme');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A2540');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0A0E1A');
   }
 }
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme');
   const next = current === 'light' ? 'dark' : 'light';
-
-  /* SESSION 5 — radial reveal via View Transitions API.
-     On Chrome / Edge / newer Safari, document.startViewTransition() captures
-     a pre-state snapshot, runs our state mutation synchronously, then
-     animates between the old and new snapshots using the CSS pseudo-elements
-     ::view-transition-old(root) and ::view-transition-new(root).
-
-     We store the toggle button's center as CSS vars (--vt-cx, --vt-cy) so
-     the keyframe in the stylesheet can clip-path circle() expand from that
-     exact point — the new theme literally radiates out from the button you
-     just clicked, instead of all colors snapping at once.
-
-     If the API isn't available, we fall back to applyTheme() directly and
-     the universal --theme-transition CSS rules handle a coordinated 600ms
-     crossfade across all themed properties — still smoother than the old
-     stagger-cut, just without the radial reveal. */
-  if (typeof document.startViewTransition === 'function' &&
-      !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const btn = document.querySelector('.theme-toggle');
-    if (btn) {
-      const r = btn.getBoundingClientRect();
-      document.documentElement.style.setProperty('--vt-cx', (r.left + r.width / 2) + 'px');
-      document.documentElement.style.setProperty('--vt-cy', (r.top + r.height / 2) + 'px');
-    }
-    document.startViewTransition(() => applyTheme(next));
-  } else {
-    applyTheme(next);
-  }
-
+  applyTheme(next);
   try { localStorage.setItem('stm-theme', next); } catch (e) {}
 }
 

@@ -1615,11 +1615,7 @@ async function rerunGuidelines() {
 // ============================================================================
 // Configuration — tunable in production admin console
 const CLASSIFY_CONFIG = {
-  highConfidenceThreshold: 0.80,  // ≥ this → auto-proceed; below → review gate.
-                                  // Per UW request 2026-05-11: anything ≥80% should
-                                  // auto-route. Structural flags (combined_no_section_hint,
-                                  // missing_tag, etc.) remain as advisory annotations
-                                  // on needsReviewReasons but do NOT gate review.
+  highConfidenceThreshold: 0.92,  // at or above this → auto-proceed; below → review gate
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
@@ -3784,12 +3780,6 @@ async function classifyFile(file) {
         if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
         if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
-        // Confidence-only gate (per UW request 2026-05-11): only low_primary_conf
-        // blocks auto-routing. Other flags remain in needsReviewReasons as
-        // diagnostic annotations the admin/UW can inspect, but they don't
-        // stop a high-confidence doc from flowing through the pipeline.
-        const blocksRouting = needsReviewFlags.includes('low_primary_conf');
-
         return {
           type: final.primaryType,
           confidence: final.primaryConfidence,
@@ -3800,7 +3790,7 @@ async function classifyFile(file) {
           classifications: final.classifications,
           isCombined: final.isCombined,
           signatures: final.signatures,
-          needsReview: final.suppressTag ? false : blocksRouting,
+          needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
           needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,
           suppressTag: !!final.suppressTag,
           _source: 'deterministic',
@@ -3954,14 +3944,6 @@ async function classifyFile(file) {
   if ((final.classifications || []).some(c => !c.tag || c.tag === '???')) needsReviewFlags.push('missing_tag');
   if (final.isCombined && (final.classifications || []).some(c => !c.section_hint)) needsReviewFlags.push('combined_no_section_hint');
 
-  // Confidence-only gate (per UW request 2026-05-11): only low_primary_conf
-  // or an explicit classifier_flag from the model itself blocks auto-routing.
-  // Structural flags (combined_no_section_hint, missing_tag, low_section_conf,
-  // low_subtype_conf) remain as advisory annotations on needsReviewReasons —
-  // surfaced for the admin/UW to inspect but they don't stop the pipeline.
-  const blocksRouting = needsReviewFlags.includes('low_primary_conf')
-                     || needsReviewFlags.includes('classifier_flag');
-
   // Return the FULL classification record — caller decides how to use it
   return {
     type: final.primaryType,                      // backward-compat
@@ -3973,7 +3955,7 @@ async function classifyFile(file) {
     classifications: final.classifications,       // list of {type, confidence, reasoning, section_hint}
     isCombined: final.isCombined,
     signatures: final.signatures,
-    needsReview: final.suppressTag ? false : blocksRouting,
+    needsReview: final.suppressTag ? false : needsReviewFlags.length > 0,
     needsReviewReasons: final.suppressTag ? [] : needsReviewFlags,         // v8.6.2: why review was flagged
     suppressTag: !!final.suppressTag,
   };
@@ -3991,22 +3973,6 @@ async function classifyFile(file) {
 
 // Render all module nodes in their starting queued state
 function renderPipelineNodes() {
-  // v8.6.36: build the PROCESSING wave overlay once, reuse in every node.
-  // The overlay is present on every .pipe-node but invisible by default;
-  // CSS reveals it only when the node has the .running class, and hides it
-  // the moment .running is removed. No JS state changes needed — purely
-  // CSS-reactive, so we can't accidentally break the pipeline state machine.
-  const FX_HTML = `<div class="pipe-node-fx" aria-hidden="true">`
-    + `<div class="pipe-node-fx-text">`
-    + `<div class="pipe-node-fx-letters">`
-    + `<span>P</span><span>R</span><span>O</span><span>C</span><span>E</span><span>S</span><span>S</span><span>I</span><span>N</span><span>G</span>`
-    + `</div>`
-    + `<div class="pipe-node-fx-covers">`
-    + `<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>`
-    + `</div>`
-    + `</div>`
-    + `</div>`;
-
   // Classifier (Stage 0)
   const cls = document.getElementById('stageClassifier');
   if (cls) {
@@ -4015,7 +3981,6 @@ function renderPipelineNodes() {
         <div class="pipe-node-head"><span class="pipe-node-tag">CLS</span><span class="pipe-node-status queued">QUEUED</span></div>
         <div class="pipe-node-name">Document routing</div>
         <div class="pipe-node-timing">—</div>
-        ${FX_HTML}
       </div>
     `;
   }
@@ -4031,7 +3996,6 @@ function renderPipelineNodes() {
         </div>
         <div class="pipe-node-name">${m.name}</div>
         <div class="pipe-node-timing">—</div>
-        ${FX_HTML}
       </div>
     `).join('');
   }

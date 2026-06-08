@@ -28,7 +28,7 @@
   z-index: 9999;
   /* Reset host page inheritance — we set our own font/color/bg via the
      namespaced :root rules below. */
-  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Geist', -apple-system, sans-serif;
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -51,29 +51,24 @@ body.docs-fullwidth {
    ════════════════════════════════════════════════════════════════════════ */
 
 #docs-view-root {
-  /* ════════════════════════════════════════════════════════════════════
-     Carbon dark theme (v8.6.46). Documents view surfaces aligned to
-     the rest of the app. Tag colors (red/blue/green/yellow/etc) are
-     CATEGORICAL and intentionally identical across themes — they
-     identify document type, not visual style. Only the chrome
-     (sidebars, surfaces, text) is themed.
-     ════════════════════════════════════════════════════════════════════ */
-  /* SIGNAL (soft cool blue, restrained for Carbon) */
-  --signal: #9ec4ff;
-  --signal-hover: #c0d8ff;
-  --signal-dim: #6f99d4;
-  --signal-pale: rgba(158, 196, 255, 0.10);
-  --signal-tint: rgba(158, 196, 255, 0.18);
-  --signal-ink: #c6dcff;
-  --amber: #66d8ff;
+  /* SIGNAL (chartreuse across both modes for bg/border) */
+  --signal: #C6F432;
+  --signal-hover: #DBFF5C;
+  --signal-dim: #96BA25;
+  --signal-pale: rgba(198, 244, 50, 0.10);
+  --signal-tint: rgba(198, 244, 50, 0.18);
+  --signal-ink: #C6F432;
+  --amber: #FF9448;
 
   /* STATUS */
-  --success: #5ddd9f;
-  --warning: #ffcf40;
-  --danger: #ff7a7a;
-  --info: #9ec4ff;
+  --success: #7DD88A;
+  --warning: #FBBF24;
+  --danger: #F87171;
+  --info: #60A5FA;
 
-  /* TAG COLORS — identical in both themes (categorical, not visual style) */
+  /* TAG COLORS — identical in both themes so tags look the same when you toggle.
+     Chosen to be visible on both dark navy and cream backgrounds; the glow effect
+     on tagged items boosts visibility where needed. */
   --tag-red: #DC2626;
   --tag-maroon: #7F1D1D;
   --tag-blue: #2563EB;
@@ -101,37 +96,37 @@ body.docs-fullwidth {
   --tag-magenta-rgb: 219, 39, 119;
   --tag-coral-rgb: 251, 113, 133;
 
-  /* SURFACES — Carbon (true neutral, no blue) */
-  --bg: #0a0a0c;
-  --surface: #141417;
-  --surface-alt: #1a1a1e;
-  --surface-raised: #202024;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.13);
+  /* SURFACES (dark default) */
+  --bg: #0A0E1A;
+  --surface: #111724;
+  --surface-alt: #1A2236;
+  --surface-raised: #212A3F;
+  --border: #1F2636;
+  --border-strong: #2A3449;
 
   /* TYPE */
-  --text: #fafafa;
-  --text-secondary: #a0a0a8;
-  --text-tertiary: #62646c;
+  --text: #F1ECE2;
+  --text-secondary: #8B95A8;
+  --text-tertiary: #5A6478;
 
-  /* CHROME — deeper background for sidebars to create elevation hierarchy */
-  --sidebar-bg: #07070a;
-  --sidebar-text: #888890;
-  --topbar-bg: rgba(20, 20, 23, 0.85);
-  --backdrop-bg: rgba(10, 10, 12, 0.82);
+  /* CHROME */
+  --sidebar-bg: #070A14;
+  --sidebar-text: #B6C2D8;
+  --topbar-bg: rgba(17, 23, 36, 0.85);
+  --backdrop-bg: rgba(10, 14, 26, 0.75);
 
   /* FONTS */
-  --font-display: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Geist', -apple-system, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
 
   /* GEOMETRY */
   --radius: 6px;
   --radius-lg: 10px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.42);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.52);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.72);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.7);
 
   --topbar-h: 52px;
   --docs-panel-w: 300px;
@@ -139,38 +134,32 @@ body.docs-fullwidth {
 }
 
 html[data-theme="light"] #docs-view-root {
-  /* Carbon-era v8.6.46: signal must be redefined here so it doesn't
-     inherit the soft blue from the Carbon dark base. */
-  --signal: #0570DE;
-  --signal-hover: #3B82F6;
-  --signal-dim: #0469C5;
-  --signal-ink: #0469C5;
-  --signal-pale: rgba(5, 112, 222, 0.22);
-  --signal-tint: rgba(5, 112, 222, 0.35);
-  --amber: #00D4FF;
+  --signal-ink: #4A6815;
+  --signal-pale: rgba(198, 244, 50, 0.22);
+  --signal-tint: rgba(198, 244, 50, 0.35);
   --success: #2E8F48;
   --warning: #B8700E;
   --danger: #C13737;
   --info: #2563EB;
   /* Tag colors intentionally NOT overridden here — they stay the same across themes
      so tagged docs keep the same visual identity when the user toggles modes. */
-  --bg: #FFFFFF;
+  --bg: #F7F5F0;
   --surface: #FFFFFF;
-  --surface-alt: #EBF0F5;
-  --surface-raised: #DDE5EE;
-  --border: #E3E8EE;
-  --border-strong: #C0CCDA;
-  --text: #0A2540;
-  --text-secondary: #708099;
-  --text-tertiary: #697386;
+  --surface-alt: #F0ECE2;
+  --surface-raised: #E8E3D4;
+  --border: #E4DECE;
+  --border-strong: #C9C1AC;
+  --text: #1A1F2E;
+  --text-secondary: #5A6478;
+  --text-tertiary: #8A94A6;
   --sidebar-bg: #FFFFFF;
-  --sidebar-text: #708099;
+  --sidebar-text: #5A6478;
   --topbar-bg: rgba(255, 255, 255, 0.85);
-  --backdrop-bg: rgba(255, 255, 255, 0.72);
-  --shadow-sm: 0 1px 2px rgba(10, 37, 64, 0.04);
-  --shadow: 0 2px 8px rgba(10, 37, 64, 0.06), 0 1px 3px rgba(10, 37, 64, 0.08);
-  --shadow-lg: 0 8px 24px rgba(10, 37, 64, 0.10);
-  --shadow-xl: 0 20px 60px rgba(10, 37, 64, 0.18);
+  --backdrop-bg: rgba(247, 245, 240, 0.72);
+  --shadow-sm: 0 1px 2px rgba(26, 31, 46, 0.04);
+  --shadow: 0 2px 8px rgba(26, 31, 46, 0.06), 0 1px 3px rgba(26, 31, 46, 0.08);
+  --shadow-lg: 0 8px 24px rgba(26, 31, 46, 0.10);
+  --shadow-xl: 0 20px 60px rgba(26, 31, 46, 0.18);
 }
 
 #docs-view-root * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -244,7 +233,7 @@ html.no-transitions #docs-view-root *, html.no-transitions #docs-view-root *::be
   width: 26px; height: 26px;
   border-radius: 6px;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
   font-family: var(--font-display);
@@ -646,11 +635,11 @@ html[data-theme="light"] #docs-view-root mark.search-hl {
 
 #docs-view-root .btn:hover { background: var(--surface-raised); border-color: var(--border-strong); }
 
-#docs-view-root .btn-primary { background: var(--signal); color: #0A2540; border-color: var(--signal); font-weight: 600; }
+#docs-view-root .btn-primary { background: var(--signal); color: #0A0E1A; border-color: var(--signal); font-weight: 600; }
 
 #docs-view-root .btn-primary:hover { background: var(--signal-hover); border-color: var(--signal-hover); }
 
-html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
+html[data-theme="light"] #docs-view-root .btn-primary { color: #0A0E1A; }
 
 #docs-view-root .btn-icon {
   width: 32px; height: 32px; padding: 0;
@@ -765,7 +754,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   display: flex; align-items: center; justify-content: center;
 }
 
-#docs-view-root .view-toggle button.active { background: var(--signal); color: #0A2540; }
+#docs-view-root .view-toggle button.active { background: var(--signal); color: #0A0E1A; }
 
 #docs-view-root .view-toggle button svg { width: 13px; height: 13px; }
 
@@ -871,7 +860,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 
 #docs-view-root .bulk-bar {
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   padding: 7px 12px;
   display: none;
   align-items: center;
@@ -888,15 +877,15 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 
 #docs-view-root .bulk-btn {
   width: 26px; height: 26px;
-  background: rgba(10, 37, 64, 0.12);
+  background: rgba(10, 14, 26, 0.12);
   border: none;
-  color: #0A2540;
+  color: #0A0E1A;
   border-radius: 4px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 
-#docs-view-root .bulk-btn:hover { background: rgba(10, 37, 64, 0.22); }
+#docs-view-root .bulk-btn:hover { background: rgba(10, 14, 26, 0.22); }
 
 #docs-view-root .bulk-btn.danger:hover { background: var(--danger); color: white; }
 
@@ -938,43 +927,33 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
 }
 
 #docs-view-root .docs-empty {
-  /* v8.6.48: dressed as a compact spotlight card. Same recipe as the
-     .verdict-card / .spotlight-card system in app.css — diagonal
-     pale-signal gradient, tinted border, italic display title — just
-     tuned for the narrow sidebar (~280px) instead of full width. */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px 20px;
-  margin: 10px;
+  padding: 40px 20px;
   text-align: center;
   color: var(--text-tertiary);
-  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-alt) 80%);
-  border: 1px solid var(--signal-tint);
-  border-radius: var(--radius);
+  height: 100%;
 }
 
 #docs-view-root .docs-empty svg {
-  width: 36px; height: 36px;
-  color: var(--signal-dim);
-  opacity: 0.7;
-  margin-bottom: 12px;
+  width: 40px; height: 40px;
+  color: var(--border-strong);
+  margin-bottom: 14px;
 }
 
 #docs-view-root .docs-empty-title {
   font-family: var(--font-display);
   font-size: 16px;
   font-style: italic;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--signal-ink);
-  margin-bottom: 5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
 }
 
 #docs-view-root .docs-empty-sub {
   font-size: 11.5px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   line-height: 1.5;
 }
 
@@ -1289,11 +1268,11 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   transform: scale(0.343);
 }
 
-#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: #0A2540; }
+#docs-view-root .doc-thumb-word-page h1 { font-size: 28px; font-weight: 600; margin: 0 0 14px 0; color: #0a0e1a; }
 
-#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: #0A2540; }
+#docs-view-root .doc-thumb-word-page h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px 0; color: #0a0e1a; }
 
-#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: #0A2540; }
+#docs-view-root .doc-thumb-word-page h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px 0; color: #0a0e1a; }
 
 #docs-view-root .doc-thumb-word-page h4 { font-size: 15px; font-weight: 600; margin: 14px 0 6px 0; }
 
@@ -1319,7 +1298,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   position: absolute;
   top: 8px; right: 8px;
   padding: 2px 6px;
-  background: rgba(10, 37, 64, 0.75);
+  background: rgba(10, 14, 26, 0.75);
   color: white;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1334,7 +1313,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   position: absolute;
   bottom: 8px; left: 8px;
   padding: 2px 6px;
-  background: rgba(10, 37, 64, 0.75);
+  background: rgba(10, 14, 26, 0.75);
   color: white;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1348,7 +1327,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   width: 20px; height: 20px;
   border-radius: 50%;
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   display: flex; align-items: center; justify-content: center;
   z-index: 4;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1625,7 +1604,7 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   text-align: center;
 }
 
-#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: #0A2540; }
+#docs-view-root .cat-card.active .cat-count { background: var(--signal); color: #0A0E1A; }
 
 #docs-view-root .tags-panel {
   display: grid;
@@ -1893,21 +1872,16 @@ html[data-theme="light"] #docs-view-root .tagged-item.tag-yellow .tagged-label {
 #docs-view-root .tagged-item:hover .tagged-actions { opacity: 1; }
 
 #docs-view-root .tags-empty {
-  /* v8.6.48: same compact spotlight treatment as .docs-empty */
   text-align: center;
-  padding: 24px 16px;
-  margin: 10px;
+  padding: 28px 20px;
   color: var(--text-tertiary);
-  background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface-alt) 80%);
-  border: 1px solid var(--signal-tint);
-  border-radius: var(--radius);
 }
 
-#docs-view-root .tags-empty svg { width: 30px; height: 30px; color: var(--signal-dim); opacity: 0.65; margin-bottom: 10px; }
+#docs-view-root .tags-empty svg { width: 32px; height: 32px; opacity: 0.3; margin-bottom: 10px; }
 
-#docs-view-root .tags-empty-title { font-family: var(--font-display); font-size: 14px; font-style: italic; font-weight: 500; letter-spacing: -0.01em; color: var(--signal-ink); margin-bottom: 4px; }
+#docs-view-root .tags-empty-title { font-family: var(--font-display); font-size: 14px; font-style: italic; color: var(--text-secondary); margin-bottom: 3px; }
 
-#docs-view-root .tags-empty-sub { font-size: 11px; color: var(--text-secondary); }
+#docs-view-root .tags-empty-sub { font-size: 11px; }
 
 #docs-view-root .tags-footer {
   padding: 10px 16px;
@@ -1991,7 +1965,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .anno-btn.active {
   background: var(--signal);
-  color: #0A2540;
+  color: #0A0E1A;
   border-color: var(--signal);
 }
 
@@ -2608,7 +2582,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   z-index: 2000;
   display: none;
   flex-direction: column;
-  background: rgba(10, 37, 64, 0.96);
+  background: rgba(10, 14, 26, 0.96);
   backdrop-filter: blur(12px);
 }
 
@@ -2680,7 +2654,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 
 #docs-view-root .preview-btn:hover { background: var(--surface-alt); color: var(--text); border-color: var(--border-strong); }
 
-#docs-view-root .preview-btn.active { background: var(--signal); color: #0A2540; border-color: var(--signal); }
+#docs-view-root .preview-btn.active { background: var(--signal); color: #0A0E1A; border-color: var(--signal); }
 
 #docs-view-root .preview-btn svg { width: 12px; height: 12px; }
 
@@ -2848,7 +2822,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
 #docs-view-root .preview-excel table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
 #docs-view-root .preview-excel th {
-  background: #F3F4F6; color: #0A2540;
+  background: #F3F4F6; color: #1A1F2E;
   padding: 6px 10px;
   border: 1px solid #E5E7EB;
   font-size: 10px;
@@ -3212,7 +3186,7 @@ html[data-theme="light"] #docs-view-root .anno-toolbox {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #0A2540;
+  color: #0A0E1A;
   background: var(--signal);
   border-radius: 3px;
   z-index: 4;
