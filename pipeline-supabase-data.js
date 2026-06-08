@@ -992,7 +992,7 @@ window.sbHydrate = sbHydrate;
 //
 // Auth: every helper checks sbUser() first and short-circuits if signed out
 // so that the docs view continues to function in pure-local mode (no
-// persistence) for unauthenticated demo sessions.
+// persistence) for unauthenticated local sessions.
 //
 // Phase 5: every helper bumps a window.docsCloudHealth counter on failure
 // so the docs view can surface a sync-paused indicator to the user. The

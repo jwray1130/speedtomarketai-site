@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="workbench-style.css">
-<link rel="stylesheet" href="pipeline-bridge.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <style>
 html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !important; }
@@ -35,17 +34,14 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
      resolveField() and must load BEFORE workbench-app.js so the Phase 1
      submission loader can call WorkbenchRules.resolveField() during its
      auto-apply step. Both are deferred — execution order follows the
-     script tag order (rules → app → bridge). -->
+     script tag order (rules → app). -->
 <script src="workbench-rules.js" defer></script>
 <script src="workbench-app.js" defer></script>
-<script src="pipeline-bridge.js" defer></script>
 </head>
 <body>
 <a href="#pageContent" class="skip-to-main">Skip to main content</a>
 
-<div class="demo-mode-banner" role="status">
-  <strong>Workbench demo mode:</strong> this screen demonstrates the quote/bind/issue autofill vision with sample data. Real document ingestion, parsing, and paid pipeline runs happen in the protected <a href="/platform">Platform queue</a>. Demo saves use this browser's local storage only and are not a production system of record.
-</div>
+<!-- v8.7.47: Workbench uses the live Platform queue as the entry point. -->
 <header class="topbar">
         <div class="topbar-left">
             <a href="/platform" class="brand" aria-label="Speed to Market AI" title="Back to platform dashboard">
@@ -73,8 +69,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                  Active submission badge. Shown only when /workbench was
                  opened with a ?submission=<id> query param AND the matching
                  submission was successfully loaded from Supabase. Hidden
-                 otherwise — direct /workbench visits (demo path or manual
-                 entry) see no change. Populated by loadSubmissionFromUrl()
+                 otherwise — direct /workbench visits see no change. Populated by loadSubmissionFromUrl()
                  in workbench-app.js. -->
             <div id="workbenchSubmissionBadge"
                  class="workbench-submission-badge"
@@ -148,6 +143,14 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             </div>
         </div>
     </header>
+
+    <div id="workbenchLoadStatus" class="workbench-load-status" role="status" aria-live="polite">
+        <div class="workbench-load-status-text">
+            <strong class="workbench-load-status-title"></strong>
+            <span class="workbench-load-status-message"></span>
+        </div>
+        <a class="workbench-load-status-link" href="/platform">Open Platform Queue</a>
+    </div>
 
     <div class="container">
         <div id="pageContent" tabindex="-1">

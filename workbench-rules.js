@@ -1546,6 +1546,10 @@
       let val = lookupJsonField(obj, fieldName);
       if (val == null || val === '') return null;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      if (fieldName === 'insured_name') {
+        val = cleanResolvedInsuredName8738(val);
+        if (!val) return null;
+      }
       if (fieldName === 'home_state') {
         val = normalizeStateAbbrev8738(val);
         if (!val) return null;
@@ -1577,8 +1581,17 @@
     if (adapted && adapted.value != null && adapted.value !== '') {
       let val = adapted.value;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+      if (fieldName === 'insured_name') {
+        val = cleanResolvedInsuredName8738(val);
+        if (!val) return null;
+      }
       if (fieldName === 'home_state') {
         val = normalizeStateAbbrev8738(val);
+        if (!val) return null;
+      }
+      if (fieldName === 'mailing_address' || fieldName === 'controlling_address') {
+        const preferMailing = fieldName === 'mailing_address';
+        val = extractDealAddress8738(val, preferMailing) || normalizeDealAddress8739(val);
         if (!val) return null;
       }
       return {
@@ -1596,6 +1609,10 @@
     if (!parsed) return null;
     let val = parsed.value;
     if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
+    if (fieldName === 'insured_name') {
+      val = cleanResolvedInsuredName8738(val);
+      if (!val) return null;
+    }
     if (fieldName === 'mailing_address' || fieldName === 'controlling_address') {
       const preferMailing = fieldName === 'mailing_address';
       val = extractDealAddress8738(val, preferMailing) || normalizeDealAddress8739(val);
@@ -2480,9 +2497,19 @@
     if (!v) return null;
     v = v.split(/\b(?:Mailing\s+Address|Named\s+Insured\s+Address|Insured\s+Mailing\s+Address|Physical\s+Address|Controlling\s+Address|Premises\s+Address|Location\s+Address|Quote\s+(?:No\.?|Number)|Policy\s+(?:No\.?|Number))\b\s*:?/i)[0].trim();
     if (!v) return null;
+    // v8.7.40: do not let narrative diagnostics such as
+    // `named insured is "(unknown)"...` become the account name.
+    if (/^is\b/i.test(v)) return null;
+    if (/^["'“”‘’(]*\s*(?:unknown|not\s+stated|none\s+stated|no\s+named\s+insured|not\s+shown|not\s+listed|not\s+provided|not\s+identified)\b/i.test(v)) return null;
+    if (/\b(the\s+)?(?:gl|al|excess)?\s*quote\b[\s\S]{0,80}\b(?:does\s+not\s+state|not\s+state|doesn'?t\s+state|not\s+stated|provided|extracted\s+pages)\b/i.test(v)) return null;
+    if (/\b(acord|supp(?:lemental)?\s+app|extracted\s+pages|under\s+review|verify\s+named\s+insured)\b/i.test(v)) return null;
     if (/\b(insurance company|insurer|carrier|producer|broker|underwriter|agency|policy period|quote number)\b/i.test(v)) return null;
     if (!looksStructurallyValid(v)) return null;
     return v;
+  }
+
+  function cleanResolvedInsuredName8738(value) {
+    return cleanDealName8738(value);
   }
 
   function normalizeDealAddress8739(value) {
@@ -2526,9 +2553,13 @@
   }
 
   function extractAddressFromLines8738(lines, startIndex, sameLineValue) {
+    // v8.7.41: Strict address assembly. The old helper allowed any joined
+    // text containing a digit (for example an exclusion form number like
+    // "SUF-25") to pass as a controlling address. Only return a value after
+    // normalizeDealAddress8739 confirms a real street + city/state/ZIP.
     const parts = [];
     const push = (x) => {
-      const v = normalizeDealAddress8739(x) || cleanDealValue8738(x);
+      const v = cleanDealValue8738(x);
       if (!v) return;
       if (/^(named insured|insured|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|location no\.?|loc\b)/i.test(v)) return;
       parts.push(v.replace(/,$/, ''));
@@ -2537,14 +2568,12 @@
     for (let i = startIndex + 1; i < Math.min(lines.length, startIndex + 4); i++) {
       const ln = lines[i];
       if (!ln) break;
-      if (/^(named insured|insured name|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class)\b/i.test(ln)) break;
+      if (/^(named insured|insured name|applicant|policy|carrier|producer|broker|effective|expiration|limit|premium|coverage|class|exclusion|endorsement|form|subjectivity)\b/i.test(ln)) break;
       push(ln);
       if (/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(ln)) break;
     }
-    const joined = normalizeDealAddress8739(parts.join(', ')) || parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
-    if (!joined) return null;
-    if (/\d{1,6}\s+/.test(joined) || /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(joined)) return joined;
-    return null;
+    const joinedRaw = parts.join(', ').replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
+    return normalizeDealAddress8739(joinedRaw);
   }
 
   function extractDealAddress8738(rawText, preferMailing) {
@@ -2623,13 +2652,18 @@
     if (cleanedExisting) return cleanedExisting;
     const clean = unmarkdown(rawText).replace(/\u00a0/g, ' ');
     const patterns = [
-      /(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant\s+Name|Applicant|Quote\s+For|Company\s+Name)\s*:?\s*([^\n]{2,100})/i,
-      /(?:^|\n)\s*([A-Z][A-Za-z0-9&.,'\- ]{2,80}?\s+(?:LLC|L\.L\.C\.?|INC\.?|CORP\.?|CORPORATION|COMPANY|CO\.?|LP|LLP|LTD\.?|PLLC|PC|PA))\b/m
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant\s+Name|Applicant|Quote\s+For|Company\s+Name)\**\s*(?::|[-–—])\s*\**\s*([^\n]{2,100})/gim,
+      /(?:^|\n)\s*(?:[-*]\s+)?\**\s*(?:Named\s+Insured|First\s+Named\s+Insured|Insured\s+Name|Applicant\s+Name|Applicant|Quote\s+For|Company\s+Name)\**\s+(?!is\b)([^\n]{2,100})/gim,
+      /(?:^|\n)\s*([A-Z][A-Za-z0-9&.,'\- ]{2,80}?\s+(?:LLC|L\.L\.C\.?|INC\.?|CORP\.?|CORPORATION|COMPANY|CO\.?|COOP|CO-OP|COOPERATIVE|LP|LLP|LTD\.?|PLLC|PC|PA))\b/gm
     ];
     for (const re of patterns) {
-      const m = re.exec(clean);
-      const v = m && cleanDealName8738(m[1]);
-      if (v) return v;
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(clean)) !== null) {
+        const v = m && cleanDealName8738(m[1]);
+        if (v) return v;
+        if (!re.global) break;
+      }
     }
     return null;
   }
@@ -4730,6 +4764,7 @@
     isSentinelValue,
     looksStructurallyValid,
     extractNamedInsured,
+    cleanResolvedInsuredName8738,
     normalizeCompanyName,
     applicantsMatch,
     applicantVerdict,
@@ -4758,7 +4793,7 @@
         return submissionId ? (all[submissionId] || {}) : all;
       } catch (_) { return {}; }
     },
-    version: 'v8.7.37-post-wave-ocr-recovery',
+    version: 'v8.7.41-address-queue-sync',
     fixTag: 'FIX-v8.7.37-POST-WAVE-OCR-RECOVERY-2026-05-20'
   };
 

@@ -247,7 +247,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; bord
   transition: all 0.15s;
   border: 1px solid;
 }
-.api-pill.demo { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
+.api-pill.offline { color: var(--warning); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.28); }
 .api-pill.live { color: var(--signal-ink); background: var(--signal-pale); border-color: rgba(5, 112, 222, 0.28); }
 .api-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .api-pill .dot {

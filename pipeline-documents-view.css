@@ -5,9 +5,9 @@
    by default (display:none) — showStage('docs') sets display:flex, which
    is the only thing that activates the styling.
 
-   All selectors below are scoped under #docs-view-root so the prototype
+   All selectors below are scoped under #docs-view-root so the document viewer
    styles cannot leak into Altitude's pipe/sum/admin views. Likewise,
-   Altitude styles do not leak in — the prototype's CSS variables
+   Altitude styles do not leak in — the document viewer CSS variables
    (--bg, --surface, --text, etc.) are scoped to #docs-view-root and
    override anything inherited.
 
@@ -32,10 +32,10 @@
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;          /* prototype expects no scroll on its container */
+  overflow: hidden;          /* document viewer expects no scroll on its container */
 }
 body.docs-fullwidth #docs-view-root {
-  display: grid;             /* prototype's .app uses display:grid layout */
+  display: grid;             /* document viewer .app uses display:grid layout */
 }
 body.docs-fullwidth {
   /* Hide Altitude's chrome behind the overlay — strictly belt-and-braces
@@ -47,7 +47,7 @@ body.docs-fullwidth {
 /* ════════════════════════════════════════════════════════════════════════
    Speed File Manager (Documents view) — namespaced CSS
    Auto-generated. All selectors scoped under #docs-view-root so the
-   prototype styles cannot leak into the rest of Altitude.
+   document viewer styles cannot leak into the rest of Altitude.
    ════════════════════════════════════════════════════════════════════════ */
 
 #docs-view-root {
@@ -1559,6 +1559,55 @@ html[data-theme="light"] #docs-view-root .btn-primary { color: #0A2540; }
   border-left-color: var(--signal);
   box-shadow: 0 0 0 1px var(--signal-tint);
   background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
+}
+
+/* v8.7.52: Card depth promoted to rest state.
+   v8.7.50 was too subtle at rest — Justin wanted the depth that was
+   previously shown only on :hover to be the default. Old hover shadow is
+   now the rest shadow; a deeper hover is designed on top so the cards
+   still respond to mouse-over (existing translateY(-1px) lift stays).
+   Scoped to light mode; dark mode keeps the Carbon flat aesthetic
+   established in v8.6.48. Specificity (0,1,2,1) beats the base
+   #docs-view-root .cat-card rule so order within this file doesn't
+   matter. */
+html[data-theme="light"] #docs-view-root .cat-card {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(10, 37, 64, 0.025) 100%),
+        var(--surface);
+    box-shadow:
+        0 1px 3px rgba(10, 37, 64, 0.08),
+        0 8px 20px rgba(10, 37, 64, 0.09);
+}
+
+html[data-theme="light"] #docs-view-root .cat-card:hover {
+    /* Existing translateY(-1px) lift on the base rule stays; shadow
+       deepens further so hover still feels like a clear response. */
+    box-shadow:
+        0 2px 4px rgba(10, 37, 64, 0.09),
+        0 12px 28px rgba(10, 37, 64, 0.11);
+}
+
+html[data-theme="light"] #docs-view-root .cat-card.active {
+    /* Preserve the signal-pale diagonal gradient + signal-tint ring,
+       stack the depth shadow underneath so the active card also looks
+       raised. Matches the new rest-state depth so all cards float
+       consistently; signal ring is the only distinguishing cue. */
+    background: linear-gradient(135deg, var(--signal-pale) 0%, var(--surface) 60%);
+    box-shadow:
+        0 0 0 1px var(--signal-tint),
+        0 1px 3px rgba(10, 37, 64, 0.08),
+        0 8px 20px rgba(10, 37, 64, 0.10);
+}
+
+html[data-theme="light"] #docs-view-root .cat-card.active:hover {
+    /* Active+hover needs explicit definition because .cat-card.active
+       and .cat-card:hover have identical specificity, so without this
+       the active rule would win source-order over hover and hover
+       would visually do nothing for the selected card. */
+    box-shadow:
+        0 0 0 1px var(--signal-tint),
+        0 2px 4px rgba(10, 37, 64, 0.09),
+        0 12px 28px rgba(10, 37, 64, 0.12);
 }
 
 #docs-view-root .cat-icon {

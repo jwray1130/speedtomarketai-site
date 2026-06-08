@@ -4271,36 +4271,13 @@ async function classifyFile(file) {
 
     // Classifier runs on Opus — misclassification cascades through whole pipeline
     const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-7');
-    if (!result.mock && result.usage) {
+    if (result.usage) {
       STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(result.usage);
     }
 
-    if (result.mock) {
-      // Demo mode — match by filename substring or content heuristic, still support combined
-      let key = 'default';
-      for (const k of Object.keys(MOCKS.classifier)) {
-        if (k === 'default') continue;
-        if (file.name.toLowerCase().includes(k.toLowerCase())) { key = k; break; }
-      }
-      if (key === 'default') {
-        const lc = file.text.toLowerCase().slice(0, 8000);
-        if (/loss run|valuation date|date of loss|claim.{0,20}(count|number)/.test(lc)) key = 'Loss';
-        else if (/subcontract|subcontractor|indemnification|additional insured/.test(lc)) key = 'Subk';
-        else if (/^from:|^subject:|^to:/m.test(file.text.slice(0, 1000))) key = 'RE_Meridian';
-        else if (/supplemental|application|max height|crane use/.test(lc)) key = 'Commercial_App';
-        else if (/each occurrence|general aggregate|cg 00 01/.test(lc)) key = 'Starr';
-        else if (/combined single limit|covered auto|ca 00 01/.test(lc)) key = 'GreatAm';
-        else if (/safety program|emr|trir|osha 30/.test(lc)) key = 'Safety';
-        else if (/equipment lease|crane.{0,20}lessor|operated equipment/.test(lc)) key = 'Vendor';
-        else if (/follow.?form|excess liability|umbrella|attachment/.test(lc)) key = 'Excess';
-        else if (/www\.|http|homepage/.test(lc)) key = 'Website';
-      }
-      parsed = MOCKS.classifier[key] || MOCKS.classifier.default;
-    } else {
-      const jm = result.text.match(/\{[\s\S]*\}/);
-      if (!jm) throw new Error('classifier did not return JSON');
-      parsed = JSON.parse(jm[0]);
-    }
+    const jm = result.text.match(/\{[\s\S]*\}/);
+    if (!jm) throw new Error('classifier did not return JSON');
+    parsed = JSON.parse(jm[0]);
 
     parsed = stmApplyClassifierGuards(parsed, file);
 
@@ -4310,7 +4287,7 @@ async function classifyFile(file) {
     logAudit('Classifier', 'Pass 1: ' + file.name + ' → ' + types + ' (' + confPct + '%' + (normalized.isCombined ? ' · COMBINED' : '') + ')', STATE.api.model);
 
     // ===== SECOND-PASS VERIFICATION =====
-    // Always verify in live mode if enabled. Skip in demo mode (mocks don't vary).
+    // Verify in live mode when enabled.
     if (CLASSIFY_CONFIG.enableVerifyPass && window.currentUser && file.text.length > 6000) {
       try {
         // Sample from MIDDLE + END of the document for verification
@@ -4320,7 +4297,7 @@ async function classifyFile(file) {
         const verifyMsg = `FILENAME: ${file.name}\nTOTAL LENGTH: ${file.text.length.toLocaleString()} chars\n\nFIRST-PASS CLASSIFICATION:\n${JSON.stringify(parsed, null, 2)}\n\n--- MIDDLE SECTION SAMPLE ---\n\n${midSample}\n\n--- END OF DOCUMENT SAMPLE ---\n\n${tailSample}`;
         // Verify pass runs on Sonnet — second-pass sanity check, cheaper
         const verifyResult = await callLLM(PROMPTS.classifier_verify, verifyMsg, 'claude-sonnet-4-6');
-        if (!verifyResult.mock && verifyResult.usage) {
+        if (verifyResult.usage) {
           STATE.runTotalCost = (STATE.runTotalCost || 0) + calcCost(verifyResult.usage);
         }
         const vjm = verifyResult.text && verifyResult.text.match(/\{[\s\S]*\}/);
@@ -5275,7 +5252,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       }
     }
     const elapsed = (Date.now() - t0) / 1000;
-    const text = result.mock ? (MOCKS[moduleId] || '[demo mode: no mock available for this module]') : result.text;
+    const text = result.text;
     const hasQc = /checklist|source extracts/i.test(text);
     const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
     const cost = calcCost(usage);
@@ -5283,7 +5260,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       text: text,
       confidence: estimateExtractionConfidence(text),
       timing: elapsed,
-      mode: result.mock ? 'mock' : 'live',
+      mode: 'live',
       sourceInfo: sourceInfo,
       usage: usage,
       cost: cost,
@@ -5319,9 +5296,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     STATE.runTotalCost = (STATE.runTotalCost || 0) + cost;
     setNodeState(`[data-module="${moduleId}"]`, 'done', elapsed.toFixed(1) + 's · ✓ QC');
     // Include model + cost in the audit meta so UW can see which model ran each module
-    const auditMeta = result.mock
-      ? 'mock'
-      : (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
+    const auditMeta = (usage.model || STATE.api.model) + ' · ' + fmtCost(cost) + ' · ' + (usage.input_tokens + usage.output_tokens).toLocaleString() + ' tok';
     logAudit('Pipeline', 'Completed ' + MODULES[moduleId].code + ' · ' + MODULES[moduleId].name + ' (' + elapsed.toFixed(1) + 's)', auditMeta);
     // Refresh the submission sidebar's cost row if it's rendered
     if (typeof renderSubmissionSidebar === 'function') renderSubmissionSidebar();
@@ -5578,6 +5553,7 @@ async function runPipeline() {
   if (!STATE.activeSubmissionId) {
     const preMintId = 'SUB-' + STATE.pipelineStart.toString(36).toUpperCase();
     STATE.activeSubmissionId = preMintId;
+    STATE.newSubmissionDraftMode = false;
     if (typeof logAudit === 'function') {
       logAudit('Pipeline', 'Pre-minted submission ID ' + preMintId + ' for docs view ingestion', 'ok');
     }
@@ -6264,7 +6240,7 @@ async function runPipeline() {
 // Initialize the pipeline nodes when the view loads
 renderPipelineNodes();
 // Now that updateDecisionPaneIdle is defined, refresh the Decision pane meta-rows
-// so initial paint reflects the real API mode (was showing hardcoded "DEMO" before)
+// so initial paint reflects the real API mode from the current signed-in state
 if (typeof updateDecisionPaneIdle === 'function') updateDecisionPaneIdle();
 if (typeof updateQueueKpi === 'function') updateQueueKpi();
 // Render persisted submissions into the Queue on first paint (loadSubmissions
