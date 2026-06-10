@@ -2899,10 +2899,14 @@ html.scroll-choreographed .reveal {
 </head>
 <body>
 <!-- ============================================================
-     Marketing access gate — client-side passcode (code: 3081)
+     Marketing access gate — client-side passcode (code: 0309)
      Purely client-side: the code is visible in page source. Keeps the
      page out of casual view pre-launch; not a real security control.
      Self-contained: remove this block + the <script> below it to disable.
+     2026-06-10: code changed to 0309; the stored unlock token is now
+     bound to the active code, so ANY code change instantly invalidates
+     every previously issued unlock — visitors already inside are
+     re-prompted on their next page load, this time and every future time.
      ============================================================ -->
 <div id="stmGate" role="dialog" aria-modal="true" aria-label="Enter access code" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0a0a0c;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;">
   <div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,rgba(158,196,255,.25),transparent 35%),radial-gradient(circle at 75% 60%,rgba(255,97,171,.18),transparent 34%),#0a0a0c;"></div>
@@ -2921,10 +2925,16 @@ html.scroll-choreographed .reveal {
 </div>
 <script>
 (function () {
-  var CODE = '3081';
+  var CODE = '0309';
   var KEY = 'stm_gate_ok';
+  // Unlock token is BOUND to the active code ('ok:' + CODE): changing CODE
+  // in a deploy invalidates every previously issued unlock at a stroke.
+  // Stale tokens (including the legacy '1' format) are cleared on sight.
   var unlocked = false;
-  try { unlocked = sessionStorage.getItem(KEY) === '1'; } catch (e) {}
+  try {
+    unlocked = sessionStorage.getItem(KEY) === 'ok:' + CODE;
+    if (!unlocked) sessionStorage.removeItem(KEY);
+  } catch (e) {}
   var gate = document.getElementById('stmGate');
   if (unlocked) { if (gate && gate.parentNode) gate.parentNode.removeChild(gate); return; }
   var htmlEl = document.documentElement, bodyEl = document.body;
@@ -2943,7 +2953,7 @@ html.scroll-choreographed .reveal {
   function tryUnlock() {
     if (!input) return;
     if (input.value.trim() === CODE) {
-      try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+      try { sessionStorage.setItem(KEY, 'ok:' + CODE); } catch (e) {}
       htmlEl.style.overflow = prevHtml; bodyEl.style.overflow = prevBody;
       if (gate) {
         gate.style.transition = 'opacity .35s ease';
