@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.71-stale-badges-2026-06-09
+  v8.7.72-date-fills-2026-06-09
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.71-stale-badges-2026-06-09';
+window.STM_BUILD = 'v8.7.72-date-fills-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -298,8 +298,16 @@ document.addEventListener('DOMContentLoaded', () => {
        ════════════════════════════════════════════════════════════════════ */
 
     function stmFieldLocked(el) {
-        try { return !!(el && el.getAttribute && el.getAttribute('data-user-set') === '1'); }
-        catch (e) { return false; }
+        // FIX-2026-06-09 (date-fills): an EMPTY field has nothing worth
+        // locking. A stale capture (e.g. a Save while a flatpickr canonical
+        // sat blank) could lock #polEff/#polExp at '' forever — the resolver
+        // returned a real policy term on every load and the lock silently
+        // discarded it. Locks only protect fields that actually hold a value.
+        try {
+            if (!el || !el.getAttribute || el.getAttribute('data-user-set') !== '1') return false;
+            const v = (el.value != null ? String(el.value) : '').trim();
+            return v !== '';
+        } catch (e) { return false; }
     }
 
     const STM_EDITS = {
@@ -2540,6 +2548,40 @@ document.addEventListener('DOMContentLoaded', () => {
             return true;
         }
 
+        // FIX-2026-06-09 (date-fills): every date field runs flatpickr with
+        // altInput:true — the canonical input is HIDDEN and a visible alt twin
+        // is inserted beside it. Two long-standing consequences:
+        //   (1) writing canonical .value (or setDate with a non-ISO string,
+        //       since dateFormat is Y-m-d) leaves the VISIBLE field blank;
+        //   (2) index-based input writes in the loss section shifted one
+        //       column once the alt twin joined querySelectorAll('input') —
+        //       incurred landed in the visible DATE field, paid landed in
+        //       incurred, and the real Paid input was never written at all.
+        // One setter that every fill path routes dates through.
+        function stmSetDateField8772(el, raw) {
+            if (!el) return false;
+            const v = raw == null ? '' : String(raw).trim();
+            if (!v) return false;
+            let iso = null;
+            let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (m) iso = m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+            if (!iso) {
+                m = v.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+                if (m) { let y = +m[3]; if (y < 100) y += 2000; iso = y + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0'); }
+            }
+            if (!iso) { const d = new Date(v); if (!isNaN(d)) iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+            const fp = el._flatpickr;
+            if (fp && typeof fp.setDate === 'function') {
+                try { fp.setDate(iso || v, true); } catch (e) { el.value = iso || v; }
+                if (fp.altInput && fp.altInput.classList) fp.altInput.classList.add('autofilled-from-platform');
+            } else {
+                el.value = iso || v;
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            el.classList.add('autofilled-from-platform');
+            return true;
+        }
+
         function parseLossTables85(submission) {
             const ex = submission?.snapshot?.extractions || submission?.extractions || {};
             const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
@@ -3178,7 +3220,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     return periodKeyFromAny8721(txt || sel.value);
                 };
                 domRows.forEach((row, i) => {
-                    const inputs = row.querySelectorAll('input');
+                    // FIX-2026-06-09 (date-fills): exclude flatpickr's hidden
+                    // canonical + visible alt twin from index math so the money
+                    // columns can never shift, regardless of DOM insertion order.
+                    const inputs = Array.from(row.querySelectorAll('input')).filter(el =>
+                        el.dataset.stmDateHiddenCanonical !== '1' && el.dataset.stmDateAlt !== '1');
                     const sel = row.querySelector('select.policy-select');
                     const currentPeriod = periodFromSelect8720(sel);
                     let r = rowsByPeriod8720.get(currentPeriod);
@@ -3204,7 +3250,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     writeLossInput8720(2, r.paid || '0', true);
                     writeLossInput8720(3, r.reserve || '0', true);
                     writeLossInput8720(4, r.incurred || '0', true);
-                    if (r.valuation) writeLossInput8720(5, r.valuation, false);
+                    if (r.valuation) stmSetDateField8772(row.querySelector('input.loss-date-picker'), r.valuation);
                     row.dataset.lossRebind = 'v8.7.22';
                     row.dataset.lossPeriodKey = r.period || currentPeriod || '';
                     count++;
@@ -3221,12 +3267,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const domRows = Array.from(container.querySelectorAll('.large-loss-row'));
                 rows.slice(0, domRows.length).forEach((r, i) => {
                     const row = domRows[i];
-                    const inputs = row.querySelectorAll('input');
                     const sel = row.querySelector('select');
                     const txt = row.querySelector('textarea');
-                    if (inputs[0]) set85(inputs[0], r.dol || '');
-                    if (inputs[1]) set85(inputs[1], r.incurred || '');
-                    if (inputs[2]) set85(inputs[2], r.paid || '');
+                    // FIX-2026-06-09 (date-fills): flatpickr's altInput twin made
+                    // querySelectorAll('input') one element longer, so the old
+                    // index writes shifted a column — incurred showed in the
+                    // visible DATE field, paid showed in incurred (masked,
+                    // because paid===incurred after reconcile), and the real
+                    // Paid input was NEVER written. Structural selectors only.
+                    stmSetDateField8772(row.querySelector('input.large-loss-date'), r.dol || '');
+                    const money = row.querySelectorAll('.currency-wrap input');
+                    if (money[0]) set85(money[0], r.incurred || '');
+                    if (money[1]) set85(money[1], r.paid || '');
                     if (sel && r.status) sel.value = /open/i.test(r.status) ? 'Open' : 'Closed';
                     if (txt) set85(txt, r.desc || '');
                 });
@@ -4269,13 +4321,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         && typeof window.WorkbenchRules.normalizeDateString === 'function') {
                         v = window.WorkbenchRules.normalizeDateString(v);
                     }
-                    if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
-                        el._flatpickr.setDate(v, true);
-                        return true;
-                    }
-                    el.value = v;
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    return true;
+                    // FIX-2026-06-09 (date-fills): route through the shared
+                    // flatpickr-aware setter — normalizes US/locale strings to
+                    // ISO (the canonical dateFormat) so setDate cannot silently
+                    // no-op and leave the visible alt input blank.
+                    return stmSetDateField8772(el, v);
                 }
                 if (kind === 'select') {
                     if (tag !== 'select') return false;
