@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.70-paired-cards-2026-06-09';
+window.STM_BUILD = 'v8.7.71-stale-badges-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -3755,7 +3755,7 @@ async function rehydrateSubmission(submissionId) {
   if (flow)  flow.style.display = 'block';
   const sumTab = document.getElementById('stageTabSum');
   if (sumTab) sumTab.disabled = false;
-  document.getElementById('sumCount').textContent = Object.keys(STATE.extractions).length;
+  updateStageTabCounts8771();
   switchView('submission');
   showStage('sum');
   renderQueueTable();
@@ -5111,6 +5111,7 @@ function renderSummaryCards() {
   if (extractedIds.length === 0 && STATE.customCards.length === 0) {
     container.innerHTML = '<div style="padding: 60px 20px; text-align: center; color: var(--text-3); grid-column: 1 / -1;"><div style="font-family: var(--font-display); font-size: 42px; font-style: italic; color: var(--line-warm); margin-bottom: 10px;">◇</div><p>No extractions yet. Run the pipeline first — or click <strong>+ Add Custom Note</strong> below to start with a blank card.</p></div>';
     updateHiddenTray();
+    if (typeof updateStageTabCounts8771 === 'function') updateStageTabCounts8771();
     return;
   }
 
@@ -5133,6 +5134,7 @@ function renderSummaryCards() {
   // FIX-2026-06-09 (paired-cards): if a card rendered expanded (was-updated
   // auto-expand), open its side-by-side partner too — never half-open rows.
   if (typeof stmSyncCardRows8770 === 'function') stmSyncCardRows8770(container);
+  if (typeof updateStageTabCounts8771 === 'function') updateStageTabCounts8771();
 
   // Attach contenteditable listeners on each body
   container.querySelectorAll('.sc-body[data-editable="true"]').forEach(body => {
@@ -5968,6 +5970,17 @@ function updateDecisionPaneIdle() {
   });
 }
 
+// FIX-2026-06-09 (stale-badges): the Summary tab count had exactly ONE writer
+// in the codebase — the rehydrate path — so starting a New Submission (or any
+// other state change) left the badge frozen at the PREVIOUS submission's
+// module count ("Summary 13" on an empty draft). Single shared updater now,
+// called from renderSummaryCards (both branches) so the badge tracks every
+// re-render: new submission, pipeline completion, rehydrate, card hide/delete.
+function updateStageTabCounts8771() {
+  const sc = document.getElementById('sumCount');
+  if (sc) sc.textContent = Object.keys(STATE.extractions).length;
+}
+
 // ============================================================================
 // DECISION PANE — verdict card + action buttons reflect pipeline state
 // ============================================================================
@@ -5976,8 +5989,14 @@ function updateDecisionPane() {
   const guidelines = STATE.extractions.guidelines;
   let verdict, verdictDetail, isReferral = false, isDecline = false, isError = false;
 
-  // Zero-completion case: pipeline ran but nothing succeeded
-  if (extracted.length === 0) {
+  // Zero-extraction: distinguish "hasn't run yet" (fresh draft) from "ran and
+  // everything failed". FIX-2026-06-09 (stale-badges): a brand-new submission
+  // used to show the error verdict 'Pipeline completed but no modules
+  // produced output' before anything had been run at all.
+  if (extracted.length === 0 && !STATE.pipelineDone) {
+    verdict = 'Awaiting run';
+    verdictDetail = 'Drop broker documents and run the pipeline to generate a recommendation.';
+  } else if (extracted.length === 0) {
     verdict = 'No output';
     verdictDetail = 'Pipeline completed but no modules produced output. Review audit log for failures.';
     isError = true;

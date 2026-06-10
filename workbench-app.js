@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.70-paired-cards-2026-06-09
+  v8.7.71-stale-badges-2026-06-09
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.70-paired-cards-2026-06-09';
+window.STM_BUILD = 'v8.7.71-stale-badges-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
