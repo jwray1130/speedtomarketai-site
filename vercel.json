@@ -1,0 +1,31 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh 'sha256-mRIJZhRUkyB2yNHdPO52qdV2qCHphCoUWmb3JUDl9l8=' 'sha256-KzcCpqlDp2UJTwlftUTCciOCn1wrOusWJTfcVXxhaLs=' 'sha256-G88qb2y+uyCl4ii0EH665yxolxcApOM1Ba732PYPN9w=' 'sha256-oJ4WJ44AXBzjfQiEQ6uk253dZ+fkmO0QWfmIBQ2Mj5c=' 'sha256-tMHljOK6zAt83Htl5NZyW9cbo1BlIOBWRdmBSBIFXos=' 'sha256-KEcRFSjbe+tb+500mDuySSJuZER5AMDnGIIFdlGyvC8=' 'sha256-06zRmqihwXrSQ/4+67QzFHp+CFi5DdbwdCEMqIUHutY='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://hscjnbolpxmiyujaxjyd.supabase.co wss://hscjnbolpxmiyujaxjyd.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh https://corsproxy.io https://api.allorigins.win https://api.codetabs.com https://r.jina.ai; img-src 'self' data: blob:; worker-src blob: https://cdnjs.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+        }
+      ]
+    }
+  ]
+}
