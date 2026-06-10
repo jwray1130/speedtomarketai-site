@@ -576,7 +576,11 @@ const MODULES = {
   // WAVE 2 — synthesize Summary of Ops from intake extractions + Excess Tower viz.
   // Email intel is an OPTIONAL dep: if present, its claims are used to fill gaps
   // the supplemental/website/docs leave open — never to override authoritative sources.
-  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses'], inputsFrom: 'extractions', model: 'claude-opus-4-8' },
+  // PHASE5-2026-06-09 (audit H1 follow-through): the 7 specialty-quote
+  // modules became routable in v8.7.58 but their facts never reached the
+  // Final UW Summary. optionalDeps inject only COMPLETED extractions, so a
+  // submission without these docs builds a byte-identical prompt to before.
+  'summary-ops': { code: 'A6',  name: 'Summary of Operations',   wave: 2, deps: ['supplemental','subcontract','vendor','safety','website'], optionalDeps: ['email_intel','gl_quote','al_quote','excess','losses','el_quote','ebl_quote','aircraft_quote','garage_quote','liquor_quote','foreign_gl_quote','foreign_al_quote'], inputsFrom: 'extractions', model: 'claude-opus-4-8' },
   tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-8' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
   guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
@@ -585,7 +589,9 @@ const MODULES = {
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
-  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety'], inputsFrom: 'extractions', model: 'claude-opus-4-8' }
+  // PHASE5-2026-06-09: same 7 — broker-email claims about EL/EBL/aircraft/
+  // garage/liquor/foreign terms now get cross-checked against the quotes.
+  discrepancy:   { code: 'A24', name: 'Discrepancy Check',       wave: 3, deps: ['email_intel'], optionalDeps: ['supplemental','gl_quote','al_quote','excess','losses','safety','el_quote','ebl_quote','aircraft_quote','garage_quote','liquor_quote','foreign_gl_quote','foreign_al_quote'], inputsFrom: 'extractions', model: 'claude-opus-4-8' }
 };
 
 
@@ -3063,6 +3069,12 @@ function stmParseMoneyToNumber(v) {
   let s = String(v).trim().toLowerCase();
   if (!s) return null;
   s = s.replace(/[,$]/g, '').replace(/\s+/g, ' ').trim();
+  // FIX-AUDIT-2026-06-09: retirement-plan tokens (401k / 401(k) / 403b /
+  // 457b) are plan names, not amounts, but matched the k-suffix rule below
+  // and parsed as $401,000 etc. Reachable from the lead-attachment regex in
+  // stmExtractAttachmentFromUnderlyingSchedule when a quote mentions
+  // benefits. Reject them outright (s is already lowercased).
+  if (/^4(01|03|57)\s*\(?\s*[bk]\s*\)?$/.test(s)) return null;
   let m = s.match(/^([0-9]*\.?[0-9]+)\s*(billion|million|thousand)\b/);
   if (m) {
     const base = parseFloat(m[1]);
@@ -5306,6 +5318,15 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
   const moduleModel = MODULES[moduleId]?.model;  // per-module preference
+  // PHASE5-2026-06-09: live-pill truth. Register this module as running with
+  // the model that will ACTUALLY serve it (force-global override included);
+  // updateApiPillUI renders per-model counts during the run. The finally
+  // below unwinds EVERY exit path — gate refusal, success, and failure.
+  const _pillModel = (STATE.api && STATE.api.forceGlobal && STATE.api.model) ? STATE.api.model : moduleModel;
+  try {
+    (window.__stmRunningModules = window.__stmRunningModules || new Map()).set(moduleId, _pillModel);
+    if (typeof updateApiPillUI === 'function') updateApiPillUI();
+  } catch (e) { /* pill is cosmetic — never block the run */ }
   try {
     // FIX-PHASE-6.1-TWO-PASS-APPLICANT-GATE-2026-05-14
     // Run the precheck gate BEFORE the main extraction. For gated modules
@@ -5468,6 +5489,14 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     logAudit('Pipeline', 'FAILED ' + MODULES[moduleId].code + ': ' + err.message, 'error');
     toast('Module ' + MODULES[moduleId].code + ' failed: ' + err.message, 'error');
     return false;
+  } finally {
+    // PHASE5: unwind the live-pill registration on every exit path.
+    try {
+      if (window.__stmRunningModules) {
+        window.__stmRunningModules.delete(moduleId);
+        if (typeof updateApiPillUI === 'function') updateApiPillUI();
+      }
+    } catch (e) { /* cosmetic */ }
   }
 }
 
@@ -5534,18 +5563,30 @@ function estimatePipelineRunCost(readyFiles) {
   const files = Array.isArray(readyFiles) ? readyFiles : [];
   const totalChars = files.reduce((sum, f) => sum + String(f && (f.text || f.extractedText || '') || '').length, 0);
   const docTokens = Math.max(1, Math.ceil(totalChars / 4));
-  const moduleCount = (typeof MODULES === 'object' && MODULES) ? Object.keys(MODULES).length : 17;
+  const moduleCount = (typeof MODULES === 'object' && MODULES) ? Object.keys(MODULES).length : 24;
   const classifierCalls = files.length || 1;
+  // PHASE5-2026-06-09: quote extractions now feed summary-ops + discrepancy
+  // (optionalDeps), so their content is effectively read again by up to two
+  // Opus synthesis passes. Count quote-routed document tokens into the
+  // envelope: ×0.5 low (extractions condense the source) and ×2.0 high
+  // (both consumers, generous). This estimator is a conservative user-facing
+  // brake, not billing truth — see header comment.
+  const QUOTE_SYNTH_MODULES = new Set(['gl_quote','al_quote','el_quote','ebl_quote','aircraft_quote','garage_quote','liquor_quote','foreign_gl_quote','foreign_al_quote']);
+  const quoteChars = files.reduce((sum, f) => {
+    const targets = (f && f.routedToAll && f.routedToAll.length > 0) ? f.routedToAll : ((f && f.routedTo) ? [f.routedTo] : []);
+    return targets.some(mid => QUOTE_SYNTH_MODULES.has(mid)) ? sum + String((f && (f.text || f.extractedText)) || '').length : sum;
+  }, 0);
+  const quoteSynthTokens = Math.ceil(quoteChars / 4);
   // Conservative planning assumptions:
   // - classifier/verifier reads each file once
   // - specialist modules read routed slices / extracted context
   // - synthesis modules reread combined extraction context
-  const estimatedInputTokensLow = Math.ceil(docTokens * 2.0) + (classifierCalls * 800) + (moduleCount * 600);
-  const estimatedInputTokensHigh = Math.ceil(docTokens * 8.0) + (classifierCalls * 1600) + (moduleCount * 1200);
+  const estimatedInputTokensLow = Math.ceil(docTokens * 2.0) + (classifierCalls * 800) + (moduleCount * 600) + Math.ceil(quoteSynthTokens * 0.5);
+  const estimatedInputTokensHigh = Math.ceil(docTokens * 8.0) + (classifierCalls * 1600) + (moduleCount * 1200) + (quoteSynthTokens * 2);
   const estimatedOutputTokensLow = moduleCount * 600;
   const estimatedOutputTokensHigh = moduleCount * 2200;
-  const inputRate = 5.00;    // Opus 4.7 input $/1M tokens (verified 2026-05)
-  const outputRate = 25.00;  // Opus 4.7 output $/1M tokens (verified 2026-05)
+  const inputRate = 5.00;    // Opus 4.8 input $/1M tokens (verified 2026-06)
+  const outputRate = 25.00;  // Opus 4.8 output $/1M tokens (verified 2026-06)
   const low = ((estimatedInputTokensLow / 1000000) * inputRate) + ((estimatedOutputTokensLow / 1000000) * outputRate);
   const high = ((estimatedInputTokensHigh / 1000000) * inputRate) + ((estimatedOutputTokensHigh / 1000000) * outputRate);
   return {
@@ -6139,7 +6180,15 @@ async function runPipeline() {
     } else if (m.inputsFrom === 'extraction' && m.deps.length > 0) {
       // classcode depends on supplemental — wait for that
       wave1Tasks.push((async () => {
+        // FIX-PHASE1-2026-06-09: hard deadline on the dependency wait. The
+        // skipped/error escapes only fire if the dep's DOM row carries those
+        // classes — a dep that never schedules (or a future refactor of row
+        // classes) previously meant an INFINITE poll holding Promise.all
+        // open. Dead code today (no wave-1 extraction-input modules exist),
+        // but a landmine; 5 minutes is far beyond any real module runtime.
+        const _depDeadline = Date.now() + 5 * 60 * 1000;
         while (!STATE.extractions[m.deps[0]]) {
+          if (Date.now() > _depDeadline) { skipModule(mid, 'dep timeout (' + m.deps[0] + ' never completed in 300s)'); return false; }
           const depEl = document.querySelector(`[data-module="${m.deps[0]}"]`);
           if (depEl && depEl.classList.contains('skipped')) { skipModule(mid, 'dep skipped'); return false; }
           if (depEl && depEl.classList.contains('error')) { skipModule(mid, 'dep errored'); return false; }

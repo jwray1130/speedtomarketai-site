@@ -32,7 +32,8 @@
 // as a pseudo-file that feeds the A1 website-intel extraction module.
 //
 // Progressive fallback chain:
-//   1. CORS proxy (corsproxy.io / allorigins.win) — works for most public sites
+//   1. First-party Supabase relay (PHASE4) — confidential, always tried first;
+//      CORS proxies (corsproxy.io / allorigins.win) remain as gated fallback
 //   2. Claude web_fetch tool routed through the authenticated llm-proxy Edge
 //      Function (Phase 3 moved API keys server-side; the browser never holds one)
 //   3. Prompt user to paste HTML manually via manualPasteModal
@@ -287,7 +288,91 @@ async function discoverSitemapUrls(startUrl) {
 // Lightweight text fetch via the first available CORS proxy. Used for
 // sitemap.xml / robots.txt — small text files that don't need the
 // SPA-detection logic in fetchViaProxy.
+// FIX-AUDIT-2026-06-09: per-fetch timeout. Without a signal, one hung
+// proxy could sit on a single fetch until the browser default (minutes)
+// and eat the whole crawl budget. Feature-guarded for older runtimes.
+function stmFetchTimeout(ms) {
+  try {
+    return (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+      ? AbortSignal.timeout(ms) : undefined;
+  } catch (e) { return undefined; }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE4-2026-06-09 (audit M7) — first-party crawl relay.
+// Insured-website fetches previously transited PUBLIC proxy services,
+// letting their operators observe exactly which accounts this book is
+// researching. The Supabase Edge Function `fetch-proxy` (deployed next to
+// llm-proxy) is now Tier 0 for every page fetch; the public proxies and
+// Jina survive only as a flag-gated fallback for one release.
+//
+//   window.STM_ALLOW_PUBLIC_PROXIES
+//     true  (default this release) — fall back to public proxies WITH a
+//            one-time confidentiality warning if the relay is unreachable.
+//     false — first-party only; crawl fails closed instead of leaking.
+//   Flip the default to false once `supabase functions deploy fetch-proxy`
+//   has a clean week; Phase 7 deletes the public chain entirely.
+// ════════════════════════════════════════════════════════════════════════
+if (typeof window.STM_ALLOW_PUBLIC_PROXIES === 'undefined') window.STM_ALLOW_PUBLIC_PROXIES = true;
+const STM_RELAY_URL = ((typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL)
+  ? SUPABASE_URL : 'https://hscjnbolpxmiyujaxjyd.supabase.co') + '/functions/v1/fetch-proxy';
+let _stmRelayDown = false;          // 404 / network-level failure → skip relay for the rest of this crawl
+let _stmPublicNoticeShown = false;
+
+function stmPublicProxiesAllowed(url) {
+  if (window.STM_ALLOW_PUBLIC_PROXIES === false) return false;
+  if (!_stmPublicNoticeShown) {
+    _stmPublicNoticeShown = true;
+    console.warn('[scraper] CONFIDENTIALITY NOTICE: first-party relay unavailable — '
+      + 'falling back to PUBLIC proxy services (corsproxy.io / allorigins / codetabs / r.jina.ai). '
+      + 'Third-party operators can observe which insured websites this account researches. '
+      + 'Deploy the relay (`supabase functions deploy fetch-proxy`), then set '
+      + 'window.STM_ALLOW_PUBLIC_PROXIES = false to retire the fallbacks. First URL: ' + url);
+    try {
+      if (typeof logAudit === 'function') {
+        logAudit('Scrape', 'Public-proxy fallback in use — crawl targets visible to third-party proxy operators (deploy the fetch-proxy relay to fix)', 'warn');
+      }
+    } catch (e) {}
+  }
+  return true;
+}
+
+// POSTs { url } to the Edge Function with the signed-in user's token.
+// Returns { status, contentType, finalUrl, truncated, text } or throws.
+// A 404 or network-level failure marks the relay down for this session so
+// an undeployed function costs ONE failed request, not one per crawled page
+// inside the 4-minute crawl budget. 401/403 do NOT mark it down — a token
+// refresh mid-crawl can recover those.
+async function fetchViaFirstPartyRelay(url, timeoutMs) {
+  if (_stmRelayDown) throw new Error('relay marked unavailable this session');
+  if (!window.sb) throw new Error('no Supabase client');
+  const { data } = await window.sb.auth.getSession();
+  const token = data && data.session && data.session.access_token;
+  if (!token) throw new Error('no session token');
+  let res;
+  try {
+    res = await fetch(STM_RELAY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ url: url }),
+      signal: stmFetchTimeout(timeoutMs || 22000)
+    });
+  } catch (e) { _stmRelayDown = true; throw e; }
+  if (res.status === 404) { _stmRelayDown = true; throw new Error('relay not deployed (404)'); }
+  if (!res.ok) throw new Error('relay HTTP ' + res.status);
+  const j = await res.json();
+  if (!j || typeof j.text !== 'string') throw new Error('relay: malformed payload');
+  if (j.status >= 400) throw new Error('target HTTP ' + j.status + ' via relay');
+  return j;
+}
+
 async function fetchTextViaProxy(url) {
+  // PHASE4: Tier 0 — first-party relay (sitemaps, robots.txt, plain text).
+  try {
+    const j = await fetchViaFirstPartyRelay(url, 17000);
+    if (j.text && j.text.length > 20) return j.text;
+  } catch (e) { /* fall through to the gated public chain */ }
+  if (!stmPublicProxiesAllowed(url)) return null;
   const proxies = [
     u => 'https://corsproxy.io/?' + encodeURIComponent(u),
     u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
@@ -295,7 +380,7 @@ async function fetchTextViaProxy(url) {
   ];
   for (const mk of proxies) {
     try {
-      const res = await fetch(mk(url), { method: 'GET' });
+      const res = await fetch(mk(url), { method: 'GET', signal: stmFetchTimeout(15000) });
       if (!res.ok) continue;
       const text = await res.text();
       if (text && text.length > 20) return text;
@@ -307,7 +392,10 @@ async function fetchTextViaProxy(url) {
 // Fetch a URL via a chain of fallback services. Returns { html, source } or throws.
 //
 // Strategy (in order):
-//   1) Three HTML CORS proxies (corsproxy.io, allorigins, codetabs, cors.sh).
+//   0) PHASE4: first-party Supabase relay (fetch-proxy Edge Function) —
+//      same raw HTML as the proxies, but the crawl target is visible to
+//      nobody outside our own project. Always tried first.
+//   1) Three HTML CORS proxies (corsproxy.io, allorigins, codetabs).
 //      These return the raw HTML exactly as the server sent it — fast, cheap,
 //      works for server-rendered sites (WordPress, static, etc.).
 //   2) Jina Reader (r.jina.ai) — a free JS-rendering reader that executes
@@ -319,17 +407,34 @@ async function fetchTextViaProxy(url) {
 // "html" is already clean text (no tags) and htmlToText() will just
 // normalize whitespace — safe to run either way.
 async function fetchViaProxy(url) {
+  let lastErr = null;
+  // ── Tier 0 (PHASE4) — first-party relay. Raw HTML, zero third-party
+  // visibility. SPA shells still need Jina's JS rendering, so a shell
+  // result falls through (gated) exactly like a shell from Tier 1.
+  try {
+    const j = await fetchViaFirstPartyRelay(url, 22000);
+    if (j.text && j.text.length > 500 && hasMeaningfulContent(j.text)) {
+      return { html: j.text, source: 'first-party relay' };
+    }
+    lastErr = new Error('relay returned ' + (j.text ? j.text.length : 0) + ' chars · likely SPA shell');
+  } catch (e) {
+    lastErr = new Error('relay: ' + (e && e.message ? e.message : e));
+  }
+  if (!stmPublicProxiesAllowed(url)) {
+    throw new Error('Fetch failed — public proxies disabled (STM_ALLOW_PUBLIC_PROXIES=false) · ' + lastErr.message);
+  }
   // Tier 1 — raw HTML proxies. Try each in order; any 2xx with non-tiny body wins.
   const htmlProxies = [
     { name: 'corsproxy.io', mk: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
     { name: 'allorigins',   mk: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
-    { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) },
-    { name: 'cors.sh',      mk: u => 'https://proxy.cors.sh/' + u }
+    { name: 'codetabs',     mk: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u) }
+    // FIX-AUDIT-2026-06-09: proxy.cors.sh removed — it requires a paid
+    // x-cors-api-key header we never send, so the hop 4xx'd on every call
+    // and only burned time inside the 4-minute crawl budget.
   ];
-  let lastErr = null;
   for (const proxy of htmlProxies) {
     try {
-      const res = await fetch(proxy.mk(url), { method: 'GET' });
+      const res = await fetch(proxy.mk(url), { method: 'GET', signal: stmFetchTimeout(20000) });
       if (!res.ok) { lastErr = new Error(proxy.name + ' HTTP ' + res.status); continue; }
       const html = await res.text();
       // Guard against SPA shells — if the HTML is clearly an empty React/Vue
@@ -347,7 +452,7 @@ async function fetchViaProxy(url) {
   // clean text. Slower than the HTML proxies but handles modern SPAs.
   try {
     const jinaUrl = 'https://r.jina.ai/' + url;
-    const res = await fetch(jinaUrl, { method: 'GET', headers: { 'Accept': 'text/plain' } });
+    const res = await fetch(jinaUrl, { method: 'GET', headers: { 'Accept': 'text/plain' }, signal: stmFetchTimeout(45000) });
     if (res.ok) {
       const text = await res.text();
       if (text && text.length > 100) {

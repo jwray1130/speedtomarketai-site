@@ -10,7 +10,24 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/lib/index.browser.js" onerror="window.__msgReaderFailed=true"></script>
+<script type="module">
+  // FIX-AUDIT-2026-06-09 (.msg ingestion): @kenjiuno/msgreader ships NO
+  // lib/index.browser.js — that path 404s on jsDelivr, so the old <script>
+  // tag set __msgReaderFailed on every page load and ALL .msg uploads
+  // errored. The package is CJS/ESM only; load it the same way as
+  // postal-mime: ESM via the CDN's +esm transform, attached to window,
+  // with a Ready promise the extractor can await briefly.
+  window.MsgReaderReady = import('https://cdn.jsdelivr.net/npm/@kenjiuno/msgreader@1.22.0/+esm')
+    .then(mod => {
+      window.MsgReader = mod.default || mod.MsgReader || mod;
+      return window.MsgReader;
+    })
+    .catch(err => {
+      console.warn('msgreader failed to load — .msg will need .eml forward or paste-as-text', err);
+      window.__msgReaderFailed = true;
+      return null;
+    });
+</script>
 <script type="module">
   // postal-mime is ESM-only; load via esm.sh and attach to window so the
   // rest of app.js (non-module) can call window.PostalMime.parse(buf).
@@ -46,7 +63,18 @@
     });
 </script>
 <script>if (typeof pdfjsLib !== 'undefined') { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- FIX-PHASE1-2026-06-09: exact-pinned + SRI. jsDelivr /npm/ serves the npm
+     tarball byte-for-byte, so this sha384 was computed from the published
+     @supabase/supabase-js@2.108.1 package itself. A floating @2 tag meant
+     any upstream publish (or CDN compromise) changed the auth code we run. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js" integrity="sha384-EjUdIVmzWliPzdzhxZ9ZoO0etXLKWuUPUftAGxP6qH6Lm4oLwoLaJR0Ba4pIDiDL" crossorigin="anonymous"></script>
+<!-- PHASE3-2026-06-09: shared auth module — single Supabase client owner for
+     both pages. Loaded PLAIN (not defer) so it executes before pipeline-core
+     at end-of-body; core adopts window.sb instead of creating a second
+     GoTrue instance. On this page it contributes client + session events
+     only (the gate UI is opt-in via .stm-auth-pending, which only
+     workbench.html sets). -->
+<script src="platform-auth.js"></script>
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
 <script src="pipeline-prompts.js"></script>
 <link rel="stylesheet" href="pipeline-app.css">
@@ -347,7 +375,7 @@
   <div class="sub-header">
     <div class="sub-header-main">
       <div class="sub-header-name" id="sh-name">New submission</div>
-      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 17 specialist modules</div>
+      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 24 specialist modules</div>
     </div>
     <div class="sub-header-pills" id="sh-pills">
       <span class="sub-pill handoff-pill" id="shHandoffPill" style="display: none;"></span>
@@ -507,7 +535,7 @@
               <div class="pipeline-done-icon">✓</div>
               <div class="pipeline-done-text">
                 <strong>Pipeline complete</strong>
-                <p>17/17 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
+                <p>24/24 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
               </div>
               <button class="btn-view-summary" onclick="showStage('sum')">
                 View Summary
@@ -522,7 +550,7 @@
       <div class="summary-view" id="summaryStage">
         <div class="summary-meta">
           <div class="summary-meta-text">
-            <strong>0/17 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
+            <strong>0/24 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
           </div>
           <div style="display: flex; gap: 10px; align-items: center;">
             <span class="save-indicator saved" id="saveIndicator"><span class="dot"></span><span id="saveIndicatorText">Ready</span></span>
@@ -1217,14 +1245,13 @@
       <div class="form-group">
         <label>Model</label>
         <select id="apiModel">
-          <!-- All four Claude 4.5 → 4.7 family models. Pricing in
+          <!-- Allowlisted Claude models (Opus 4.8 / Sonnet 4.6 / Haiku 4.5). Pricing in
                MODEL_PRICING (pipeline-engine.js) covers each one, so the
                cost preview + audit-log $ values reflect whichever model is
                selected. Tier-grouped so the relative spend is visible at a
                glance before you turn on "Force ALL modules". -->
           <optgroup label="Opus tier — $5 / $25 per M tokens · highest quality">
             <option value="claude-opus-4-8">Opus 4.8 · claude-opus-4-8</option>
-            <option value="claude-opus-4-6">Opus 4.6 · claude-opus-4-6</option>
           </optgroup>
           <optgroup label="Sonnet tier — $3 / $15 per M tokens · default routing">
             <option value="claude-sonnet-4-6" selected>Sonnet 4.6 · claude-sonnet-4-6</option>
@@ -1240,7 +1267,7 @@
           <input type="checkbox" id="forceGlobalModel" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--signal);">
           <span>Force ALL modules to use the model above</span>
         </label>
-        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 17 modules) goes through the model above. Use this for max-quality runs regardless of cost. Modestly higher spend per submission with all-Opus vs. default routing (the default already runs most modules on Opus; only the few lighter Sonnet modules move up).</div>
+        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 24 modules) goes through the model above. Use this for max-quality runs regardless of cost. Modestly higher spend per submission with all-Opus vs. default routing (the default already runs most modules on Opus; only the few lighter Sonnet modules move up).</div>
       </div>
       <div class="form-group">
         <label>Max output tokens</label>

@@ -221,7 +221,15 @@ function sbRecordDeleteDebug(stage, detail) {
     if (!window.__stmDeleteDebug) window.__stmDeleteDebug = [];
     window.__stmDeleteDebug.push(row);
     window.__stmDeleteDebug = window.__stmDeleteDebug.slice(-50);
-    try { localStorage.setItem('__stmDeleteDebug', JSON.stringify(window.__stmDeleteDebug)); } catch (e) {}
+    // FIX-PHASE1-2026-06-09: persist the delete-debug ring to localStorage
+    // only in debug mode (?debug=1 or window.STM_DEBUG). The in-memory ring
+    // and console line stay always-on; production users no longer accumulate
+    // diagnostic residue in storage.
+    try {
+      const dbg = (typeof window.STM_DEBUG !== 'undefined' && window.STM_DEBUG)
+        || /[?&]debug=1\b/.test((window.location && window.location.search) || '');
+      if (dbg) localStorage.setItem('__stmDeleteDebug', JSON.stringify(window.__stmDeleteDebug));
+    } catch (e) {}
     try { console.log('[STM DELETE]', stage, detail || ''); } catch (e) {}
   } catch (e) {}
 }

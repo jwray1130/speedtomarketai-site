@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.6.81-workbench-fill-reliability-2026-05-17
+  v8.7.65-phase7-lockdown-2026-06-09
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.56-summary-card-row-align-2026-06-07';
+window.STM_BUILD = 'v8.7.65-phase7-lockdown-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -276,6 +276,413 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+       PHASE 2 — WORKBENCH EDIT PERSISTENCE (v8.7.60)
+       Makes Save mean Saved. Field-level dirty tracking via trusted events,
+       Supabase-backed persistence (workbench_field_edits), localStorage
+       mirror as offline fallback, restore AFTER the pipeline fill with
+       user-edits-win precedence (data-user-set), dynamic-table round-trip
+       for the rater tables, and forms-selection overrides.
+
+       Precedence contract:
+         1. applyFullPhasePipeline fills from extractions (unchanged).
+         2. restoreWorkbenchEdits8760 overlays saved USER edits on top and
+            marks them data-user-set="1".
+         3. Every later programmatic fill (population pass, coverage-card
+            retries, guideposts) is guarded by stmFieldLocked() and will
+            never overwrite a user-set field.
+       Out of scope here (deliberate): year-over-year loss tables — the
+       v8.7.25 loss reconciler owns and pins those; persisting user rows
+       there would fight it. GL Exposure Rater rows — pipeline-derived,
+       revisited in Phase 5/6.
+       ════════════════════════════════════════════════════════════════════ */
+
+    function stmFieldLocked(el) {
+        try { return !!(el && el.getAttribute && el.getAttribute('data-user-set') === '1'); }
+        catch (e) { return false; }
+    }
+
+    const STM_EDITS = {
+        map: Object.create(null),       // field_key → { v, t }
+        removed: new Set(),             // keys deleted since last save (re-sync)
+        dirtyTables: new Set(),         // table keys touched this session
+        formsDirty: false,
+        submissionId: null,
+        cloudUnavailable: false,        // table missing → local-only mode
+        restoring: false
+    };
+
+    const STM_EDIT_TABLES = [
+        { key: 'primary',  bodySel: '#primaryPoliciesTbl tbody', rowSel: ':scope > tr', addSel: '#internalAddPrimary',     rowRemoveSel: '[data-pp-remove]', attr: 'data-pp' },
+        { key: 'tower',    bodySel: '#towerLimitsTable tbody',   rowSel: ':scope > tr', addSel: '#internalAddLayer',       rowRemoveSel: '[data-tw-remove]', attr: 'data-tw' },
+        { key: 'highex',   bodySel: '#highExcessTable tbody',    rowSel: ':scope > tr', addSel: '#internalAddHighExcess',  rowRemoveSel: '[data-he-remove]', attr: 'data-he' },
+        { key: 'auto',     bodySel: '#autoTable tbody',          rowSel: ':scope > tr', addSel: null,                      rowRemoveSel: null,               attr: 'data-a'  },
+        { key: 'gl_ll',    bodySel: '#glLargeLossRows',          rowSel: ':scope > .large-loss-row', addSel: '#addGlLargeLoss',   removeSel: '#removeGlLargeLoss',
+          cells: [ { k: 'date', sel: 'input.large-loss-date' }, { k: 'incurred', sel: ':scope > div:nth-of-type(1) input' }, { k: 'paid', sel: ':scope > div:nth-of-type(2) input' }, { k: 'status', sel: ':scope > select' }, { k: 'desc', sel: ':scope > textarea' } ] },
+        { key: 'auto_ll',  bodySel: '#autoLargeLossRows',        rowSel: ':scope > .large-loss-row', addSel: '#addAutoLargeLoss', removeSel: '#removeAutoLargeLoss',
+          cells: [ { k: 'date', sel: 'input.large-loss-date' }, { k: 'incurred', sel: ':scope > div:nth-of-type(1) input' }, { k: 'paid', sel: ':scope > div:nth-of-type(2) input' }, { k: 'status', sel: ':scope > select' }, { k: 'desc', sel: ':scope > textarea' } ] }
+    ];
+
+    /* ── Pure helpers (DOM-arg based; exposed for tests as __stmEditsPure) ── */
+    function stmSerializeEl(el) {
+        if (!el) return null;
+        if (el.type === 'checkbox' || el.type === 'radio') return { c: !!el.checked };
+        return { v: el.value };
+    }
+    function stmApplyEl(el, saved, fire) {
+        if (!el || saved == null) return false;
+        if (el.readOnly) return false;                       // derived cells (e.g. high-excess attach)
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            el.checked = !!saved.c;
+        } else if (el._flatpickr && typeof el._flatpickr.setDate === 'function') {
+            el._flatpickr.setDate(saved.v || '', false);
+            el.value = saved.v || '';
+        } else {
+            el.value = saved.v != null ? saved.v : '';
+        }
+        el.setAttribute('data-user-set', '1');
+        if (fire !== false) {
+            el.dispatchEvent(new Event('input',  { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return true;
+    }
+    function stmRowCells(row, cfg) {
+        if (cfg.cells) {
+            return cfg.cells.map(c => ({ k: c.k, el: row.querySelector(c.sel) })).filter(x => x.el);
+        }
+        return Array.from(row.querySelectorAll('input[' + cfg.attr + '], select[' + cfg.attr + '], textarea[' + cfg.attr + ']'))
+            .map(el => ({ k: el.getAttribute(cfg.attr), el }));
+    }
+    function stmTableSerialize(body, cfg) {
+        if (!body) return null;
+        return Array.from(body.querySelectorAll(cfg.rowSel)).map(row => {
+            const o = {};
+            for (const { k, el } of stmRowCells(row, cfg)) o[k] = stmSerializeEl(el);
+            return o;
+        });
+    }
+    function stmTableRestore(body, cfg, rows, doc) {
+        if (!body || !Array.isArray(rows)) return 0;
+        doc = doc || document;
+        const count = () => body.querySelectorAll(cfg.rowSel).length;
+        let guard = 0;
+        // Grow to target via the section's own Add button (keeps wiring + recalc)
+        if (cfg.addSel) {
+            const addBtn = doc.querySelector(cfg.addSel);
+            while (addBtn && count() < rows.length && guard++ < 60) addBtn.click();
+        }
+        // Shrink via per-row remove buttons (last row) or the section remove button
+        guard = 0;
+        while (count() > rows.length && guard++ < 60) {
+            const all = body.querySelectorAll(cfg.rowSel);
+            const last = all[all.length - 1];
+            const perRow = cfg.rowRemoveSel ? last.querySelector(cfg.rowRemoveSel) : null;
+            const secBtn = cfg.removeSel ? doc.querySelector(cfg.removeSel) : null;
+            if (perRow) perRow.click();
+            else if (secBtn) secBtn.click();
+            else break;                                       // fixed-row table (auto): fill what exists
+        }
+        let applied = 0;
+        const live = body.querySelectorAll(cfg.rowSel);
+        rows.forEach((saved, i) => {
+            const row = live[i];
+            if (!row) return;
+            for (const { k, el } of stmRowCells(row, cfg)) {
+                if (saved[k] != null && stmApplyEl(el, saved[k])) applied++;
+            }
+        });
+        return applied;
+    }
+    window.__stmEditsPure = { stmSerializeEl, stmApplyEl, stmTableSerialize, stmTableRestore };
+
+    /* ── Dirty tracking ── */
+    function stmFieldKeyFor(el) {
+        if (!el) return null;
+        if (el.id) return el.id;
+        if (el.name) return 'name:' + el.name;
+        return null;
+    }
+    function stmTableCfgFor(el) {
+        for (const cfg of STM_EDIT_TABLES) {
+            const body = document.querySelector(cfg.bodySel);
+            if (body && body.contains(el)) return cfg;
+        }
+        return null;
+    }
+    const stmMirrorDebounced = (() => {
+        let h = null;
+        return () => { clearTimeout(h); h = setTimeout(stmWriteLocalMirror, 800); };
+    })();
+
+    function stmMarkDirty(el) {
+        if (STM_EDITS.restoring) return;
+        const formsRoot = document.getElementById('formsContainer');
+        if (formsRoot && formsRoot.contains(el)) { STM_EDITS.formsDirty = true; stmRefreshEditsPill(); stmMirrorDebounced(); return; }
+        const tcfg = stmTableCfgFor(el);
+        if (tcfg) {
+            STM_EDITS.dirtyTables.add(tcfg.key);
+            el.setAttribute('data-user-set', '1');
+            stmRefreshEditsPill(); stmMirrorDebounced();
+            return;
+        }
+        // Year-over-year loss rows: reconciler-owned — never persist from here.
+        if (el.closest && el.closest('.loss-row')) return;
+        const key = stmFieldKeyFor(el);
+        if (!key) return;
+        // Date inputs: store the canonical (Y-m-d) input, not the alt display.
+        let target = el;
+        if (el.dataset && el.dataset.stmDateAlt === '1') {
+            const canon = el.previousElementSibling && el.previousElementSibling._flatpickr ? el.previousElementSibling : null;
+            target = canon || el;
+        }
+        STM_EDITS.map[key] = Object.assign({ t: Date.now() }, stmSerializeEl(target));
+        STM_EDITS.removed.delete(key);
+        el.setAttribute('data-user-set', '1');
+        if (target !== el) target.setAttribute('data-user-set', '1');
+        stmRefreshEditsPill(); stmMirrorDebounced();
+    }
+
+    ['input', 'change'].forEach(ev => document.addEventListener(ev, (e) => {
+        if (!e.isTrusted) return;                            // programmatic fills never dirty
+        const el = e.target;
+        if (!el || !el.matches || !el.matches('input, select, textarea')) return;
+        if (el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
+        stmMarkDirty(el);
+    }, true));
+
+    // Forms rows toggle via row-clicks (programmatic checkbox flips) — catch
+    // the trusted CLICK and snapshot after their handler has run.
+    document.addEventListener('click', (e) => {
+        if (!e.isTrusted || STM_EDITS.restoring) return;
+        const formsRoot = document.getElementById('formsContainer');
+        if (!formsRoot || !formsRoot.contains(e.target)) return;
+        if (e.target.closest('#formsReset')) {               // Reset Default = clear the override
+            setTimeout(() => {
+                STM_EDITS.formsDirty = false;
+                STM_EDITS.removed.add('__forms');
+                stmRefreshEditsPill(); stmMirrorDebounced();
+            }, 0);
+            return;
+        }
+        if (e.target.closest('.form-row') || e.target.closest('.select-all-forms')) {
+            setTimeout(() => { STM_EDITS.formsDirty = true; stmRefreshEditsPill(); stmMirrorDebounced(); }, 0);
+        }
+    }, true);
+
+    function stmCollectFormsState() {
+        const out = {};
+        document.querySelectorAll('#formsContainer .form-row').forEach(row => {
+            const num = row.dataset.formNum;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (num && cb) out[num] = !!cb.checked;
+        });
+        return out;
+    }
+    function stmApplyFormsState(saved) {
+        if (!saved) return 0;
+        let n = 0;
+        document.querySelectorAll('#formsContainer .form-row').forEach(row => {
+            const num = row.dataset.formNum;
+            if (num == null || !(num in saved)) return;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (!cb) return;
+            cb.checked = !!saved[num];
+            row.classList.toggle('is-selected', cb.checked);
+            n++;
+        });
+        return n;
+    }
+
+    /* ── Payload build / local mirror / cloud I/O ── */
+    function stmLocalKey() {
+        const sid = STM_EDITS.submissionId
+            || (window.workbenchActiveSubmission && window.workbenchActiveSubmission.id)
+            || ($('#dealNum') && $('#dealNum').textContent.trim()) || 'untitled';
+        return 'stm-wbedits:' + sid;
+    }
+    function stmBuildPayload() {
+        const fields = Object.assign(Object.create(null), STM_EDITS.map);
+        // Re-read live values for dirty keys so Save captures the latest text.
+        for (const key of Object.keys(fields)) {
+            const el = key.indexOf('name:') === 0
+                ? document.querySelector('[name="' + key.slice(5).replace(/"/g, '\\"') + '"]')
+                : document.getElementById(key);
+            if (el) fields[key] = Object.assign({ t: fields[key].t || Date.now() }, stmSerializeEl(el));
+        }
+        const tables = {};
+        for (const cfg of STM_EDIT_TABLES) {
+            if (!STM_EDITS.dirtyTables.has(cfg.key)) continue;
+            const body = document.querySelector(cfg.bodySel);
+            const rows = stmTableSerialize(body, cfg);
+            if (rows) tables[cfg.key] = rows;
+        }
+        const forms = STM_EDITS.formsDirty ? stmCollectFormsState() : null;
+        return { v: 2, savedAt: new Date().toISOString(), fields, tables, forms };
+    }
+    function stmWriteLocalMirror() {
+        try { localStorage.setItem(stmLocalKey(), JSON.stringify(stmBuildPayload())); } catch (e) {}
+    }
+    function stmReadLocalMirror() {
+        try { return JSON.parse(localStorage.getItem(stmLocalKey()) || 'null'); } catch (e) { return null; }
+    }
+
+    function stmCloudRowsFromPayload(payload, sid) {
+        const rows = [];
+        for (const [k, v] of Object.entries(payload.fields || {})) rows.push({ submission_id: sid, field_key: k, value: v });
+        for (const [k, v] of Object.entries(payload.tables || {})) rows.push({ submission_id: sid, field_key: '__table:' + k, value: { rows: v, t: Date.now() } });
+        if (payload.forms) rows.push({ submission_id: sid, field_key: '__forms', value: { forms: payload.forms, t: Date.now() } });
+        return rows;
+    }
+    function stmPayloadFromCloudRows(rows) {
+        const p = { fields: {}, tables: {}, forms: null };
+        for (const r of rows || []) {
+            const k = r.field_key;
+            if (k === '__forms') p.forms = (r.value && r.value.forms) || null;
+            else if (k.indexOf('__table:') === 0) p.tables[k.slice(8)] = (r.value && r.value.rows) || [];
+            else p.fields[k] = r.value || {};
+        }
+        return p;
+    }
+    function stmCloudTableMissing(error) {
+        const msg = String((error && (error.message || error.details)) || '');
+        return (error && error.code === '42P01') || /workbench_field_edits/.test(msg) && /not exist|relation/i.test(msg);
+    }
+
+    async function stmSaveEdits() {
+        const sid = STM_EDITS.submissionId;
+        const payload = stmBuildPayload();
+        stmWriteLocalMirror();
+        const nFields = Object.keys(payload.fields).length;
+        const nTables = Object.keys(payload.tables).length;
+        const summary = nFields + ' field' + (nFields !== 1 ? 's' : '') + (nTables ? ' · ' + nTables + ' table' + (nTables !== 1 ? 's' : '') : '') + (payload.forms ? ' · forms' : '');
+        if (!sid || !window.sb || !window.currentUser || STM_EDITS.cloudUnavailable) {
+            return { mode: 'local', summary };
+        }
+        try {
+            const rows = stmCloudRowsFromPayload(payload, sid);
+            if (rows.length) {
+                const { error } = await window.sb.from('workbench_field_edits')
+                    .upsert(rows, { onConflict: 'submission_id,field_key' });
+                if (error) throw error;
+            }
+            if (STM_EDITS.removed.size) {
+                const { error: delErr } = await window.sb.from('workbench_field_edits')
+                    .delete().eq('submission_id', sid).in('field_key', Array.from(STM_EDITS.removed));
+                if (delErr) throw delErr;
+                STM_EDITS.removed.clear();
+            }
+            return { mode: 'cloud', summary };
+        } catch (err) {
+            if (stmCloudTableMissing(err)) {
+                STM_EDITS.cloudUnavailable = true;
+                console.warn('[workbench] Phase 2: workbench_field_edits table missing — run the Phase 2 SQL migration. Saving locally.');
+                return { mode: 'local-no-table', summary };
+            }
+            console.warn('[workbench] Phase 2: cloud save failed —', err && err.message);
+            return { mode: 'local-fail', summary, error: err };
+        }
+    }
+
+    /* ── Restore (runs AFTER applyFullPhasePipeline) ── */
+    async function restoreWorkbenchEdits8760(submission) {
+        try {
+            STM_EDITS.submissionId = (submission && submission.id) || null;
+            let payload = null, source = null;
+            if (STM_EDITS.submissionId && window.sb && window.currentUser) {
+                try {
+                    const { data, error } = await window.sb.from('workbench_field_edits')
+                        .select('field_key,value').eq('submission_id', STM_EDITS.submissionId);
+                    if (error) throw error;
+                    if (data && data.length) { payload = stmPayloadFromCloudRows(data); source = 'cloud'; }
+                } catch (err) {
+                    if (stmCloudTableMissing(err)) STM_EDITS.cloudUnavailable = true;
+                    else console.warn('[workbench] Phase 2: cloud edit load failed —', err && err.message);
+                }
+            }
+            if (!payload) { payload = stmReadLocalMirror(); source = payload ? 'local' : null; }
+            if (!payload) { stmInjectEditsUi(); return; }
+
+            STM_EDITS.restoring = true;
+            let applied = 0;
+            // 1) Layer Type first — it gates the whole form + rebuilds Forms.
+            if (payload.fields && payload.fields.layerType) {
+                const lt = document.getElementById('layerType');
+                if (lt && stmApplyEl(lt, payload.fields.layerType)) applied++;
+            }
+            // 2) Remaining scalar fields.
+            for (const [key, v] of Object.entries(payload.fields || {})) {
+                if (key === 'layerType') continue;
+                const el = key.indexOf('name:') === 0
+                    ? document.querySelector('[name="' + key.slice(5).replace(/"/g, '\\"') + '"]')
+                    : document.getElementById(key);
+                if (el && stmApplyEl(el, v)) applied++;
+            }
+            // 3) Dynamic tables.
+            for (const cfg of STM_EDIT_TABLES) {
+                const rows = payload.tables && payload.tables[cfg.key];
+                if (!rows) continue;
+                const body = document.querySelector(cfg.bodySel);
+                applied += stmTableRestore(body, cfg, rows);
+                STM_EDITS.dirtyTables.add(cfg.key);
+            }
+            // 4) Forms overrides — after the layer-type cascade rebuilt the list.
+            if (payload.forms) {
+                applied += stmApplyFormsState(payload.forms);
+                STM_EDITS.formsDirty = true;
+            }
+            STM_EDITS.map = Object.assign(Object.create(null), payload.fields || {});
+            STM_EDITS.restoring = false;
+            stmInjectEditsUi();
+            stmRefreshEditsPill();
+            if (applied > 0) {
+                recordHistory('Edits restored', applied + ' saved value' + (applied !== 1 ? 's' : '') + ' from ' + source);
+                console.log('[workbench] Phase 2: restored ' + applied + ' user edits from ' + source + ' (user-set fields are now locked against refills).');
+            }
+        } catch (err) {
+            STM_EDITS.restoring = false;
+            console.warn('[workbench] Phase 2: restore failed (non-fatal) —', err && err.message);
+        }
+    }
+    window.restoreWorkbenchEdits8760 = restoreWorkbenchEdits8760;
+
+    /* ── UI: edit marker style, edits pill, reset-all ── */
+    function stmInjectEditsUi() {
+        if (document.getElementById('stmEditsStyle')) return;
+        const st = document.createElement('style');
+        st.id = 'stmEditsStyle';
+        st.textContent = 'input[data-user-set="1"], select[data-user-set="1"], textarea[data-user-set="1"] { box-shadow: inset 2px 0 0 0 #d4a017; }'
+            + ' #stmEditsPill { display:none; margin-left:8px; padding:2px 9px; border-radius:10px; background:#1d2b45; color:#e8eefc; font-size:11px; cursor:pointer; vertical-align:middle; }'
+            + ' #stmEditsPill:hover { background:#27406b; }';
+        document.head.appendChild(st);
+        const saveBtn = document.getElementById('saveBtn');
+        if (saveBtn && !document.getElementById('stmEditsPill')) {
+            const pill = document.createElement('span');
+            pill.id = 'stmEditsPill';
+            pill.title = 'Click to discard all saved workbench edits for this submission and reload the pipeline-filled values.';
+            pill.addEventListener('click', async () => {
+                if (!confirm('Discard ALL saved workbench edits for this submission and re-sync from the pipeline?')) return;
+                try {
+                    if (STM_EDITS.submissionId && window.sb && window.currentUser && !STM_EDITS.cloudUnavailable) {
+                        await window.sb.from('workbench_field_edits').delete().eq('submission_id', STM_EDITS.submissionId);
+                    }
+                } catch (e) { console.warn('[workbench] Phase 2: cloud reset failed —', e && e.message); }
+                try { localStorage.removeItem(stmLocalKey()); } catch (e) {}
+                recordHistory('Saved edits discarded', 're-syncing from pipeline');
+                location.reload();
+            });
+            saveBtn.insertAdjacentElement('afterend', pill);
+        }
+    }
+    function stmRefreshEditsPill() {
+        const pill = document.getElementById('stmEditsPill');
+        if (!pill) return;
+        const n = Object.keys(STM_EDITS.map).length + STM_EDITS.dirtyTables.size + (STM_EDITS.formsDirty ? 1 : 0);
+        pill.style.display = n > 0 ? 'inline-block' : 'none';
+        pill.textContent = n + ' edit' + (n !== 1 ? 's' : '') + ' · reset ↺';
+    }
+    stmInjectEditsUi();
+
     function attachFormatter(input, kind, decimals = null) {
         if (!input) return;
         input.addEventListener('blur', () => {
@@ -374,6 +781,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const flatpickrConfig = {
+            // PHASE2-2026-06-09: calendar picks are synthetic events (isTrusted
+            // false), so the global dirty listener can't see them. A pick only
+            // happens with the calendar OPEN; programmatic setDate() runs with
+            // it closed — isOpen is the reliable user-intent signal.
+            onChange: function (sd, ds, inst) {
+                try { if (inst && inst.isOpen && inst.input && typeof stmMarkDirty === 'function') stmMarkDirty(inst.input); } catch (e) {}
+            },
             altInput: true,
             altFormat: "n/j/Y",
             dateFormat: "Y-m-d",
@@ -523,6 +937,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const setGuide = (id, value) => {
                 const el = document.getElementById(id);
                 if (!el) return false;
+                if (stmFieldLocked(el)) return false;   // PHASE2: user-set wins
                 const next = value == null ? '' : String(value);
                 if (el.value !== next) {
                     el.value = next;
@@ -849,8 +1264,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
                     applyFullPhasePipeline(data);
+                    // PHASE2-2026-06-09: overlay saved USER edits strictly after
+                    // the pipeline fill — restored fields get data-user-set so the
+                    // 600ms population-pass retry can never clobber them.
+                    await restoreWorkbenchEdits8760(data);
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
+                    await restoreWorkbenchEdits8760(data);
                 }
             } catch (err) {
                 console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
@@ -1741,6 +2161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function setField8702(id, value, opts = {}) {
             const el = document.getElementById(id);
             if (!el || value == null || value === '') return false;
+            if (stmFieldLocked(el)) return false;   // PHASE2: user-set wins
             const next = String(value);
             if (el.value === next) return true;
             el.value = next;
@@ -1752,6 +2173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function setSelectByTextOrValue8702(id, value) {
             const el = document.getElementById(id);
             if (!el || value == null || value === '') return false;
+            if (stmFieldLocked(el)) return false;   // PHASE2: user-set wins
             const v = String(value);
             let match = Array.from(el.options || []).find(o => o.value === v || o.textContent === v)
                 || Array.from(el.options || []).find(o => o.value.toLowerCase() === v.toLowerCase() || o.textContent.toLowerCase() === v.toLowerCase());
@@ -2281,7 +2703,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     [localStorage, sessionStorage].forEach(store => {
                         Object.keys(store || {}).forEach(k => {
-                            if (submissionId && !k.includes(submissionId) && !/loss|pipeline|module|extract|submission/i.test(k)) return;
+                            // FIX-PHASE1-2026-06-09: when the active submission id is known, ONLY
+                            // keys carrying that id may feed loss candidates — a generic
+                            // 'pipeline'/'loss' key cached by a DIFFERENT deal previously
+                            // qualified and could contaminate this deal's loss history.
+                            // With no submission id (rare), keep the legacy keyword filter.
+                            if (submissionId) { if (!k.includes(submissionId)) return; }
+                            else if (!/loss|pipeline|module|extract|submission/i.test(k)) return;
                             const v = store.getItem(k) || '';
                             if (/loss_history_structured|policy_years|gl_claims|al_claims|large_losses/i.test(v)) textCandidates.push(v);
                         });
@@ -3797,6 +4225,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function applyResolvedToElement(el, kind, value) {
+            // PHASE2-2026-06-09: a field the user deliberately set (or that was
+            // restored from saved edits) is locked — pipeline fills, the
+            // population pass, and coverage-card retries must never clobber it.
+            if (stmFieldLocked(el)) return false;
             const tag = (el.tagName || '').toLowerCase();
             try {
                 if (kind === 'date') {
@@ -4509,7 +4941,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     `<tr data-row="${i}"><td>${name}</td><td class="right"><input data-a="units" class="mono input-highlight" /></td><td class="right"><input data-a="rate" class="mono input-highlight" placeholder="$" /></td><td class="right mono" data-a-out="prem">$0</td><td class="right"><input data-a="expUnits" class="mono input-highlight" /></td><td class="right mono" data-a-out="fleetChange">0</td><td class="right"><input data-a="expRate" class="mono input-highlight" placeholder="$" /></td><td class="right mono" data-a-out="rateChange">$0</td><td class="right mono" data-a-out="expPrem">$0</td><td class="right mono" data-a-out="change">$0</td></tr>`
                 ).join('');
                 if (!autoTable.querySelector('tfoot')) {
-                    autoTable.insertAdjacentHTML('beforeend', `<tfoot><tr class="total-row"><td>Total</td><td class="right mono" id="autoUnitsTotal">0</td><td></td><td class="right mono" id="autoRenewalTotal">$0</td><td class="right mono" id="autoExpUnitsTotal">0</td><td class="right mono" id="autoFleetChangeTotal">0</td><td></td><td></td><td class="right mono" id="autoExpiringTotal">$0</td><td class="right mono" id="autoChangeTotal">$0</td></tr></tfoot>`);
+                    autoTable.insertAdjacentHTML('beforeend', `<tfoot><tr class="total-row"><td>Total</td><td class="right mono" id="autoUnitsTotal">0</td><td></td><td class="right mono" id="autoRenewalTotal">$0</td><td class="right mono" id="autoExpUnitsTotal">0</td><td class="right mono" id="autoFleetChangeTotal">0</td><td></td><td></td><td class="right mono" id="autoExpiringTotal">$0</td><td class="right mono" id="autoChangeTile"><span id="autoChangeTotal">$0</span> <span id="autoChangePct" style="font-size:11px;opacity:.78;margin-left:6px;"></span></td></tr></tfoot>`);
                 }
                 autoTable.querySelectorAll('tbody input').forEach(inp => {
                     const key = inp.getAttribute('data-a');
@@ -5445,8 +5877,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!raw) return 0;
                 let num = parseFloat(raw);
                 if (!Number.isFinite(num)) return 0;
-                if (num > 0 && num < 1000) num *= ONE_M;
+                let _coercedToMillions = false;
+                if (num > 0 && num < 1000) { num *= ONE_M; _coercedToMillions = true; }
                 input.value = num.toLocaleString('en-US');
+                // FIX-PHASE1-2026-06-09: surface the millions-shorthand cliff.
+                // Entries of 100–999 convert to $100M–$999M — at that magnitude
+                // a typo (meant dollars) is costlier than the shorthand is
+                // convenient, so show the interpreted value inline via the
+                // existing coercion note. 1–99 is the intended shorthand
+                // ("5" → $5M) and stays silent. NO math changes — workbook
+                // convention untouched pending the Phase 6 parity review.
+                try {
+                    if (_coercedToMillions && num >= 100 * ONE_M) _flagMoneyInput(input, 'coerced');
+                    else _flagMoneyInput(input, null);
+                } catch (e) { /* note is best-effort */ }
                 if (shouldRecalc) recalcInternalRater();
                 return num;
             }
@@ -5615,7 +6059,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const gl = buildSeries(glBase, factors);
                 const other = buildSeries(otherBase, factors);
                 const cutOff = attachmentCutOff();
-                const window = groundLayerWindow(calcLimit(), cleanNumber(attachInput?.value));
+                // FIX-PHASE1-2026-06-09: renamed from `const window` — shadowing the
+                // global window worked but was a maintenance trap (any window.* call
+                // added inside this block would silently hit the layer object).
+                const guWin = groundLayerWindow(calcLimit(), cleanNumber(attachInput?.value));
                 state.groundRows = [];
                 state.visibleGroundRows = [];
                 state.groundByTop = new Map();
@@ -5640,7 +6087,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (top >= cutOff) continue;
 
                     state.visibleGroundRows.push(row);
-                    const inLayer = window.active && top > window.start && top <= window.end;
+                    const inLayer = guWin.active && top > guWin.start && top <= guWin.end;
                     rows.push(`
                         <tr data-ground-top="${top}" class="${inLayer ? 'is-in-layer' : ''}">
                             <td>${money(top)}</td>
@@ -5710,13 +6157,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function inLayerBandTops(limit, attachment) {
-                const window = groundLayerWindow(limit, attachment);
+                const lyrWin = groundLayerWindow(limit, attachment);  // FIX-PHASE1-2026-06-09: was `const window` (shadowing)
                 const tops = [];
                 for (let top = ONE_M; top <= MAX_GU; top += ONE_M) {
-                    if (top > window.start && top <= window.end) tops.push(top);
+                    if (top > lyrWin.start && top <= lyrWin.end) tops.push(top);
                 }
                 if (!tops.length && limit > 0) {
-                    const first = asMillionBand(window.start + ONE_M);
+                    const first = asMillionBand(lyrWin.start + ONE_M);
                     const count = Math.max(1, Math.ceil(limit / ONE_M));
                     for (let i = 0; i < count; i += 1) tops.push(asMillionBand(first + i * ONE_M));
                 }
@@ -6618,66 +7065,38 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPolicyTermDuration();
         setupSummaryAutoCollapse();
 
-        /* Save button wiring — captures all field values to localStorage
-           keyed by the deal number, gives visible feedback. */
+        /* Save — PHASE2-2026-06-09: persists the USER-EDIT dirty map (fields,
+           touched rater tables, forms overrides) to Supabase workbench_field_edits,
+           with a localStorage mirror as offline fallback. The button only says
+           "Saved ✓" after the cloud write resolves; local-only paths say so.
+           The old stm-deal:* snapshot (written, never read — a placebo) is gone. */
         const saveBtn = $('#saveBtn');
         if (saveBtn) {
-            saveBtn.addEventListener('click', () => {
+            saveBtn.addEventListener('click', async () => {
                 const originalText = saveBtn.textContent;
                 if (saveBtn.dataset.saving === '1') return;  // debounce double-clicks
                 saveBtn.dataset.saving = '1';
                 saveBtn.disabled = true;
                 saveBtn.textContent = 'Saving…';
-
+                let label = 'Save failed', hist = 'Save failed', detail = '';
                 try {
-                    // Snapshot every input/select/textarea value + sidebar text + status
-                    const dealNum = $('#dealNum')?.textContent?.trim() || 'untitled';
-                    const snapshot = {
-                        savedAt: new Date().toISOString(),
-                        dealNum: dealNum,
-                        status: $('#statusText')?.getAttribute('data-status') || 'Cleared',
-                        fields: {},
-                        sidebar: {
-                            insuredName: $('#insuredNameTxt')?.textContent || '',
-                            mailing: $('#mailingTxt')?.textContent || '',
-                            controlling: $('#controllingTxt')?.textContent || '',
-                            brokerCo: $('#brokerCoTxt')?.textContent || '',
-                            brokerName: $('#brokerNameTxt')?.textContent || '',
-                            paper: $('#paperTxt')?.textContent || '',
-                        },
-                    };
-                    document.querySelectorAll('input, select, textarea').forEach(el => {
-                        const id = el.id || el.name || '';
-                        if (!id || el.type === 'button' || el.type === 'submit') return;
-                        const key = el.id || `name:${el.name}`;
-                        if (el.type === 'checkbox' || el.type === 'radio') {
-                            snapshot.fields[key] = el.checked;
-                        } else {
-                            snapshot.fields[key] = el.value;
-                        }
-                    });
-
-                    const storageKey = `stm-deal:${dealNum}`;
-                    localStorage.setItem(storageKey, JSON.stringify(snapshot));
-
-                    saveBtn.textContent = 'Saved ✓';
-                    recordHistory('Saved', `Local snapshot ${storageKey}`);
-                    setTimeout(() => {
-                        saveBtn.textContent = originalText;
-                        saveBtn.disabled = false;
-                        delete saveBtn.dataset.saving;
-                    }, 1400);
+                    const r = await stmSaveEdits();
+                    detail = r.summary;
+                    if (r.mode === 'cloud')          { label = 'Saved ✓';                hist = 'Saved to cloud'; }
+                    else if (r.mode === 'local')     { label = 'Saved locally';          hist = 'Saved locally (no submission/session)'; }
+                    else if (r.mode === 'local-no-table') { label = 'Saved locally — run Phase 2 migration'; hist = 'Saved locally (cloud table missing)'; }
+                    else                              { label = 'Saved locally — cloud failed'; hist = 'Cloud save failed; kept locally'; }
                 } catch (e) {
-                    // Private mode, quota exceeded, etc.
-                    saveBtn.textContent = 'Save failed';
-                    recordHistory('Save failed', e.message || 'Unable to write local snapshot');
-                    setTimeout(() => {
-                        saveBtn.textContent = originalText;
-                        saveBtn.disabled = false;
-                        delete saveBtn.dataset.saving;
-                    }, 2000);
-                    console.warn('Save failed:', e.message);
+                    detail = e.message || 'unexpected error';
+                    console.warn('Save failed:', detail);
                 }
+                recordHistory(hist, detail);
+                saveBtn.textContent = label;
+                setTimeout(() => {
+                    saveBtn.textContent = originalText;
+                    saveBtn.disabled = false;
+                    delete saveBtn.dataset.saving;
+                }, label === 'Saved ✓' ? 1400 : 2400);
             });
         }
     }

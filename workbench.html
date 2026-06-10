@@ -8,12 +8,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="workbench-style.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<!-- PHASE7-2026-06-09: exact-pinned + SRI (sha384 computed from the npm tarball; jsDelivr /npm/ serves npm bytes verbatim). A floating tag meant any upstream publish changed our datepicker. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
 <style>
 html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !important; }
 </style>
 <script>document.documentElement.classList.add('stm-auth-pending');</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- FIX-PHASE1-2026-06-09: exact-pinned + SRI. jsDelivr /npm/ serves the npm
+     tarball byte-for-byte, so this sha384 was computed from the published
+     @supabase/supabase-js@2.108.1 package itself. A floating @2 tag meant
+     any upstream publish (or CDN compromise) changed the auth code we run. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js" integrity="sha384-EjUdIVmzWliPzdzhxZ9ZoO0etXLKWuUPUftAGxP6qH6Lm4oLwoLaJR0Ba4pIDiDL" crossorigin="anonymous"></script>
 <script src="platform-auth.js" defer></script>
 <script>
 // Apply saved theme synchronously before render to prevent flash
@@ -28,7 +33,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
     } catch (e) {}
 })();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" defer integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 <!-- FIX-PHASE-2-SOURCE-PRIORITY-RESOLVER-2026-05-14
      workbench-rules.js defines SOURCE_AUTHORITY / GUIDELINE_CAPS /
      resolveField() and must load BEFORE workbench-app.js so the Phase 1

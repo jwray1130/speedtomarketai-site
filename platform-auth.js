@@ -1,7 +1,18 @@
 // ============================================================================
-// platform-auth.js — Speed to Market AI runtime auth gate
-// Protects platform.html and workbench.html with the same Supabase magic-link pattern used by
-// the pipeline app. Marketing index.html stays public.
+// platform-auth.js — Speed to Market AI shared auth module   v8.7.61-phase3
+//
+// PHASE3-2026-06-09: single owner of the Supabase client + session events
+// for BOTH app pages.
+//   • Always (both pages): creates-or-adopts the one window.sb client,
+//     subscribes onAuthStateChange once, maintains window.currentUser
+//     (basic identity; pages with richer profiles overwrite it), and
+//     exposes window.stmAuth { ready, onChange, signInWithMagicLink,
+//     signOut, getClient }.
+//   • Gate UI (overlay + magic-link form): ONLY on pages that opt in by
+//     setting .stm-auth-pending on <html> before this script loads —
+//     workbench.html does; platform.html keeps its own pipeline-core
+//     overlay and consumes the shared events instead.
+// Marketing index.html stays public (this file is simply not loaded there).
 // ============================================================================
 (function () {
   'use strict';
@@ -18,11 +29,54 @@
   function ensureClient() {
     if (!window.supabase || !window.supabase.createClient) return null;
     if (!window.stmAuthClient) {
-      window.stmAuthClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      // PHASE3: adopt any pre-existing client first (legacy cached HTML where
+      // pipeline-core created one) so there is never a second GoTrue instance.
+      window.stmAuthClient = window.sb
+        || window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
     window.sb = window.sb || window.stmAuthClient;
     return window.stmAuthClient;
   }
+
+  // ── PHASE3: shared session core (runs immediately on BOTH pages) ──
+  if (typeof window.STM_AUTH_UNIFIED === 'undefined') window.STM_AUTH_UNIFIED = true;
+  const _authListeners = [];
+  let _readyResolve;
+  const _authReady = new Promise(r => { _readyResolve = r; });
+  window.stmAuth = {
+    ready: _authReady,
+    getClient: ensureClient,
+    onChange(cb) {
+      if (typeof cb === 'function') _authListeners.push(cb);
+      return () => { const i = _authListeners.indexOf(cb); if (i >= 0) _authListeners.splice(i, 1); };
+    },
+    async signInWithMagicLink(email) {
+      const client = ensureClient();
+      if (!client) return { error: new Error('Supabase library failed to load.') };
+      return client.auth.signInWithOtp({
+        email: String(email || '').trim(),
+        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
+      });
+    },
+    signOut() { return signOut(); }
+  };
+  (function initSharedSession() {
+    const client = ensureClient();
+    if (!client) { _readyResolve(null); return; }
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        window.currentUser = null;
+      } else if (session && session.user && !window.currentUser) {
+        // Basic identity only — pipeline-core's checkAuth overwrites this
+        // with the richer users-table profile on the platform.
+        window.currentUser = session.user;
+      }
+      for (const cb of _authListeners.slice()) { try { cb(event, session); } catch (e) {} }
+    });
+    client.auth.getSession()
+      .then(({ data }) => _readyResolve((data && data.session) || null))
+      .catch(() => _readyResolve(null));
+  })();
 
   function buildOverlay() {
     if (document.getElementById('stmAuthOverlay')) return;
@@ -112,11 +166,20 @@
   window.stmSignOut = signOut;
 
   document.addEventListener('DOMContentLoaded', () => {
+    // PHASE3: the gate UI runs only on pages that opt in via .stm-auth-pending
+    // (workbench.html sets it pre-load). platform.html provides its own
+    // overlay in pipeline-core and consumes the shared events instead.
+    if (!document.documentElement.classList.contains('stm-auth-pending')) return;
     buildOverlay();
     document.getElementById('stmAuthSendBtn')?.addEventListener('click', sendMagicLink);
     document.getElementById('stmAuthEmail')?.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); sendMagicLink(); }
     });
     checkAuth();
+    // A magic-link session resolving AFTER first paint now dismisses the gate
+    // without a manual refresh — same fix the platform overlay gets this phase.
+    window.stmAuth.onChange((event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session) checkAuth();
+    });
   });
 })();

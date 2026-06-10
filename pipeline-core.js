@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.57-opus-4-8-model-swap-2026-06-07';
+window.STM_BUILD = 'v8.7.65-phase7-lockdown-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -62,9 +62,16 @@ window.debugBuildInfo = function() {
 const SUPABASE_URL = 'https://hscjnbolpxmiyujaxjyd.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_V0Vdf2RcNqR-UgZD3U_6CQ_Rmj-u4p5';
 const LLM_PROXY_URL = 'https://hscjnbolpxmiyujaxjyd.supabase.co/functions/v1/llm-proxy';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// PHASE3-2026-06-09: platform-auth.js (loaded in <head>) owns the single
+// Supabase client. Adopt it; create only as a resilience fallback — an old
+// cached platform.html without the shared tag, or STM_AUTH_UNIFIED killed
+// from the console. Two clients meant two GoTrue instances fighting over
+// the same storage key.
+const sb = (window.STM_AUTH_UNIFIED !== false && window.sb)
+  ? window.sb
+  : window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.sb = sb;
-window.currentUser = null;
+window.currentUser = window.currentUser || null;
 
 async function checkAuth() {
   const { data: { session } } = await sb.auth.getSession();
@@ -128,6 +135,30 @@ async function signOut() {
   window.location.reload();
 }
 window.signOut = signOut;
+
+// PHASE3-2026-06-09 — the missing half of the platform gate (audit H3).
+// checkAuth() ran exactly once at boot; a magic-link session resolving AFTER
+// that left the overlay up until a manual refresh. Subscribe to auth state
+// (via the shared module when present, directly otherwise): late sessions
+// dismiss the overlay + load the profile; sign-out re-arms the gate.
+// INITIAL_SESSION covers the SDK's async localStorage restore;
+// TOKEN_REFRESHED keeps the profile fresh on long-lived sessions.
+try {
+  const _subscribeAuth = (window.stmAuth && typeof window.stmAuth.onChange === 'function')
+    ? window.stmAuth.onChange.bind(window.stmAuth)
+    : (cb) => sb.auth.onAuthStateChange((event, session) => cb(event, session));
+  _subscribeAuth((event, session) => {
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session) {
+      checkAuth().catch(() => {});
+    } else if (event === 'SIGNED_OUT') {
+      window.currentUser = null;
+      const ov = document.getElementById('authOverlay');
+      if (ov) ov.style.display = 'flex';
+    }
+  });
+} catch (e) {
+  console.warn('[auth] state-change subscription failed (gate falls back to boot-time check only):', e && e.message);
+}
 
 // Returns the signed-in user's display_name, or 'Unknown' if nobody is signed in.
 // Used everywhere we previously had the hardcoded 'J. Wray' actor string.
@@ -931,7 +962,6 @@ async function saveEditsNow() {
   // indicator flipped to "Saved" optimistically before the network round-trip
   // — misleading during testing and a real risk if the user refreshed in
   // the gap. The visible UI now reflects actual persistence state.
-  LAST_SAVE_TS = Date.now();
   const submissionId = STATE.activeSubmissionId;
   if (!submissionId) return;   // nothing to persist yet (no archived submission)
   try {
@@ -940,6 +970,11 @@ async function saveEditsNow() {
       STATE.pipelineRun || null,
       STATE.edits, STATE.customCards, STATE.hiddenCards
     );
+    // FIX-AUDIT-2026-06-09: stamp the save time only after the cloud write
+    // actually resolved — previously it was set before the no-submission
+    // early return, so the indicator could claim "Saved just now" when
+    // nothing was persisted.
+    LAST_SAVE_TS = Date.now();
     const ind = document.getElementById('saveIndicator');
     const txt = document.getElementById('saveIndicatorText');
     if (ind && txt) {
@@ -1389,6 +1424,20 @@ async function loadGuidelineFromFile(file) {
 // Updates the API pill in the top bar to reflect signed-in state.
 // Signed in → "SIGNED IN · <name>" with a click-to-sign-out behavior
 // Not signed in → "NOT SIGNED IN"
+// PHASE5-2026-06-09: single source of truth for the routing summary —
+// consumed by the LIVE pill (idle) and the DECISION pane Audit tab. Phase 1
+// fixed the hardcoded 'split Opus/Sonnet' inline; extracting it here means
+// the two renderers can never drift apart again.
+function stmRoutingSummaryText() {
+  try {
+    if (STATE.api && STATE.api.forceGlobal) return 'forced · ' + (STATE.api.model || '');
+    const ms = Object.values(window.MODULES || {}).map(x => String(x.model || ''));
+    const o = ms.filter(s => s.includes('opus')).length, sn = ms.filter(s => s.includes('sonnet')).length, h = ms.filter(s => s.includes('haiku')).length;
+    return (o || sn || h) ? ('routed · Opus×' + o + (sn ? ' / Sonnet×' + sn : '') + (h ? ' / Haiku×' + h : '')) : ((STATE.api && STATE.api.model) || 'split routing');
+  } catch (e) { return (STATE.api && STATE.api.model) || 'split routing'; }
+}
+window.stmRoutingSummaryText = stmRoutingSummaryText;
+
 function updateApiPillUI() {
   const pill = document.getElementById('apiPill');
   const text = document.getElementById('apiPillText');
@@ -1409,7 +1458,29 @@ function updateApiPillUI() {
       if (confirm('Sign out?')) signOut();
       return false;
     };
-    if (shPill) { shPill.textContent = 'LIVE · ' + (STATE.api.model || '').toUpperCase(); shPill.className = 'sub-pill signal'; }
+    if (shPill) {
+      // PHASE5-2026-06-09 (the deferred pill fix, done right): this line
+      // previously echoed the SAVED GLOBAL DEFAULT (STATE.api.model) — the
+      // 'LIVE · CLAUDE-OPUS-4-6' complaint — not what the pipeline runs.
+      // During a run: in-flight modules with their ACTUAL models (force-
+      // global included), registered by runModule. Idle: the real routed
+      // split, shared with the DECISION pane.
+      const running = window.__stmRunningModules;
+      if (running && running.size > 0) {
+        if (running.size === 1) {
+          const one = running.entries().next().value;
+          const code = (window.MODULES && window.MODULES[one[0]] && window.MODULES[one[0]].code) || one[0];
+          shPill.textContent = 'RUNNING · ' + code + ' · ' + String(one[1] || '').toUpperCase();
+        } else {
+          let o = 0, s = 0, h = 0;
+          running.forEach(m => { m = String(m || ''); if (m.includes('opus')) o++; else if (m.includes('sonnet')) s++; else if (m.includes('haiku')) h++; });
+          shPill.textContent = 'RUNNING ×' + running.size + ' · ' + [o ? 'OPUS×' + o : '', s ? 'SONNET×' + s : '', h ? 'HAIKU×' + h : ''].filter(Boolean).join(' / ');
+        }
+      } else {
+        shPill.textContent = 'LIVE · ' + stmRoutingSummaryText().toUpperCase();
+      }
+      shPill.className = 'sub-pill signal';
+    }
   } else {
     pill.classList.remove('live');
     pill.classList.add('offline');
@@ -1598,11 +1669,20 @@ async function extractText(file, metadata, onProgress) {
   }
 
   if (name.endsWith('.msg')) {
-    if (window.__msgReaderFailed || typeof MsgReader === 'undefined') {
+    // FIX-AUDIT-2026-06-09: msgreader now loads as an ESM module (see
+    // platform.html). Mirror the postal-mime grace-wait so a .msg dropped
+    // within the first moments of page load doesn't race the CDN import.
+    if (!window.MsgReader && window.MsgReaderReady && !window.__msgReaderFailed) {
+      await Promise.race([
+        window.MsgReaderReady,
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
+    }
+    if (window.__msgReaderFailed || typeof window.MsgReader === 'undefined' || !window.MsgReader) {
       throw new Error('.msg parser not available — forward as .eml or paste content as .txt');
     }
     const buf = await file.arrayBuffer();
-    const reader = new MsgReader(buf);
+    const reader = new window.MsgReader(buf);
     const data = reader.getFileData();
     let text = '';
     if (data.senderName || data.senderEmail) text += 'From: ' + (data.senderName || '') + ' <' + (data.senderEmail || '') + '>\n';
@@ -1622,12 +1702,32 @@ async function extractText(file, metadata, onProgress) {
     // Uint8Array content + filename; handleFiles() picks these up after the
     // parent .msg parse completes and injects them as pseudo-files.
     if (data.attachments && data.attachments.length) {
-      meta.attachments = data.attachments.map(a => ({
-        name: a.fileName || a.name || 'attachment',
-        content: a.content || null,   // Uint8Array of the attachment bytes
-        contentLength: (a.content && a.content.length) ? a.content.length : 0,
-        mimeType: a.mimeType || a.contentType || null
-      })).filter(a => a.content && a.contentLength > 0);
+      // FIX-AUDIT-2026-06-09: getFileData() returns attachment METADATA only
+      // in @kenjiuno/msgreader — the bytes come from reader.getAttachment(att)
+      // per attachment ({ fileName, content: Uint8Array }). The old code read
+      // a.content straight off the metadata record, which is undefined, so
+      // every attachment was filtered out and .msg attachments never reached
+      // the classifier. Fall back to a.content for any future API shape that
+      // does inline it.
+      meta.attachments = data.attachments.map(a => {
+        let bytes = a.content || null;
+        let fname = a.fileName || a.name || null;
+        if (!bytes && reader && typeof reader.getAttachment === 'function') {
+          try {
+            const fileObj = reader.getAttachment(a);
+            if (fileObj) {
+              bytes = fileObj.content || null;
+              fname = fname || fileObj.fileName || null;
+            }
+          } catch (e) { /* leave bytes null — filtered below */ }
+        }
+        return {
+          name: fname || 'attachment',
+          content: bytes,   // Uint8Array of the attachment bytes
+          contentLength: (bytes && bytes.length) ? bytes.length : 0,
+          mimeType: a.mimeType || a.contentType || null
+        };
+      }).filter(a => a.content && a.contentLength > 0);
     }
     return text;
   }
@@ -2366,7 +2466,14 @@ async function extractAndProcessFile(entry, file, hashText, isIncremental, newFi
     // serializes the comparison points (each promise's body runs to completion
     // between awaits).
     entry.contentHash = hashText(entry.text);
-    const existingDup = STATE.files.find(f => f !== entry && f.contentHash === entry.contentHash && f.state !== 'error');
+    // FIX-PHASE1-2026-06-09: the 32-bit hash alone could collide and
+    // silently skip a REAL broker document. Confirm with full-text equality;
+    // a hash match with different text is a collision → ingest both.
+    const hashDup = STATE.files.find(f => f !== entry && f.contentHash === entry.contentHash && f.state !== 'error');
+    const existingDup = (hashDup && (!hashDup.text || !entry.text || hashDup.text === entry.text)) ? hashDup : null;
+    if (hashDup && !existingDup) {
+      logAudit('Extract', 'HASH COLLISION ' + file.name + ' vs ' + hashDup.name + ' — same 32-bit hash, different content · ingesting both', 'warn');
+    }
     if (existingDup) {
       entry.state = 'duplicate';
       entry.duplicateOf = existingDup.name;
@@ -2464,7 +2571,12 @@ async function extractAndProcessFile(entry, file, hashText, isIncremental, newFi
             attachEntry.error = 'Empty or too short';
           } else {
             attachEntry.contentHash = hashText(attachEntry.text);
-            const dup = STATE.files.find(f => f !== attachEntry && f.contentHash === attachEntry.contentHash && f.state !== 'error');
+            // FIX-PHASE1-2026-06-09: same collision confirm as the main path.
+            const hashDup2 = STATE.files.find(f => f !== attachEntry && f.contentHash === attachEntry.contentHash && f.state !== 'error');
+            const dup = (hashDup2 && (!hashDup2.text || !attachEntry.text || hashDup2.text === attachEntry.text)) ? hashDup2 : null;
+            if (hashDup2 && !dup) {
+              logAudit('Extract', 'HASH COLLISION (attachment) ' + attachEntry.name + ' vs ' + hashDup2.name + ' — ingesting both', 'warn');
+            }
             if (dup) {
               attachEntry.state = 'duplicate';
               attachEntry.duplicateOf = dup.name;
@@ -4447,12 +4559,16 @@ function exportExcel() {
     ['Code', 'Module', 'Source', 'Confidence', 'Timing (s)', 'Mode']
   ];
   Object.entries(STATE.extractions).forEach(([mid, ext]) => {
+    // FIX-AUDIT-2026-06-09: legacy snapshots can rehydrate extraction keys
+    // that no longer exist in MODULES (e.g. the retired 'email' module) and
+    // rows without timing — guard so one stale key can't crash the export.
+    const _m = MODULES[mid] || { code: mid, name: mid + ' (legacy module)' };
     summaryRows.push([
-      MODULES[mid].code,
-      MODULES[mid].name,
+      _m.code,
+      _m.name,
       ext.sourceInfo || '—',
-      Math.round(ext.confidence * 100) + '%',
-      ext.timing.toFixed(1),
+      Math.round((ext.confidence || 0) * 100) + '%',
+      Number(ext.timing || 0).toFixed(1),
       ext.mode
     ]);
   });
@@ -4465,7 +4581,7 @@ function exportExcel() {
       Math.round(f.size / 1024),
       f.classification || 'unknown',
       f.confidence ? Math.round(f.confidence * 100) + '%' : '—',
-      f.routedTo ? MODULES[f.routedTo].code : '—',
+      (f.routedTo && MODULES[f.routedTo]) ? MODULES[f.routedTo].code : (f.routedTo || '—'),
       f.state
     ]);
   });
@@ -4477,14 +4593,14 @@ function exportExcel() {
   const addedSheetNames = new Set(['Summary']);
   Object.entries(STATE.extractions).forEach(([mid, ext]) => {
     if (STATE.hiddenCards[mid]) return;  // skip hidden cards
-    const m = MODULES[mid];
+    const m = MODULES[mid] || { code: mid, name: mid + ' (legacy module)' };  // FIX-AUDIT-2026-06-09
     const isEdited = STATE.edits[mid] && STATE.edits[mid].htmlOverride;
     const effectiveText = getEffectiveText(mid);
     const rows = [
       [m.code + ' — ' + m.name + (isEdited ? '  (EDITED)' : '')],
       [],
       ['Confidence', Math.round(ext.confidence * 100) + '%'],
-      ['Timing', ext.timing.toFixed(1) + 's'],
+      ['Timing', Number(ext.timing || 0).toFixed(1) + 's'],
       ['Source', ext.sourceInfo || '—'],
       ['Mode', ext.mode],
       ['Edited', isEdited ? 'YES · ' + new Date(STATE.edits[mid].editedAt).toISOString() : 'no'],
@@ -4876,7 +4992,10 @@ function renderMarkdown(md) {
   }).join('\n');
   // Restore table placeholders
   tableBlocks.forEach((tableHtml, idx) => {
-    html = html.replace(`@@MDTABLE${idx}@@`, tableHtml);
+    // FIX-AUDIT-2026-06-09: functional replacement — string-form .replace
+    // treats $-sequences in tableHtml as substitution patterns, so a cell
+    // whose escaped content contains "$&" / "$`" corrupted the output.
+    html = html.replace(`@@MDTABLE${idx}@@`, () => tableHtml);
   });
   // QC markers — ✔/✖/✓/✗ → styled spans
   html = html.replace(/[✔✓]/g, '<span class="qc-check">✔</span>');
@@ -4894,7 +5013,13 @@ const CARD_ORDER = [
   'summary-ops', 'guidelines', 'losses', 'tower',
   'exposure', 'strengths', 'classcode',
   'supplemental', 'subcontract', 'vendor', 'safety',
-  'gl_quote', 'al_quote', 'excess', 'website',
+  // FIX-AUDIT-2026-06-09: the seven specialty-quote modules were routed,
+  // run, and billed but absent from CARD_ORDER — renderSummaryCards and
+  // exportMarkdown iterate this array, so their output never displayed.
+  'gl_quote', 'al_quote', 'el_quote', 'ebl_quote',
+  'aircraft_quote', 'garage_quote', 'liquor_quote',
+  'foreign_gl_quote', 'foreign_al_quote',
+  'excess', 'website',
   'email_intel'
 ];
 // Which cards render full-width (rich/dense content benefits from width)
@@ -5811,7 +5936,7 @@ function updateDecisionPane() {
       mb.innerHTML = `
         <h4>Audit</h4>
         <div class="meta-row"><span class="meta-row-label">Pipeline run</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">${STATE.pipelineRun || '—'}</span></div>
-        <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">split Opus/Sonnet</span></div>
+        <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value" style="font-size: 10.5px; font-family: var(--font-mono);">${stmRoutingSummaryText()}</span></div>
         <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
         <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">${STATE.audit.length}</span></div>
         <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">${escapeHtml(currentActor())}</span></div>
@@ -6219,7 +6344,7 @@ async function startNewSubmission() {
   const sh = document.getElementById('sh-name');
   const sm = document.getElementById('sh-meta');
   if (sh) sh.textContent = 'New submission';
-  if (sm) sm.textContent = 'Drop broker documents to begin · classifier identifies each file · pipeline fans out across 17 specialist modules';
+  if (sm) sm.textContent = 'Drop broker documents to begin · classifier identifies each file · pipeline fans out across 24 specialist modules';
   // Clear any scrape status / website inputs from prior sessions
   const webStatus = document.getElementById('webStatus');
   if (webStatus) webStatus.style.display = 'none';
@@ -6295,7 +6420,10 @@ function showStage(stage, opts) {
           const rec = STATE.submissions.find(s => s.id === sid);
           if (rec) {
             // Prefer account_name; fall back to title or broker. Keep it short.
-            title = rec.account_name || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
+            // FIX-AUDIT-2026-06-09: in-session records (archiveCurrentSubmission)
+            // carry .account, not .account_name/.title — without it the File
+            // Manager header fell through to the broker name.
+            title = rec.account_name || rec.account || rec.title || rec.broker || ('Submission ' + sid.slice(0, 8));
           }
         }
         if (isNewDraft && typeof window.docsView.setDraftSubmissionContext === 'function') {

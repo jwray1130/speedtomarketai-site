@@ -35,7 +35,7 @@ window.initDocumentsView = function() {
     // PDF render scales — calibrated for actual on-screen display, not print.
     //
     // ── PDF render scales ─────────────────────────────────────────────
-    // Picked to keep memory + render time predictable on 17 specialist
+    // Picked to keep memory + render time predictable on 24 specialist
     // module pipelines while staying sharp at modern panel sizes.
     //
     // thumbnailScale 1.5x → 918px wide letter page. Doc grid renders thumbs
@@ -1259,17 +1259,20 @@ window.initDocumentsView = function() {
       const file = files[i];
       const pct = Math.round((i / files.length) * 100);
       updateLoading(pct, file.name);
+      state._lastUploadStoragePath = null;
       try {
         await processFile(file, category);
-        // After processFile returns, state._uploadCtx has been cleared.
-        // The storagePath used for this file lives on the local docs that
-        // were just added — if any. We capture from state.docs by matching
-        // freshness rather than _uploadCtx (which is null by now).
         success++;
       } catch (err) {
         console.error('Failed to process', file.name, err);
         errors++;
         errorDetails.push(file.name + ': ' + (err.message || 'unknown error'));
+      } finally {
+        // FIX-AUDIT-2026-06-09: processFile snapshots its storagePath into
+        // state._lastUploadStoragePath just before clearing _uploadCtx, so
+        // the batch can track exactly which binaries IT created — including
+        // a cancelled long-PDF whose binary uploaded but produced no rows.
+        if (state._lastUploadStoragePath) batchStoragePaths.add(state._lastUploadStoragePath);
       }
     }
 
@@ -1288,17 +1291,14 @@ window.initDocumentsView = function() {
         await Promise.allSettled(pending);
       }
     }
-    // Collect storage paths from local docs added in this batch. We
-    // identify them by scanning state.docs for any with a storagePath
-    // we haven't seen before — simpler than tracking a per-file set
-    // through the recursive PDF page-split. Even simpler: gather every
-    // unique storagePath in state.docs, query the cloud for a count of
-    // rows per path, and clean any with zero rows.
-    const allStoragePaths = [...new Set(
-      state.docs.map(d => d.storagePath).filter(Boolean)
-    )];
-    if (allStoragePaths.length > 0) {
-      cleanupOrphanStoragePaths(allStoragePaths);
+    // FIX-AUDIT-2026-06-09: sweep ONLY the storage paths this batch
+    // created. The previous version scanned EVERY storagePath in
+    // state.docs and ran a sequential count-query per path after every
+    // upload — an N+1 that grew with library size (300 docs → 300 HEAD
+    // queries per batch). batchStoragePaths is populated per-file in the
+    // loop above via state._lastUploadStoragePath.
+    if (batchStoragePaths.size > 0) {
+      cleanupOrphanStoragePaths(Array.from(batchStoragePaths));
     }
 
     const storageFails = state._batchStorageFails || 0;
@@ -1532,6 +1532,11 @@ window.initDocumentsView = function() {
       if (/\.(zip|rar|7z|tar|gz)$/.test(name)) return await processArchive(file, category);
       return await processNativeOnly(file, category);
     } finally {
+      // FIX-AUDIT-2026-06-09: snapshot the path for the batch orphan sweep
+      // before the ctx is cleared (see _runUploadBatch).
+      if (state._uploadCtx && state._uploadCtx.storagePath) {
+        state._lastUploadStoragePath = state._uploadCtx.storagePath;
+      }
       state._uploadCtx = null;
     }
   }
@@ -4644,8 +4649,11 @@ window.initDocumentsView = function() {
     const startedAt = Date.now();
     while (Date.now() - startedAt < maxMs) {
       try {
-        const { data: { user } } = await window.sb.auth.getUser();
-        if (user) return true;
+        // FIX-AUDIT-2026-06-09: getSession() reads the persisted session
+        // locally. The old getUser() poll issued a NETWORK request to
+        // /auth/v1/user on every 100ms tick — up to ~50 calls during boot.
+        const { data: { session } } = await window.sb.auth.getSession();
+        if (session && session.user) return true;
       } catch (e) { /* swallow — keep polling */ }
       await new Promise(r => setTimeout(r, 100));
     }
