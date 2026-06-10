@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.65-phase7-lockdown-2026-06-09';
+window.STM_BUILD = 'v8.7.70-paired-cards-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -149,6 +149,20 @@ try {
     : (cb) => sb.auth.onAuthStateChange((event, session) => cb(event, session));
   _subscribeAuth((event, session) => {
     if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session) {
+      // FIX-2026-06-09 (focus-bounce): supabase-js re-emits SIGNED_IN /
+      // TOKEN_REFRESHED whenever the tab regains focus (it refreshes the
+      // session token on visibility). Re-running the full checkAuth() then
+      // re-hydrated the entire workspace (sbHydrate), re-applied the URL
+      // submission route, and reset scroll — bouncing the user off whatever
+      // view they were on every time they returned to the tab. If we're
+      // already authenticated as this same user and the gate overlay is
+      // down, there is nothing to do. The Phase-3 goals are unchanged: a
+      // LATE session (overlay still up) runs the full path, INITIAL_SESSION
+      // covers boot, and sign-out below re-arms the gate.
+      const ov = document.getElementById('authOverlay');
+      const overlayHidden = !ov || ov.style.display === 'none';
+      const sameUser = !!(window.currentUser && session.user && window.currentUser.id === session.user.id);
+      if (sameUser && overlayHidden) return;
       checkAuth().catch(() => {});
     } else if (event === 'SIGNED_OUT') {
       window.currentUser = null;
@@ -3022,7 +3036,9 @@ function _matchCompanyName(text, patterns) {
   for (const rx of patterns) {
     const m = text.match(rx);
     if (m && isLikelyCompanyName(m[1])) {
-      return cleanDerived(m[1]);
+      // strip an address tail BEFORE cleanDerived so the 60-char truncation
+      // applies to the clean name, not "Name (505 E. Stuart Dr., Hillsvi…"
+      return cleanDerived(stripAddressTail99(m[1]));
     }
   }
   return null;
@@ -3235,6 +3251,30 @@ function cleanDerived(s) {
   if (!out) return null;
   if (out.length > 60) out = out.slice(0, 57) + '…';
   return out;
+}
+
+// FIX-2026-06-09 (queue-name): strip a trailing mailing-address tail from a
+// derived company name. ACORD applicant blocks and quote pages often carry the
+// insured name and mailing address on one line; the workbench insured_name
+// resolver writes its result back to submissions.account_name verbatim, so
+// "Carroll County Coop, Inc. (505 E. Stuart Dr., Hillsville, VA 24343)"
+// became the queue's account name. Conservative on purpose: only strips when
+// the tail is unmistakably an address — a trailing parenthetical containing a
+// digit PLUS a street suffix / PO Box / "ST 12345" zip, or a trailing comma
+// segment that starts with a street number and contains a street suffix.
+// Names like "Acme (Holdings) LLC", "Studio 54 Productions", "Route 66 Diner",
+// or "Area 51 Storage (TX)" are untouched. Never empties the string.
+function stripAddressTail99(name) {
+  if (!name) return name;
+  const s = String(name);
+  const STREET = '(?:St|Street|Dr|Drive|Rd|Road|Ave|Avenue|Blvd|Boulevard|Hwy|Highway|Ln|Lane|Ct|Court|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Pl|Place|Suite|Ste|P\\.?O\\.?\\s*Box)';
+  const ZIP = '[A-Z]{2}\\s+\\d{5}(?:-\\d{4})?';
+  const paren = new RegExp('\\s*\\((?=[^)]*\\d)[^)]*(?:\\b' + STREET + '\\b\\.?|\\b' + ZIP + '\\b)[^)]*\\)\\s*$', 'i');
+  const comma = new RegExp(',\\s*\\d{1,6}\\s+[^,]*\\b' + STREET + '\\b[\\s\\S]*$', 'i');
+  let out = s.replace(paren, '').trim();
+  out = out.replace(comma, '').trim();
+  out = out.replace(/[,;]+$/, '').trim();
+  return out || s;
 }
 
 // ---- Missing-info detection ----------------------------------------------
@@ -4906,6 +4946,28 @@ function sanitizeModelHtml(html) {
 // ============================================================================
 // MARKDOWN → HTML RENDERER — converts extraction output to HTML
 // ============================================================================
+// FIX-2026-06-09 (loss-render): locate a pre-rendered HTML wrapper (the
+// purpose-built loss/tower/discrepancy containers) ANYWHERE in the model
+// output — not only at position 0. The applicant-gate prompts can make these
+// modules state a short reasoning preamble ("named insured is unknown …
+// Proceeding.") BEFORE the HTML block; the old start-anchored detection then
+// failed and the whole output fell through to renderMarkdown(), which escapes
+// raw HTML — so the card displayed literal <div>/<table> source text.
+// Returns null when no wrapper exists, else { preamble, html } where preamble
+// is any prose before the wrapper (may be '') and html is the wrapper onward.
+// Also tolerates code-fenced emissions (```html … ```), stripping the fence
+// from both sides of the split.
+function splitPreRenderedHtml99(text) {
+  if (!text) return null;
+  const m = text.match(/<div class="(loss-output|tower-output|discrepancy-output)">/);
+  if (!m) return null;
+  let preamble = text.slice(0, m.index);
+  let html = text.slice(m.index);
+  html = html.replace(/\n?```\s*$/, '');
+  preamble = preamble.replace(/```(?:html)?\s*\n?$/, '').trim();
+  return { preamble, html };
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
 
@@ -5068,6 +5130,9 @@ function renderSummaryCards() {
 
   container.innerHTML = cards.join('');
   updateHiddenTray();
+  // FIX-2026-06-09 (paired-cards): if a card rendered expanded (was-updated
+  // auto-expand), open its side-by-side partner too — never half-open rows.
+  if (typeof stmSyncCardRows8770 === 'function') stmSyncCardRows8770(container);
 
   // Attach contenteditable listeners on each body
   container.querySelectorAll('.sc-body[data-editable="true"]').forEach(body => {
@@ -5171,15 +5236,23 @@ function renderExtractionCard(mid) {
   const isEdited = !!(edit && edit.htmlOverride);
   // Losses, Tower, and Discrepancy modules emit raw HTML (purpose-built containers)
   // — detect and inject directly, bypassing markdown pipeline which would escape all tags.
-  // Phase 4 hardening: any raw HTML here is sanitized through sanitizeModelHtml() before
-  // injection so a prompt-injected broker document can't slip in <script>, onerror=,
-  // javascript: links, or other XSS vectors. The renderMarkdown() path is already safe
-  // because it escapes everything by default.
+  // FIX-2026-06-09: detection moved from a start-anchored regex to
+  // splitPreRenderedHtml99(), which finds the wrapper anywhere in the output.
+  // The applicant-gate can make these modules emit a short prose preamble before
+  // the HTML; previously that single sentence broke detection and the entire
+  // card rendered as escaped source text. The preamble (if any) is rendered
+  // through renderMarkdown (escaped prose) above the sanitized HTML block.
+  // Phase 4 hardening unchanged: any raw HTML here is sanitized through
+  // sanitizeModelHtml() before injection so a prompt-injected broker document
+  // can't slip in <script>, onerror=, javascript: links, or other XSS vectors.
+  // The renderMarkdown() path is already safe because it escapes everything.
   const visibleText99 = cleanVisibleExtractionText99(mid, ext.text);
-  const isPreRenderedHtml = !isEdited && visibleText99 && /^\s*<div class="(loss-output|tower-output|discrepancy-output)">/.test(visibleText99);
+  const preSplit99 = (!isEdited && visibleText99) ? splitPreRenderedHtml99(visibleText99) : null;
   const bodyHtml = isEdited
     ? sanitizeModelHtml(edit.htmlOverride)
-    : (isPreRenderedHtml ? sanitizeModelHtml(visibleText99) : renderMarkdown(visibleText99));
+    : (preSplit99
+        ? ((preSplit99.preamble ? '<div class="loss-preamble-note">' + renderMarkdown(preSplit99.preamble) + '</div>' : '') + sanitizeModelHtml(preSplit99.html))
+        : renderMarkdown(visibleText99));
   const editedBadge = isEdited ? '<span style="font-family:var(--font-mono); font-size: 9.5px; color: var(--warning); padding-left: 6px; font-weight: 700; letter-spacing: 0.08em;">· EDITED</span>' : '';
   const updatedBadge = ext.wasUpdated ? '<span class="sc-updated-badge" title="Refreshed by incremental update">UPDATED</span>' : '';
   const revertBtn = isEdited ? `<button class="sc-act" onclick="event.stopPropagation(); revertCard('${mid}')" title="Revert to original AI output">⟲</button>` : '';
@@ -5252,22 +5325,65 @@ function renderCustomCard(cc) {
   `;
 }
 
+// FIX-2026-06-09 (paired-cards): the summary grid lays extraction cards out
+// two-up (.summary-cards is a 2-column grid; .sc-card.full spans both). The
+// expand/collapse state was per-card, so expanding one card of a side-by-side
+// pair left its neighbor as a tall empty shell until the user clicked it too
+// — a long-standing annoyance. Cards that share a visual row now expand and
+// collapse together. Full-width cards (losses / tower / discrepancy / custom
+// notes) form single-card rows and behave exactly as before. Pairing is
+// DOM-order based, mirroring the grid's auto-flow: a .full card ends a row;
+// otherwise cards pair two at a time.
+function stmCardRowGroups8770(container) {
+  const groups = [];
+  let current = null;
+  Array.from(container.children).forEach(el => {
+    if (!el.classList || !el.classList.contains('sc-card')) return;
+    if (el.classList.contains('full')) { groups.push([el]); current = null; return; }
+    if (!current || current.length === 2) { current = [el]; groups.push(current); }
+    else current.push(el);
+  });
+  return groups;
+}
+function stmCardRowGroup8770(card) {
+  const parent = card && card.parentElement;
+  if (!parent) return [card];
+  const groups = stmCardRowGroups8770(parent);
+  return groups.find(g => g.indexOf(card) !== -1) || [card];
+}
+// Render-path companion: if any card in a multi-card row is expanded (e.g. a
+// was-updated card auto-expands after an incremental refresh), expand its
+// partner too so the row never renders half-open.
+function stmSyncCardRows8770(container) {
+  if (!container) return;
+  stmCardRowGroups8770(container).forEach(g => {
+    if (g.length < 2) return;
+    if (g.some(c => !c.classList.contains('collapsed'))) {
+      g.forEach(c => c.classList.remove('collapsed'));
+    }
+  });
+}
+
 function toggleCard(headEl) {
   const card = headEl.closest('.sc-card');
   if (!card) return;
   const wasCollapsed = card.classList.contains('collapsed');
-  card.classList.toggle('collapsed');
-  // If we just expanded the card, force a reflow on the body. Without this,
-  // contenteditable bodies that have `max-height` + `overflow-y: auto` and
-  // were previously `display: none` can fail to compute their scroll layout
-  // until another interaction triggers it — manifesting as the "I have to
-  // click again to see the text" bug. Reading offsetHeight is the canonical
-  // way to force a synchronous layout/paint pass.
+  // FIX-2026-06-09 (paired-cards): toggle the whole visual row, not just the
+  // clicked card — side-by-side neighbors expand/collapse together so one
+  // click never leaves the partner as an empty shell next to an open card.
+  const group = (typeof stmCardRowGroup8770 === 'function') ? stmCardRowGroup8770(card) : [card];
+  group.forEach(c => c.classList.toggle('collapsed', !wasCollapsed));
+  // If we just expanded, force a reflow on each newly visible body. Without
+  // this, contenteditable bodies that have `max-height` + `overflow-y: auto`
+  // and were previously `display: none` can fail to compute their scroll
+  // layout until another interaction triggers it — manifesting as the "I
+  // have to click again to see the text" bug. Reading offsetHeight is the
+  // canonical way to force a synchronous layout/paint pass.
   if (wasCollapsed) {
-    const body = card.querySelector('.sc-body');
-    if (body) {
-      void body.offsetHeight;  // force reflow — discard the value, the read is the side effect
-    }
+    group.forEach(c => {
+      const body = c.querySelector('.sc-body');
+      if (body) void body.offsetHeight;  // force reflow — the read is the side effect
+    });
   }
 }
 
@@ -5990,7 +6106,13 @@ function normalizePlatformShell8705(reason) {
     if (!docsActive && document.body) document.body.classList.remove('docs-fullwidth');
     if (!docsActive) {
       clearDocsOverlayChrome8705();
-      resetPlatformRootScroll8705();
+      // FIX-2026-06-09 (focus-bounce): never reset scroll on tab refocus —
+      // that yanked the user to the top of whatever view they were reading
+      // every time they switched browser tabs and came back. Scroll
+      // normalization is for boot-time restoration ('load' / 'auth'), where
+      // the page is at the top anyway unless the browser restored a broken
+      // under-chrome position.
+      if (reason !== 'visibility') resetPlatformRootScroll8705();
     }
   } catch (e) {}
 }
@@ -6032,10 +6154,21 @@ function getRouteSubmissionId8708() {
   } catch (e) { return ''; }
 }
 async function applyPlatformRouteSubmission8708(reason) {
+  // FIX-2026-06-09 (focus-bounce): the URL route is a ONE-SHOT handoff
+  // instruction from the Workbench, not persistent state. sbHydrate calls
+  // this on completion — and since Phase 3, hydrate also ran on every tab
+  // refocus (token refresh → checkAuth), so a stale ?submission=…#submission
+  // URL re-applied the Pipeline view every time the user returned to the
+  // tab, bouncing them off the Queue. Consume the route exactly once per
+  // page load, and strip the routing hash after a successful apply so it can
+  // never re-fire. Validation failures do NOT consume — an early hydrate
+  // that arrives before submissions load must not burn the route.
+  if (window.__stmRouteConsumed8708) return false;
   const sid = getRouteSubmissionId8708();
   const h = String(location.hash || '').replace(/^#/, '').toLowerCase();
   if (!sid || !['submission','documents','filemanager'].includes(h)) return false;
   if (!Array.isArray(STATE.submissions) || !STATE.submissions.find(s => s.id === sid)) return false;
+  window.__stmRouteConsumed8708 = true;
   if (STATE.activeSubmissionId !== sid || !STATE.pipelineDone) {
     if (typeof rehydrateSubmission === 'function') await rehydrateSubmission(sid);
   }
@@ -6046,6 +6179,7 @@ async function applyPlatformRouteSubmission8708(reason) {
     if (typeof switchView === 'function') switchView('submission');
     if (typeof showStage === 'function') showStage('pipe');
   }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   return true;
 }
 window.applyPlatformRouteSubmission8708 = applyPlatformRouteSubmission8708;

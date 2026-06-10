@@ -2222,6 +2222,21 @@ table.queue {
 /* ============ LOSS HISTORY (A11) — PURPOSE-BUILT RENDERING ============ */
 .loss-output { padding: 0; }
 
+/* FIX-2026-06-09: models behind the applicant gate may emit a short prose
+   reasoning line BEFORE their pre-rendered HTML block. The renderer now splits
+   that preamble out and shows it as a small muted note above the styled
+   output instead of letting it break HTML detection entirely. */
+.loss-preamble-note {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  line-height: 1.5;
+  margin: 0 0 10px 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--line);
+}
+.loss-preamble-note p { margin: 0; font-size: 11px; color: var(--text-3); }
+
 .loss-summary-block {
   padding: 14px 18px;
   background: var(--surface-2);

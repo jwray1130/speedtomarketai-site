@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.65-phase7-lockdown-2026-06-09
+  v8.7.70-paired-cards-2026-06-09
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.65-phase7-lockdown-2026-06-09';
+window.STM_BUILD = 'v8.7.70-paired-cards-2026-06-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1291,8 +1291,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rules = window.WorkbenchRules;
                 if (!submission || !submission.id || !rules || typeof rules.resolveField !== 'function') return;
                 if (!window.sb || !window.currentUser) return;
+                // FIX-2026-06-09 (queue-name): the resolver can return the insured
+                // name with the mailing address appended when the source document
+                // (ACORD applicant block / quote page) carries both on one line.
+                // Writing that back verbatim made the platform queue display
+                // "Name (street, city, ST zip)". Strip an unmistakable address
+                // tail before the write-back — same rule as stripAddressTail99
+                // in pipeline-core (queue derivation + rehydration sides).
+                function stripAddressTail8768(v) {
+                    if (!v) return v;
+                    const s = String(v);
+                    const STREET = '(?:St|Street|Dr|Drive|Rd|Road|Ave|Avenue|Blvd|Boulevard|Hwy|Highway|Ln|Lane|Ct|Court|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Pl|Place|Suite|Ste|P\\.?O\\.?\\s*Box)';
+                    const ZIP = '[A-Z]{2}\\s+\\d{5}(?:-\\d{4})?';
+                    const paren = new RegExp('\\s*\\((?=[^)]*\\d)[^)]*(?:\\b' + STREET + '\\b\\.?|\\b' + ZIP + '\\b)[^)]*\\)\\s*$', 'i');
+                    const comma = new RegExp(',\\s*\\d{1,6}\\s+[^,]*\\b' + STREET + '\\b[\\s\\S]*$', 'i');
+                    let out = s.replace(paren, '').trim();
+                    out = out.replace(comma, '').trim();
+                    out = out.replace(/[,;]+$/, '').trim();
+                    return out || s;
+                }
                 const resolved = rules.resolveField('insured_name', submission);
-                const nextName = resolved && resolved.value ? String(resolved.value).trim() : '';
+                const nextNameRaw = resolved && resolved.value ? String(resolved.value).trim() : '';
+                const nextName = stripAddressTail8768(nextNameRaw);
                 if (!nextName) return;
                 if (/\b(?:unknown|does\s+not\s+state|extracted\s+pages|acord\s+ap|verify\s+in\s+file\s+manager)\b/i.test(nextName)) return;
                 const current = String(submission.account_name || submission.title || '').trim();
@@ -3050,7 +3070,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!bucket[period]) bucket[period] = { period, paid:0, reserve:0, incurred:0, claims:0, exposure:'' };
                 bucket[period].paid += num98(paid); bucket[period].reserve += num98(reserve); bucket[period].incurred += num98(incurred); bucket[period].claims += 1;
                 if (num98(incurred) >= 250000) {
-                    const r = { dol, incurred: moneyFmt(incurred), paid: moneyFmt(paid), status: 'Closed', desc: String(desc || '').trim() };
+                    // FIX-2026-06-09: the tabular fallback parser pushed large-loss
+                    // rows WITHOUT the paid reconciliation that the structured path
+                    // (normalizeLargeLoss8742) applies. Closed loss runs routinely show
+                    // Incurred but no separate Paid column; incurred = paid + reserve, so
+                    // a positive incurred with zero reserve means paid equals incurred.
+                    // Without this, the Large Loss 'Total Paid' field rendered $0 while
+                    // the year-grid (which DID reconcile) showed the real paid amount.
+                    const r = { dol, incurred: moneyFmt(incurred), reserve: moneyFmt(reserve), paid: moneyFmt(paid), status: 'Closed', desc: String(desc || '').trim() };
+                    reconcilePaidFromIncurred8742(r);
                     if (lob === 'gl') out.largeGl.push(r); else out.largeAuto.push(r);
                 }
             }

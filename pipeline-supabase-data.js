@@ -845,7 +845,15 @@ async function sbHydrate() {
 
       // Compute display-field values once so the missingInfo fallback can
       // reference them without redundant work.
-      const accountVal   = r.account_name   || d.account         || null;
+      // FIX-2026-06-09 (queue-name): the workbench insured_name resolver wrote
+      // name+address strings into account_name before the write-back was
+      // normalized. Strip the address tail at rehydration too so rows stored
+      // before the fix display clean immediately (DB heals on next workbench
+      // open; this covers the display until then). stripAddressTail99 lives in
+      // pipeline-core.js — same page, classic-script shared scope.
+      const accountValRaw = r.account_name   || d.account         || null;
+      const accountVal   = (accountValRaw && typeof stripAddressTail99 === 'function')
+        ? stripAddressTail99(accountValRaw) : accountValRaw;
       const brokerVal    = r.broker         || d.broker          || null;
       const effectiveVal = r.effective_date || d.effectiveDate   || null;
       const requestedVal = r.requested      || d.requestedLimits || null;
