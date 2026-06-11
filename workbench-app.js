@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.77-tower-relativity-2026-06-10
+  v8.7.78-tower-attach-coverage-2026-06-10
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.77-tower-relativity-2026-06-10';
+window.STM_BUILD = 'v8.7.78-tower-attach-coverage-2026-06-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3663,13 +3663,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 ];
                 primaryTbody.innerHTML = rows.map(x => `
                     <tr>
-                      <td><select data-pp="coverage"><option${x.cov==='General Liability'?' selected':''}>General Liability</option><option${x.cov==='Auto Liability'?' selected':''}>Auto Liability</option><option>Employers Liability</option><option>Other</option></select></td>
+                      <td><input type="text" data-pp="coverage" value="${String(x.cov || 'General Liability').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" placeholder="Coverage"></td>
                       <td><input type="text" data-pp="carrier" value="${String(x.carrier).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></td>
                       <td><div class="currency-wrap"><input type="text" data-pp="limit" class="convert-to-millions" value="${money85(x.limit)}"></div></td>
                       <td><div class="currency-wrap"><input type="text" data-pp="ulPrem" value="${money85(x.prem)}"></div></td>
                       <td><div class="currency-wrap"><input type="text" data-pp="manualPrem" value=""></div></td>
                       <td><select data-pp="admit"><option>Non-Admitted</option><option>Admitted</option></select></td>
-                      <td><input type="text" data-pp="dilFactor" value="0.25"></td>
+                      <td><input type="text" data-pp="dilFactor" value="${/auto|\bal\b/i.test(String(x.cov)) ? '0.20' : '0.25'}"></td>
                       <td class="computed" data-pp-out="dilPrem">$0</td><td class="computed" data-pp-out="firstMilPrem">$0</td><td><button type="button" class="btn-secondary btn-sm" data-pp-remove>Remove</button></td>
                     </tr>`).join('');
             }
@@ -5982,6 +5982,7 @@ document.addEventListener('DOMContentLoaded', () => {
             function hookCurrency(input, opts = {}) {
                 if (!input) return;
                 const normalize = () => {
+                    if (input.readOnly) return;            // derived cells (tower/HE attachments) are engine-written
                     if (input.classList.contains('convert-to-millions')) convertToDollars(input, opts.recalc !== false);
                     else if (input.value.trim()) {
                         input.value = cleanNumber(input.value).toLocaleString('en-US');
@@ -5998,24 +5999,21 @@ document.addEventListener('DOMContentLoaded', () => {
             function hazardFactorForCoverage(coverage) {
                 const top = getHazardConfig().top;
                 const key = String(coverage || '').toLowerCase();
+                if (key.includes('auto') || /\bal\b/.test(key)) return top[1] != null ? top[1] : 0.20;
                 if (key.includes('general')) return top[0];
                 if (key.includes('employer')) return top[2];
                 return top[2];
             }
 
             function coverageBucket(coverage) {
-                return String(coverage || '').toLowerCase().includes('general') ? 'gl' : 'other';
+                return /general|\bgl\b/i.test(String(coverage || '')) ? 'gl' : 'other';
             }
 
             function addPrimaryPolicyRow(coverage = 'General Liability', carrier = 'TBD', limit = ONE_M, ulPrem = '', manualPrem = '') {
                 const tr = document.createElement('tr');
                 const factor = hazardFactorForCoverage(coverage);
                 tr.innerHTML = `
-                    <td><select data-pp="coverage">
-                        <option ${coverage === 'General Liability' ? 'selected' : ''}>General Liability</option>
-                        <option ${coverage === 'Employers Liability' ? 'selected' : ''}>Employers Liability</option>
-                        <option ${coverage === 'Other' ? 'selected' : ''}>Other</option>
-                    </select></td>
+                    <td><input type="text" data-pp="coverage" value="${safe(coverage)}" placeholder="Coverage"></td>
                     <td><input type="text" data-pp="carrier" value="${safe(carrier)}" placeholder="Carrier"></td>
                     <td><div class="currency-wrap"><input type="text" data-pp="limit" class="convert-to-millions" value="${limit ? limit.toLocaleString('en-US') : ''}" placeholder="0"></div></td>
                     <td><div class="currency-wrap"><input type="text" data-pp="ulPrem" value="${safe(ulPrem)}" placeholder="0"></div></td>
@@ -6387,19 +6385,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     const tr = sel.closest('tr'); if (!tr) return;
                     const ul = cleanNumber(tr.querySelector('[data-pp="ulPrem"]')?.value);
                     const cov = String(sel.value || '');
-                    if (/general/i.test(cov)) gl += ul;
-                    else if (/auto/i.test(cov)) return;
+                    if (/general|\bgl\b/i.test(cov)) gl += ul;
+                    else if (/auto|\bal\b/i.test(cov)) return;
                     else others.push(ul);
                 });
                 return { gl, others };
             }
 
             function gatherTower() {
-                return Array.from(towerTbody.querySelectorAll('tr')).map(tr => ({
-                    limit: cleanNumber(tr.querySelector('[data-tw="limit"]')?.value),
-                    attach: cleanNumber(tr.querySelector('[data-tw="attach"]')?.value),
-                    carrierPrem: cleanNumber(tr.querySelector('[data-tw="cPrem"]')?.value),
-                }));
+                // Attachments are derived (Excel C163+ cumulative formulas):
+                // row 1 = Primary (0), row n = sum of the limits above it.
+                let cum = 0;
+                return Array.from(towerTbody.querySelectorAll('tr')).map(tr => {
+                    const limit = cleanNumber(tr.querySelector('[data-tw="limit"]')?.value);
+                    const row = {
+                        limit,
+                        attach: cum,
+                        carrierPrem: cleanNumber(tr.querySelector('[data-tw="cPrem"]')?.value),
+                    };
+                    cum += limit;
+                    return row;
+                });
             }
 
             function recalcTowerRows() {
@@ -6410,6 +6416,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 //   row 1: Carrier Premium / SUM(E36:E44) primary 1M U/L premiums
                 //   rows 2+: this layer's Carrier PPM / prior layer's Carrier PPM
                 const trs = Array.from(towerTbody.querySelectorAll('tr'));
+                // Excel C162:C170 — C162 is the literal "Primary"; each later
+                // attachment is the cumulative sum of the limits above it
+                // (blank until a limit exists). Derived column: read-only,
+                // re-stacks whenever any limit changes.
+                let cumLimit = 0;
+                trs.forEach((tr, i) => {
+                    const a = tr.querySelector('[data-tw="attach"]');
+                    if (a) {
+                        a.readOnly = true;
+                        a.classList.remove('convert-to-millions');
+                        if (i === 0) a.value = 'Primary';
+                        else a.value = cumLimit > 0 ? cumLimit.toLocaleString('en-US') : '';
+                    }
+                    cumLimit += cleanNumber(tr.querySelector('[data-tw="limit"]')?.value);
+                });
                 if (window.STMRater && window.STMRater.ready && trs.length) {
                     const qsEl = document.getElementById('quotaShareLimit');
                     const ER3 = window.STMRater.compute({
@@ -6577,7 +6598,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     highExcessTbody.querySelectorAll('tr').forEach(tr => {
                         const attachEl = tr.querySelector('[data-he="attach"]');
                         const engAttach = ER2.highExcess.attach[i++];
-                        if (attachEl && engAttach > 0) attachEl.value = engAttach.toLocaleString('en-US');
+                        if (attachEl && Number.isFinite(engAttach)) {
+                            attachEl.readOnly = true;          // derived: Excel C207+ stacking (100M cap included)
+                            attachEl.value = engAttach.toLocaleString('en-US');
+                        }
                     });
                 } else {
                     let fallbackAttach = cleanNumber(attachInput?.value);
@@ -6668,7 +6692,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             document.getElementById('internalAddPrimary')?.addEventListener('click', () => addPrimaryPolicyRow('Other', '', ONE_M));
-            document.getElementById('internalAddLayer')?.addEventListener('click', () => addTowerLayerRow());
+            document.getElementById('internalAddLayer')?.addEventListener('click', () => { addTowerLayerRow(); recalcInternalRater(); });
             document.getElementById('internalAddHighExcess')?.addEventListener('click', () => addHighExcessRow());
 
             hazardSel?.addEventListener('change', () => {
