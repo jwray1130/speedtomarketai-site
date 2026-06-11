@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.72-date-fills-2026-06-09
+  v8.7.76-data-refresh-2026-06-10
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.72-date-fills-2026-06-09';
+window.STM_BUILD = 'v8.7.76-data-refresh-2026-06-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3643,9 +3643,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const primaryTbody = document.querySelector('#primaryPoliciesTbl tbody');
             const towerTbody = document.querySelector('#towerLimitsTable tbody');
             const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85(el, val); };
-            const requested = n85(submission?.requested || r85('requested_limit', submission)) || 1000000;
-            const leadLimit = n85(r85('underlying_lead_limit', submission));
-            const leadAttach = n85(r85('attachment_point', submission));
+            // FIX-2026-06-10 (millions shorthand): extractions sometimes carry
+            // "$5M" parsed down to the bare number 5. The workbook's own
+            // convention (Worksheet_Change) treats small limit/attachment
+            // entries as millions — mirror it here so the tower never shows
+            // a naked "5" where $5,000,000 is meant.
+            const asMillions99 = (v) => (typeof v === 'number' && v > 0 && v < 1000 ? v * 1000000 : v);
+            const requested = asMillions99(n85(submission?.requested || r85('requested_limit', submission)) || 1000000);
+            const leadLimit = asMillions99(n85(r85('underlying_lead_limit', submission)));
+            const leadAttach = asMillions99(n85(r85('attachment_point', submission)));
             const ourAttach = leadLimit > 0 ? leadAttach + leadLimit : leadAttach;
             if (requested) setInput('#nonAdmittedLimit', money85(requested));
             if (ourAttach) setInput('#nonAdmittedAttachment', money85(ourAttach));
@@ -6133,6 +6139,56 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function renderGroundUp(glBase, otherBase) {
+                // ENGINE-2026-06-10 (Session 4): when the bundled rating engine is
+                // present (workbench-rater.js — 1,414/1,414 parity vs the 4-30-26
+                // Rating Worksheet V2), every band row (factor, premium, layer
+                // rate) and the cutoff / high-layer / highlight geometry comes
+                // from the real formula graph. The hand-built series below stays
+                // ONLY as a fallback when the bundle is absent.
+                if (window.STMRater && window.STMRater.ready && groundUpTbody) {
+                    const qsEl = document.getElementById('quotaShareLimit');
+                    const ER = window.STMRater.compute({
+                        hazard: hazardSel ? hazardSel.value : 'High',
+                        limit: cleanNumber(limitInput?.value),
+                        qs: cleanNumber(qsEl?.value),
+                        attach: cleanNumber(attachInput?.value),
+                        primary: maxPrimaryLimit(),
+                        addl: underlyingLimits(),
+                        calcLimit: calcLimit(),
+                        glBase, otherBase,
+                    });
+                    state.lastEngineResult = ER;            // summary consumers
+                    state.groundRows = [];
+                    state.visibleGroundRows = [];
+                    state.groundByTop = new Map();
+                    const rows = [];
+                    for (const b of ER.bands) {
+                        const row = { top: b.top, glFactor: b.glFactor, glPremium: b.glPremium, otherFactor: b.otherFactor, otherPremium: b.otherPremium, layerRate: b.layerRate };
+                        state.groundRows.push(row);
+                        state.groundByTop.set(b.top, row);
+                        if (b.hidden) continue;             // VBA: B ≥ cutOff hides the row
+                        state.visibleGroundRows.push(row);
+                        rows.push(`
+                        <tr data-ground-top="${b.top}" class="${b.inLayer ? 'is-in-layer' : ''}">
+                            <td>${money(b.top)}</td>
+                            <td class="computed">${b.glFactor == null ? '-' : b.glFactor.toFixed(3)}</td>
+                            <td class="computed">${money(b.glPremium)}</td>
+                            <td class="computed">${b.otherFactor == null ? '-' : b.otherFactor.toFixed(3)}</td>
+                            <td class="computed">${money(b.otherPremium)}</td>
+                            <td class="computed">${b.layerRate ? b.layerRate.toFixed(3) : '-'}</td>
+                        </tr>
+                    `);
+                    }
+                    if (!rows.length) {
+                        rows.push(`
+                        <tr class="rater-empty-row">
+                            <td colspan="6">Enter a policy limit, attachment, and primary policy limit to show the workbook-visible ground-up bands.</td>
+                        </tr>
+                    `);
+                    }
+                    groundUpTbody.innerHTML = rows.join('');
+                    return;
+                }
                 const factors = getHazardConfig().ground;
                 const gl = buildSeries(glBase, factors);
                 const other = buildSeries(otherBase, factors);
@@ -6325,6 +6381,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function shouldShowHighExcess() {
+                // ENGINE-2026-06-10 (Session 6): single source of truth — the
+                // engine's VBA-exact thresholds (D17 > 25M OR S18 + D19 > 100M)
+                // decide the high-layer section whenever the bundle is loaded.
+                // renderGroundUp runs earlier in recalcInternalRater, so
+                // state.lastEngineResult is always fresh here.
+                if (state.lastEngineResult) return state.lastEngineResult.showHigh;
                 const polLimit = cleanNumber(limitInput?.value);
                 const ratedLimit = calcLimit();
                 const attachment = cleanNumber(attachInput?.value);
@@ -6383,14 +6445,14 @@ document.addEventListener('DOMContentLoaded', () => {
             function recalcHighExcessRows() {
                 const show = shouldShowHighExcess();
                 if (highExcessCard) highExcessCard.style.display = show ? '' : 'none';
+                state.lastHighExcess = null;
                 if (!show) return;
                 let stackedAttachment = cleanNumber(attachInput?.value);
+                const hxRows = [];
                 highExcessTbody.querySelectorAll('tr').forEach(tr => {
                     const active = tr.querySelector('[data-he="active"]')?.checked;
                     tr.classList.toggle('is-selected-layer', Boolean(active));
                     const limit = cleanNumber(tr.querySelector('[data-he="limit"]')?.value);
-                    const attachInputEl = tr.querySelector('[data-he="attach"]');
-                    if (attachInputEl) attachInputEl.value = stackedAttachment.toLocaleString('en-US');
                     const attach = stackedAttachment;
                     stackedAttachment += limit || (25 * ONE_M);
                     const selectedFactor = cleanNumber(tr.querySelector('[data-he="factor"]')?.value);
@@ -6409,7 +6471,44 @@ document.addEventListener('DOMContentLoaded', () => {
                     tr.querySelector('[data-he-out="appliedFactor"]').textContent = appliedFactor ? appliedFactor.toFixed(2) + 'x' : '-';
                     tr.querySelector('[data-he-out="ppm"]').textContent = money(policyPpm);
                     tr.querySelector('[data-he-out="towerPpm"]').textContent = towerPrem > 0 ? money(towerPpm) : '-';
+                    hxRows.push({ use: Boolean(active), limit, factor: selectedFactor, term, applied });
                 });
+                // ENGINE-2026-06-10 (Session 6): Excel rows 207:220 — the engine
+                // computes the stacking C-chain (including the 100M attachment
+                // cap the local stack above doesn't apply), the X-flag SUMIF
+                // totals (F221/G221/I221) and the C203 base. Per-row Annual is
+                // intentionally panel math: the workbook leaves F/G as manual
+                // underwriter entry, so the panel's formula is a site
+                // enhancement whose Term feeds the engine's G column.
+                if (window.STMRater && window.STMRater.ready && hxRows.length) {
+                    const qsEl = document.getElementById('quotaShareLimit');
+                    const ER2 = window.STMRater.compute({
+                        hazard: hazardSel ? hazardSel.value : 'High',
+                        limit: cleanNumber(limitInput?.value),
+                        qs: cleanNumber(qsEl?.value),
+                        attach: cleanNumber(attachInput?.value),
+                        primary: maxPrimaryLimit(),
+                        addl: underlyingLimits(),
+                        calcLimit: calcLimit(),
+                        glBase: state.lastBases?.glBase || 0,
+                        otherBase: state.lastBases?.otherBase || 0,
+                        highExcess: hxRows,
+                    });
+                    state.lastHighExcess = ER2.highExcess;
+                    let i = 0;
+                    highExcessTbody.querySelectorAll('tr').forEach(tr => {
+                        const attachEl = tr.querySelector('[data-he="attach"]');
+                        const engAttach = ER2.highExcess.attach[i++];
+                        if (attachEl && engAttach > 0) attachEl.value = engAttach.toLocaleString('en-US');
+                    });
+                } else {
+                    let fallbackAttach = cleanNumber(attachInput?.value);
+                    highExcessTbody.querySelectorAll('tr').forEach(tr => {
+                        const attachEl = tr.querySelector('[data-he="attach"]');
+                        if (attachEl) attachEl.value = fallbackAttach.toLocaleString('en-US');
+                        fallbackAttach += cleanNumber(tr.querySelector('[data-he="limit"]')?.value) || (25 * ONE_M);
+                    });
+                }
             }
 
             function recalcPricingSummaryFromRater() {
@@ -6440,10 +6539,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rows = primaryRows();
                 const glBase = rows.filter(row => row.bucket === 'gl').reduce((sum, row) => sum + row.firstMil, 0);
                 const otherBase = rows.filter(row => row.bucket !== 'gl').reduce((sum, row) => sum + row.firstMil, 0);
+                state.lastBases = { glBase, otherBase };   // for the high-excess engine pass
                 renderGroundUp(glBase, otherBase);
                 recalcTowerRows();
                 recalcHighExcessRows();
+                renderRatingSummary();
                 syncPricingSummary();
+            }
+
+            // ENGINE-2026-06-10 (Session 6): surface the engine's PANEL-DRIVEN
+            // summary outputs. Deliberately NOT shown: D20 / D23 / J235 — in the
+            // site context those resolve to the workbook's saved Q234 manual
+            // entry (a $10,000 literal), so displaying them would parade stale
+            // Alpharetta numbers on every deal. The cells below were sensitivity
+            // -probed: they scale with the panel's bases and drivers.
+            //   rsLayerPremium  → G199 (standard) / I221 (high-excess rows —
+            //                     '—' until the panel's high-excess table is
+            //                     wired to B211:B224 engine inputs)
+            //   rsQsPct / rsTotalLayerPrem / rsZurichPremium / rsPerMillion
+            //                   → D27 / D28 / D29 / D30, blank-gated on QS
+            //                     exactly like the workbook (IF(D18<>"",…)).
+            function renderRatingSummary() {
+                const card = document.getElementById('ratingSummaryCard');
+                if (!card) return;
+                const ER = state.lastEngineResult;
+                if (!ER) { card.style.display = 'none'; return; }
+                card.style.display = '';
+                const dash = '—';
+                const setOut = (id, v, fmt) => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = (typeof v === 'number' && isFinite(v) && v !== 0) ? fmt(v) : dash;
+                };
+                const layerPrem = ER.showHigh
+                    ? (state.lastHighExcess ? state.lastHighExcess.totalPolicy : 0)
+                    : ER.get('G199');
+                setOut('rsLayerPremium', typeof layerPrem === 'number' ? layerPrem : 0, money);
+                const qsSet = cleanNumber(qsLimitInput?.value) > 0;
+                const pct = qsSet ? ER.get('D27') : 0;
+                setOut('rsQsPct', typeof pct === 'number' ? pct : 0, v => (v * 100).toFixed(1) + '%');
+                setOut('rsTotalLayerPrem', qsSet ? ER.totalLayerPrem : 0, money);
+                setOut('rsZurichPremium', qsSet ? ER.zurichPremium : 0, money);
+                setOut('rsPerMillion', qsSet ? ER.perMillion : 0, money);
             }
 
             section.querySelectorAll('.convert-to-millions').forEach(input => hookCurrency(input));

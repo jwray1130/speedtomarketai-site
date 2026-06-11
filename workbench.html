@@ -41,6 +41,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
      auto-apply step. Both are deferred — execution order follows the
      script tag order (rules → app). -->
 <script src="workbench-rules.js" defer></script>
+<script src="workbench-rater.js" defer></script>
 <script src="workbench-app.js" defer></script>
 </head>
 <body>
@@ -1264,6 +1265,19 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                     </thead>
                                     <tbody></tbody>
                                 </table>
+                            </div>
+                        </section>
+                        <section class="card" id="ratingSummaryCard" style="display:none">
+                            <header class="card-head">
+                                <span class="section-eyebrow">Rating summary</span>
+                                <span class="rating-summary-source" id="ratingSummarySource">Engine · Rating Worksheet V2</span>
+                            </header>
+                            <div class="grid rating-summary-grid">
+                                <label>Standard Layer Premium<div class="currency-wrap"><input type="text" id="rsLayerPremium" readonly tabindex="-1"></div></label>
+                                <label>Quota Share Pct<div class="currency-wrap"><input type="text" id="rsQsPct" readonly tabindex="-1"></div></label>
+                                <label>Total Layer Prem<div class="currency-wrap"><input type="text" id="rsTotalLayerPrem" readonly tabindex="-1"></div></label>
+                                <label>Zurich Premium<div class="currency-wrap"><input type="text" id="rsZurichPremium" readonly tabindex="-1"></div></label>
+                                <label>Per Million Premium<div class="currency-wrap"><input type="text" id="rsPerMillion" readonly tabindex="-1"></div></label>
                             </div>
                         </section>
                     </section>
