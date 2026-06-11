@@ -914,6 +914,58 @@
       // 221 SUMIF totals + C203 base premium are computed by the formulas.
       const hx = Array.isArray(p.highExcess) ? p.highExcess.slice(0, 14) : null;
       const extra = { E49: num(p.glBase), I49: num(p.otherBase) };
+
+      // Per-row 1M U/L premiums → E36 (GL) and E39:E44 (Others). The bases
+      // pin E49/I49, but Excel's tower relativity I162 divides the carrier
+      // premium by SUM($E$36:$E$44), so the actual panel premiums must land
+      // in the E cells. Blanks clear the workbook's saved literals.
+      const ul = p.ulPrems || {};
+      extra['E36'] = num(ul.gl) > 0 ? num(ul.gl) : '';
+      const ulOthers = Array.isArray(ul.others) ? ul.others : [];
+      for (let i = 0; i < 6; i++) extra['E' + (39 + i)] = num(ulOthers[i]) > 0 ? num(ulOthers[i]) : '';
+
+      // Fleet → RWv2 rows 17:30 (M = vehicle count, L = selected rate). The
+      // workbook ships with a saved fleet (M18/M22 = 10) whose O31 total feeds
+      // J37 → K37 → the entire Auto premium chain. The panel's Auto table is
+      // the source of truth, so the counts are ALWAYS cleared and only the
+      // rows the panel provides are written — no phantom fleet in any compute.
+      for (let r = 17; r <= 30; r++) extra['M' + r] = '';
+      // The saved workbook also carries an Auto U/L premium literal
+      // (E37 = 365,000) that feeds K37 → the G-band chain → C203's high-excess
+      // base even when D37 = 0. The panel has no Auto primary concept yet, so
+      // blank it; when Auto coverage wiring lands, it will supply E37/H37/D37.
+      extra['E37'] = '';
+      if (Array.isArray(p.fleet)) {
+        for (const f of p.fleet) {
+          const r = Math.round(num(f.row));
+          if (r < 17 || r > 30) continue;
+          if (num(f.units) > 0) extra['M' + r] = num(f.units);
+          if (num(f.rate) > 0) extra['L' + r] = num(f.rate);
+        }
+      }
+
+      // Tower rows → Excel rows 162:170. B = limit (millions), C = attachment
+      // (millions; 0 ⇒ "Primary") written as a literal override of the
+      // cumulative formula so the panel's typed attachments are authoritative,
+      // G = carrier premium. D (internal layer premium = Σ W-band window),
+      // E (Zurich PPM), H (carrier PPM) and I (relativity, Excel format 0%)
+      // are computed by the worksheet formulas: I162 = Carrier Premium ÷
+      // Σ primary 1M U/L premiums (E36:E44); I163+ = this layer's Carrier PPM
+      // ÷ the prior layer's Carrier PPM.
+      const tw = Array.isArray(p.tower) ? p.tower.slice(0, 9) : null;
+      if (tw) {
+        for (let i = 0; i < 9; i++) {
+          const r = 162 + i, row = tw[i];
+          if (row) {
+            extra['B' + r] = num(row.limit) > 0 ? num(row.limit) / 1e6 : '';
+            extra['C' + r] = num(row.attach) > 0 ? num(row.attach) / 1e6 : 'Primary';
+            extra['G' + r] = num(row.carrierPrem) > 0 ? num(row.carrierPrem) : '';
+          } else {
+            extra['B' + r] = ''; extra['C' + r] = ''; extra['G' + r] = '';
+          }
+        }
+      }
+
       if (hx) {
         for (let i = 0; i < 14; i++) {
           const r = 207 + i, row = hx[i];
@@ -957,6 +1009,18 @@
           totalPolicy: num(g('I221')),
           basePremium: num(g('C203')),
         } : null,
+        // Excel rows 162-170 per tower layer: D internal layer premium,
+        // E Zurich PPM, H carrier PPM, I relativity (worksheet format 0%).
+        tower: tw ? tw.map((row, i) => {
+          const r = 162 + i;
+          const n = (v) => (typeof v === 'number' && isFinite(v)) ? v : null;
+          return {
+            internalPrem: n(g('D' + r)),
+            internalPpm: n(g('E' + r)),
+            carrierPpm: n(g('H' + r)),
+            relativity: n(g('I' + r)),
+          };
+        }) : null,
         cutOff: att.cutOff,
         showHigh: att.showHigh,
         hlStart: att.band ? att.band.start : null,

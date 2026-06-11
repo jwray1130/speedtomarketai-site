@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.76-data-refresh-2026-06-10
+  v8.7.77-tower-relativity-2026-06-10
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.76-data-refresh-2026-06-10';
+window.STM_BUILD = 'v8.7.77-tower-relativity-2026-06-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3668,7 +3668,7 @@ document.addEventListener('DOMContentLoaded', () => {
                       <td><div class="currency-wrap"><input type="text" data-pp="limit" class="convert-to-millions" value="${money85(x.limit)}"></div></td>
                       <td><div class="currency-wrap"><input type="text" data-pp="ulPrem" value="${money85(x.prem)}"></div></td>
                       <td><div class="currency-wrap"><input type="text" data-pp="manualPrem" value=""></div></td>
-                      <td><select data-pp="admit"><option>Admitted</option><option>Non-Admitted</option></select></td>
+                      <td><select data-pp="admit"><option>Non-Admitted</option><option>Admitted</option></select></td>
                       <td><input type="text" data-pp="dilFactor" value="0.25"></td>
                       <td class="computed" data-pp-out="dilPrem">$0</td><td class="computed" data-pp-out="firstMilPrem">$0</td><td><button type="button" class="btn-secondary btn-sm" data-pp-remove>Remove</button></td>
                     </tr>`).join('');
@@ -6020,7 +6020,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><div class="currency-wrap"><input type="text" data-pp="limit" class="convert-to-millions" value="${limit ? limit.toLocaleString('en-US') : ''}" placeholder="0"></div></td>
                     <td><div class="currency-wrap"><input type="text" data-pp="ulPrem" value="${safe(ulPrem)}" placeholder="0"></div></td>
                     <td><div class="currency-wrap"><input type="text" data-pp="manualPrem" value="${safe(manualPrem)}" placeholder="0"></div></td>
-                    <td><select data-pp="admit"><option>Admitted</option><option>Non-Admitted</option></select></td>
+                    <td><select data-pp="admit"><option>Non-Admitted</option><option>Admitted</option></select></td>
                     <td><input type="text" data-pp="dilFactor" value="${factor.toFixed(2)}" inputmode="decimal"></td>
                     <td class="computed" data-pp-out="dilPrem">$0</td>
                     <td class="computed" data-pp-out="firstMilPrem">$0</td>
@@ -6156,6 +6156,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         addl: underlyingLimits(),
                         calcLimit: calcLimit(),
                         glBase, otherBase,
+                        fleet: gatherFleet(),
+                        ulPrems: gatherUlPrems(),
                     });
                     state.lastEngineResult = ER;            // summary consumers
                     state.groundRows = [];
@@ -6364,8 +6366,82 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
+            function gatherFleet() {
+                // Auto drawer rows 0-13 map to RWv2 rows 17:30 (units -> M, rate -> L).
+                const out = [];
+                document.querySelectorAll('#autoTable tbody tr[data-row]').forEach(tr => {
+                    const i = parseInt(tr.getAttribute('data-row'), 10);
+                    const units = cleanNumber(tr.querySelector('[data-a="units"]')?.value);
+                    const rate = cleanNumber(tr.querySelector('[data-a="rate"]')?.value);
+                    if (Number.isFinite(i) && units > 0) out.push({ row: 17 + i, units, rate: rate > 0 ? rate : undefined });
+                });
+                return out;
+            }
+
+            function gatherUlPrems() {
+                // Per-row 1M U/L premiums -> Excel E36 (GL) / E39:E44 (Others);
+                // Excel's tower relativity I162 = Carrier Premium / SUM(E36:E44).
+                // Auto rows are skipped until D37 coverage wiring lands.
+                let gl = 0; const others = [];
+                document.querySelectorAll('[data-pp="coverage"]').forEach(sel => {
+                    const tr = sel.closest('tr'); if (!tr) return;
+                    const ul = cleanNumber(tr.querySelector('[data-pp="ulPrem"]')?.value);
+                    const cov = String(sel.value || '');
+                    if (/general/i.test(cov)) gl += ul;
+                    else if (/auto/i.test(cov)) return;
+                    else others.push(ul);
+                });
+                return { gl, others };
+            }
+
+            function gatherTower() {
+                return Array.from(towerTbody.querySelectorAll('tr')).map(tr => ({
+                    limit: cleanNumber(tr.querySelector('[data-tw="limit"]')?.value),
+                    attach: cleanNumber(tr.querySelector('[data-tw="attach"]')?.value),
+                    carrierPrem: cleanNumber(tr.querySelector('[data-tw="cPrem"]')?.value),
+                }));
+            }
+
             function recalcTowerRows() {
-                towerTbody.querySelectorAll('tr').forEach(tr => {
+                // ENGINE-2026-06-10 (v8.7.77): tower rows are Excel rows 162:170.
+                // D = internal layer premium (the W-band window sum, including the
+                // state per-million minimum floor), E = Zurich PPM, H = Carrier
+                // PPM, I = relativity in the worksheet's 0% format:
+                //   row 1: Carrier Premium / SUM(E36:E44) primary 1M U/L premiums
+                //   rows 2+: this layer's Carrier PPM / prior layer's Carrier PPM
+                const trs = Array.from(towerTbody.querySelectorAll('tr'));
+                if (window.STMRater && window.STMRater.ready && trs.length) {
+                    const qsEl = document.getElementById('quotaShareLimit');
+                    const ER3 = window.STMRater.compute({
+                        hazard: hazardSel ? hazardSel.value : 'High',
+                        limit: cleanNumber(limitInput?.value),
+                        qs: cleanNumber(qsEl?.value),
+                        attach: cleanNumber(attachInput?.value),
+                        primary: maxPrimaryLimit(),
+                        addl: underlyingLimits(),
+                        calcLimit: calcLimit(),
+                        glBase: state.lastBases?.glBase || 0,
+                        otherBase: state.lastBases?.otherBase || 0,
+                        fleet: gatherFleet(),
+                        ulPrems: gatherUlPrems(),
+                        tower: gatherTower(),
+                    });
+                    state.lastTower = ER3.tower;
+                    trs.forEach((tr, i) => {
+                        const t = (ER3.tower && ER3.tower[i]) || {};
+                        const cPrem = cleanNumber(tr.querySelector('[data-tw="cPrem"]')?.value);
+                        tr.querySelector('[data-tw-out="internalPrem"]').textContent = money(t.internalPrem || 0);
+                        tr.querySelector('[data-tw-out="internalPpm"]').textContent = money(t.internalPpm || 0);
+                        tr.querySelector('[data-tw-out="cPpm"]').textContent = (cPrem > 0 && t.carrierPpm > 0) ? money(t.carrierPpm) : '-';
+                        const relCell = tr.querySelector('[data-tw-out="rel"]');
+                        relCell.textContent = (cPrem > 0 && typeof t.relativity === 'number') ? Math.round(t.relativity * 100) + '%' : '-';
+                        relCell.title = i === 0
+                            ? 'Carrier Premium \u00f7 \u03a3 primary 1M U/L premiums (E36:E44)'
+                            : 'This layer Carrier PPM \u00f7 prior layer Carrier PPM';
+                    });
+                    return;
+                }
+                trs.forEach(tr => {
                     const limit = cleanNumber(tr.querySelector('[data-tw="limit"]')?.value);
                     const attach = cleanNumber(tr.querySelector('[data-tw="attach"]')?.value);
                     const internalPremium = standardLayerPremium(limit, attach);
@@ -6416,7 +6492,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><input type="checkbox" data-he="active" ${active ? 'checked' : ''} aria-label="Use high excess layer"></td>
                     <td><div class="currency-wrap"><input type="text" data-he="limit" class="convert-to-millions" value="${limit.toLocaleString('en-US')}"></div></td>
                     <td><div class="currency-wrap"><input type="text" data-he="attach" class="convert-to-millions" value="${attach.toLocaleString('en-US')}" readonly></div></td>
-                    <td><select data-he="admit"><option>Admitted</option><option>Non-Admitted</option></select></td>
+                    <td><select data-he="admit"><option>Non-Admitted</option><option>Admitted</option></select></td>
                     <td><input type="text" data-he="factor" value="${factor.toFixed(2)}" inputmode="decimal"></td>
                     <td class="computed" data-he-out="annual">$0</td>
                     <td class="computed" data-he-out="term">$0</td>
@@ -6492,6 +6568,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         calcLimit: calcLimit(),
                         glBase: state.lastBases?.glBase || 0,
                         otherBase: state.lastBases?.otherBase || 0,
+                        fleet: gatherFleet(),
+                        ulPrems: gatherUlPrems(),
                         highExcess: hxRows,
                     });
                     state.lastHighExcess = ER2.highExcess;
