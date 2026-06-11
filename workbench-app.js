@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.78-tower-attach-coverage-2026-06-10
+  v8.7.79-applied-backfill-2026-06-10
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.78-tower-attach-coverage-2026-06-10';
+window.STM_BUILD = 'v8.7.79-applied-backfill-2026-06-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -6161,6 +6161,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.groundRows = [];
                     state.visibleGroundRows = [];
                     state.groundByTop = new Map();
+                    // Applied Premium backfill: spread the underwriter's number
+                    // across the ground-up bands from the first million through
+                    // the top of the stack (attachment + rated limit),
+                    // preserving the engine's decay shape. Display-only — the
+                    // engine math and state.groundRows stay untouched.
+                    const appliedBF = cleanNumber(appliedPremiumInput?.value);
+                    const lastBF = Math.max(ONE_M, cleanNumber(attachInput?.value) + calcLimit());
+                    let kBF = 0;
+                    if (appliedBF > 0) {
+                        let natBF = 0;
+                        for (const b of ER.bands) if (b.top <= lastBF) natBF += (b.glPremium || 0) + (b.otherPremium || 0);
+                        if (natBF > 0) kBF = appliedBF / natBF;
+                    }
+                    const bfx = (v, top) => (kBF > 0 && top <= lastBF && typeof v === 'number') ? v * kBF : v;
                     const rows = [];
                     for (const b of ER.bands) {
                         const row = { top: b.top, glFactor: b.glFactor, glPremium: b.glPremium, otherFactor: b.otherFactor, otherPremium: b.otherPremium, layerRate: b.layerRate };
@@ -6169,13 +6183,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (b.hidden) continue;             // VBA: B ≥ cutOff hides the row
                         state.visibleGroundRows.push(row);
                         rows.push(`
-                        <tr data-ground-top="${b.top}" class="${b.inLayer ? 'is-in-layer' : ''}">
+                        <tr data-ground-top="${b.top}" class="${b.inLayer ? 'is-in-layer' : ''}${kBF > 0 && b.top <= lastBF ? ' is-backfilled' : ''}"${kBF > 0 && b.top <= lastBF ? ' title="Backfilled from Applied Premium"' : ''}>
                             <td>${money(b.top)}</td>
                             <td class="computed">${b.glFactor == null ? '-' : b.glFactor.toFixed(3)}</td>
-                            <td class="computed">${money(b.glPremium)}</td>
+                            <td class="computed">${money(bfx(b.glPremium, b.top))}</td>
                             <td class="computed">${b.otherFactor == null ? '-' : b.otherFactor.toFixed(3)}</td>
-                            <td class="computed">${money(b.otherPremium)}</td>
-                            <td class="computed">${b.layerRate ? b.layerRate.toFixed(3) : '-'}</td>
+                            <td class="computed">${money(bfx(b.otherPremium, b.top))}</td>
+                            <td class="computed">${b.layerRate ? bfx(b.layerRate, b.top).toFixed(3) : '-'}</td>
                         </tr>
                     `);
                     }
@@ -6659,8 +6673,11 @@ document.addEventListener('DOMContentLoaded', () => {
             //                     '—' until the panel's high-excess table is
             //                     wired to B211:B224 engine inputs)
             //   rsQsPct / rsTotalLayerPrem / rsZurichPremium / rsPerMillion
-            //                   → D27 / D28 / D29 / D30, blank-gated on QS
-            //                     exactly like the workbook (IF(D18<>"",…)).
+            //                   → D27 / D28 / D29 / D30. The workbook blank-
+            //                     gates these on QS (IF(D18<>"",…)); the panel
+            //                     lifts that gate (share = 1 with no QS) and
+            //                     lets the Applied Premium override the layer
+            //                     total, so the bottom row always fills.
             function renderRatingSummary() {
                 const card = document.getElementById('ratingSummaryCard');
                 if (!card) return;
@@ -6672,16 +6689,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     const el = document.getElementById(id);
                     if (el) el.value = (typeof v === 'number' && isFinite(v) && v !== 0) ? fmt(v) : dash;
                 };
-                const layerPrem = ER.showHigh
+                const applied = cleanNumber(appliedPremiumInput?.value);
+                const engineLayer = ER.showHigh
                     ? (state.lastHighExcess ? state.lastHighExcess.totalPolicy : 0)
                     : ER.get('G199');
-                setOut('rsLayerPremium', typeof layerPrem === 'number' ? layerPrem : 0, money);
+                // The underwriter's Applied Premium overrides the engine layer
+                // total end-to-end; otherwise D28's own selector applies
+                // (G199 standard / high-excess totals above the thresholds).
+                const layerPrem = applied > 0 ? applied : (typeof engineLayer === 'number' ? engineLayer : 0);
+                setOut('rsLayerPremium', layerPrem, money);
                 const qsSet = cleanNumber(qsLimitInput?.value) > 0;
                 const pct = qsSet ? ER.get('D27') : 0;
                 setOut('rsQsPct', typeof pct === 'number' ? pct : 0, v => (v * 100).toFixed(1) + '%');
-                setOut('rsTotalLayerPrem', qsSet ? ER.totalLayerPrem : 0, money);
-                setOut('rsZurichPremium', qsSet ? ER.zurichPremium : 0, money);
-                setOut('rsPerMillion', qsSet ? ER.perMillion : 0, money);
+                // D28/D29/D30 are QS-gated in the workbook (IF(D18<>"",…)). The
+                // panel lifts the gate so the bottom row always fills from the
+                // limit: with no quota share Zurich keeps 100% of the layer
+                // (share = 1) — Total = layer total, Zurich = share × Total,
+                // Per Million = Zurich ÷ (D17 ÷ 1M), exactly D30's divisor.
+                const share = qsSet && typeof pct === 'number' && pct > 0 ? pct : 1;
+                const engineQs = qsSet && applied <= 0;
+                const total = engineQs && typeof ER.totalLayerPrem === 'number' && ER.totalLayerPrem > 0 ? ER.totalLayerPrem : layerPrem;
+                const zurich = engineQs && typeof ER.zurichPremium === 'number' && ER.zurichPremium > 0 ? ER.zurichPremium : total * share;
+                const polLimitM = Math.max(1, cleanNumber(limitInput?.value) / ONE_M);
+                const pm = engineQs && typeof ER.perMillion === 'number' && ER.perMillion > 0 ? ER.perMillion : zurich / polLimitM;
+                setOut('rsTotalLayerPrem', total, money);
+                setOut('rsZurichPremium', zurich, money);
+                setOut('rsPerMillion', pm, money);
             }
 
             section.querySelectorAll('.convert-to-millions').forEach(input => hookCurrency(input));
