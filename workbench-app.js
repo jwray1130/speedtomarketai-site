@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.79-applied-backfill-2026-06-10
+  v8.7.80-exposure-rates-2026-06-10
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.79-applied-backfill-2026-06-10';
+window.STM_BUILD = 'v8.7.80-exposure-rates-2026-06-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -4395,7 +4395,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const container = $('.container');
             const fullWidthPanels = ['gl-exposure-rater', 'al-fleet-rater', 'internal-rater'];
             const fullWidthPages = ['renewal'];
-            const shouldBeFullWidth = (key === 'risk' && fullWidthPanels.includes(activePanelId))
+            // v8.7.80 SHRINK FIX: derive full-width from the CURRENT state of
+            // both tab levels. Page-level navigation back to the risk module
+            // used to drop the class even though the Internal Rater sub-tab
+            // was still active, squeezing the worksheet against the sidebar.
+            const activeRisk = document.querySelector('.risk-panel.active');
+            const riskWide = !!(activeRisk && activeRisk.offsetParent !== null
+                && fullWidthPanels.includes(activeRisk.id.replace(/^risk-/, '')));
+            const shouldBeFullWidth = riskWide
+                || (key === 'risk' && fullWidthPanels.includes(activePanelId))
                 || (key === 'page' && fullWidthPages.includes(activePanelId));
 
             container.classList.toggle('full-width', shouldBeFullWidth);
@@ -6156,6 +6164,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         glBase, otherBase,
                         fleet: gatherFleet(),
                         ulPrems: gatherUlPrems(),
+                        exposure: cleanNumber(document.getElementById('exposureAmt')?.value),
+                        exposureBasis: document.getElementById('exposureBasis')?.value || '',
                     });
                     state.lastEngineResult = ER;            // summary consumers
                     state.groundRows = [];
@@ -6360,7 +6370,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><div class="currency-wrap"><input type="text" data-tw="attach" class="convert-to-millions" value="${attachment.toLocaleString('en-US')}"></div></td>
                     <td class="computed" data-tw-out="internalPrem">$0</td>
                     <td class="computed" data-tw-out="internalPpm">$0</td>
-                    <td><input type="text" data-tw="carrier" placeholder="${isInternal ? 'Internal' : 'Carrier'}"></td>
+                    <td><input type="text" data-tw="carrier" placeholder="Carrier"></td>
                     <td><div class="currency-wrap"><input type="text" data-tw="cPrem" placeholder="0"></div></td>
                     <td class="computed" data-tw-out="cPpm">$0</td>
                     <td class="computed" data-tw-out="rel">-</td>
@@ -6391,19 +6401,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function gatherUlPrems() {
-                // Per-row 1M U/L premiums -> Excel E36 (GL) / E39:E44 (Others);
-                // Excel's tower relativity I162 = Carrier Premium / SUM(E36:E44).
-                // Auto rows are skipped until D37 coverage wiring lands.
-                let gl = 0; const others = [];
+                // Per-row 1M U/L premiums -> Excel E36 (GL) / E37 (Auto) /
+                // E39:E44 (Others); the tower relativity denominator is
+                // SUM($E$36:$E$44), which includes the Auto row. GL manual
+                // premium + DIL factor ride along for the F35/K35 rate labels.
+                let gl = 0, auto = 0, glManual = 0, glFactor = 0; const others = [];
                 document.querySelectorAll('[data-pp="coverage"]').forEach(sel => {
                     const tr = sel.closest('tr'); if (!tr) return;
                     const ul = cleanNumber(tr.querySelector('[data-pp="ulPrem"]')?.value);
                     const cov = String(sel.value || '');
-                    if (/general|\bgl\b/i.test(cov)) gl += ul;
-                    else if (/auto|\bal\b/i.test(cov)) return;
+                    if (/general|\bgl\b/i.test(cov)) {
+                        gl += ul;
+                        glManual += cleanNumber(tr.querySelector('[data-pp="manualPrem"]')?.value);
+                        if (!glFactor) glFactor = cleanNumber(tr.querySelector('[data-pp="dilFactor"]')?.value);
+                    }
+                    else if (/auto|\bal\b/i.test(cov)) auto += ul;
                     else others.push(ul);
                 });
-                return { gl, others };
+                return { gl, auto, glManual, glFactor, others };
             }
 
             function gatherTower() {
@@ -6459,6 +6474,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         otherBase: state.lastBases?.otherBase || 0,
                         fleet: gatherFleet(),
                         ulPrems: gatherUlPrems(),
+                        exposure: cleanNumber(document.getElementById('exposureAmt')?.value),
+                        exposureBasis: document.getElementById('exposureBasis')?.value || '',
                         tower: gatherTower(),
                     });
                     state.lastTower = ER3.tower;
@@ -6605,6 +6622,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         otherBase: state.lastBases?.otherBase || 0,
                         fleet: gatherFleet(),
                         ulPrems: gatherUlPrems(),
+                        exposure: cleanNumber(document.getElementById('exposureAmt')?.value),
+                        exposureBasis: document.getElementById('exposureBasis')?.value || '',
                         highExcess: hxRows,
                     });
                     state.lastHighExcess = ER2.highExcess;
@@ -6689,6 +6708,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     const el = document.getElementById(id);
                     if (el) el.value = (typeof v === 'number' && isFinite(v) && v !== 0) ? fmt(v) : dash;
                 };
+                // Worksheet rate labels: E35 / F35 / K35 embed the GL rate —
+                // premium ÷ Exposure Amount × the H18 basis multiplier (×1000
+                // for Gross Sales / Payroll / Area, ×1 for unit bases) — the
+                // same method the sheet uses for the bottom L-rates.
+                const exposureSet = cleanNumber(document.getElementById('exposureAmt')?.value) > 0;
+                const setTh = (id, v, plain) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = (exposureSet && typeof v === 'string' && v.trim()) ? v.trim() : plain;
+                };
+                setTh('thUlPrem1M', ER.get('E35'), '1M U/L Premium');
+                setTh('thManual1M', ER.get('F35'), '1M Manual Premium');
+                setTh('thFirstMil', ER.get('K35'), '1st Mil Premium');
                 const applied = cleanNumber(appliedPremiumInput?.value);
                 const engineLayer = ER.showHigh
                     ? (state.lastHighExcess ? state.lastHighExcess.totalPolicy : 0)
@@ -6719,7 +6750,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             section.querySelectorAll('.convert-to-millions').forEach(input => hookCurrency(input));
             hookCurrency(appliedPremiumInput);
-            [limitInput, qsLimitInput, attachInput, appliedPremiumInput].forEach(input => {
+            [limitInput, qsLimitInput, attachInput, appliedPremiumInput,
+             document.getElementById('exposureAmt'), document.getElementById('exposureBasis')].forEach(input => {
                 input?.addEventListener('input', recalcInternalRater);
                 input?.addEventListener('change', recalcInternalRater);
             });
@@ -6737,16 +6769,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!confirm('Clear the entire Internal Rater sheet? This will reset factors, primary policies, tower layers, and high excess rows.')) return;
                 primaryTbody.innerHTML = '';
                 addPrimaryPolicyRow('General Liability', 'TBD', ONE_M);
-                addPrimaryPolicyRow('Employers Liability', 'TBD', ONE_M);
-                addPrimaryPolicyRow('Other', 'TBD', ONE_M);
+                addPrimaryPolicyRow('Auto Liability', 'TBD', ONE_M);
                 renderTowerDefaults();
                 renderHighExcessDefaults();
                 recalcInternalRater();
             });
 
             addPrimaryPolicyRow('General Liability', 'TBD', ONE_M);
-            addPrimaryPolicyRow('Employers Liability', 'TBD', ONE_M);
-            addPrimaryPolicyRow('Other', 'TBD', ONE_M);
+            addPrimaryPolicyRow('Auto Liability', 'TBD', ONE_M);
             renderTowerDefaults();
             renderHighExcessDefaults();
             recalcInternalRater();

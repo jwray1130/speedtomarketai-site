@@ -252,6 +252,8 @@
         return r === undefined ? null : (r[col - 1] === undefined ? null : r[col - 1]);
       }
       function sheetCell(sheet, ref) {
+        const qualified = sheet + '!' + ref;
+        if (qualified in inputs) return inputs[qualified];   // panel overrides, e.g. "General Info!F18" exposure
         if (sheet === 'State Rate Table') { const [c, r] = splitRef(ref); return srtCell(colNum(c), r); }
         const tbl = DATA.sheets[sheet];
         if (!tbl) return ERR('#REF!');
@@ -930,11 +932,22 @@
       // the source of truth, so the counts are ALWAYS cleared and only the
       // rows the panel provides are written — no phantom fleet in any compute.
       for (let r = 17; r <= 30; r++) extra['M' + r] = '';
-      // The saved workbook also carries an Auto U/L premium literal
-      // (E37 = 365,000) that feeds K37 → the G-band chain → C203's high-excess
-      // base even when D37 = 0. The panel has no Auto primary concept yet, so
-      // blank it; when Auto coverage wiring lands, it will supply E37/H37/D37.
-      extra['E37'] = '';
+      // E37 is the Auto U/L premium. The panel routes its Auto row here so
+      // Excel's relativity denominator SUM($E$36:$E$44) sees it; the premium
+      // chain itself (K37 → the G-bands) still waits on D37 Auto-primary
+      // wiring, so with D37 = 0 nothing leaks into the bands. Blank clears
+      // the workbook's saved 365,000 literal when the panel has no Auto row.
+      extra['E37'] = num(ul.auto) > 0 ? num(ul.auto) : '';
+      // GL manual premium + DIL factor ride along (only when supplied) so the
+      // F35 / K35 rate labels compute from the panel's own GL row.
+      if ('glManual' in ul) extra['F36'] = num(ul.glManual) > 0 ? num(ul.glManual) : '';
+      if ('glFactor' in ul) extra['H36'] = num(ul.glFactor) > 0 ? num(ul.glFactor) : '';
+      // Underwriting-tab exposure → 'General Info'!F18 / H18 so the GL rate
+      // labels (E35/F35/K35) and the bottom L-rates compute exactly like the
+      // worksheet (premium ÷ exposure × the H18 basis multiplier). Only when
+      // provided — otherwise the baked workbook values stand.
+      if (num(p.exposure) > 0) extra['General Info!F18'] = num(p.exposure);
+      if (p.exposureBasis) extra['General Info!H18'] = String(p.exposureBasis);
       if (Array.isArray(p.fleet)) {
         for (const f of p.fleet) {
           const r = Math.round(num(f.row));
