@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.80-exposure-rates-2026-06-10
+  v8.7.82-expert-exposure-strengths-2026-07-01
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.80-exposure-rates-2026-06-10';
+window.STM_BUILD = 'v8.7.82-expert-exposure-strengths-2026-07-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

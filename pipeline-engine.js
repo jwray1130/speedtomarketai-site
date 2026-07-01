@@ -584,8 +584,8 @@ const MODULES = {
   tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-8' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
   guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
-  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
-  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
+  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], optionalDeps: ['losses'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
+  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], optionalDeps: ['losses','tower','gl_quote','al_quote','excess','safety','subcontract'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
@@ -6295,8 +6295,57 @@ async function runPipeline() {
 
     const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
     wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines', pipelineContext));
-    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, soText, 'A6', pipelineContext));
-    wave3Tasks.push(runModule('strengths', PROMPTS.strengths, soText, 'A6', pipelineContext));
+    // v8.7.82: exposure now also receives Loss History so severity claims can
+    // be anchored to the account's actual losses (cited inline), not generic
+    // scenarios. A6 is guaranteed present inside this block (gate above).
+    const exposureSources = ['summary-ops', 'losses']
+      .filter(mid => STATE.extractions[mid])
+      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+      .join('\n\n');
+    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, exposureSources, 'A6 + losses', pipelineContext));
+
+    // v8.7.82: strengths receives the operational spine (A6) PLUS raw Safety
+    // (A5) and Subcontract (A3) for full-granularity safety/risk-transfer
+    // bullets, PLUS Loss History + Excess Tower + primary quotes so the
+    // Attachment Point and Loss History sections are computed from real
+    // numbers. After the draft is generated, a numeric critic pass recomputes
+    // the attachment/loss math against the tower and loss blocks BEFORE the
+    // card renders (mirrors classifier -> classifier_verify). On any critic
+    // error the draft is kept. A6 is guaranteed present inside this block.
+    const strengthSources = ['summary-ops', 'safety', 'subcontract', 'losses', 'tower', 'gl_quote', 'al_quote', 'excess']
+      .filter(mid => STATE.extractions[mid])
+      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+      .join('\n\n');
+    wave3Tasks.push((async () => {
+      const ok = await runModule('strengths', PROMPTS.strengths, strengthSources, 'A6 + safety/sub/loss/tower/quotes', pipelineContext);
+      try {
+        const draft = STATE.extractions.strengths && STATE.extractions.strengths.text;
+        const haveNumbers = STATE.extractions.tower || STATE.extractions.losses;
+        if (ok && draft && haveNumbers && !/strengths cannot be generated/i.test(draft)) {
+          const vBlocks = ['tower', 'losses']
+            .filter(mid => STATE.extractions[mid])
+            .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+            .join('\n\n');
+          const verifyMsg = 'STRENGTHS DRAFT TO VERIFY:\n\n' + draft +
+            '\n\n---\n\nAUTHORITATIVE SOURCE BLOCKS (recompute every number against these):\n\n' + vBlocks;
+          const vres = await callLLM(PROMPTS.strengths_verify, verifyMsg, MODULES.strengths.model, { maxTokens: moduleMaxTokens('strengths', false) });
+          if (vres && vres.text && vres.text.trim().length > 40) {
+            STATE.extractions.strengths.text = vres.text.trim();
+            STATE.extractions.strengths.verified = true;
+            if (vres.usage) {
+              const vcost = calcCost(vres.usage);
+              STATE.extractions.strengths.verify_usage = vres.usage;
+              STATE.extractions.strengths.verify_cost = vcost;
+              STATE.runTotalCost = (STATE.runTotalCost || 0) + vcost;
+            }
+            logAudit('Pipeline', 'Verified A10 Account Strengths · attachment/loss math recomputed', (vres.usage && vres.usage.model) || MODULES.strengths.model);
+          }
+        }
+      } catch (verr) {
+        logAudit('Pipeline', 'A10 strengths verify pass skipped (using draft): ' + (verr && verr.message), 'warn');
+      }
+      return ok;
+    })());
   } else {
     skipModule('guidelines', 'no Summary of Ops');
     skipModule('exposure', 'no Summary of Ops');
