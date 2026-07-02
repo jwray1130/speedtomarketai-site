@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.85-integrity-fixes-2026-07-01
+  v8.7.89-sonnet5-option-2026-07-02
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.85-integrity-fixes-2026-07-01';
+window.STM_BUILD = 'v8.7.89-sonnet5-option-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

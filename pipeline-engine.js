@@ -524,6 +524,10 @@ const MODEL_PRICING = {
   'claude-opus-4-8':      { input:  5.00, output: 25.00 },
   'claude-opus-4-6':      { input:  5.00, output: 25.00 },
   'claude-sonnet-4-6':    { input:  3.00, output: 15.00 },
+  // v8.7.89: Sonnet 5 (released 6/30/26). Priced at the STANDARD $3/$15 rate,
+  // matching this table's conservative convention; the $2/$10 introductory
+  // rate ends 8/31/26, so standard-rate tracking never understates cost.
+  'claude-sonnet-5':      { input:  3.00, output: 15.00 },
   'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
   // Fallbacks for future model names — conservative estimates
   'default-opus':         { input:  5.00, output: 25.00 },
@@ -4597,15 +4601,16 @@ const APPLICANT_GATED_MODULES = new Set([
   'vendor',
   'safety',
   'excess',
-  'losses',
-  // v8.7.23 - downstream narrative modules are also structurally tagged
-  // so audits and exports can see whether they depended on gated inputs.
-  'summary-ops',
-  'guidelines',
-  'exposure',
-  'strengths',
-  'classcode',
-  'tower'
+  'losses'
+  // v8.7.87: the downstream narrative/derived modules (summary-ops,
+  // guidelines, exposure, strengths, classcode, tower) were REMOVED from
+  // this set per underwriter direction. Named-insured strings routinely
+  // vary across broker documents (DBAs, affiliates, holding entities, OCR
+  // artifacts) and that variance must NEVER gate, flag, or block the
+  // analysis chain - the narrative layer always runs at full strength on
+  // whatever the wave-1 extractions provide. Wave-1 extraction modules
+  // above keep their contamination gate, and gated-input visibility for
+  // audit survives on those wave-1 records (applicantGate metadata).
 ]);
 
 const PRECHECK_PROMPT = `You are an identity-detection step in an insurance submission pipeline. Read the document content below. Identify every named insured / company entity that is explicitly stated as the subject of any document.

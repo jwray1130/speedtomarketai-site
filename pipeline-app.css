@@ -1961,7 +1961,9 @@ table.queue {
 }
 .sc-body ul { list-style: none; padding: 0; margin: 4px 0 8px 0; }
 .sc-body li { padding: 3px 0 3px 14px; position: relative; font-size: 12px; line-height: 1.55; }
-.sc-body li::before { content: ""; position: absolute; left: 0; top: 10px; width: 6px; height: 1px; background: var(--signal); }
+/* v8.7.86: the list marker was a 6px x 1px hairline bar - functionally
+   invisible next to the workbench's solid bullet glyphs. Round dot instead. */
+.sc-body li::before { content: ""; position: absolute; left: 1px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--signal); }
 .sc-body hr { border: none; border-top: 1px dashed var(--line); margin: 12px 0; }
 .sc-body code {
   background: var(--surface-2);

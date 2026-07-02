@@ -1254,6 +1254,7 @@
             <option value="claude-opus-4-8">Opus 4.8 · claude-opus-4-8</option>
           </optgroup>
           <optgroup label="Sonnet tier — $3 / $15 per M tokens · default routing">
+            <option value="claude-sonnet-5">Sonnet 5 · claude-sonnet-5 — $2/$10 intro thru 8/31/26, then $3/$15</option>
             <option value="claude-sonnet-4-6" selected>Sonnet 4.6 · claude-sonnet-4-6</option>
           </optgroup>
           <optgroup label="Haiku tier — $1 / $5 per M tokens · fastest, cheapest">
@@ -1267,7 +1268,7 @@
           <input type="checkbox" id="forceGlobalModel" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--signal);">
           <span>Force ALL modules to use the model above</span>
         </label>
-        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 24 modules) goes through the model above. Use this for max-quality runs regardless of cost. Modestly higher spend per submission with all-Opus vs. default routing (the default already runs most modules on Opus; only the few lighter Sonnet modules move up).</div>
+        <div class="form-hint">Off (default): pipeline uses per-module routing — most modules run on Opus, three lighter ones run on Sonnet, classifier verification on Sonnet. On: every single LLM call (classifier, verifier, all 24 modules) goes through the model above. Force Opus 4.8 for max-quality runs (modest spend increase; the default already runs most modules on Opus). Force Sonnet 5 to test near-Opus quality at 40-60% lower list price; note its newer tokenizer bills roughly 30% more tokens for the same text, and the $2/$10 intro rate steps to $3/$15 on 9/1/26.</div>
       </div>
       <div class="form-group">
         <label>Max output tokens</label>

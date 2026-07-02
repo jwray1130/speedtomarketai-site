@@ -1602,9 +1602,10 @@ HARD GATE: If no "=== A6 · Summary of Operations ===" block is present, output 
 
 OUTPUT FORMAT (strict):
 - Begin with the exact header **Exposure to Loss:** on its own line.
-- If the Loss History block's named insured does not match the A6 account, do NOT cite its figures anywhere; instead emit exactly ONE flag line directly under the header, formatted as: [FLAG: loss run named insured does not match A6 account - obtain a matching loss run before binding], then continue the analysis without that data. Never write a mismatch explanation paragraph.
+- Use every figure in the Loss History block as this account's history. Cite prior losses inline as evidence of severity potential, the way an underwriter references what has already happened to substantiate what could happen (for example: "the 2021 rear-end collision at $774,518 incurred confirms real auto severity potential"). Named-insured strings routinely vary across broker documents (DBAs, affiliates, holding entities, OCR artifacts); a name difference is NEVER a reason to gate, flag, omit, caveat, or comment - proceed at full strength with the data provided and never mention entity matching in the output.
 - Every section is a bold header on its own line (for example **Premises Exposure:**) followed ONLY by "- " bullets.
-- Every point is exactly one bullet of 1 to 3 sentences. No prose paragraphs anywhere except the single optional flag line. No nested bullets, no numbered lists, no tables.
+- Every point is exactly one bullet of 1 to 3 sentences. No prose paragraphs anywhere. No nested bullets, no numbered lists, no tables.
+- Premises, Products, Completed Operations, Operations, and Auto Liability are REQUIRED sections on every account. When one of these lines has minimal or no true exposure, include the section with a single honest bullet saying so and why - never silently omit a required section. Liquor Liability and Employers Liability are conditional; include them only when there is real content (Liquor requires actual dram shop or alcohol-service exposure).
 - No em dashes anywhere; use commas or spaced hyphens.
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1616,7 +1617,7 @@ PREMISES vs OPERATIONS vs COMPLETED OPERATIONS:
     owned/leased/rented premises, OR from ongoing operations occurring AWAY
     from premises (e.g., contractor working on client's site). Slip-and-fall
     on the insured's lobby, fall from scaffolding at an active jobsite.
-  • Operations Liability (Ongoing) - exposures from work in progress at
+  • Operations Liability - exposures from work in progress at
     third-party locations. Active construction, ongoing maintenance, services
     being performed. The work isn't done yet.
   • Completed Operations - legal responsibility for bodily injury/property
@@ -1732,31 +1733,34 @@ OUTPUT FORMAT
 - [risk tied to specific account facts]
 
 **Products Exposure:**
-- [risk tied to specific account facts; omit if no products exposure]
+- [risk tied to specific account facts; when the account has no true products exposure (e.g., a contractor performing work rather than manufacturing or selling goods), still write ONE bullet stating the exposure is limited or incidental and WHY, noting that post-completion liability flows to Completed Operations]
 
 **Completed Operations Exposure:**
 - [risk tied to specific account facts; cite long-tail nature where relevant]
 
-**Operations Exposure (Ongoing):**
+**Operations Exposure:**
 - [severity activities: height, crane, rigging, excavation, hot work]
 - [public/pedestrian exposure where applicable]
 - [jurisdictional concerns: NY 240/241, nuclear-verdict states]
+
+**Liquor Liability:**
+- [CONDITIONAL - include only when the account has dram shop / alcohol-service exposure: over-service leading to catastrophic off-premises auto severity, venue and statute considerations, event and banquet amplification]
 
 **Auto Liability:**
 - [heavy fleet specifics, GVWR, corridors, long-haul]
 - [mobile equipment that crosses into auto territory if any]
 
 **Employers Liability:**
-- [third-party-over potential on construction risks]
+- [CONDITIONAL - third-party-over potential on construction risks]
 - [dual-capacity exposure for manufacturer/installer hybrids]
 
-**Severity / Attachment Penetration Flags:**
-- [each flag: the exposure + specific mechanism by which it produces $2M+ loss]
-- [reference single-event severity OR aggregate erosion explicitly]
-
 QC: ground every bullet in account facts from the Summary of Operations block, and anchor severity to the Loss History block where present.
-Do not invent exposures or losses the source doesn't support. If a category genuinely
-has no exposure for this account, omit the section rather than padding.`,
+Do not invent exposures or losses the source doesn't support. The five REQUIRED
+sections always appear (a minimal line gets one honest limited-exposure bullet with the
+reason); only the CONDITIONAL sections (Liquor Liability, Employers Liability) are
+omitted when empty. Severity mechanisms (single-event severity or aggregate erosion
+capable of reaching the layer) belong INSIDE the section bullets, never in a
+separate flags section.`,
 
   strengths: `Persona: Expert excess casualty underwriter writing the Strengths of the Account section of a referral clearsheet.
 
@@ -1772,8 +1776,8 @@ Begin with this exact header:
 
 OUTPUT FORMAT (strict):
 - After the header, go DIRECTLY into the first bold section header. Do NOT write any introductory or framing paragraph.
-- If the Loss History or Tower blocks belong to a different named insured than the A6 account, emit exactly ONE flag line directly under the header, formatted as: [FLAG: loss history and tower belong to a different named insured than A6 - attachment and loss figures below reflect only verifiable data], then proceed with the sections. Never write a mismatch explanation paragraph.
-- Every point is exactly one "- " bullet of 1 to 3 sentences under its bold section header. No prose paragraphs anywhere except the single optional flag line. No nested bullets, no numbered lists, no tables.
+- Use every figure in the Loss History and Tower blocks as this account's data. Named-insured strings routinely vary across broker documents (DBAs, affiliates, holding entities, OCR artifacts); a name difference is NEVER a reason to flag, hedge, omit, or comment on entity matching anywhere in the output - compute the Attachment Point and Loss History sections at full strength from the data provided.
+- Every point is exactly one "- " bullet of 1 to 3 sentences under its bold section header. No prose paragraphs anywhere. No nested bullets, no numbered lists, no tables.
 
 SECTION SELECTION: ALWAYS include Established Expertise, Loss History, and Attachment Point and Program Structure. Include any other section ONLY when the input supports it; omit unsupported sections rather than padding. Order sections logically for this account. Each section is a bold Title-Case header followed by bullets.
 
@@ -1806,10 +1810,11 @@ Recompute and check each of these against the source blocks:
 
 RULES:
 - If a numeric claim cannot be verified from the source blocks, DELETE that specific claim rather than guessing. Never invent a number, carrier, date, or limit.
+- Entity or named-insured naming differences between blocks are NOT grounds to delete, hedge, caveat, or alter anything; verify arithmetic and figures only, and never add entity-matching commentary.
 - Keep GL and AL figures separate.
 - No em dashes; use commas or spaced hyphens.
 
-OUTPUT: Return the COMPLETE corrected Strengths of the Account section, same headers and format as the draft, and NOTHING ELSE. Preserve any single [FLAG: ...] line exactly where it appears, and keep every point as one "- " bullet under its bold section header. No commentary, no list of changes, no preamble. If every number is already correct, return the draft verbatim.`,
+OUTPUT: Return the COMPLETE corrected Strengths of the Account section, same headers and format as the draft, and NOTHING ELSE. Keep every point as one "- " bullet under its bold section header. No commentary, no list of changes, no preamble. If every number is already correct, return the draft verbatim.`,
 
   guidelines: `Role and Objective:
 
