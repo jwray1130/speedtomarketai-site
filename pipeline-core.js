@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.98-multi-quote-2026-07-02';
+window.STM_BUILD = 'v8.7.99-freeze-fix-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -3308,6 +3308,27 @@ function computeMissingInfo() {
 // already a record for this pipeline run, update it in place (preserves
 // UW-set status, history, and any edits the UW made since the run). Returns
 // the submission record (never null).
+// v8.7.99 FREEZE FIX - snapshot file slimming. Cloud rows previously stored
+// every page's OCR THREE times per file (entry.text full-doc, top-level
+// entry.pageTexts, nested extractMeta.pageTexts) because snapshot builders
+// shipped deepClone(STATE.files) unstripped. All workbench readers (rules
+// corpus builders, GL class-row parse, loss recovery) and platform
+// rehydrate->rerun slicing read ONLY extractMeta.pageTexts + classifications,
+// so that nested copy is the single source of truth: ~3x -> 1x row size.
+// entry.text survives ONLY for files with no extractMeta.pageTexts (non-PDF
+// uploads whose sole content IS entry.text - blanking those would break
+// their reruns).
+function slimSnapshotFiles8799() {
+  return (STATE.files || []).map(function (f) {
+    const c = deepClone(f);
+    const hasPages = !!(c.extractMeta && Array.isArray(c.extractMeta.pageTexts) && c.extractMeta.pageTexts.length);
+    if (hasPages) { c.text = ''; c.textDropped = true; }
+    delete c.pageTexts;
+    delete c._rawFile;
+    return c;
+  });
+}
+
 async function archiveCurrentSubmission(opts) {
   // opts.source identifies the caller for diagnostics ('pipeline-end',
   // 'incremental', 'auto-save', etc.). Returns the rec on success,
@@ -3336,7 +3357,7 @@ async function archiveCurrentSubmission(opts) {
   // Supabase `submission_edits`; we include them in the snapshot too so a
   // rehydrated submission restores cleanly even before sbLoadEdits resolves.
   const snapshot = {
-    files:          deepClone(STATE.files),
+    files:          slimSnapshotFiles8799(),
     extractions:    deepClone(STATE.extractions),
     edits:          deepClone(STATE.edits),
     customCards:    deepClone(STATE.customCards),
@@ -3496,6 +3517,11 @@ function displayAccount(rec) {
 // anything when hopping between submissions.
 async function rehydrateSubmission(submissionId) {
   const rec = STATE.submissions.find(s => s.id === submissionId);
+  // v8.7.99: the queue list no longer ships snapshots (payload diet); fetch
+  // this one row's snapshot on demand the first time it is opened.
+  if (rec && !rec.snapshot && typeof sbFetchSubmissionSnapshot === 'function') {
+    try { rec.snapshot = await sbFetchSubmissionSnapshot(submissionId); } catch (e) { console.warn('[rehydrate] on-demand snapshot fetch failed:', e && e.message); }
+  }
   if (!rec || !rec.snapshot) {
     toast('Could not load submission — snapshot missing', 'error');
     return;
@@ -3537,7 +3563,7 @@ async function rehydrateSubmission(submissionId) {
       await flushEditsNow();
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
-        files:          deepClone(STATE.files),
+        files:          slimSnapshotFiles8799(),
         extractions:    deepClone(STATE.extractions),
         edits:          deepClone(STATE.edits),
         customCards:    deepClone(STATE.customCards),
@@ -6435,7 +6461,7 @@ async function startNewSubmission() {
       // (snapshot path is the resilience layer).
       await flushEditsNow();
       activeRec.snapshot = {
-        files:          deepClone(STATE.files),
+        files:          slimSnapshotFiles8799(),
         extractions:    deepClone(STATE.extractions),
         edits:          deepClone(STATE.edits),
         customCards:    deepClone(STATE.customCards),

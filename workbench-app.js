@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.98-multi-quote-2026-07-02
+  v8.7.99-freeze-fix-2026-07-02
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.98-multi-quote-2026-07-02';
+window.STM_BUILD = 'v8.7.99-freeze-fix-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1135,6 +1135,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn('[workbench] Phase GL-80 layer-type engine skipped —',
                     ltErr && ltErr.message);
             }
+            // v8.7.99: yield BEFORE the coverage-applier block too, so the
+            // deal-info/layer-type work above paints before this group runs.
+            await yieldToBrowser8783();
             applyGLCoverageFromActiveSubmission(data);
             applyALCoverageFromActiveSubmission(data);
             applyELCoverageFromActiveSubmission(data);
@@ -1232,11 +1235,50 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             try {
-                const { data, error } = await window.sb
-                    .from('submissions')
-                    .select('*')
-                    .eq('id', submissionId)
-                    .maybeSingle();
+                // v8.7.99 FREEZE FIX - two-stage load. Legacy rows carry the
+                // full OCR of every file inside snapshot.files (see the
+                // pipeline-core v8.7.99 archive note), and select('*') forced
+                // supabase-js to JSON.parse that entire blob on the main
+                // thread BEFORE first paint - that synchronous parse IS the
+                // Page Unresponsive dialog. Stage 1 fetches scalar columns
+                // plus only snapshot.extractions/handoff/edits via PostgREST
+                // json-path selection, paints, and fills every
+                // extraction-backed field immediately (resolvers tolerate
+                // files:[]). Stage 2 fetches snapshot.files in its own task,
+                // merges, and re-runs the file-corpus passes. Any Stage-1/2
+                // error falls back to the legacy select('*') - never worse.
+                let data = null, error = null, twoStage = false;
+                try {
+                    const light = await window.sb
+                        .from('submissions')
+                        .select('id, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at, snap_extractions:snapshot->extractions, snap_handoff:snapshot->handoff, snap_edits:snapshot->edits, snap_cost:snapshot->runTotalCost')
+                        .eq('id', submissionId)
+                        .maybeSingle();
+                    if (!light.error && light.data) {
+                        data = light.data;
+                        data.snapshot = {
+                            extractions: data.snap_extractions || {},
+                            handoff: data.snap_handoff || null,
+                            edits: data.snap_edits || null,
+                            runTotalCost: data.snap_cost || 0,
+                            files: [],
+                            _heavyPending: true
+                        };
+                        twoStage = true;
+                    } else if (light.error) {
+                        console.warn('[workbench] two-stage light fetch unavailable, falling back to full row:', light.error.message);
+                    }
+                } catch (lsErr) {
+                    console.warn('[workbench] two-stage light fetch threw, falling back to full row:', lsErr && lsErr.message);
+                }
+                if (!twoStage) {
+                    const full = await window.sb
+                        .from('submissions')
+                        .select('*')
+                        .eq('id', submissionId)
+                        .maybeSingle();
+                    data = full.data; error = full.error;
+                }
 
                 if (error) {
                     console.warn('[workbench] Phase 1: submission fetch failed:', error.message, '· code:', error.code);
@@ -1289,6 +1331,37 @@ document.addEventListener('DOMContentLoaded', () => {
                     // the pipeline fill — restored fields get data-user-set so the
                     // 600ms population-pass retry can never clobber them.
                     await restoreWorkbenchEdits8760(data);
+                    // v8.7.99 Stage 2: fetch heavy snapshot.files in its own
+                    // task, merge, and re-run only the file-corpus passes.
+                    if (data.snapshot && data.snapshot._heavyPending) {
+                        (async () => {
+                            try {
+                                await yieldToBrowser8783();
+                                const heavy = await window.sb
+                                    .from('submissions')
+                                    .select('snap_files:snapshot->files')
+                                    .eq('id', submissionId)
+                                    .maybeSingle();
+                                if (heavy.error) throw heavy.error;
+                                data.snapshot.files = (heavy.data && heavy.data.snap_files) || [];
+                            } catch (hErr) {
+                                console.warn('[workbench] Stage 2 heavy fetch failed, falling back to full row once:', hErr && hErr.message);
+                                try {
+                                    const full = await window.sb.from('submissions').select('snapshot').eq('id', submissionId).maybeSingle();
+                                    if (full.data && full.data.snapshot) data.snapshot = full.data.snapshot;
+                                } catch (_) {}
+                            }
+                            data.snapshot._heavyPending = false;
+                            window.__stmHeavyRefilled8799 = true;
+                            await yieldToBrowser8783();
+                            try { applyV8685PopulationPass(data); } catch (_) {}
+                            await yieldToBrowser8783();
+                            try { applyGLExposureRaterFromActiveSubmission(data); } catch (_) {}
+                            await yieldToBrowser8783();
+                            try { renderFieldCoverageReport(data); } catch (_) {}
+                            console.log('[workbench] Stage 2 heavy merge + refill complete:', (data.snapshot.files || []).length, 'files');
+                        })();
+                    }
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
                     await restoreWorkbenchEdits8760(data);
@@ -2328,7 +2401,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // v8.6.90 - parse all GL class rows from quote / ACORD page text and
         // populate the GL exposure rater with every class, not just the primary.
+        // v8.7.99: memoized - joins snapshot page texts; called multiple
+        // times per load with different matchers, so cache per
+        // (submission, matcher.source).
+        const _csft89Memo = new WeakMap();
         function collectSnapshotFileTexts89(submission, matcher) {
+            const key = matcher ? String(matcher.source || matcher) : '*';
+            let bag = submission && typeof submission === 'object' ? _csft89Memo.get(submission) : null;
+            if (bag && Object.prototype.hasOwnProperty.call(bag, key)) return bag[key];
+            const out = _collectSnapshotFileTexts89Raw(submission, matcher);
+            if (submission && typeof submission === 'object') {
+                if (!bag) { bag = Object.create(null); _csft89Memo.set(submission, bag); }
+                bag[key] = out;
+            }
+            return out;
+        }
+        function _collectSnapshotFileTexts89Raw(submission, matcher) {
             const files = Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : [];
             const out = [];
             for (const f of files) {
@@ -3818,8 +3906,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const report = rules.buildFieldCoverageReport(submission);
             window.workbenchFieldCoverageReport = report;
             console.log('[workbench] v8.6.94 field coverage report:', report.summary);
-            try { console.table(report.rows); } catch (_) {}
-            try { console.table(report.modules); } catch (_) {}
+            if (localStorage.STM_DEBUG === '1') {
+                try { console.table(report.rows); } catch (_) {}
+                try { console.table(report.modules); } catch (_) {}
+            }
 
             let box = document.getElementById('stmFieldCoverageReport');
             if (!box) {
@@ -6796,7 +6886,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         setupInternalRater();
-        setTimeout(() => { if (window.workbenchActiveSubmission) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
+        setTimeout(() => { if (window.workbenchActiveSubmission && !window.__stmHeavyRefilled8799) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
         // v8.7.36: removed [900, 1600, 2600]ms loss-rebind retry cascade.
         // This was a pre-reconciler defense against late DOM resets blanking
         // loss rows. The v8.7.25 MutationObserver in installLossReconciler8725

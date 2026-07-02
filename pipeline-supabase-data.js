@@ -119,12 +119,29 @@ async function sbLoadSubmissions() {
   if (!u) throw new Error('not signed in');
   const { data, error } = await window.sb
     .from('submissions')
-    .select('id, snapshot, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at')
+    .select('id, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at')
     .eq('user_id', u.id)
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
+// v8.7.99 FREEZE FIX - the queue list above no longer selects `snapshot`
+// (it was shipping EVERY submission's full multi-MB snapshot just to render
+// list rows - the egress/slow-query pattern Supabase advisors flag). This
+// fetches exactly ONE row's snapshot on demand; used by rehydrateSubmission()
+// the first time a queue row is opened.
+async function sbFetchSubmissionSnapshot(id) {
+  if (!window.sb || !id) return null;
+  const { data, error } = await window.sb
+    .from('submissions')
+    .select('snapshot')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? data.snapshot : null;
+}
+window.sbFetchSubmissionSnapshot = sbFetchSubmissionSnapshot;
+
 
 async function sbSaveSubmission(sub) {
   const u = await sbUser(); if (!u) throw new Error('not signed in');
