@@ -1931,11 +1931,20 @@ Before processing ANY loss runs, perform these steps IN ORDER:
    this line's Annual Premium. Never write "No information provided" for
    those fields without first checking that block.
 6. If the loss run states no insured or only a shortened account phrase but no conflicting insured, proceed under review and note "Not stated on routed pages - verify" in the Named Insured field of the output (no separate banner or prepended line) and continue the full template
-5. If "\${account_name}" is "(unknown)", proceed with whatever loss runs are present.
+7. If "\${account_name}" is "(unknown)", proceed with whatever loss runs are present.
 
 Do NOT blend claims across insureds. Do NOT process loss runs for non-matching insureds even if they are the only loss runs available.
 
 CRITICAL: Any loss approaching or exceeding primary attachment MUST be called out in the Large Losses table for that LOB. Never combine GL and AL claim counts into a single number — always keep them on separate tables.
+
+POLICY-YEAR AND RECONCILIATION DISCIPLINE (mandatory - governs both the HTML tables and the JSON block):
+- "Policy Year" means the insured's policy period band, NEVER the calendar year of the date of loss.
+- If the loss run provides its own claims-by-policy-year table (most carrier runs do), those year bands are AUTHORITATIVE. Use them as the row labels, in band form, e.g. "5/1/24-25".
+- Map every claim to a band by DOL with ONE rule applied uniformly to all claims: if the DOL's month/day is on or after the policy inception month/day, the claim belongs to the band beginning that calendar year; otherwise it belongs to the band beginning the prior calendar year. Never guess per claim.
+- Emit one row for EVERY policy year in the reported period, including zero-claim years (Claims 0 and $0 across).
+- COUNT AND TOTAL DISCIPLINE: each row's claim count must equal the claims actually mapped to that band; each LOB TOTAL row must equal both the sum of its rows AND the run's own stated total for that coverage line, to the dollar. If they do not reconcile, fix the mapping; never annotate and never force the numbers.
+- JSON schema stability: inside loss_history_structured, keep policy_year in its existing YYYY-YY string form (e.g., "2024-25" for the 5/1/24-25 band) exactly as the schema has always been; only the visible table labels use the 5/1/24-25 band form. The same uniform DOL-to-band mapping governs both the tables and the JSON.
+- Named Insured: if the loss run states the insured anywhere (header, title, or store/claimant names), output that name plainly with NO parenthetical, annotation, or verify wording. The "Not stated on routed pages - verify" note is ONLY for runs that state no insured at all.
 
 ═══════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — EMIT RAW HTML IN THIS EXACT STRUCTURE
@@ -1967,8 +1976,8 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[revenue or exposure basis]</td></tr>
-    <!-- One row per policy year. Add class="outlier" to any <tr> with markedly elevated claim count OR incurred vs other years. Reserve is required even when $0. Example: <tr class="outlier"><td class="yr">2023</td>... -->
+    <tr><td class="yr">[policy-year band, e.g. 5/1/24-25]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[revenue or exposure basis]</td></tr>
+    <!-- One row per policy year. Add class="outlier" to any <tr> with markedly elevated claim count OR incurred vs other years. Reserve is required even when $0. Example: <tr class="outlier"><td class="yr">5/1/23-24</td>... -->
   </tbody>
   <tfoot>
     <tr><td>TOTAL</td><td class="num">[N]</td><td class="num">[$paid total]</td><td class="num">[$reserve total]</td><td class="num">[$incurred total]</td><td></td><td></td></tr>
@@ -2007,7 +2016,7 @@ Do NOT wrap the output in markdown code fences. Emit the HTML directly so it ren
     </tr>
   </thead>
   <tbody>
-    <tr><td class="yr">[YYYY]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[fleet size or exposure basis]</td></tr>
+    <tr><td class="yr">[policy-year band, e.g. 5/1/24-25]</td><td class="num">[N]</td><td class="num">[$paid]</td><td class="num">[$reserve]</td><td class="num">[$incurred]</td><td class="num">[MM/DD/YYYY]</td><td>[fleet size or exposure basis]</td></tr>
     <!-- One row per policy year. Use class="outlier" for markedly elevated years. Reserve is required even when $0. -->
   </tbody>
   <tfoot>

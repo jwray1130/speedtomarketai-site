@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.100-stage2-cache-fix-2026-07-02
+  v8.7.101-loss-policy-year-2026-07-02
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.100-stage2-cache-fix-2026-07-02';
+window.STM_BUILD = 'v8.7.101-loss-policy-year-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
