@@ -1245,10 +1245,17 @@
     let out = String(value);
     // Do not let missing data placeholders leak into polished UW prose.
     // Example fixed: "ABC Co., founded in No information provided, specializes..."
+    // v8.7.85 AUDIT FIX: the three placeholder patterns below were dead -
+    // doubled backslashes made \s literal, and two contained a raw 0x08
+    // backspace byte where \b was intended. Restored to working regexes.
     out = out.replace(/,\s*founded\s+in\s+(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*,\s*/ig, ' ');
-    out = out.replace(/founded\s+in\s+(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*,?\s*/ig, '');
-    out = out.replace(/(?:founded|established)\s*:\s*(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*/ig, '');
-    out = out.replace(/\s+,/g, ',').replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ').trim();
+    out = out.replace(/\bfounded\s+in\s+(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*,?\s*/ig, '');
+    out = out.replace(/\b(?:founded|established)\s*:\s*(?:No information provided\.?|Not provided\.?|Unknown\.?|N\/?A)\s*/ig, '');
+    // v8.7.85 AUDIT FIX: the tidy pass used /\s{2,}/ which matches NEWLINES,
+    // flattening every multi-line narrative (A6/A9/A10) into one run-on line
+    // AFTER the full-fidelity converter had built the structure. Scope every
+    // tidy to spaces/tabs only so paragraph breaks and bullet lines survive.
+    out = out.replace(/[ \t]+,/g, ',').replace(/,[ \t]*\./g, '.').replace(/[ \t]{2,}/g, ' ').trim();
     return out;
   }
 
@@ -1798,6 +1805,39 @@
     p = p.replace(/^[A-Z][A-Za-z0-9 &\/\-]{2,90}:\s*/i, '').trim();
     if (maxChars && p.length > maxChars) p = p.slice(0, maxChars).replace(/\s+\S*$/, '') + '…';
     return p;
+  }
+
+  // v8.7.83 PHASE 1 — full-fidelity narrative carry-over for the two
+  // long-form underwriting fields (A9 Exposure to Loss, A10 Account
+  // Strengths). firstReasonableParagraph() is built for one-line answers:
+  // it keeps only the FIRST paragraph and routes through unmarkdown(),
+  // which deletes every "- " bullet marker. A9/A10 are multi-section
+  // bulleted analyses; the workbench textareas need the WHOLE document
+  // with structure intact. This converter keeps full length, renders
+  // markdown "**Header:**" as plain "Header:" lines, turns -/* bullets
+  // into "• ", normalizes whitespace, and only caps at a high safety
+  // ceiling with word-boundary truncation.
+  function narrativeToWorkbenchText(text, maxChars) {
+    if (!text) return '';
+    let t = String(text)
+      .replace(/\r\n?/g, '\n')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>|<\/div>|<\/li>|<\/tr>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/\u00a0/g, ' ')
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/\*\*/g, '')
+      .replace(/^[ \t]+/gm, '')
+      .replace(/^[-*]\s+/gm, '\u2022 ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const cap = maxChars || 20000;
+    if (t.length > cap) t = t.slice(0, cap).replace(/\s+\S*$/, '') + '…';
+    return t;
   }
 
   function normalizeMoneyForDisplay(v) {
@@ -2492,10 +2532,36 @@
     return v;
   }
 
+  // v8.7.83 PHASE 4 - strip a trailing "(...)" ONLY when it is
+  // address-shaped: contains a 5-digit ZIP, a "ST 12345" state+ZIP pair, or
+  // a street number + street suffix. GL quote OCR frequently renders the
+  // named-insured line as "Name (505 E. Stuart Dr., Hillsville, VA 24343)"
+  // and that full string was flowing into the workbench deal name and the
+  // platform queue title. Legitimate parentheticals such as
+  // "Acme (Holdings) LLC" carry no address signature and pass untouched.
+  // NOTE: pipeline-core.js already has its own equivalent guard
+  // (stripAddressTail99) on the platform queue read path; this covers the
+  // workbench resolver path, and the resolved-name queue write-back then
+  // heals the stored row.
+  function stripAddressParenthetical8783(v) {
+    if (!v) return v;
+    const m = /^(.*\S)\s*\(([^()]{4,160})\)\s*$/.exec(String(v));
+    if (!m) return v;
+    const inner = m[2];
+    const addressy =
+      /\b\d{5}(?:-\d{4})?\b/.test(inner) ||
+      /\b[A-Z]{2}\s+\d{5}\b/.test(inner) ||
+      /\b\d{1,6}\s+[A-Za-z0-9 .#&'\-]{2,}?\b(?:St|Street|Ave|Avenue|Dr|Drive|Rd|Road|Blvd|Boulevard|Ln|Lane|Ct|Court|Hwy|Highway|Pkwy|Parkway|Way|Cir|Circle|Ter|Terrace|Pl|Place|Ste|Suite|Bldg|Building)\b/i.test(inner);
+    return addressy ? m[1].trim() : v;
+  }
+
   function cleanDealName8738(value) {
     let v = cleanDealValue8738(value);
     if (!v) return null;
     v = v.split(/\b(?:Mailing\s+Address|Named\s+Insured\s+Address|Insured\s+Mailing\s+Address|Physical\s+Address|Controlling\s+Address|Premises\s+Address|Location\s+Address|Quote\s+(?:No\.?|Number)|Policy\s+(?:No\.?|Number))\b\s*:?/i)[0].trim();
+    if (!v) return null;
+    // v8.7.83 PHASE 4: drop a trailing address-shaped parenthetical.
+    v = stripAddressParenthetical8783(v);
     if (!v) return null;
     // v8.7.40: do not let narrative diagnostics such as
     // `named insured is "(unknown)"...` become the account name.
@@ -2668,16 +2734,51 @@
     return null;
   }
 
+  // v8.7.83 PHASE 3 — adapter-level memoization. moduleSpecificFieldAdapter
+  // runs once per (field, module-descriptor) pair; a 60-field workbench load
+  // calls it hundreds of times, and every call previously rebuilt and
+  // unmarkdown()ed the FULL quote/fleet/loss file corpora and re-built the
+  // three giant concatenations. On a heavy packet that is the multi-second
+  // main-thread block behind Chrome's "Page Unresponsive" dialog. Every
+  // derived string here is a pure function of (submission, moduleKey, raw
+  // text), so caching per submission object is results-identical. WeakMap
+  // keying gives automatic invalidation: a different submission object gets
+  // a fresh bag, and a raw-text change for a module rebuilds that module's
+  // entries. No behavior change, only scheduling cost.
+  const _adapterMemo8783 = new WeakMap();
+  const _adapterMemoNullKey8783 = {};
+  function _memoBag8783(submission) {
+    const key = (submission && typeof submission === 'object') ? submission : _adapterMemoNullKey8783;
+    let bag = _adapterMemo8783.get(key);
+    if (!bag) { bag = Object.create(null); _adapterMemo8783.set(key, bag); }
+    return bag;
+  }
+
   function moduleSpecificFieldAdapter(moduleKey, text, fieldName, submission) {
     const raw = text || '';
-    const clean = unmarkdown(raw);
-    const quoteFileClean = unmarkdown(quoteFileText87(submission));
-    const fleetFileClean = unmarkdown(fleetFileText87(submission));
-    const lossFileClean = unmarkdown(lossFileText87(submission));
-    const cleanPlusQuote = (clean + '\n\n' + quoteFileClean).trim();
-    const cleanPlusFleet = (clean + '\n\n' + fleetFileClean).trim();
-    const cleanPlusLoss = (clean + '\n\n' + lossFileClean).trim();
-    const lower = clean.toLowerCase();
+    const bag = _memoBag8783(submission);
+    const mk = 'm:' + moduleKey;
+    if (!(mk in bag) || bag['raw:' + moduleKey] !== raw) {
+      bag['raw:' + moduleKey] = raw;
+      bag[mk] = unmarkdown(raw);
+      bag['lo:' + moduleKey] = bag[mk].toLowerCase();
+      delete bag['mq:' + moduleKey]; delete bag['mf:' + moduleKey]; delete bag['ml:' + moduleKey];
+    }
+    const clean = bag[mk];
+    if (!('q' in bag)) bag.q = unmarkdown(quoteFileText87(submission));
+    if (!('f' in bag)) bag.f = unmarkdown(fleetFileText87(submission));
+    if (!('l' in bag)) bag.l = unmarkdown(lossFileText87(submission));
+    const quoteFileClean = bag.q;
+    const fleetFileClean = bag.f;
+    const lossFileClean = bag.l;
+    const kq = 'mq:' + moduleKey, kf = 'mf:' + moduleKey, kl = 'ml:' + moduleKey;
+    if (!(kq in bag)) bag[kq] = (clean + '\n\n' + quoteFileClean).trim();
+    if (!(kf in bag)) bag[kf] = (clean + '\n\n' + fleetFileClean).trim();
+    if (!(kl in bag)) bag[kl] = (clean + '\n\n' + lossFileClean).trim();
+    const cleanPlusQuote = bag[kq];
+    const cleanPlusFleet = bag[kf];
+    const cleanPlusLoss = bag[kl];
+    const lower = bag['lo:' + moduleKey];
     const hit = (value, conf, reason) => {
       if (value == null || value === '' || isSentinelValue(value)) return null;
       return { value, parser_confidence: conf || 0.80, reason: reason || 'adapter' };
@@ -2915,8 +3016,8 @@
     }
 
     // Narrative modules — return clean text, bounded for UI textareas.
-    if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(firstReasonableParagraph(clean, 2500), 0.90, 'exposure_narrative');
-    if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative');
+    if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'exposure_narrative_full_v8783');
+    if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_v8783');
     if ((fieldName === 'guideline_conflicts_text' || fieldName === 'guideline_conflicts') && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
     if (fieldName === 'summary_operations' && moduleKey === 'summary-ops') return hit(firstReasonableParagraph(clean, 2200), 0.88, 'summary_ops_narrative');
     if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative_alias');

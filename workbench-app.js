@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.82-expert-exposure-strengths-2026-07-01
+  v8.7.85-integrity-fixes-2026-07-01
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.82-expert-exposure-strengths-2026-07-01';
+window.STM_BUILD = 'v8.7.85-integrity-fixes-2026-07-01';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1002,7 +1002,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Supabase snapshot is loaded so subjectivity DOM decoration fires
         // against a built panel. The former bridge assets are no longer
         // loaded as of v8.7.47.
-        function applyFullPhasePipeline(data) {
+        // v8.7.83 PHASE 3 - lets the applier chain hand control back to the
+        // browser between heavy groups so no single main-thread task spans
+        // the whole 60-field fill. Pure scheduling; zero logic change.
+        const yieldToBrowser8783 = () => new Promise(r => setTimeout(r, 0));
+
+        async function applyFullPhasePipeline(data) {
             if (!window.WorkbenchRules
                 || typeof window.WorkbenchRules.resolveField !== 'function') {
                 console.warn('[workbench] applyFullPhasePipeline: WorkbenchRules not loaded; skipping');
@@ -1140,14 +1145,21 @@ document.addEventListener('DOMContentLoaded', () => {
             applyForeignGLCoverageFromActiveSubmission(data);
             applyForeignALCoverageFromActiveSubmission(data);
             applyExcessTowerFromActiveSubmission(data);
+            // v8.7.83 PHASE 3 - yield between heavy applier groups. Order and
+            // results are unchanged; the browser just gets to paint and take
+            // input between groups instead of freezing for one giant task.
+            await yieldToBrowser8783();
             // v8.6.81: after Layer Type opens the gate, use no-cost
             // adapters to fill the risk profile/rater/narrative fields
             // from the already-paid extraction text. These functions do
             // not call the API; they expose what was resolved and what
             // still needs review.
             applyUnderwritingFromActiveSubmission(data);
+            await yieldToBrowser8783();
             applyGLExposureRaterFromActiveSubmission(data);
+            await yieldToBrowser8783();
             applyV8685PopulationPass(data);
+            await yieldToBrowser8783();
             // v8.7.25: loss history no longer relies on the timed-retry storm
             // below. Reconcile it NOW (data is in memory) and pin it so it
             // stays through every later DOM rebuild / tab switch.
@@ -1159,6 +1171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // duplicating work. The reconciler keeps losses pinned; if a
             // non-loss panel (cards/fleet/rater) genuinely needs a late retry,
             // we'll wire that panel-specifically, not via a blind reload.
+            await yieldToBrowser8783();
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
         }
@@ -1271,7 +1284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // what got filled and what didn't.
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
-                    applyFullPhasePipeline(data);
+                    await applyFullPhasePipeline(data);
                     // PHASE2-2026-06-09: overlay saved USER edits strictly after
                     // the pipeline fill — restored fields get data-user-set so the
                     // 600ms population-pass retry can never clobber them.

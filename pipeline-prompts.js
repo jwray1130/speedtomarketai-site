@@ -1600,26 +1600,33 @@ INPUTS: You receive one or more labeled extraction blocks. The Summary of Operat
 HARD GATE: If no "=== A6 · Summary of Operations ===" block is present, output exactly this line and nothing else:
 **Summary of Operations not available; exposure analysis cannot be generated.**
 
+OUTPUT FORMAT (strict):
+- Begin with the exact header **Exposure to Loss:** on its own line.
+- If the Loss History block's named insured does not match the A6 account, do NOT cite its figures anywhere; instead emit exactly ONE flag line directly under the header, formatted as: [FLAG: loss run named insured does not match A6 account - obtain a matching loss run before binding], then continue the analysis without that data. Never write a mismatch explanation paragraph.
+- Every section is a bold header on its own line (for example **Premises Exposure:**) followed ONLY by "- " bullets.
+- Every point is exactly one bullet of 1 to 3 sentences. No prose paragraphs anywhere except the single optional flag line. No nested bullets, no numbered lists, no tables.
+- No em dashes anywhere; use commas or spaced hyphens.
+
 ═══════════════════════════════════════════════════════════════════════════════
-COVERAGE-LINE TAXONOMY — use these distinctions when categorizing exposures
+COVERAGE-LINE TAXONOMY - use these distinctions when categorizing exposures
 ═══════════════════════════════════════════════════════════════════════════════
 
 PREMISES vs OPERATIONS vs COMPLETED OPERATIONS:
-  • Premises Liability — bodily injury/property damage from accidents on
+  • Premises Liability - bodily injury/property damage from accidents on
     owned/leased/rented premises, OR from ongoing operations occurring AWAY
     from premises (e.g., contractor working on client's site). Slip-and-fall
     on the insured's lobby, fall from scaffolding at an active jobsite.
-  • Operations Liability (Ongoing) — exposures from work in progress at
+  • Operations Liability (Ongoing) - exposures from work in progress at
     third-party locations. Active construction, ongoing maintenance, services
     being performed. The work isn't done yet.
-  • Completed Operations — legal responsibility for bodily injury/property
+  • Completed Operations - legal responsibility for bodily injury/property
     damage AFTER the work is finished and turned over. A deck installed last
     year that collapses today, a roof that leaks 6 months after install, an
     HVAC system that fails causing water damage to a finished tenant space.
     KEY UW SIGNAL: completed ops is a SEVERITY trigger because claims often
     surface years after the policy expires (long-tail occurrence trigger).
 
-MOBILE EQUIPMENT vs AUTO — critical boundary on construction risks:
+MOBILE EQUIPMENT vs AUTO - critical boundary on construction risks:
   Mobile equipment is generally covered under CGL, NOT BACF. Includes:
   • Vehicles primarily used off public roads (bulldozers, farm machinery,
     forklifts, off-road cranes)
@@ -1632,17 +1639,17 @@ MOBILE EQUIPMENT vs AUTO — critical boundary on construction risks:
   fleet, long-haul, nuclear corridor, hazmat transport, public/livery use.
 
 PRODUCTS LIABILITY vs COMPLETED OPERATIONS:
-  • Products — manufacture/distribute/sell defective product that injures
+  • Products - manufacture/distribute/sell defective product that injures
     the user/consumer. Manufacturer or seller is the target.
-  • Completed Operations — contractor/repairer/installer's work is the
+  • Completed Operations - contractor/repairer/installer's work is the
     target. Same legal theories (negligence, strict liability) but the
     insured's role differs.
   • Some operations span both (e.g., a fabricator who manufactures AND
-    installs — has both Products and Completed Ops exposure).
+    installs - has both Products and Completed Ops exposure).
 
-EMPLOYERS LIABILITY (EL) — fills the gap WC doesn't cover:
+EMPLOYERS LIABILITY (EL) - fills the gap WC doesn't cover:
   • Third-party-over actions (employee sues third party who then sues
-    employer for indemnity) — VERY common on construction sites
+    employer for indemnity) - VERY common on construction sites
   • Dual-capacity suits (employer also serves as e.g. product manufacturer)
   • Loss of consortium claims by injured worker's family
   • Consequential bodily injury to family members
@@ -1650,25 +1657,25 @@ EMPLOYERS LIABILITY (EL) — fills the gap WC doesn't cover:
   policies sit above this.
 
 ═══════════════════════════════════════════════════════════════════════════════
-SEVERITY-DRIVING OPERATIONAL SIGNATURES — what penetrates $2M+ attachment
+SEVERITY-DRIVING OPERATIONAL SIGNATURES - what penetrates $2M+ attachment
 ═══════════════════════════════════════════════════════════════════════════════
 
 Construction / contracting:
   • Work at heights >25ft (severity scales nonlinearly with height)
-  • Crane usage (boom collapse, dropped load — single-event $10M+ potential)
+  • Crane usage (boom collapse, dropped load - single-event $10M+ potential)
   • Rigging operations (dropped object class severity)
   • Excavation/trenching (cave-in, struck-by, utility strike)
   • Demolition (collapse, dust, public exposure)
   • Hot work / welding (fire, explosion in occupied buildings)
-  • NY operations (Labor Law 240/241 — strict liability for falls)
+  • NY operations (Labor Law 240/241 - strict liability for falls)
   • Residential exposure (jury sympathy, condo construction defect class)
   • Public/pedestrian-adjacent work (sidewalk sheds, traffic control)
   • Subcontracted work without proper risk-transfer (AI, indemnity, COI)
 
 Auto / fleet:
-  • Heavy trucks (40,000+ GVWR) — nuclear verdict territory
+  • Heavy trucks (40,000+ GVWR) - nuclear verdict territory
   • Long-haul / interstate operations
-  • Nuclear corridor states (TX, GA, FL, CA — high-verdict jurisdictions)
+  • Nuclear corridor states (TX, GA, FL, CA - high-verdict jurisdictions)
   • Hazmat or oversize loads
   • Driver scarcity / high turnover (training inadequacy claims)
   • Public/livery passenger conveyance (TNC exposure)
@@ -1687,14 +1694,14 @@ Premises / public exposure:
   • Habitational with security concerns (assault claims)
 
 ═══════════════════════════════════════════════════════════════════════════════
-ATTACHMENT PENETRATION FRAMEWORK — when $2M is not enough
+ATTACHMENT PENETRATION FRAMEWORK - when $2M is not enough
 ═══════════════════════════════════════════════════════════════════════════════
 
 Single-event severity (one occurrence eats through the layer):
-  • Catastrophic single-victim BI (paralysis, brain injury, death) —
+  • Catastrophic single-victim BI (paralysis, brain injury, death)  - 
     economic damages alone routinely $5M-$20M; non-economic on top
   • Multi-victim event (crane drop on crowd, fleet accident with bus,
-    structural collapse) — class settlement potential
+    structural collapse) - class settlement potential
   • Wrongful death with high-earner decedent or surviving spouse + minors
   • Punitive damages where state law allows insurance to pay
 
@@ -1703,7 +1710,7 @@ Aggregate erosion (death by frequency):
     pushing additional claims into the excess layer
   • Construction defect class actions (each unit owner = separate claim)
   • Repetitive-stress workplace claims at scale
-  • CGL aggregate is typically 2x per-occurrence — second large claim
+  • CGL aggregate is typically 2x per-occurrence - second large claim
     starts eating excess immediately
 
 Following-form vs self-contained implications:
@@ -1711,7 +1718,7 @@ Following-form vs self-contained implications:
     exclusion (e.g., specific peril, specific operation) flows up. Look for
     underlying gaps that excess won't fix.
   • Self-contained excess: independent coverage scope. Some claims covered
-    by excess but NOT underlying — drop-down at SIR.
+    by excess but NOT underlying - drop-down at SIR.
   • Most excess in market is "modified following form" with carrier-specific
     exclusions added. Nuclear verdict cap, communicable disease, abuse, etc.
 
@@ -1763,6 +1770,11 @@ STYLE: Dense underwriting prose in bullets. No em dashes; use commas or spaced h
 Begin with this exact header:
 **Strengths of the Account:**
 
+OUTPUT FORMAT (strict):
+- After the header, go DIRECTLY into the first bold section header. Do NOT write any introductory or framing paragraph.
+- If the Loss History or Tower blocks belong to a different named insured than the A6 account, emit exactly ONE flag line directly under the header, formatted as: [FLAG: loss history and tower belong to a different named insured than A6 - attachment and loss figures below reflect only verifiable data], then proceed with the sections. Never write a mismatch explanation paragraph.
+- Every point is exactly one "- " bullet of 1 to 3 sentences under its bold section header. No prose paragraphs anywhere except the single optional flag line. No nested bullets, no numbered lists, no tables.
+
 SECTION SELECTION: ALWAYS include Established Expertise, Loss History, and Attachment Point and Program Structure. Include any other section ONLY when the input supports it; omit unsupported sections rather than padding. Order sections logically for this account. Each section is a bold Title-Case header followed by bullets.
 
 - Established Expertise in [Industry]: years in operation and ownership continuity if stated, diversification of operations, scale or revenue, market position.
@@ -1797,7 +1809,7 @@ RULES:
 - Keep GL and AL figures separate.
 - No em dashes; use commas or spaced hyphens.
 
-OUTPUT: Return the COMPLETE corrected Strengths of the Account section, same headers and format as the draft, and NOTHING ELSE. No commentary, no list of changes, no preamble. If every number is already correct, return the draft verbatim.`,
+OUTPUT: Return the COMPLETE corrected Strengths of the Account section, same headers and format as the draft, and NOTHING ELSE. Preserve any single [FLAG: ...] line exactly where it appears, and keep every point as one "- " bullet under its bold section header. No commentary, no list of changes, no preamble. If every number is already correct, return the draft verbatim.`,
 
   guidelines: `Role and Objective:
 

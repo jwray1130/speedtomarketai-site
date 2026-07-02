@@ -585,7 +585,7 @@ const MODULES = {
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
   guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
   exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], optionalDeps: ['losses'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
-  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], optionalDeps: ['losses','tower','gl_quote','al_quote','excess','safety','subcontract'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
+  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], optionalDeps: ['safety','subcontract','losses','tower','gl_quote','al_quote','excess'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
@@ -1656,6 +1656,22 @@ async function rerunModules(moduleIds) {
       }
     });
     await Promise.all(tasks);
+  }
+
+  // v8.7.84 PHASE 6 — rerun parity for the A10 numeric critic. A fresh
+  // pipeline verifies the strengths attachment/loss math before the card
+  // renders; without this, a rerun (doc edit, guideline refresh, cascade)
+  // regenerated A10 UNVERIFIED and the unchecked draft flowed to the
+  // workbench. Runs only when strengths was actually re-run this pass,
+  // produced a live extraction, and was not restored from backup — a
+  // restored prior extraction was already verified (or predates the critic)
+  // and must not be double-charged.
+  if (moduleIds.includes('strengths')
+      && !rerunFailures['strengths']
+      && STATE.extractions.strengths
+      && STATE.extractions.strengths.mode === 'live'
+      && !STATE.extractions.strengths.staleFromRerun) {
+    await verifyStrengthsNumericPass8784('rerun');
   }
 
   // Surface a single warning toast if any reruns failed and were restored,
@@ -4495,10 +4511,14 @@ function updateTimer() {
 function estimateExtractionConfidence(text) {
   const t = String(text || '');
   let score = 0.74;
-  if (/source extracts|sources used|source|file|page/i.test(t)) score += 0.06;
+  // v8.7.85 AUDIT FIX: three of these five patterns were corrupted (raw 0x08
+  // backspace bytes where \b word boundaries were intended, plus doubled
+  // backslashes), so the source, numeric, and insurance-term boosts NEVER
+  // fired and most cards sat at the 0.74 base. Restored as intended.
+  if (/source extracts|sources used|source\b|file\b|page\b/i.test(t)) score += 0.06;
   if (/checklist|missing information|subjectivit|conflict|discrepanc/i.test(t)) score += 0.05;
-  if (/\$\s?\d|\d{1,3}(?:,\d{3})+|\d+%|\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) score += 0.04;
-  if (/(GL|AL|EL|umbrella|excess|carrier|premium|limit|attachment|loss)/i.test(t)) score += 0.03;
+  if (/\$\s?\d|\b\d{1,3}(?:,\d{3})+\b|\b\d+%\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(t)) score += 0.04;
+  if (/\b(GL|AL|EL|umbrella|excess|carrier|premium|limit|attachment|loss)\b/i.test(t)) score += 0.03;
   if (/not provided|unknown|unclear|unable to determine|needs review/i.test(t)) score -= 0.04;
   return Math.max(0.55, Math.min(0.96, Number(score.toFixed(2))));
 }
@@ -5500,6 +5520,51 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
   }
 }
 
+// v8.7.84 PHASE 6 — the strengths numeric critic as ONE shared pass so the
+// initial pipeline and every rerun path verify identically. Recomputes the
+// Attachment Point / Loss History math in the A10 draft against the
+// authoritative tower and loss blocks, overwrites the draft in place before
+// the card renders or persists, and on ANY error keeps the draft (never
+// blocks the run). Returns true only when a verified rewrite landed.
+// Guards (all must pass, otherwise silently skip):
+//   • a live A10 draft exists (not gated/refused, not the A6 hard-gate line)
+//   • at least one of tower / losses exists to verify against
+async function verifyStrengthsNumericPass8784(trigger) {
+  try {
+    const rec = STATE.extractions.strengths;
+    const draft = rec && rec.text;
+    if (!draft) return false;
+    if (rec.mode === 'gated' || rec.refused === true) return false;
+    if (/strengths cannot be generated/i.test(draft)) return false;
+    const haveNumbers = STATE.extractions.tower || STATE.extractions.losses;
+    if (!haveNumbers) return false;
+    const vBlocks = ['tower', 'losses']
+      .filter(mid => STATE.extractions[mid])
+      .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
+      .join('\n\n');
+    const verifyMsg = 'STRENGTHS DRAFT TO VERIFY:\n\n' + draft +
+      '\n\n---\n\nAUTHORITATIVE SOURCE BLOCKS (recompute every number against these):\n\n' + vBlocks;
+    const vres = await callLLM(PROMPTS.strengths_verify, verifyMsg, MODULES.strengths.model, { maxTokens: moduleMaxTokens('strengths', false) });
+    if (vres && vres.text && vres.text.trim().length > 40) {
+      rec.text = vres.text.trim();
+      rec.verified = true;
+      rec.verify_trigger = trigger || 'initial';
+      if (vres.usage) {
+        const vcost = calcCost(vres.usage);
+        rec.verify_usage = vres.usage;
+        rec.verify_cost = vcost;
+        STATE.runTotalCost = (STATE.runTotalCost || 0) + vcost;
+      }
+      logAudit('Pipeline', 'Verified A10 Account Strengths · attachment/loss math recomputed (' + (trigger || 'initial') + ')', (vres.usage && vres.usage.model) || MODULES.strengths.model);
+      return true;
+    }
+    return false;
+  } catch (verr) {
+    logAudit('Pipeline', 'A10 strengths verify pass skipped (using draft): ' + (verr && verr.message), 'warn');
+    return false;
+  }
+}
+
 function skipModule(moduleId, reason) {
   setNodeState(`[data-module="${moduleId}"]`, 'skipped', reason || 'no input');
   logAudit('Pipeline', 'Skipped ' + MODULES[moduleId].code + ' · ' + (reason || 'no input'), '—');
@@ -6295,57 +6360,28 @@ async function runPipeline() {
 
     const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
     wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines', pipelineContext));
-    // v8.7.82: exposure now also receives Loss History so severity claims can
-    // be anchored to the account's actual losses (cited inline), not generic
-    // scenarios. A6 is guaranteed present inside this block (gate above).
-    const exposureSources = ['summary-ops', 'losses']
+    // v8.7.84: exposure sources derive from the module descriptor (deps +
+    // optionalDeps) so the initial run and rerunModules can never drift.
+    const exposureSources = [...MODULES.exposure.deps, ...(MODULES.exposure.optionalDeps || [])]
       .filter(mid => STATE.extractions[mid])
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
     wave3Tasks.push(runModule('exposure', PROMPTS.exposure, exposureSources, 'A6 + losses', pipelineContext));
 
-    // v8.7.82: strengths receives the operational spine (A6) PLUS raw Safety
-    // (A5) and Subcontract (A3) for full-granularity safety/risk-transfer
-    // bullets, PLUS Loss History + Excess Tower + primary quotes so the
-    // Attachment Point and Loss History sections are computed from real
-    // numbers. After the draft is generated, a numeric critic pass recomputes
-    // the attachment/loss math against the tower and loss blocks BEFORE the
-    // card renders (mirrors classifier -> classifier_verify). On any critic
-    // error the draft is kept. A6 is guaranteed present inside this block.
-    const strengthSources = ['summary-ops', 'safety', 'subcontract', 'losses', 'tower', 'gl_quote', 'al_quote', 'excess']
+    // v8.7.84: strengths sources also derive from the descriptor, and the
+    // numeric critic now lives in verifyStrengthsNumericPass8784 — shared
+    // with rerunModules so a re-run gets the SAME verified math as a fresh
+    // run. A6 is guaranteed present inside this block (gate above).
+    const strengthSources = [...MODULES.strengths.deps, ...(MODULES.strengths.optionalDeps || [])]
       .filter(mid => STATE.extractions[mid])
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
     wave3Tasks.push((async () => {
       const ok = await runModule('strengths', PROMPTS.strengths, strengthSources, 'A6 + safety/sub/loss/tower/quotes', pipelineContext);
-      try {
-        const draft = STATE.extractions.strengths && STATE.extractions.strengths.text;
-        const haveNumbers = STATE.extractions.tower || STATE.extractions.losses;
-        if (ok && draft && haveNumbers && !/strengths cannot be generated/i.test(draft)) {
-          const vBlocks = ['tower', 'losses']
-            .filter(mid => STATE.extractions[mid])
-            .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
-            .join('\n\n');
-          const verifyMsg = 'STRENGTHS DRAFT TO VERIFY:\n\n' + draft +
-            '\n\n---\n\nAUTHORITATIVE SOURCE BLOCKS (recompute every number against these):\n\n' + vBlocks;
-          const vres = await callLLM(PROMPTS.strengths_verify, verifyMsg, MODULES.strengths.model, { maxTokens: moduleMaxTokens('strengths', false) });
-          if (vres && vres.text && vres.text.trim().length > 40) {
-            STATE.extractions.strengths.text = vres.text.trim();
-            STATE.extractions.strengths.verified = true;
-            if (vres.usage) {
-              const vcost = calcCost(vres.usage);
-              STATE.extractions.strengths.verify_usage = vres.usage;
-              STATE.extractions.strengths.verify_cost = vcost;
-              STATE.runTotalCost = (STATE.runTotalCost || 0) + vcost;
-            }
-            logAudit('Pipeline', 'Verified A10 Account Strengths · attachment/loss math recomputed', (vres.usage && vres.usage.model) || MODULES.strengths.model);
-          }
-        }
-      } catch (verr) {
-        logAudit('Pipeline', 'A10 strengths verify pass skipped (using draft): ' + (verr && verr.message), 'warn');
-      }
+      if (ok) await verifyStrengthsNumericPass8784('initial');
       return ok;
     })());
+
   } else {
     skipModule('guidelines', 'no Summary of Ops');
     skipModule('exposure', 'no Summary of Ops');
