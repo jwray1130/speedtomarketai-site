@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.99-freeze-fix-2026-07-02
+  v8.7.100-stage2-cache-fix-2026-07-02
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.99-freeze-fix-2026-07-02';
+window.STM_BUILD = 'v8.7.100-stage2-cache-fix-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1353,13 +1353,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                             data.snapshot._heavyPending = false;
                             window.__stmHeavyRefilled8799 = true;
+                            // v8.7.100: the corpus caches (rules adapter bags +
+                            // _csft89Memo) are WeakMaps keyed by the submission
+                            // OBJECT. Stage 1 ran the pipeline with files:[] and
+                            // cached empty corpora against `data`; mutating the
+                            // same object would keep serving those empties. A
+                            // fresh identity makes every cache miss and rebuild
+                            // against the merged files.
+                            const refreshed = { ...data };
+                            window.workbenchActiveSubmission = refreshed;
                             await yieldToBrowser8783();
-                            try { applyV8685PopulationPass(data); } catch (_) {}
+                            try { applyV8685PopulationPass(refreshed); } catch (_) {}
                             await yieldToBrowser8783();
-                            try { applyGLExposureRaterFromActiveSubmission(data); } catch (_) {}
+                            try { applyGLExposureRaterFromActiveSubmission(refreshed); } catch (_) {}
                             await yieldToBrowser8783();
-                            try { renderFieldCoverageReport(data); } catch (_) {}
-                            console.log('[workbench] Stage 2 heavy merge + refill complete:', (data.snapshot.files || []).length, 'files');
+                            try { renderFieldCoverageReport(refreshed); } catch (_) {}
+                            console.log('[workbench] Stage 2 heavy merge + refill complete:', (refreshed.snapshot.files || []).length, 'files');
                         })();
                     }
                 } else {
@@ -2410,7 +2419,9 @@ document.addEventListener('DOMContentLoaded', () => {
             let bag = submission && typeof submission === 'object' ? _csft89Memo.get(submission) : null;
             if (bag && Object.prototype.hasOwnProperty.call(bag, key)) return bag[key];
             const out = _collectSnapshotFileTexts89Raw(submission, matcher);
-            if (submission && typeof submission === 'object') {
+            // v8.7.100: never cache Stage-1 results built before the heavy
+            // snapshot.files merge - they would poison post-merge reads.
+            if (submission && typeof submission === 'object' && !(submission.snapshot && submission.snapshot._heavyPending)) {
                 if (!bag) { bag = Object.create(null); _csft89Memo.set(submission, bag); }
                 bag[key] = out;
             }

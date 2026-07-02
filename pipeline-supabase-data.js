@@ -922,7 +922,13 @@ async function sbHydrate() {
           ? r.missing_info
           : ((Array.isArray(d.missingInfo) && d.missingInfo.length > 0)
             ? d.missingInfo
-            : computedMissingInfo),
+            : ((r.snapshot && r.snapshot.extractions)
+              // v8.7.100: the queue diet removed snapshot from list rows, so
+              // the clobber-recovery recompute (which reads snapshot
+              // extractions) only runs when a snapshot is actually present;
+              // otherwise an absent snapshot would falsely mark everything
+              // missing. Diet rows with an empty column show [] instead.
+              ? computedMissingInfo : [])),
         modulesRun:  (typeof r.modules_run === 'number') ? r.modules_run
                    : (typeof d.modulesRun === 'number') ? d.modulesRun
                    : computedModulesRun,
