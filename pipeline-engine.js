@@ -339,6 +339,44 @@ function parseSectionHint(hint, totalPages) {
   return [1, totalPages || 1];
 }
 
+// ============================================================================
+// v8.7.92 GENERAL DECLARATIONS CONTEXT
+// Multi-line package quotes (Chubb agribusiness, Travelers CPP, Hartford,
+// etc.) state the carrier (name above an NAIC code), named insured, policy
+// period, and PER-LINE annual premiums on the package cover / common
+// declarations page - NOT on each coverage line's own dec pages. Section
+// slicing therefore starved the line modules of exactly those fields and
+// they answered "No information provided" while the answer sat on page 1
+// of the same document. Fix: deterministically detect the general-dec
+// page(s) of each file and prepend them to every quote-family slice as a
+// labeled context block. Structural signals only - nothing carrier- or
+// account-specific - so this generalizes across markets.
+// ============================================================================
+const GEN_DEC_QUOTE_FAMILY8792 = new Set(['gl_quote','al_quote','el_quote','ebl_quote','aircraft_quote','garage_quote','liquor_quote','foreign_gl_quote','foreign_al_quote','excess']);
+function detectGeneralDecPages8792(f) {
+  if (f._genDec8792) return f._genDec8792;
+  const out = [];
+  const pages = (f && Array.isArray(f.pageTexts)) ? f.pageTexts : [];
+  const signals = [
+    /named insured\s*:/i,
+    /\bNAIC\b/i,
+    /policy period\s*:/i,
+    /quote declarations|common policy declarations|general (?:policy )?information declarations|declarations page/i,
+    /total annual premium/i,
+    /\bbroker\s*:/i,
+    /\bmailing address\s*:/i
+  ];
+  for (let i = 0; i < pages.length && out.length < 2; i++) {
+    const t = String(pages[i] || '');
+    if (!t) continue;
+    let score = 0;
+    for (const re of signals) if (re.test(t)) score++;
+    if (score >= 3) out.push({ page: i + 1, text: t.length > 6000 ? t.slice(0, 6000) : t });
+  }
+  f._genDec8792 = out;
+  return out;
+}
+
 function sliceTextForModule(f, mid) {
   // No per-page text available? Return whole-file text (legacy behavior).
   if (!f.pageTexts || !Array.isArray(f.pageTexts) || f.pageTexts.length === 0) {
@@ -372,7 +410,21 @@ function sliceTextForModule(f, mid) {
   });
 
   if (sliceParts.length === 0) return f.text || '';
-  return sliceParts.join('\n\n');
+  let slice = sliceParts.join('\n\n');
+  // v8.7.92: prepend the same document's general declarations page(s) for
+  // quote-family modules when the slice does not already contain them.
+  if (GEN_DEC_QUOTE_FAMILY8792.has(mid)) {
+    const gen = detectGeneralDecPages8792(f);
+    const blocks = [];
+    for (const g of gen) {
+      const probe = g.text.slice(0, 120);
+      if (probe && slice.indexOf(probe) === -1) {
+        blocks.push('=== GENERAL DECLARATIONS CONTEXT (same document, page ' + g.page + ') ===\n\n' + g.text + '\n\n=== END GENERAL DECLARATIONS CONTEXT ===');
+      }
+    }
+    if (blocks.length) slice = blocks.join('\n\n') + '\n\n' + slice;
+  }
+  return slice;
 }
 
 // ============================================================================
@@ -1620,13 +1672,17 @@ async function rerunModules(moduleIds) {
         ];
         const availableDeps = allDeps.filter(d => STATE.extractions[d]);
         if (availableDeps.length > 0) {
+          const combined = availableDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
           if (mid === 'guidelines') {
             // Guidelines needs the appended guidelines text
             const soText = STATE.extractions['summary-ops'] ? STATE.extractions['summary-ops'].text : '';
             const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
             runResult = await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines', pipelineContext);
+          } else if (mid === 'classcode') {
+            // v8.7.90: rerun parity for class-code grounding + validation
+            runResult = await runModule(mid, PROMPTS[mid], appendGlCandidates8790(combined), availableDeps.map(d => MODULES[d].code).join('+') + '+table', pipelineContext);
+            if (runResult === true) validateGlClasscodeOutput8790('rerun');
           } else {
-            const combined = availableDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
             runResult = await runModule(mid, PROMPTS[mid], combined, availableDeps.map(d => MODULES[d].code).join('+'), pipelineContext);
           }
         } else {
@@ -5570,6 +5626,108 @@ async function verifyStrengthsNumericPass8784(trigger) {
   }
 }
 
+// ============================================================================
+// v8.7.90 GL CLASS CODE GROUNDING
+// The A7 prompt has always referenced a "stored GL class-code reference
+// table" - but no table was ever injected, so operations-based codes were
+// generated from model memory and were frequently wrong (real code numbers
+// paired with invented descriptions). Three parts fix this permanently:
+//   1. window.GL_CLASS_CODES (pipeline-prompts.js) - the authoritative
+//      1,154-row table extracted from the underwriter-provided lookup PDF.
+//   2. shortlistGlClassCodes8790 / appendGlCandidates8790 - locally score
+//      every description against the module input and append the top
+//      candidate rows so the model SELECTS instead of generating.
+//   3. validateGlClasscodeOutput8790 - deterministic, zero-cost post-pass on
+//      BOTH run paths: any code absent from the table becomes a NEEDS MANUAL
+//      line (carrier-declared codes get a review note instead), and any
+//      description that does not match the table is rewritten to table truth.
+//      A fabricated code/description pairing can never render or persist.
+// ============================================================================
+let _glCodeMap8790 = null;
+function glCodeMap8790() {
+  if (_glCodeMap8790) return _glCodeMap8790;
+  const m = new Map();
+  const src = (typeof window !== 'undefined' && window.GL_CLASS_CODES) || [];
+  for (const row of src) m.set(String(row[0]), String(row[1]));
+  _glCodeMap8790 = m;
+  return m;
+}
+const _GL_STOP8790 = new Set(['other','than','only','with','from','their','operations','work','services','general','under','over','into','onto','more','less','and','the','for','all','any','are','was','were','been','being','have','will','shall','may','can','its','this','that','these','those','such','each','per','out','off','also','including','include','includes','excluding','not']);
+function _glStems8790(text) {
+  const s = new Set();
+  String(text).toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').forEach(w => {
+    if (w.length >= 4 && !_GL_STOP8790.has(w)) s.add(w.slice(0, 6));
+  });
+  return s;
+}
+function shortlistGlClassCodes8790(opsText, limit) {
+  const map = glCodeMap8790();
+  if (!map.size) return null;
+  const tstems = _glStems8790(opsText);
+  const scored = [];
+  for (const [c, d] of map) {
+    const dw = d.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(w => w.length >= 4 && !_GL_STOP8790.has(w));
+    if (!dw.length) continue;
+    let hit = 0; const seen = new Set();
+    for (const w of dw) { const st = w.slice(0, 6); if (!seen.has(st) && tstems.has(st)) { hit++; seen.add(st); } }
+    if (hit > 0) scored.push({ c: c, d: d, score: hit + hit / dw.length });
+  }
+  scored.sort((a, b) => b.score - a.score || a.d.length - b.d.length);
+  const pick = new Map();
+  scored.slice(0, limit || 120).forEach(x => pick.set(x.c, x.d));
+  const cited = String(opsText).match(/\b\d{5,6}\b/g) || [];
+  for (const c of cited) if (map.has(c)) pick.set(c, map.get(c));
+  if (!pick.size) return null;
+  return Array.from(pick, function (e) { return e[0] + ' - ' + e[1]; }).join('\n');
+}
+function appendGlCandidates8790(inputText) {
+  const block = shortlistGlClassCodes8790(inputText, 120);
+  if (!block) return inputText;
+  return inputText + '\n\n=== AUTHORITATIVE GL CLASS CODE TABLE - CANDIDATE ROWS ===\n' +
+    'These rows are the stored GL class-code reference table, pre-filtered to this account. Operations-based recommendations MUST be selected from these rows only, copying code and description VERBATIM. If an operation cannot be classified from these rows, output a NEEDS MANUAL CODE line instead of inventing a code.\n\n' + block;
+}
+function _glNorm8790(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+function validateGlClasscodeOutput8790(trigger) {
+  try {
+    const rec = STATE.extractions.classcode;
+    if (!rec || !rec.text) return;
+    const map = glCodeMap8790();
+    if (!map.size) return;
+    let corrections = 0, manual = 0;
+    const out = rec.text.split('\n').map(function (line) {
+      const m = line.match(/^(\s*[-\u2022\u2013\u2014]\s*)(\d{5,6})\b(.*)$/);
+      if (!m) return line;
+      const pre = m[1], code = m[2], rest = m[3];
+      const declared = /Source:\s*(GL Quote|ACORD|Source-provided)/i.test(rest);
+      if (!map.has(code)) {
+        if (declared) { if (rest.indexOf('[code not in reference table') !== -1) return line; corrections++; return line + ' [code not in reference table - carrier-declared, review]'; }
+        manual++;
+        const opDesc = rest.replace(/^\s*[-\u2013\u2014]\s*/, '').replace(/\s*[-\u2013\u2014]\s*Source:.*$/i, '').trim();
+        return pre + 'NEEDS MANUAL CODE - ' + opDesc + ' [model produced invalid code ' + code + ' - not in authoritative table]';
+      }
+      const trueDesc = map.get(code);
+      const dm = rest.match(/^\s*[-\u2013\u2014]\s*(.*?)(\s*[-\u2013\u2014]\s*Source:.*)?$/);
+      if (dm) {
+        const desc = dm[1] || '';
+        if (_glNorm8790(desc) !== _glNorm8790(trueDesc)) {
+          corrections++;
+          return pre + code + ' - ' + trueDesc + (dm[2] || '');
+        }
+      }
+      return line;
+    });
+    if (corrections || manual) {
+      rec.text = out.join('\n');
+      rec.glCorrections = corrections;
+      rec.glManual = manual;
+      logAudit('Pipeline', 'A7 class codes validated against reference table (' + trigger + ') - ' + corrections + ' corrected, ' + manual + ' flagged NEEDS MANUAL', 'local-gl-validator');
+    }
+    rec.glValidated = true;
+  } catch (e) {
+    logAudit('Pipeline', 'A7 class-code validation skipped: ' + (e && e.message), 'warn');
+  }
+}
+
 function skipModule(moduleId, reason) {
   setNodeState(`[data-module="${moduleId}"]`, 'skipped', reason || 'no input');
   logAudit('Pipeline', 'Skipped ' + MODULES[moduleId].code + ' · ' + (reason || 'no input'), '—');
@@ -6358,7 +6516,13 @@ async function runPipeline() {
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
     if (classSources) {
-      wave3Tasks.push(runModule('classcode', PROMPTS.classcode, classSources, 'GL quote + ACORD/Supp + A6', pipelineContext));
+      // v8.7.90: append the authoritative candidate rows, then validate the
+      // output pairing-by-pairing against the full table before it persists.
+      wave3Tasks.push((async () => {
+        const ok = await runModule('classcode', PROMPTS.classcode, appendGlCandidates8790(classSources), 'GL quote + ACORD/Supp + A6 + code table', pipelineContext);
+        if (ok) validateGlClasscodeOutput8790('initial');
+        return ok;
+      })());
     } else {
       skipModule('classcode', 'no class-code source data');
     }

@@ -1,4 +1,1170 @@
 // ============================================================================
+// GL CLASS CODE REFERENCE TABLE - v8.7.90
+// Source: user-provided insurancexdate.com GL code lookup PDF (2026-07-02).
+// 1154 codes. This is the authoritative table the A7 Class Code Expert selects
+// from: the engine shortlists candidate rows into the A7 input, and a local
+// validator (validateGlClasscodeOutput8790) verifies every code/description
+// pairing in the output against this table before the card persists.
+// To refresh: re-extract the lookup PDF and regenerate this array.
+// ============================================================================
+window.GL_CLASS_CODES = [
+["10010","Air Conditioning Equipment--Dealers or Distributors Only"],
+["10015","Amusement Centers"],
+["10020","Amusement Parks"],
+["10026","Antique Stores"],
+["10036","Anhydrous Ammonia Dealers and Distributors"],
+["10040","Appliance Distributors--Household Type"],
+["10042","Appliance Stores--Household Type"],
+["10052","Archery Ranges--Indoor"],
+["10054","Archery Ranges--Other Than Indoor"],
+["10060","Army and Navy Stores"],
+["10065","Art Galleries--Other Than Not-For-Profit"],
+["10066","Art Galleries--Not-For-Profit Only"],
+["10070","Automobile Parts and Supplies Distributors"],
+["10071","Automobile Parts and Supplies Stores"],
+["10072","Automobile Quick Lubrication Services"],
+["10073","Automobile Repair or Service Shops"],
+["10075","Automobile Repair Shops--Self-Service"],
+["10100","Bakeries"],
+["10101","Boat Dealers"],
+["10105","Boat Storage and Moorage"],
+["10107","Boat Yards or Marinas--Public"],
+["10110","Boats--Canoes or Rowboats--for Rent--Not Equipped with Motors"],
+["10111","Barber or Beauty Shop Supplies Distributors"],
+["10113","Barber Shops"],
+["10115","Beauty Parlors and Hair Styling Salons"],
+["10117","Boats--Motor or Sail--Rented to Others"],
+["10119","Boats--Rented to Others NOC"],
+["10120","Bathhouses or Bathing Pavilions"],
+["10130","Bazaars--Operated by the Insured--Other Than Not-For-Profit"],
+["10132","Bazaars--Operated by the Insured--Not-For-Profit Only"],
+["10133","Beach Chairs and Umbrellas--Rented to Others"],
+["10135","Beaches--Bathing--Commercially Operated"],
+["10140","Beverage Distributors--Alcoholic Other Than Beer"],
+["10141","Beverage Distributors--Nonalcoholic and Beer"],
+["10145","Beverage Stores--Liquor and Wine"],
+["10146","Beverage Stores--Soft Drinks and Beer"],
+["10150","Bicycle Stores--Sales and Servicing"],
+["10151","Bicycles--Rented to Others"],
+["10160","Billiard or Pool Halls"],
+["10204","Books and Magazines Stores--Other Than Not-For-Profit"],
+["10205","Books and Magazines Stores--Not-For-Profit Only"],
+["10220","Bowling Lanes"],
+["10255","Building Material Dealers--Other Than Secondhand Material"],
+["10256","Building Material Dealers--Secondhand Material"],
+["10257","Building Material Distributors"],
+["10309","Camera and Photographic Equipment Stores"],
+["10315","Camper or Travel Trailer Sales Agencies"],
+["10331","Campgrounds--Other Than Not-For-Profit"],
+["10332","Campgrounds--Not-For-Profit Only"],
+["10352","Candy or Confectionery Stores"],
+["10367","Car Washes--Other Than Self-Service"],
+["10368","Car Washes--Self-Service"],
+["10375","Carnival or Circus Companies"],
+["10378","Carnivals--Outside (Sponsor's Risk Only) Other Than Not-For- Profit"],
+["10379","Carnivals--Outside (Sponsor's Risk Only) Not-For-Profit Only"],
+["10380","Carnivals or Circuses--in Tents (Sponsor's Risk Only) Other Than Not-For-Profit"],
+["10381","Carnivals or Circuses--in Tents (Sponsor's Risk Only) Not-For- Profit Only"],
+["11007","Carpet, Rug or Upholstery Cleaning--Shop Only"],
+["11020","Catalog or Premium Coupon Redemption Stores"],
+["11039","Caterers"],
+["11052","Chairs--Rented to Others"],
+["11101","Chemical Distributors"],
+["11120","Children's Playcenter--Indoor"],
+["11126","Clothing or Wearing Apparel Distributors"],
+["11127","Clothing or Wearing Apparel Stores--Other Than Not-For-Profit"],
+["11128","Clothing or Wearing Apparel Stores--Not-For-Profit Only"],
+["11138","Clubs--Country or Golf"],
+["11155","Collectibles and Memorabilia Stores"],
+["11160","Computer Stores"],
+["11167","Concessionaires--Checkroom, Shoeshine or Toilet Concessions in Hotels, Restaurants, Railroad Stations, etc."],
+["11168","Concessionaires"],
+["11201","Contractors Equipment--Cranes, Derricks, Power Shovels and Equipment Incidental Thereto--Rented to Others with Operators"],
+["11202","Contractors Equipment--Cranes, Derricks, Power Shovels and Equipment Incidental Thereto--Rented to Others without Operators"],
+["11203","Contractors Equipment Dealers--Ladders, Excluding Hoists, Scaffolds or Towers"],
+["11204","Contractors Equipment Dealers--Ladders, Hoists, Scaffolds or Towers"],
+["11205","Contractors Equipment--Earth Moving Equipment Other Than Cranes, Derricks and Power Shovels--Rented to Others with Operators"],
+["11206","Contractors Equipment--Earth Moving Equipment Other Than Cranes, Derricks and Power Shovels--Rented to Others without Operators"],
+["11207","Contractors Equipment--Excluding Automobiles--Rented to Others with Operators"],
+["11208","Contractors Equipment--Excluding Automobiles--Rented to Others without Operators"],
+["11209","Contractors Equipment--Hod or Material Platform Hoists and Equipment Incidental Thereto--Rented to Others with Operators"],
+["11210","Contractors Equipment--Hod or Material Platform Hoists and Equipment Incidental Thereto--Rented to Others without Operators"],
+["11211","Contractors Equipment--Ladders, Scaffolds, Scaffolding, Sidewalk Bridges, Towers and Equipment Incidental Thereto-- Rented to Others"],
+["11212","Contractors Equipment--Scaffolds, Sidewalk Bridges, Hod or Material Hoists, Towers--Rented to Others--Installation, Repair or Removal Operations Only"],
+["11213","Contractors Equipment--Steam Boilers, Compressors, Air Pressure Tanks, Pneumatic Tools and Equipment Incidental Thereto--Rented to Others with Operators"],
+["11214","Contractors Equipment--Steam Boilers, Compressors, Air Pressure Tanks, Pneumatic Tools and Equipment Incidental Thereto--Rented to Others without Operators"],
+["11222","Copying and Duplicating Services--Retail"],
+["11234","Cosmetic, Hair or Skin Preparation Stores"],
+["11248","Cotton or Wool Merchants"],
+["11258","Dairy Products or Butter and Egg Stores--Other Than Not-For- Profit"],
+["11259","Dairy Products or Butter and Egg Stores--Not-For-Profit Only"],
+["11273","Dance Halls, Ballrooms or Discotheques--Other Than Not-For- Profit"],
+["11274","Dance Halls, Ballrooms or Discotheques--Not-For-Profit Only"],
+["11288","Delicatessens"],
+["12014","Dental Laboratories"],
+["12356","Department or Discount Stores"],
+["12361","Distributors--Food or Drink"],
+["12362","Distributors--No Food or Drink"],
+["12373","Drug Distributors"],
+["12374","Drugstores--No Table or Counter Service for Beverage or Food"],
+["12375","Drugstores"],
+["12391","Electrical Equipment Distributors"],
+["12393","Electronics Store"],
+["12467","Equipment, Fixtures or Supplies--for Bars, Hotels, Offices, Restaurants or Stores--Distributors"],
+["12509","Fabric Distributors"],
+["12510","Fabric Stores"],
+["12583","Feed, Grain or Hay Dealers"],
+["12651","Fence Dealers"],
+["12683","Fertilizer Dealers and Distributors"],
+["12707","Fire Protection Equipment Dealers and Distributors"],
+["12797","Floor Covering Distributors"],
+["12805","Floor Covering Stores"],
+["12841","Florists"],
+["12927","Formal Wear or Costumes--Rented to Others"],
+["13049","Frozen Food--Distributors"],
+["13111","Fruit or Vegetable Dealers"],
+["13112","Fruit or Vegetable Distributors"],
+["13201","Fuel Dealers or Distributors--Coal or Wood"],
+["13204","Fuel Oil or Kerosene Dealers"],
+["13205","Fuel Oil or Kerosene Distributors"],
+["13314","Fur--Garments and Pelts--Distributors"],
+["13351","Furniture Stores--Other Than Not-For-Profit"],
+["13352","Furniture Stores--Not-For-Profit Only"],
+["13410","Gas Dealers--LPG"],
+["13411","Gas Dealers or Distributors"],
+["13412","Gas Distributors--LPG"],
+["13453","Gasoline Stations--Full Service"],
+["13454","Gasoline Stations--Self-Service"],
+["13455","Gasoline Stations--Self and Full Service Combined"],
+["13506","Gift Shops--Other Than Not-For-Profit"],
+["13507","Gift Shops--Not-For-Profit Only"],
+["13590","Glass Dealers and Glaziers"],
+["13621","Grain Milling"],
+["13670","Grocery Distributors"],
+["13673","Grocery Stores"],
+["13715","Hardware and Tool Distributors"],
+["13716","Hardware Stores"],
+["13720","Health or Natural Food Stores"],
+["13759","Hearing Aid Stores"],
+["13930","Heating or Combined Heating and Air Conditioning Equipment-- Dealers or Distributors Only"],
+["14068","Hide Dealers and Distributors--Raw"],
+["14101","Hobby, Craft or Artists' Supply Stores"],
+["14279","Home Improvement Stores"],
+["14401","Ice Cream Stores"],
+["14405","Ice Dealers and Distributors"],
+["14527","Janitorial Supplies--Dealers or Distributors"],
+["14655","Jewelry Stores or Distributors"],
+["14731","Laundries and Dry Cleaners--Self-Service"],
+["14732","Laundry and Dry Cleaning or Dyeing Receiving Stations"],
+["14733","Laundry and Dry Cleaning Stores"],
+["14734","Laundry Rental Service"],
+["14855","Livestock Dealers or Commission Merchants"],
+["14913","Locksmiths"],
+["15060","Machinery or Equipment Dealers--Construction or Industrial-- Mobile Type"],
+["15061","Machinery or Equipment Dealers--Farm Type"],
+["15062","Machinery or Equipment Dealers"],
+["15063","Machinery or Equipment Dealers--Yard or Garden Type"],
+["15070","Mail Box or Packaging Stores"],
+["15119","Markets--Not Open Air (Lessor's Risk Only) Other Than Not-For- Profit"],
+["15120","Markets--Not Open Air (Lessor's Risk Only) Not-For-Profit Only"],
+["15123","Markets--Open Air (Lessor's Risk Only) Other Than Not-For- Profit"],
+["15124","Markets--Open Air (Lessor's Risk Only) Not-For-Profit Only"],
+["15188","Oil or Gas Well Supplies or Equipment Dealers--Secondhand"],
+["15223","Meat, Fish, Poultry or Seafood--Distributors"],
+["15224","Meat, Fish, Poultry or Seafood Stores"],
+["15300","Medical, Hospital and Surgical Equipment and Supplies--Rented to Others"],
+["15314","Medical, Hospital and Surgical Supply Stores"],
+["15404","Metal Dealers or Distributors--Nonstructural"],
+["15405","Metal Dealers or Distributors--Structural"],
+["15406","Metal Scrap Dealers"],
+["15488","Mobile Home Sales Agencies"],
+["15538","Musical Instrument Stores"],
+["15600","Nail Salons"],
+["15607","Newspaper or Magazine Distributors"],
+["15608","Newsstands"],
+["15656","Nightclubs, Cabarets and Comedy Clubs"],
+["15699","Nursery--Garden"],
+["15733","Oil Refineries"],
+["15839","Optical Goods Stores"],
+["15991","Paint, Wallpaper or Wallcovering Stores"],
+["15993","Painting, Picture or Frame Stores"],
+["16005","Paper Products Distributors"],
+["16009","Paper, Rag or Rubber Stock Dealers and Distributors-- Secondhand"],
+["16402","Pet Grooming"],
+["16403","Pet Stores"],
+["16404","Pet Training"],
+["16471","Photographers"],
+["16501","Plastic or Rubber Supply Goods Distributors"],
+["16527","Plumbing Supplies and Fixtures Dealers and Distributors"],
+["16588","Printers or Electrotypers Supplies--Distributors"],
+["16604","Produce Handling or Packing"],
+["16670","Racquet Sports and Handball Facilities--Commercially Operated"],
+["16676","Music Stores--Pre-Recorded"],
+["16694","Recreational Vehicle Dealers"],
+["16705","Refrigeration Equipment--Dealers and Distributors Only-- Commercial"],
+["16722","Rental Stores"],
+["16723","Rental Stores--Machinery or Equipment--Rented to Others on a Long-Term Basis"],
+["16750","Internet Retailers"],
+["16751","Internet Auctions"],
+["16819","Restaurants--Operated by Concessionaires--Other Than Not-For- Profit"],
+["16820","Restaurants--Operated by Concessionaires--Not-For-Profit Only"],
+["16881","Secondhand or Salvage Dealers and Distributors"],
+["16890","Seed Merchants--Excluding Erroneous Delivery, Error in Mixture and Germination Failure"],
+["16891","Seed Merchants--Erroneous Delivery, Error in Mixture and Resulting Germination Failure"],
+["16892","Seed Merchants--Erroneous Delivery, and Error in Mixture (Excluding Germination Failure)"],
+["16900","Restaurants--with No Sale of Alcoholic Beverages--with Table Service"],
+["16901","Restaurants--with No Sale of Alcoholic Beverages--without Table Service with Seating"],
+["16902","Restaurants--with No Sale of Alcoholic Beverages--without Seating"],
+["16910","Restaurants--with Sale of Alcoholic Beverages that are Less Than 30% of the Annual Receipts of the Restaurants--with Table Service"],
+["16911","Restaurants--with Sale of Alcoholic Beverages that are Less Than 30% of the Annual Receipts of the Restaurants--without Table Service with Seating"],
+["16915","Restaurants--with Sale of Alcoholic Beverages that are 30% or More of But Less Than 75% of the Total Annual Receipts of the Restaurants--with Dance Floor"],
+["16916","Restaurants--with Sale of Alcoholic Beverages that are 30% or More of But Less Than 75% of the Total Annual Receipts of the Restaurants--without Dance Floor"],
+["16920","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--with Tables-- with Dance Floor: Table Service"],
+["16921","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--with Tables-- with Dance Floor: No Table Service"],
+["16930","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--with Tables-- without Dance Floor: Table Service"],
+["16931","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--with Tables-- without Dance Floor: No Table Service"],
+["16940","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--Bar Service Only (No Tables): with Dance Floor"],
+["16941","Restaurants--with Sale of Alcoholic Beverages that are 75% or More of Total Annual Receipts of the Restaurants--Bar Service Only (No Tables): without Dance Floor"],
+["18078","Ship Chandler Stores"],
+["18109","Shoe Repair Shops"],
+["18110","Shoe Stores"],
+["18200","Spas or Personal Enhancement Facilities"],
+["18205","Sporting Goods or Athletic Equipment Distributors"],
+["18206","Sporting Goods or Athletic Equipment Stores"],
+["18335","Stationery or Paper Products Stores"],
+["18435","Stores--Food or Drink--Other Than Not-For-Profit"],
+["18436","Stores--Food or Drink--Not-For-Profit Only"],
+["18437","Stores: Retail NOC"],
+["18438","Stores--No Food or Drink--Not-For-Profit Only"],
+["18501","Supermarkets"],
+["18506","Tailor Merchants--Men or Boys"],
+["18507","Tailoring or Dressmaking Establishments--Custom"],
+["18570","Tattoo Parlors"],
+["18575","Telecommunication Equipment Providers"],
+["18616","Tire Dealers"],
+["18707","Tobacco Products Distributors"],
+["18708","Tobacco Products Stores"],
+["18833","Toy Distributors"],
+["18834","Toy Stores"],
+["18911","Variety Stores--Other Than Not-For-Profit"],
+["18912","Variety Stores--Not-For-Profit Only"],
+["18920","Video Stores"],
+["18991","Warehouses--Mini-Warehouses"],
+["19007","Washing Machines, Dryers or Ironers--Coin Meter Type"],
+["19051","Water Softening Equipment--Rented to Others"],
+["19061","Portable Toilet Rentals"],
+["19795","Trailer Dealers"],
+["19796","Trailer Rental Agencies"],
+["40005","Adult Day Care--Not-For-Profit Only"],
+["40006","Adult Day Care--Other Than Not-For-Profit"],
+["40010","Airports--Commercial"],
+["40015","Airports--Private"],
+["40020","Airport Control Towers--Not Operated Exclusively by the Federal Aviation Administration"],
+["40026","Airport--Lessees of Portions of Airports Engaged in the Sale of Aircraft or Accessories, Servicing or Repairing of Aircraft or Pilot Instructions"],
+["40031","Ambulance Service, First Aid or Rescue Squads--Other Than Not-For-Profit"],
+["40032","Ambulance Service, First Aid or Rescue Squads--Not-For-Profit Only"],
+["40040","Amusement Devices"],
+["40041","Amusement Devices--Operated in Connection with Carnivals or Fairs--Other Than Not-For-Profit"],
+["40042","Amusement Devices--Operated in Connection with Carnivals or Fairs--Not-For-Profit Only"],
+["40045","Animals--Draft"],
+["40046","Animals--Saddle--for Rent"],
+["40047","Animals--Saddle--Private"],
+["40059","Athletic Games Sponsored by the Insured--Other Than Not-For- Profit"],
+["40061","Athletic Games Sponsored by the Insured--Not-For-Profit Only"],
+["40063","Athletic or Sports Contests--in Buildings--Lessees--Other Than Not-For-Profit"],
+["40064","Athletic or Sports Contests--in Buildings--Lessees--Not-For-Profit Only"],
+["40066","Athletic Programs--Amateur--Other Than Not-For-Profit"],
+["40067","Athletic Programs--Amateur--Not-For-Profit Only"],
+["40069","Athletic Teams--Professional or Semi-Professional"],
+["40072","Beaches--Bathing--Not Commercially Operated"],
+["40075","Bingo Games--in Public Halls or Theaters--Commercially Operated"],
+["40101","Blood Banks--Other Than Not-For-Profit"],
+["40102","Blood Banks--Not-For-Profit Only"],
+["40111","Boats--Canoes or Rowboats--Not for Rent--Not Equipped with Motors"],
+["40115","Boats--Motor or Sail--Not for Rent"],
+["40117","Boats--Not for Rent"],
+["40140","Boats--Nonowned over 26 Feet"],
+["41001","Boy or Girl Scout Councils"],
+["41210","Bus Stations or Terminals"],
+["41421","Camps--For-Profit"],
+["41422","Camps--Not-For-Profit"],
+["41510","Caves--Tourist Attraction"],
+["41603","Cemeteries--Other Than Not-For-Profit"],
+["41604","Cemeteries--Not-For-Profit Only"],
+["41650","Churches or Other Houses of Worship"],
+["41664","Clubs--Horseback Riding--No Commercial Riding Instructions"],
+["41665","Clubs--Racket Sports and Handball"],
+["41666","Clubs--Swimming"],
+["41667","Clubs--Civic, Service or Social--Having Buildings or Premises Owned or Leased--Other Than Not-For-Profit"],
+["41668","Clubs--Civic, Service or Social--Having Buildings or Premises Owned or Leased--Not-For-Profit Only"],
+["41670","Clubs--Civic, Service or Social--No Buildings or Premises Owned or Leased Except for Office Purposes--Not-For-Profit Only"],
+["41672","Conventions (Sponsor's Risk Only)--Other Than Not-For-Profit"],
+["41673","Conventions (Sponsor's Risk Only)--Not-For-Profit Only"],
+["41675","Computer Consulting or Programming"],
+["41677","Consultants"],
+["41678","Community Recreational Facilities--Not Operated by Governmental Agency"],
+["41679","Cotton Gin Operations--Other Than Those Performed for a Fee Per Bale"],
+["41680","Convents or Monasteries"],
+["41696","Crematories--Other Than Not-For-Profit"],
+["41697","Crematories--Not-For-Profit Only"],
+["41700","Dam, Levee or Dike--Existence Hazard Only"],
+["41715","Day Care Centers--Other Than Not-For-Profit"],
+["41716","Camps--Not-For-Profit Only"],
+["43007","Drawbridges--Existence Hazard Only"],
+["43117","Dude Ranches"],
+["43151","Computer Data Processing--Operations"],
+["43152","Computer Data Processing--Time Sharing"],
+["43200","Employment Agencies"],
+["43215","Entertainment Performed on Others' Premises"],
+["43421","Exhibitions--Outside--In Stadiums or on Premises Having Grandstands or Bleachers Not Erected by or for Insured--Ushers or Other Attendants in Stands Not Provided by Insured"],
+["43422","Exhibitions--Outside--In Stadiums or on Premises Having Grandstands or Bleachers Not Erected by or for the Insured-- Ushers or Other Attendants in Stands Provided by the Insured"],
+["43424","Exhibitions--Outside--No Stadiums or Grandstands"],
+["43470","Pest Control Services"],
+["43517","Fair Grounds--Nonoperating Season"],
+["43518","Fairs--Outside (Operator's Risk Only)"],
+["43550","Fire Departments--Other Than Volunteer"],
+["43551","Fire Departments--Volunteer"],
+["43626","Fireworks Exhibitions--Contractor's Risk Only"],
+["43628","Fireworks Exhibitions--Sponsor's Risk Only--Other Than Not-For- Profit"],
+["43629","Fireworks Exhibitions--Sponsor's Risk Only--Not-For-Profit Only"],
+["43754","Fishing Piers"],
+["43760","Fishing Ponds or Lakes--Commercially Operated"],
+["43822","Forestry Service"],
+["43840","Fruit or Vegetable--Harvesting Contractors"],
+["43860","Fumigating"],
+["43889","Funeral Homes or Chapels"],
+["43945","Garbage or Refuse Dumps"],
+["43946","Garbage Works--Separation for Recycling, Reduction or Incineration"],
+["43990","Gambling--Casinos"],
+["43991","Gambling--Incidental to Other Operations"],
+["44009","Gasoline or Oil Supply Stations--Retail--(Lessor's Risk Only)"],
+["44010","Gasoline Recovery--from Casing Head or Natural Gas"],
+["44069","Golf Courses--Miniature"],
+["44070","Golf Courses--Municipal or Public--Not Golf or Country Clubs"],
+["44071","Golf Driving Ranges"],
+["44072","Golfmobiles--Loaned or Rented to Others"],
+["44100","Governmental: Municipalities--Population under 2,500"],
+["44101","Governmental: Municipalities--Population 2,501-10,000"],
+["44102","Governmental: Municipalities--Population 10,001-25,000"],
+["44103","Governmental: Municipalities--Population 25,001-50,000"],
+["44104","Governmental: Municipalities--Population 50,001-100,000"],
+["44105","Governmental: Municipalities"],
+["44106","Governmental: Municipalities--Population over 250,000"],
+["44108","Governmental: Counties or Parishes--Population under 10,000"],
+["44109","Governmental: Counties or Parishes--Population 10,001-25,000"],
+["44110","Governmental: Counties or Parishes--Population 25,001-50,000"],
+["441105","Governmental: Municipalities--Population 100,001-250,000"],
+["44111","Governmental: Counties or Parishes--Population 50,001-100,000"],
+["44112","Governmental: Counties or Parishes--Population 100,001-"],
+["44113","Governmental: Counties or Parishes--Population over 250,000"],
+["44193","Grandstands or Bleachers--Other Than Not-For-Profit"],
+["44194","Grandstands or Bleachers--Not-For-Profit Only"],
+["44222","Guides or Outfitters"],
+["44276","Halls--Other Than Not-For-Profit"],
+["44277","Halls--Not-For-Profit Only"],
+["44280","Event, Party or Wedding Planners"],
+["44311","Health or Exercise Clubs"],
+["44315","Health or Exercise Facilities--Commercially Operated"],
+["44427","Health Care Facilities--Alcohol and Drug--Other Than Not-For- Profit"],
+["44428","Health Care Facilities--Alcohol and Drug--Not-For-Profit Only"],
+["44429","Health Care Facilities--Convalescent or Nursing Homes--Not Mental--Psychopathic Institutions--Other Than Not-For-Profit"],
+["44430","Health Care Facilities--Convalescent or Nursing Homes--Not Mental--Psychopathic Institutions--Not-For-Profit Only"],
+["44431","Health Care Facilities--Homes for the Aged--Other Than Not-For- Profit"],
+["44432","Health Care Facilities--Homes for the Aged--Not-For-Profit Only"],
+["44433","Health Care Facilities--Homes for the Physically Handicapped or Orphaned--Other Than Not-For-Profit"],
+["44434","Health Care Facilities--Homes for the Physically Handicapped or Orphaned--Not-For-Profit Only"],
+["44435","Health Care Facilities--Hospitals Other Than Not-For-Profit"],
+["44436","Health Care Facilities--Hospitals Not-For-Profit Only"],
+["44437","Health Care Facilities--Mental--Psychopathic Institutions--Other Than Not-For-Profit"],
+["44438","Health Care Facilities--Mental--Psychopathic Institutions--Not- For-Profit Only"],
+["44439","Health Care Facilities--Clinics, Dispensaries or Infirmaries Treating Outpatients Only--No Regular Bed and Board Facilities-- Other Than Not-For-Profit"],
+["44440","Health Care Facilities--Clinics, Dispensaries or Infirmaries Treating Outpatients Only--No Regular Bed and Board Facilities-- Not-For-Profit Only"],
+["44500","Home Health Care Services--Not-For-Profit Only"],
+["44501","Home Health Care Services--Other Than Not-For-Profit"],
+["45190","Hotels and Motels--with Pools or Beaches--Less Than Four Stories"],
+["45191","Hotels and Motels--with Pools or Beaches--Four Stories or More"],
+["45192","Hotels and Motels--without Pools or Beaches--Less Than Four Stories"],
+["45193","Hotels and Motels--without Pools or Beaches--Four Stories or More"],
+["45210","Bed and Breakfasts"],
+["45224","Hunting Preserves--Other Than Not-For-Profit"],
+["45225","Hunting Preserves--Not-For-Profit Only"],
+["45334","Insurance Agents"],
+["45380","Junk Dealers"],
+["45450","Kennels--Breeding, Boarding or Sales"],
+["45523","Lakes or Reservoirs--Existence Hazard Only--Other Than Not- For-Profit"],
+["45524","Lakes or Reservoirs--Existence Hazard Only--Not-For-Profit Only"],
+["45539","Land--Occupied by Persons Other Than the Insured for Business Purposes--(Lessor's Risk Only)"],
+["45678","Laundries and Dry Cleaning Plants"],
+["45771","Livestock Sales Companies"],
+["45819","Lumberyards"],
+["45900","Mail Order or Online Drug Stores"],
+["45901","Mail Order Houses"],
+["45937","Mailing or Addressing Companies"],
+["45993","Manufacturers' Representatives"],
+["46004","Mausoleums--Other Than Not-For-Profit"],
+["46005","Mausoleums--Not-For-Profit Only"],
+["46112","Diagnostic Testing Laboratories"],
+["46202","Mobile Home Parks or Courts"],
+["46362","Model Homes"],
+["46426","Museums--Other Than Not-For-Profit"],
+["46427","Museums--Not-For-Profit Only"],
+["46510","Oil or Gas Wells--Non-Operating Working Interest"],
+["46590","Parades"],
+["46603","Parking--Public--Not Open Air"],
+["46604","Parking--Public--Open Air"],
+["46606","Parking--Public--Shopping Centers--Maintained by Lessee (Lessor's Risk Only)"],
+["46607","Parking--Public--Shopping Centers--Maintained by the Insured (Lessor's Risk Only)"],
+["46622","Parking--Private"],
+["46671","Parks or Playgrounds"],
+["46700","Penal Institutions"],
+["46773","Picnic Grounds--Commercially Operated"],
+["46822","Political Campaign Headquarters or Offices"],
+["46881","Professional and Trade Associations--No Buildings or Premises Owned or Leased Except as Offices--Other Than Not-For-Profit"],
+["46882","Professional and Trade Associations--No Buildings or Premises Owned or Leased Except as Offices--Not-For-Profit Only"],
+["46911","Race Tracks--Motorized Vehicles--Operators"],
+["46912","Race Tracks--Operators"],
+["46913","Race Tracks--Motorized Vehicles--Lessor's Risk Only"],
+["46914","Racing--Lessor's Risk Only"],
+["46915","Race Tracks--Motorized Vehicles--Sponsor's Risk Only"],
+["46916","Racing--Sponsor's Risk Only"],
+["47050","Real Estate Agents"],
+["47051","Real Estate Development Property"],
+["47052","Real Estate Property Managed"],
+["47103","Recording Studios"],
+["47146","Recycling Collection Centers--Other Than Not-For-Profit"],
+["47147","Recycling Collection Centers--Not-For-Profit Only"],
+["47221","Riding Academies"],
+["47253","Rifle or Pistol Ranges--Indoor"],
+["47254","Rifle or Pistol Ranges"],
+["47318","Rodeos"],
+["47367","Sales or Service Organizations"],
+["47420","Saunas and Baths--Public"],
+["47468","Schools--Correspondence"],
+["47469","Schools--Faculty Liability for Corporal Punishment of Students"],
+["47471","Schools--Public--Elementary, Kindergarten or Junior High"],
+["47473","Schools--Public--High"],
+["47474","Schools--Trade or Vocational"],
+["47475","Schools--Private--Elementary, Kindergarten or Junior High-- Other Than Not-For-Profit"],
+["47476","Schools--Private--Elementary, Kindergarten or Junior High--Not- For-Profit Only"],
+["47477","Schools--Private--High--Other Than Not-For-Profit"],
+["47478","Schools--Private--High--Not-For-Profit Only"],
+["47610","Internet Service Providers"],
+["48039","Sewers"],
+["48177","Skating Rinks--Ice"],
+["48178","Skating Rinks--Roller"],
+["48206","Skeet Shooting or Trap Shooting Ranges"],
+["48252","Ski Lifts, Tows or Runs"],
+["48441","Soap Box Derbies"],
+["48557","Social Gatherings and Meetings--on Premises Not Owned or Operated by the Insured--Other Than Not-For-Profit"],
+["48558","Social Gatherings and Meetings--on Premises Not Owned or Operated by the Insured--Not-For-Profit Only"],
+["48600","Social Services--Consulting Services Only--Operated by the Private Sector"],
+["48610","Sports or Outdoor Activities--Commercially Operated"],
+["48636","Stockyards"],
+["48637","Stadiums--Operated by Insured--Other Than Not-For-Profit"],
+["48638","Stadiums--Operated by Insured--Not-For-Profit Only"],
+["48727","Streets, Roads, Highways or Bridges--Existence and Maintenance Hazard Only"],
+["48808","Sun Tanning Salons"],
+["48924","Swimming Pools--Commercially Operated"],
+["48925","Swimming Pools"],
+["49005","Taxidermists"],
+["49111","Tents or Canopies--Loaned or Rented to Others"],
+["49181","Theaters--Drive-In"],
+["49183","Theaters--Motion Pictures"],
+["49184","Theaters--Other Than Not-For-Profit Only"],
+["49185","Theaters--Not-For-Profit Only"],
+["49239","Tire--Retreading or Recapping"],
+["49292","Toll Bridges"],
+["49305","Towers--Telecommunication--Existence Hazard Only (Lessors Risk Only)"],
+["49333","Travel Agency Tours"],
+["49451","Vacant Land--Other Than Not-For-Profit"],
+["49452","Vacant Land--Not-For-Profit Only"],
+["49617","Vending Machine Operations--Confection, Food, Beverage or Ice"],
+["49618","Vending Machine Operations--Tobacco Products"],
+["49619","Vending Machine Operations"],
+["49763","Warehouse--Cold Individual Storage Lockers"],
+["49800","Wharf and Waterfront Property--Ferry Docks or Terminals"],
+["49801","Wharf and Waterfront Property--Occupied by the Insured for Both Freight and Passenger Purposes"],
+["49802","Wharf and Waterfront Property--Not Occupied by the Insured (Lessor's Risk Only)"],
+["49803","Wharf and Waterfront Property--Occupied by the Insured for Freight Purposes Exclusively"],
+["49840","Window Decorating"],
+["49870","YMCA, YWCA or Similar Institutions"],
+["49890","Youth Recreation Programs--Other Than Not-For-Profit"],
+["49891","Youth Recreation Programs--Not-For-Profit Only"],
+["49902","Zoos--Other Than Not-For-Profit"],
+["49903","Zoos--Not-For-Profit Only"],
+["50010","Abrasive Wheel Mfg."],
+["50015","Abrasives or Abrasive Products Mfg.--Artificial"],
+["50017","Abrasives or Abrasive Products Mfg."],
+["50045","Adhesive Mfg."],
+["50047","Adhesive Tape Mfg."],
+["51001","Aerosol Container Mfg."],
+["51005","Aerosol Containers--Filling or Charging for Others"],
+["51116","Air Conditioning Equipment Mfg."],
+["51201","Aircraft or Aircraft Parts Mfg."],
+["51205","Alarm Mfg.--Burglar"],
+["51206","Alarm Mfg.--Fire or Smoke"],
+["51210","Alcohol Mfg.--Not Beverage"],
+["51211","Ammunition Mfg."],
+["51220","Appliances and Accessories Mfg.--Commercial--Gas"],
+["51221","Appliances and Accessories Mfg.--Commercial--Not Gas"],
+["51222","Appliances and Accessories Mfg.--Household--Gas"],
+["51224","Appliances and Accessories Mfg.--Household--Not Gas"],
+["51230","Asbestos Goods Mfg."],
+["51240","Asphalt or Tar Distilling or Refining"],
+["51241","Asphalt Works"],
+["51250","Automobile, Bus and Truck Body Mfg."],
+["51251","Automobile, Bus or Truck Parts Mfg.--Brakes or Brake Linings"],
+["51252","Automobile, Bus or Truck Parts Mfg.--Not Operating Parts"],
+["51253","Automobile, Bus or Truck Parts Mfg.--Operating Parts"],
+["51254","Automobile, Bus or Truck Parts Mfg.--Passenger Restraining Devices"],
+["51255","Automobile Mfg. or Assembling"],
+["51305","Baby Food Mfg."],
+["51315","Bakery Plants"],
+["51330","Battery Mfg.--Dry Cell"],
+["51333","Battery Mfg.--Wet Cell or Storage"],
+["51340","Bearing Mfg."],
+["51350","Beer, Ale or Malt Liquor Mfg.--In Bottles"],
+["51351","Beer, Ale or Malt Liquor Mfg.--In Cans"],
+["51352","Beer, Ale or Malt Liquor Mfg.--Not Bottled or Canned"],
+["51355","Beverage Bottler--Soft Drinks--Carbonated--In Cans or Plastic Bottles"],
+["51356","Beverage Bottler--Soft Drinks--Carbonated--In Glass Bottles"],
+["51357","Beverage Bottler--Soft Drinks--In Metal Cylinders"],
+["51358","Beverage Bottler--Soft Drinks--In Paper Containers"],
+["51359","Beverage Bottler--Soft Drinks--Not Carbonated--In Bottles or Cans"],
+["51370","Bicycle Mfg.--Not Motorized"],
+["51380","Billiard or Pool Table Mfg."],
+["51400","Boat or Ship Building--Inboard and Inboard/Outboard"],
+["51401","Boat or Ship Building--without Motors"],
+["51500","Bolt, Nut, Rivet, Screw or Washer Mfg."],
+["51516","Bookbinding--Other Than Not-For-Profit"],
+["51517","Bookbinding--Not-For-Profit Only"],
+["51550","Bottle and Jar Mfg.--Glass--Not for Use under Pressure"],
+["51551","Bottle and Jar Mfg.--Glass--for Use under Pressure-- Nonreturnable"],
+["51552","Bottle and Jar Mfg.--Glass--for Use under Pressure--Returnable"],
+["51553","Bottle and Jar Mfg.--Plastic--Nonreturnable"],
+["51554","Bottle and Jar Mfg.--Plastic--Returnable"],
+["51575","Boxes or Containers Mfg.--Corrugated or Fiberboard"],
+["51576","Boxes or Containers Mfg.--Wood"],
+["51600","Brick Mfg."],
+["51613","Brush or Broom Mfg."],
+["51625","Bus Mfg. or Assembling or Reconstruction"],
+["51666","Buttons or Fasteners Mfg."],
+["51702","Camper Bodies or Camper Trailers Mfg."],
+["51703","Campers Mfg.--Self-Powered"],
+["51734","Can Mfg.--Metal"],
+["51741","Candle Mfg."],
+["51752","Candy or Confectionery Products Mfg."],
+["51767","Carbon Paper or Inked Ribbon Mfg."],
+["51777","Carpet or Rug Mfg."],
+["51790","Caulking Compounds, Putty or Similar Products Mfg."],
+["51796","Cellophane and Cellophane Products Mfg."],
+["51808","Cement, Concrete Mix or Plaster Mfg.--Packaged"],
+["51809","Cement or Plaster Mfg.--Bulk"],
+["51833","Charcoal or Coal Briquette Mfg."],
+["51850","Chemical Mfg.--Commercial or Industrial"],
+["51851","Chemical Mfg.--Commercial or Industrial--Toxic and Either Flammable, Explosive or Reactive"],
+["51852","Chemical Mfg.--Commercial or Industrial--Primarily Flammable, Explosive or Reactive"],
+["51853","Chemical Mfg.--Commercial or Industrial--Primarily Toxic or Presenting a Health Hazard"],
+["51854","Chemical Mfg.--Household--Toxic and Either Flammable, Explosive or Reactive"],
+["51855","Chemical Mfg.--Household"],
+["51856","Chemical Mfg.--Household--Primarily Flammable, Explosive or Reactive"],
+["51857","Chemical Mfg.--Household--Primarily Toxic or Presenting a Health Hazard"],
+["51869","China, Porcelain or Earthenware Mfg."],
+["51877","Clay Products Mfg."],
+["51889","Clock Mfg."],
+["51896","Clothing Mfg."],
+["51900","Coffins or Caskets Mfg."],
+["51909","Coke Mfg."],
+["51919","Color or Pigment Preparation"],
+["51926","Communication or Recording Systems or Equipment Mfg.-- Industrial or Commercial"],
+["51927","Communication or Recording Systems or Equipment Mfg.--Other Than Industrial or Commercial"],
+["51934","Composition Goods Mfg.--Not Floor Coverings"],
+["51941","Computer Mfg."],
+["51942","Computer Software Mfg.--Pre-Packaged"],
+["51956","Concrete--Mixed in Transit"],
+["51957","Concrete or Plaster Products Mfg.--Not Structural"],
+["51958","Concrete Products Mfg.--Prestressed"],
+["51959","Concrete Products Mfg.--Structural"],
+["51960","Contact Lenses Mfg."],
+["51970","Cosmetics Mfg."],
+["51982","Cotton Batting, Wadding or Waste Mfg."],
+["51985","Cotton Compressing"],
+["51986","Cotton Gin Operations"],
+["51999","Cutlery (Not Powered) and Flatware Mfg."],
+["52002","Dairy Products Mfg."],
+["52075","Detergent Mfg.--Household"],
+["52076","Detergent Mfg.--Other Than Household"],
+["52109","Dextrine Mfg."],
+["52134","Door or Window Mfg.--Other Than Wood"],
+["52137","Die Casting Mfg."],
+["52150","Distillation or Extraction"],
+["52315","Door or Window Mfg.--Wood"],
+["52341","Drug Mfg.--Biological Products"],
+["52342","Drug, Medicine or Pharmaceutical Preparations Mfg.--for Animal Use"],
+["52343","Drug, Medicine or Pharmaceutical Preparations Mfg.--Other Than for Animal Use"],
+["52401","Drums or Containers Mfg.--Metal"],
+["52402","Drums or Containers Mfg.--Plastic"],
+["52432","Electrical Equipment Mfg.--Other Than for Direct and Indirect Application to the Body"],
+["52433","Electrical Equipment Mfg.--for Direct and Indirect Application to the Body"],
+["52435","Electrical Generating Machinery Mfg."],
+["52438","Electrical Parts, Components or Accessories Mfg."],
+["52440","Electrical Power Distribution or Transmission Equipment Mfg."],
+["52467","Electrical Wire or Cable Mfg."],
+["52469","Electronic Components Mfg."],
+["52505","Electronic Games Mfg."],
+["52547","Electroplating"],
+["52581","Elevator Mfg."],
+["52619","Engine or Turbine Mfg.--Not Aircraft"],
+["52660","Engraving"],
+["52744","Escalator or Moving Sidewalk Mfg."],
+["52767","Exercise or Playground Equipment Mfg."],
+["52876","Explosive or Fireworks Mfg."],
+["52911","Extracts Mfg."],
+["52967","Eye Glass Lens Mfg."],
+["53001","Feed Mfg."],
+["53077","Fertilizer Mfg."],
+["53095","Fiber Mfg.--Other Than Synthetic"],
+["53096","Fiber Mfg.--Synthetic"],
+["53121","Fiberglass Mfg."],
+["53147","Fire Extinguishers Mfg."],
+["53229","Fire Suppression Systems Mfg."],
+["53271","Firearms Mfg."],
+["53333","Floor Covering Mfg.--Not Carpets, Rugs, Ceramic or Stone Tiles"],
+["53374","Food Products Mfg.--Dry"],
+["53375","Food Products Mfg.--Frozen"],
+["53376","Food Products Mfg.--Not Dry--In Glass Containers"],
+["53377","Food Products Mfg.--Not Dry--In Other Than Glass Containers"],
+["53403","Forging Work"],
+["53425","Foundries"],
+["53565","Fruit or Vegetable Juice Mfg.--No Bottling of Carbonated Beverages"],
+["53631","Fur Garment Mfg."],
+["53632","Fur or Pelt Processing"],
+["53731","Furniture Mfg. or Assembling--Infants"],
+["53732","Furniture Mfg. or Assembling--Other Than Wood"],
+["53733","Furniture Mfg. or Assembling--Wood"],
+["53734","Furniture or Woodwork Stripping, Refinishing or Repairing--Shop Only"],
+["53803","Galvanizing or Tinning"],
+["53901","Gas Mfg.--Toxic and Either Flammable, Explosive or Reactive"],
+["53902","Gas Mfg.--Inert"],
+["53903","Gas Mfg.--Other"],
+["53904","Gas Mfg.--Primarily Flammable, Explosive or Reactive"],
+["53905","Gas Mfg.--Primarily Toxic or Presenting a Health Hazard"],
+["53907","Gasoline Distributors"],
+["54012","Gemstone Cutting or Polishing"],
+["54077","Glass or Glassware Mfg."],
+["54444","Manufacturers"],
+["55010","Heating Equipment Mfg.--Coal or Wood"],
+["55011","Heating Equipment Mfg.--Electric"],
+["55012","Heating Equipment Mfg.--Fuel Oil or Kerosene"],
+["55013","Heating Equipment Mfg.--Gas or Liquefied Petroleum Gas"],
+["55214","Hone, Oilstone or Whetstone Mfg."],
+["55371","Honey Extracting"],
+["55410","Importers"],
+["55426","Ink Mfg."],
+["55597","Inner Tubes Mfg."],
+["55647","Instrument Mfg.--Analytical, Calibrating, Measuring, Testing or Recording"],
+["55648","Instrument Mfg.--Control"],
+["55649","Instrument Mfg."],
+["55715","Insulating Material Mfg.--Mineral"],
+["55716","Insulating Material Mfg.--Organic"],
+["55717","Insulating Material Mfg.--Plastic--for Application in a Solid State"],
+["55718","Insulating Material Mfg.--Plastic"],
+["55802","Jewelry Mfg."],
+["55918","Ladder Mfg.--Other Than Wood"],
+["55919","Ladder Mfg.--Wood"],
+["56040","Lamp Shade Mfg."],
+["56041","Lamps or Lanterns Mfg.--Electric"],
+["56042","Lamps or Lanterns Mfg.--Other Than Electric"],
+["56170","Lead Mfg.--Red or White"],
+["56171","Lead Works--Sheet, Pipe or Shot"],
+["56202","Leather Goods Mfg."],
+["56390","Light Bulb or Tubes Mfg."],
+["56391","Lighting Fixtures Mfg."],
+["56427","Lime Mfg."],
+["56488","Liquor Mfg."],
+["56567","Lubricants Mfg.--Grease"],
+["56650","Machinery or Machinery Parts Mfg.--Construction, Mining or Materials Handling Type"],
+["56651","Machinery or Machinery Parts Mfg.--Farm Type"],
+["56652","Machinery or Machinery Parts Mfg.--Industrial Type"],
+["56653","Machinery or Machinery Parts Mfg.--Metalworking"],
+["56654","Machinery or Machinery Parts Mfg."],
+["56690","Match Mfg."],
+["56699","Mattress or Box Spring Mfg."],
+["56758","Meat, Fish, Poultry or Seafood--Curing"],
+["56759","Meat, Fish, Poultry or Seafood Processing--In Airtight Containers"],
+["56760","Meat, Fish, Poultry or Seafood Processing--Not in Airtight Containers"],
+["56805","Medical, Dental, Hospital or Surgical Equipment or Supplies Mfg.--Expendable"],
+["56806","Medical, Dental, Hospital or Surgical Equipment or Supplies Mfg.--Nonexpendable"],
+["56807","Medical, Dental, Hospital or Surgical Instruments Mfg."],
+["56808","Medical, Dental or Surgical Diagnostic or Treatment Machines or Devices Mfg."],
+["56900","Metals--Extraction or Refining"],
+["56910","Metal Foil Mfg."],
+["56911","Metal Goods Mfg."],
+["56912","Metal Goods Mfg.--Stamping--Not Signs"],
+["56913","Metal Heat Processing"],
+["56915","Metal Works--Shop--Structural--Load Bearing"],
+["56916","Metal Works--Shop--Structural--Not Load Bearing"],
+["56917","Metals--Extraction or Refining--Chemical Processes"],
+["56918","Metals--Extraction or Refining--Electrometallurgical Processes"],
+["56919","Metals--Extraction or Refining of Ferrous Metals--Blast Furnace or Other Pyrometallurgical Processes"],
+["56920","Metals--Extraction or Refining of Nonferrous Metals--Blast Furnace or Other Pyrometallurgical Processes"],
+["56980","Mica Goods Mfg."],
+["57001","Milk Depots or Dealers"],
+["57002","Milk Processing"],
+["57090","Mobile Home Mfg."],
+["57146","Modular Units Mfg."],
+["57202","Motorcycle, Moped or Motor Scooter Mfg."],
+["57257","Musical Instrument Mfg."],
+["57401","Nails or Spikes Mfg."],
+["57403","Needles, Pins or Tacks Mfg."],
+["57410","Net Mfg.--Other Than Safety Nets"],
+["57411","Net Mfg.--Safety Nets"],
+["57572","Office Machines Mfg."],
+["57600","Optical Goods Mfg."],
+["57611","Ore Milling or Processing"],
+["57625","Orthopedic, Ambulation or Prosthetic Devices Mfg."],
+["57651","Packing Houses"],
+["57690","Paint, Varnish, Shellac or Lacquer Mfg."],
+["57716","Paper Coating or Finishing"],
+["57725","Paper Goods Mfg."],
+["57726","Paper Mfg."],
+["57798","Parachute Mfg."],
+["57800","Media Mfg.--Blank"],
+["57808","Pattern Mfg.--Metal"],
+["57809","Pattern Mfg.--Other"],
+["57810","Pattern Mfg.--Paper"],
+["57871","Pencil, Pen, Crayon or Chalk Mfg."],
+["57913","Pet Food Mfg."],
+["57997","Photo Finishing Laboratories"],
+["57998","Photographic Equipment Mfg."],
+["57999","Photographic Supplies Mfg."],
+["58009","Pipes or Tubes Mfg.--Metal"],
+["58010","Pipes or Tubes Mfg.--Plastic"],
+["58020","Pipes Mfg.--Tobacco"],
+["58056","Plastic Mfg.--Raw Material"],
+["58057","Plastic or Rubber Goods Mfg.--Household"],
+["58058","Plastic or Rubber Goods Mfg.--Other Than Household"],
+["58095","Plumbing Fixtures Mfg."],
+["58096","Plumbing Supplies Mfg."],
+["58301","Plywood, Veneer or Veneer Products Mfg.--Other"],
+["58302","Plywood, Veneer or Veneer Products Mfg.--without Log Processing"],
+["58397","Prefabricated Building Mfg."],
+["58408","Printing--Other Than Not-For-Profit"],
+["58409","Printing--Not-For-Profit Only"],
+["58456","Publishers--Books or Magazines--Other Than Not-For-Profit"],
+["58457","Publishers--Books or Magazines--Not-For-Profit Only"],
+["58458","Publishers--Newspapers--Other Than Not-For-Profit"],
+["58459","Publishers--Newspapers--Not-For-Profit Only"],
+["58503","Pulp Mfg."],
+["58532","Pumps or Compressors Mfg."],
+["58559","Railroad Engine Mfg."],
+["58560","Railroad or Other Public Conveyance Cars Mfg."],
+["58561","Railroad or Other Public Conveyance Cars Parts Mfg."],
+["58575","Razor or Razor Blades Mfg."],
+["58627","Media Mfg.--Pre-Recorded"],
+["58663","Refrigeration Equipment Mfg."],
+["58682","Rendering Works"],
+["58713","Rolling Mills--Cold or Hot Process"],
+["58737","Rope Mfg."],
+["58756","Rubber Mfg."],
+["58757","Rubber Reclaiming"],
+["58759","Rubber Stamp Mfg. or Assembling"],
+["58802","Saddles, Harnesses or Horses Furnishings Mfg."],
+["58813","Safes or Safe Vaults Mfg."],
+["58822","Sail Making"],
+["58837","Salt, Borax, Potash or Phosphate--Producing or Refining"],
+["58840","Salt Mfg."],
+["58873","Saw Mills or Planing Mills"],
+["58903","Sewing Machines Mfg.--Commercial"],
+["58904","Sewing Machines Mfg.--Household"],
+["58922","Sheet Metal Work--Shop Only"],
+["59005","Shoe, Boot or Slipper Mfg."],
+["59057","Sign Mfg.--Electrical"],
+["59058","Sign Mfg.--Other Than Electrical"],
+["59188","Slate Milling"],
+["59189","Slate Splitting or Slate Roofing Mfg."],
+["59223","Soap Mfg."],
+["59257","Sponge Processing"],
+["59306","Sporting Goods or Athletic Equipment Mfg."],
+["59378","Steel Wool or Wire Wool Mfg."],
+["59481","Stone Crushing"],
+["59482","Stone Cutting or Polishing"],
+["59537","Sugar Refining"],
+["59601","Swimming Pools or Accessories Mfg."],
+["59647","Syrups or Molasses--Refining, Blending or Mfg."],
+["59660","Tank Building or Mfg.--Metal--Not Pressurized"],
+["59661","Tank Building or Mfg.--Metal--Pressurized"],
+["59693","Tanning--Animal Hides"],
+["59695","Telecommunication Equipment Mfg."],
+["59701","Television Picture Tube Mfg."],
+["59713","Tent or Canopy Mfg."],
+["59722","Textile Bleaching, Dyeing, Mercerizing, Printing, Finishing or Silk Screening--New Goods"],
+["59723","Textile Coating or Impregnating"],
+["59724","Textile Mfg.--Impregnated or Coated"],
+["59725","Textile Products Mfg.--Fabricated"],
+["59726","Textile Spinning, Weaving or Knitting Mills"],
+["59738","Tie, Post or Pole Yard"],
+["59750","Tire Mfg.--Auto, Bus or Truck"],
+["59751","Tire Mfg.--Not Auto, Bus or Truck"],
+["59773","Tobacco Products Mfg.--Cigars or Cigarettes"],
+["59774","Tobacco Products Mfg.--Other"],
+["59775","Tobacco Products Mfg.--Plug or Snuff"],
+["59781","Tool Mfg.--Accessories"],
+["59782","Tool Mfg.--Hand Type--Not Powered"],
+["59783","Tool Mfg.--Hand Type--Powered"],
+["59784","Tool Mfg.--Power Equipment--Household Type--Outdoor or Workshop"],
+["59790","Toys or Games Mfg."],
+["59798","Trailers Mfg."],
+["59806","Truck Mfg. or Assembling"],
+["59867","Turpentine or Resin Mfg."],
+["59886","Twine or Cordage Mfg."],
+["59889","Umbrella or Cane Mfg."],
+["59892","Valves Mfg."],
+["59904","Vegetable Oil Mfg.--By Solvent Extraction"],
+["59905","Vegetable Oil Mfg."],
+["59914","Metal Works--Shop--Decorative or Artistic"],
+["59915","Vending Machines Mfg."],
+["59917","Venetian Blinds Mfg. or Assembling"],
+["59923","Watch or Watch Case Mfg."],
+["59925","Water Bottling--In Siphons"],
+["59926","Water Bottling--Spring or Well--Not Sparkling or Carbonated"],
+["59927","Water Bottling--Spring or Well--Sparkling or Carbonated"],
+["59931","Wax or Wax Products Mfg."],
+["59932","Wax, Wax Products or Polish Mfg.--Floor"],
+["59941","Wheel Mfg."],
+["59947","Wicker, Rattan, Willow or Twisted Fiber Products Mfg."],
+["59955","Wigs or Hair Pieces Mfg."],
+["59963","Wine Mfg.--Sparkling"],
+["59964","Wine Mfg.--Still"],
+["59970","Wire Cloth Mfg."],
+["59973","Wire Drawing"],
+["59975","Wire Goods Mfg."],
+["59977","Wire Rope or Cable Mfg.--Metal"],
+["59984","Wood Preserving"],
+["59985","Wood Products Mfg."],
+["59986","Wood Turned Products Mfg."],
+["59988","Wool Combing, Scouring or Separating from Cotton"],
+["59989","Wool Pulling"],
+["60010","Apartment Buildings"],
+["60011","Apartment Buildings--Garden"],
+["60012","Apartment Buildings or Hotels Time-Sharing--Less Than 4 Stories"],
+["60013","Apartment Buildings or Hotels Time-Sharing--4 Stories or More"],
+["60015","Apartment Hotels--Less Than 4 Stories"],
+["60016","Apartment Hotels--4 Stories or More"],
+["60035","Automobile Renting or Leasing Companies"],
+["61000","Boarding or Rooming Houses"],
+["61212","Buildings or Premises--Bank or Office--Mercantile or Mfg. (Lessor's Risk Only)--Other Than Not-For-Profit"],
+["61216","Buildings or Premises--Bank or Office--Mercantile or Mfg. (Lessor's Risk Only)--Not-For-Profit Only"],
+["61217","Buildings or Premises--Bank or Office--Mercantile or Mfg. (Lessor's Risk Only)--Maintained by the Insured--Other Than Not- For-Profit"],
+["61218","Buildings or Premises--Bank or Office--Mercantile or Mfg. (Lessor's Risk Only)--Maintained by the Insured--Not-For-Profit Only"],
+["61223","Buildings or Premises--Bank and Other Financial Institutions"],
+["61224","Buildings or Premises--Office--Premises Occupied by Employees of the Insured--Other Than Not-For-Profit"],
+["61225","Buildings or Premises--Office--Premises Occupied by Employees of the Insured--Not-For-Profit Only"],
+["61226","Buildings or Premises--Office--Other Than Not-For-Profit"],
+["61227","Buildings or Premises--Office--Not-For-Profit Only"],
+["62000","Condominiums--Commercial--Bank or Mercantile, Mfg. or Office (Association Risk Only)"],
+["62001","Condominiums--Commercial Shopping Centers (Association Risk Only)"],
+["62002","Condominiums--Commercial Warehouses--Mfg. or Private (Association Risk Only)"],
+["62003","Condominiums--Residential--(Association Risk Only)"],
+["63010","Dwellings--One-Family (Lessor's Risk Only)"],
+["63011","Dwellings--Two-Family (Lessor's Risk Only)"],
+["63012","Dwellings--Three-Family (Lessor's Risk Only)"],
+["63013","Dwellings--Four-Family (Lessor's Risk Only)"],
+["63215","Exhibition or Convention Buildings--Other Than Not-For-Profit"],
+["63216","Exhibition or Convention Buildings--Not-For-Profit Only"],
+["63217","Exhibitions--In Buildings--Other Than Not-For-Profit"],
+["63218","Exhibitions--In Buildings--Not-For-Profit Only"],
+["63219","Exhibitions--In Buildings--No Admission Charged--Other Than Not-For-Profit"],
+["63220","Exhibitions--In Buildings--No Admission Charged--Not-For-Profit Only"],
+["64074","Hotels and Motels--(Lessor's Risk Only)--Less Than Four Stories"],
+["64075","Hotels and Motels--(Lessor's Risk Only)--Four Stories or More"],
+["64500","Housing Projects--Federal, State, Local"],
+["65007","Labor Union Offices"],
+["66122","Lawyers Offices--Other Than Not-For-Profit"],
+["66123","Lawyers Offices--Not-For-Profit Only"],
+["66309","Libraries"],
+["66561","Medical Offices"],
+["67017","Shelters, Mission, Settlement or Halfway Houses--Not Church or Office Building"],
+["67508","Schools--Colleges, Universities, Junior Colleges or College Preparatory Other Than Not-For-Profit"],
+["67509","Schools--Colleges, Universities, Junior Colleges or College Preparatory Not-For-Profit Only"],
+["67510","Schools--Dormitory Facilities--Other Than Not-For-Profit"],
+["67511","Schools--Dormitory Facilities--Not-For-Profit Only"],
+["67512","Schools--Other Than Not-For-Profit"],
+["67513","Schools--Not-For-Profit Only"],
+["67634","Shopping Centers--Indoor Malls--Buildings or Premises Not Occupied by the Insured (Lessor's Risk Only)"],
+["67635","Shopping Centers--Buildings or Premises Not Occupied by the Insured (Lessor's Risk Only)"],
+["68001","Taxicab Companies"],
+["68439","Ticket Agencies"],
+["68500","Townhouses or Similar Associations (Association Risk Only)"],
+["68604","Vacant Buildings--Factories"],
+["68606","Vacant Buildings--Not Factories--Other Than Not-For-Profit"],
+["68607","Vacant Buildings--Not Factories--Not-For-Profit Only"],
+["68702","Warehouses--Occupied by Multiple Interests (Lessor's Risk Only)"],
+["68703","Warehouses--Occupied by Single Interest (Lessor's Risk Only)"],
+["68706","Warehouses--Private--Other Than Not-For-Profit"],
+["68707","Warehouses--Private--Not-For-Profit Only"],
+["90089","Advertising Sign Companies--Outdoor"],
+["91111","Air Conditioning Systems or Equipment--Dealers or Distributors and Installation, Servicing or Repair"],
+["91125","Airport Runway or Warming Apron--Paving or Repaving, Surfacing, Resurfacing or Scraping"],
+["91127","Alarms and Alarm Systems--Installation, Servicing or Repair"],
+["91130","Alarms--Security Systems--Monitoring"],
+["91135","Analytical Chemists"],
+["91150","Appliances and Accessories--Installation, Servicing or Repair-- Commercial"],
+["91155","Appliances and Accessories--Installation, Servicing or Repair-- Household"],
+["91160","Armored Car Service Companies"],
+["91175","Auctioneers--Livestock--Sales Conducted Away from the Insured's Premises"],
+["91177","Auctioneers--Sales Conducted Away from the Insured's Premises"],
+["91179","Auctions--on Premises Owned or Rented by the Insured"],
+["91190","Automobile Dismantling"],
+["91200","Blacksmithing"],
+["91210","Blasting Operations"],
+["91235","Boat Repair and Servicing"],
+["91250","Boiler Inspection, Installation, Cleaning or Repair"],
+["91265","Bridge or Elevated Highway Construction--Iron or Steel"],
+["91266","Bridge or Elevated Highway Construction--Concrete"],
+["91280","Building Structure--Raising or Moving"],
+["91302","Cable Installation in Conduits or Subways"],
+["91315","Cable or Subscription Television Companies"],
+["91324","Caisson or Cofferdam Work--Foundations for Buildings"],
+["91325","Caisson or Cofferdam Work--Not Foundations for Buildings"],
+["91340","Carpentry--Construction of Residential Property Not Exceeding Three Stories in Height"],
+["91341","Carpentry--Interior"],
+["91342","Carpentry"],
+["91343","Carpentry--Shop Only"],
+["91405","Carpet, Rug, Furniture or Upholstery Cleaning--on Customers' Premises"],
+["91436","Ceiling or Wall Installation--Metal"],
+["91481","Chimney Cleaning"],
+["91507","Clay or Shale Digging"],
+["91523","Cleaning--Outside Surfaces of Buildings & Other Exterior Surfaces"],
+["91547","Commissary Work"],
+["91551","Communication Equipment Installation--Industrial or Commercial"],
+["91555","Computer Service or Repair"],
+["91560","Concrete Construction"],
+["91562","Concrete or Cement Distributing Towers--Rented to Others-- Installation, Repair or Removal Operations Only"],
+["91577","Conduit Construction for Cables or Wires"],
+["91580","Contractors--Executive Supervisors or Executive Superintendents"],
+["91581","Contractors--Subcontracted Work--In Connection with Construction, Reconstruction, Erection or Repair--Not Buildings"],
+["91582","Contractors--Subcontracted Work--In Connection with Building Construction, Reconstruction, Repair or Erection--Apartment or Office Buildings over Four Stories"],
+["91583","Contractors--Subcontracted Work--In Connection with Building Construction, Reconstruction, Repair or Erection--One- or Two- Family Dwellings"],
+["91584","Contractors--Subcontracted Work--In Connection with Construction, Reconstruction, Repair or Erection of Buildings--for Industrial Use"],
+["91585","Contractors--Subcontracted Work--In Connection with Construction, Reconstruction, Repair or Erection of Buildings"],
+["91586","Contractors--Subcontracted Work--In Connection with Oil and Gas Field Construction, Reconstruction or Repair"],
+["91587","Contractors--Subcontracted Work--In Connection with Pipeline (Other Than Oil or Gas) or Communication or Power Line Construction, Reconstruction or Repair"],
+["91588","Contractors--Subcontracted Work--In Connection with Bridge, Tunnel, Elevated Street or Highway Construction, Reconstruction or Repair"],
+["91589","Contractors--Subcontracted Work--In Connection with Street or Highway Construction or Repair, Not Elevated"],
+["91590","Contractors Permanent Yards--Maintenance or Storage of Equipment or Material"],
+["91591","Contractors--Subcontracted Work--Other Than Construction- Related Work"],
+["91600","Construction or Project Manager"],
+["91606","Crop Spraying--by Contractors"],
+["91618","Dam or Reservoir Construction"],
+["91629","Debris Removal--Construction Site"],
+["91636","Detective or Investigative Agencies--Private"],
+["91641","Dike, Levee or Revetment Construction"],
+["91666","Diving--Marine"],
+["91722","Dock Operations--Coal, Grain or Ore"],
+["91746","Door, Window or Assembled Millwork--Installation--Metal"],
+["91805","Draftsmen"],
+["92053","Dredging--Gold--Endless Bucket or Ladder Type"],
+["92054","Dredging--Gold--Floating Dragline Type"],
+["92055","Dredging"],
+["92101","Drilling--Other Than Water"],
+["92102","Drilling--Water"],
+["92215","Driveway, Parking Area or Sidewalk--Paving or Repaving"],
+["92338","Dry Wall or Wallboard Installation"],
+["92445","Electric Light or Power Companies"],
+["92446","Electric Light or Power Line Construction"],
+["92447","Electric Light or Power Line Construction--Rural Utilities Service Projects Only"],
+["92451","Electrical Apparatus--Installation, Servicing or Repair"],
+["92478","Electrical Work--within Buildings"],
+["92593","Elevator or Escalator Inspecting, Installation, Servicing or Repair"],
+["92663","Engineers or Architects--Consulting--Not Engaged in Actual Construction"],
+["94007","Excavation"],
+["94099","Express Companies"],
+["94225","Farm Machinery Operations--by Contractors"],
+["94276","Fence Erection Contractors"],
+["94304","Fire Extinguishers--Servicing, Refilling or Testing"],
+["94381","Fire Suppression Systems--Installation, Servicing or Repair"],
+["94404","Fireproofing--Structures"],
+["94444","Contractors"],
+["94569","Floor Covering Installation--Not Ceramic Tile or Stone"],
+["94590","Floor Waxing"],
+["94617","Freight Forwarders or Handlers--Other Than Packing, Handling or Shipping Explosives or Ammunition under Contract"],
+["94638","Freight Forwarders or Handlers--Packing, Handling or Shipping Explosives or Ammunition under Contract"],
+["95124","Furniture or Fixtures--Installation in Offices or Stores--Portable-- Metal or Wood"],
+["95233","Garbage, Ash or Refuse Collecting"],
+["95305","Gas Companies"],
+["95306","Gas Companies--Natural Gas--Local Distribution"],
+["95310","Gas Mains or Connections Construction"],
+["95357","Geophysical Exploration--Other"],
+["95358","Geophysical Exploration--Seismic Method"],
+["95410","Grading of Land"],
+["95455","Grain Elevator Operations"],
+["95487","Greenhouse Erection"],
+["95505","Guniting or Shot-Crete"],
+["95620","Gunsmiths"],
+["95625","Handyperson"],
+["95630","Hazardous Material Contractors"],
+["95647","Heating or Combined Heating and Air Conditioning Systems or Equipment--Dealers or Distributors and Installation, Servicing or Repair--No Liquefied Petroleum Gas (LPG) Equipment Sales or Work"],
+["95648","Heating or Combined Heating and Air Conditioning Systems or Equipment--Dealers or Distributors and Installation, Servicing or Repair"],
+["96053","House Furnishings Installation"],
+["96317","Inspection and Appraisal Companies--Inspecting for Insurance or Valuation Purposes"],
+["96408","Insulation Work--Plastic"],
+["96409","Insulation Work--Organic or Plastic in Solid State"],
+["96410","Insulation Work--Mineral"],
+["96611","Interior Decorators"],
+["96702","Irrigation or Drainage System Construction"],
+["96703","Irrigation Works Operations"],
+["96816","Janitorial Services"],
+["96872","Jetty or Breakwater Construction"],
+["96930","Web Site Designers"],
+["97002","Laboratories--Research, Development or Testing--Other Than Not-For-Profit"],
+["97003","Laboratories--Research, Development or Testing--Not-For-Profit Only"],
+["97047","Landscape Gardening"],
+["97050","Lawn Care Services"],
+["97111","Logging and Lumbering"],
+["97220","Machine Shops"],
+["97221","Machinery or Equipment--Farm--Installation, Servicing, Repair or Erection"],
+["97222","Machinery or Equipment--Industrial--Installation, Servicing or Repair"],
+["97223","Machinery or Equipment--Installation, Servicing or Repair"],
+["97308","Marine Appraisers or Surveyors"],
+["97447","Masonry"],
+["97650","Metal Erection--Decorative or Artistic"],
+["97651","Metal Erection--Frame Structures Iron Work on Outside of Buildings"],
+["97652","Metal Erection--In the Construction of Dwellings Not Exceeding 2 Stories in Height"],
+["97653","Metal Erection--Nonstructural"],
+["97654","Metal Erection--Steel Lock Gates, Gasholders, Standpipes, Water Towers, Smokestacks, Tanks, Silos, Prison Cells, Fire or Burglarproof Vaults"],
+["97655","Metal Erection--Structural"],
+["98002","Mining"],
+["98003","Mining--Surface"],
+["98090","Motion Pictures--Development of Negatives, Printing and All Subsequent Operations"],
+["98091","Motion Pictures--Film Distribution or Exchanges--Not Located at Motion Picture Studios"],
+["98092","Motion Pictures--Production--Studios or Outside--All Operations Prior to the Development of Negatives"],
+["98111","Office Machines or Appliances--Installation, Inspection, Adjustment or Repair"],
+["98150","Oil or Natural Gas Lease Operations"],
+["98151","Oil or Gas Lease Operations--Natural Gas--within the Limits of Any Town or City on the Right-Of-Way of Any Railroad or in Any Ocean, Gulf or Bay"],
+["98152","Oil or Gas Lease Work by Contractors--Not Lease Operation"],
+["98153","Oil or Gas Wells--Acidizing"],
+["98154","Oil or Gas Wells--Cementing"],
+["98155","Oil or Gas Wells--Cleaning or Swabbing by Contractors"],
+["98156","Oil or Gas Wells--Cleaning or Swabbing by Contractors--within the Limits of Any Town or City, on the Right-Of-Way of Any Railroad or in Any Ocean, Gulf or Bay"],
+["98157","Oil or Gas Wells--Drilling or Redrilling, Installation or Recovery of Casing"],
+["98158","Oil or Gas Wells--Drilling or Redrilling, Installation or Recovery of Casing--within the Limits of Any Town or City, on the Right-Of- Way of Any Railroad or in Any Ocean, Gulf or Bay"],
+["98159","Oil or Gas Wells--Instrument Logging or Survey Work in Wells"],
+["98160","Oil or Gas Wells--Perforating of Casing"],
+["98161","Oil or Gas Wells--Servicing--By Contractors"],
+["98162","Oil or Gas Wells--Shooting"],
+["98163","Oil Rig or Derrick Erecting or Dismantling--Wood or Metal"],
+["98164","Oil Still Erection or Repair"],
+["98257","Orchards and Vineyards--Operation by Contractors"],
+["98303","Painting--Exterior--Buildings or Structures--Exceeding Three Stories in Height"],
+["98304","Painting--Exterior--Buildings or Structures--Three Stories or Less in Height"],
+["98305","Painting--Interior--Buildings or Structures"],
+["98306","Painting--Oil or Gasoline Tanks"],
+["98307","Painting--Ship Hulls"],
+["98308","Painting--Shop Only"],
+["98309","Painting--Steel Structures or Bridges"],
+["98344","Paperhanging"],
+["98405","Piano Tuning"],
+["98413","Pile Driving--Building Foundation Only"],
+["98414","Pile Driving--Other"],
+["98415","Pile Driving--Sonic Method"],
+["98423","Pipeline Construction--Gas"],
+["98424","Pipeline Construction--Other"],
+["98425","Pipeline Construction--Oil"],
+["98426","Pipeline Construction--Slurry--Nonflammable Mixtures"],
+["98427","Pipelines--Operation--Gas"],
+["98428","Pipelines--Operation--Other"],
+["98429","Pipelines--Operation--Oil"],
+["98430","Pipelines--Operation--Slurry--Nonflammable Mixtures"],
+["98449","Plastering or Stucco Work"],
+["98482","Plumbing--Commercial and Industrial"],
+["98483","Plumbing--Residential or Domestic"],
+["98502","Prefabricated Building Erection"],
+["98555","Quarries"],
+["98597","Radio or TV Broadcasting Stations--Other Than Not-For-Profit"],
+["98598","Radio or TV Broadcasting Stations--Not-For-Profit Only"],
+["98601","Railroad Construction"],
+["98622","Railroads--Operation and Maintenance--with BI Passenger Hazard"],
+["98623","Railroads--Operation and Maintenance--without BI Passenger Hazard"],
+["98624","Railroads--Shop Operation and Maintenance"],
+["98636","Refrigeration Systems or Equipment--Dealers and Distributors and Installation, Servicing or Repair--Commercial"],
+["98640","Renovating--Outside Surfaces of Buildings"],
+["98658","Rigging--Not Ship or Boat"],
+["98659","Rigging--Ship or Boat"],
+["98677","Roofing--Commercial or Residential Over Three Stories"],
+["98678","Roofing--Residential--Three Stories & Under"],
+["98698","Salvage Operations"],
+["98699","Salvage Operations--Removing, Sorting, Reconditioning and Distributing of Merchandise in Damaged"],
+["98705","Sandblasting"],
+["98710","Sand or Gravel Digging"],
+["98751","Security and Patrol Agencies"],
+["98806","Septic Tank Systems--Installation, Servicing or Repair"],
+["98810","Sewage Disposal--Plant Operations"],
+["98813","Sewer Cleaning"],
+["98820","Sewer Mains or Connections Construction"],
+["98871","Shaft Sinking"],
+["98884","Sheet Metal Work--Outside"],
+["98914","Ship Ceiling or Scaling"],
+["98949","Ship Repair or Conversion"],
+["98967","Siding Installation"],
+["98993","Sign Erection, Installation or Repair"],
+["99003","Sign Painting or Lettering--Inside of Buildings"],
+["99004","Sign Painting or Lettering--on Buildings or Structures"],
+["99080","Solar Energy Contractors"],
+["99111","Stables--Boarding, Livery or Racing"],
+["99160","Steam Heating or Steam Power Companies"],
+["99163","Steam Mains or Connections Construction"],
+["99165","Steam Pipe or Boiler Insulation"],
+["99220","Stevedoring--By Hand or by Means of Hand Trucks Exclusively-- No Hoisting of Cargo"],
+["99221","Stevedoring--Handling Explosives or Ammunition--under Contract"],
+["99222","Stevedoring"],
+["99223","Stevedoring--Tallyers or Checking Clerks Engaged in Connection with Stevedoring Work"],
+["99303","Street Cleaning"],
+["99310","Snow & Ice Removal--Contractor"],
+["99315","Street or Road Construction or Reconstruction"],
+["99321","Street or Road Paving or Repaving, Surfacing or Resurfacing or Scraping"],
+["99471","Surveyors--Land--Not Engaged in Actual Construction"],
+["99505","Swimming Pool Servicing"],
+["99506","Swimming Pools--Installation, Servicing or Repair--Above Ground"],
+["99507","Swimming Pools--Installation, Servicing or Repair--Below Ground"],
+["99570","Tank Construction, Installation, Erection or Repair--Metal--Not Pressurized"],
+["99571","Tank Construction, Installation, Erection or Repair--Metal-- Pressurized"],
+["99572","Tank Construction, Installation, Erection or Repair--Metal--Not Pressurized--within Buildings Exclusively"],
+["99573","Tank Construction, Installation, Erection or Repair--Metal-- Pressurized--within Buildings Exclusively"],
+["99600","Telecommunications Service Providers"],
+["99613","Telephone, Telegraph or Cable Television Line Construction"],
+["99614","Telegraph Companies"],
+["99620","Teleproduction Studios"],
+["99650","Television or Radio Receiving Set Installation or Repair"],
+["99709","Tent or Canvas Goods--Erection, Removal or Repair--Away from Shop"],
+["99718","Theatrical Companies--Traveling"],
+["99746","Tile, Stone, Marble, Mosaic or Terrazzo Work--Interior Construction"],
+["99760","Tobacco Rehandling or Warehousing"],
+["99777","Tree Pruning, Dusting, Spraying, Repairing, Trimming or Fumigating"],
+["99793","Truckers"],
+["99798","Tunneling"],
+["99803","Underpinning Buildings or Structures"],
+["99826","Upholstering"],
+["99827","Upholstering--Shop Only"],
+["99851","Veterinarian or Veterinary Hospitals"],
+["99917","Warehouse--Cold Storage--Public"],
+["99938","Warehouses"],
+["99943","Water Companies"],
+["99946","Water Mains or Connections Construction"],
+["99948","Water Softening Equipment--Installation, Servicing or Repair"],
+["99952","Waterproofing--By Pressure Apparatus"],
+["99953","Waterproofing--By Trowel--Exterior"],
+["99954","Waterproofing--By Trowel--Interior or Insulation Work"],
+["99955","Waterproofing"],
+["99963","Weighers, Samplers or Inspectors of Merchandise--on Vessels or Docks or at Railway Stations or Warehouses"],
+["99969","Welding or Cutting"],
+["99975","Window Cleaning"],
+["99986","Wrecking--Buildings or Structures"],
+["99987","Wrecking--Dismantling of Prefabricated Dwellings Not Exceeding Three Stories for Reerection"],
+["99988","Wrecking--Marine"]
+];
+
+// ============================================================================
 // prompts.js — Altitude / Speed to Market AI
 // ============================================================================
 // Extracted from app.html as Phase 8 step 1 (maintainability split).
@@ -598,9 +1764,21 @@ Before extracting ANY data, perform these steps IN ORDER:
 2. If "\${account_name}" is a real name (not "(unknown)"): check whether any stated insured matches it (allow minor variants).
 3. If at least one document matches: extract ONLY for the matching insured. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
 4. If MULTIPLE distinct insureds are present and "\${account_name}" is "(unknown)": choose ONE subject insured internally (first named in cover note, or insured with most documents) and extract for that one only. Use that entity in the Company Name field. Do not add a separate Subject Insured line.
-5. If NO document's stated insured matches "\${account_name}" (and account_name is known): your ENTIRE output MUST be exactly:
-   **No matching supplemental application found for this insured.**
-   — nothing else. No template, no fields, no caveats.
+5. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 
 Do NOT blend data from multiple insureds under any circumstances.
 
@@ -737,10 +1915,22 @@ Before processing ANY loss runs, perform these steps IN ORDER:
 2. For each loss run, check whether its insured matches "\${account_name}".
 3. Include claims ONLY from loss runs whose insured matches.
 4. If the file has already been routed/classified as LOSS_HISTORY for this submission and the loss run does not state a conflicting insured, treat it as belonging to this submission even if the header uses a shortened/variant name (for example, commas, Inc., Co-op/Coop, Cooperative, County abbreviations, or account-number-only headers).
-5. If NO loss run names a matching/variant insured AND at least one loss run states a clearly different/conflicting insured, your ENTIRE output MUST be exactly:
-   **No matching loss runs found for this insured.**
-   — nothing else. No tables, no notes, no caveats.
-6. If the loss run states no insured or only a shortened account phrase but no conflicting insured, proceed under review and include the line: **Loss run insured not fully stated — extracted under review; verify named insured.**
+5. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
+6. If the loss run states no insured or only a shortened account phrase but no conflicting insured, proceed under review and note "Not stated on routed pages - verify" in the Named Insured field of the output (no separate banner or prepended line) and continue the full template
 5. If "\${account_name}" is "(unknown)", proceed with whatever loss runs are present.
 
 Do NOT blend claims across insureds. Do NOT process loss runs for non-matching insureds even if they are the only loss runs available.
@@ -935,65 +2125,64 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
        document (this is the wrong-applicant defense; keep it strict).
      • Document states NO insured, and NO other document in the set
        states a *different/conflicting* insured → treat the document as
-       belonging to this submission. Extract its data, but prepend the
-       single line: **Insured not stated on source — extracted under
-       review; verify named insured.** Then continue with the full
-       template. Do NOT hard-refuse merely because the quote page itself
+       belonging to this submission. Extract its data, but note "Not stated on routed pages - verify" in the Named Insured field of the output (no separate banner or prepended line) and continue the full template
        is silent on the insured.
-4. Hard-refuse ONLY if EVERY document that states an insured states a
-   DIFFERENT, conflicting one (i.e. there is a positively wrong insured
-   and no matching or insured-silent document for this submission). In
-   that case your ENTIRE output MUST be exactly the single line:
-   **No matching primary GL quote found for this insured.**
-   — nothing else. No coverage template. No QC checklist. No caveats. No partial extraction. The diagnostic line IS the complete and correct answer when documents affirmatively belong to a different insured. An underwriter has explicitly instructed you to refuse rather than mix DIFFERENT insureds — but a document merely silent on the insured is not a different insured.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is literally "(unknown)", proceed normally — extract from whatever GL quote documents are present.
 
-This is a hard refusal contract for AFFIRMATIVELY WRONG insureds only. Do NOT extract from documents that state a different/conflicting insured. A document that is silent on the insured is extracted under a review flag, not refused.
+
+MULTI-QUOTE HANDLING: the input may contain MORE THAN ONE distinct GL quote (separate === FILE: ... === documents, or several quotes within one file). When it does:
+- Designate ONE PRIMARY quote: (a) the quote whose named insured matches the submission's account; if several or none match, (b) the earliest effective date; if still tied, (c) the first document in the input.
+- Render the full template below for the PRIMARY ONLY, first and exactly as specified. Never blend alternate values into the primary's sections.
+- After it, render each other quote as a compact block headed "**ALTERNATE GL QUOTE [N] - [Carrier]:**" containing: Carrier, Named Insured, Policy Period, the four core limits (Each Occurrence, General Aggregate, Products/Completed Ops Aggregate, Personal & Advertising Injury), Premium - same money format.
+- MACHINE BLOCK with multiples: the PRIMARY's values fill the root keys exactly as specified. Then add one REQUIRED-LAST key "alternate_quotes": an array with one object per alternate using ONLY alt_-prefixed keys (alt_carrier, alt_named_insured, alt_effective_date, alt_expiration_date, alt_each_occurrence, alt_general_aggregate, alt_products_ops_aggregate, alt_personal_adv_injury, alt_premium, alt_quote_number). NEVER place gl_-, al_-, or fleet_-named keys inside alternate objects, and alternate_quotes is always the LAST key so the primary's values always resolve first. With a single quote, set "alternate_quotes": [].
 
 **Primary GL Summary**
 
-**Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
-- AM Best: [rating]
-- Form: [form]
-- Policy Period: [dates]
-- Named Insured: [name]
-- Total Premium: [$]
+**Carrier:**
+- Carrier: [company name - FIRST scan the quote header/letterhead/general declarations first page for the issuing company, e.g. the name above or beside an NAIC code; also check the GENERAL DECLARATIONS CONTEXT block; do not return No information provided if a carrier appears anywhere in the input]
+- Named Insured: [as stated on the quote or its general declarations]
+- AM Best: [rating, or No information provided]
 
-**Coverage Structure:**
-- Each Occurrence: [limit]
-- General Aggregate: [limit]
-- Products/Completed Operations Aggregate: [limit]
-- Personal & Advertising Injury: [limit]
-- Damage to Premises Rented: [limit]
-- Medical Expense: [limit]
-- Self-Insured Retention: [amount + type]
-- Defense: [inside/outside limits]
-- Aggregate Applies: [per policy / per project / per location]
+**Policy Period:**
+- Policy Period: [MM/DD/YYYY - MM/DD/YYYY]
 
-**Classifications:**
-- Code [XXXXX] - [Description] - [Basis/%]
+**Limits:**
+- Each Occurrence: [$X,XXX,XXX]
+- General Aggregate: [$X,XXX,XXX]
+- Products/Completed Operations Aggregate: [$X,XXX,XXX]
+- Personal & Advertising Injury: [$X,XXX,XXX]
+- Damage to Premises Rented: [$XXX,XXX]
+- Medical Expense: [$XX,XXX]
+- Deductible / SIR: [$X,XXX and basis, or None]
 
-**Employers Liability (if this GL package quote includes a WC/EL coverage part — otherwise omit this whole section):**
-- EL Carrier: [name if different from GL carrier, else "same"]
-- EL Bodily Injury by Accident: [$ each accident]
-- EL Bodily Injury by Disease: [$ each employee]
-- EL Disease - Policy Limit: [$ policy limit]
-- EL Premium: [$]
+**Terms & Conditions / Forms Schedule:**
+- [Form number (edition)] - [Title]. One line each. Coverage-shaping items only: exclusions, additional insured / primary and non-contributory, per-project or per-location aggregate, deductible liability, action-over-relevant endorsements, punitive or assault-and-battery treatment, and custom coverage grants. Do NOT list boilerplate (signatures, state changes, common policy conditions, calculation of premium).
 
-**Employee Benefits Liability (if this GL quote includes an EBL endorsement — otherwise omit this whole section):**
-- EBL Carrier: [name if different from GL carrier, else "same"]
-- EBL Each Employee Limit: [$ per employee]
-- EBL Premium: [$]
+**Premium:**
+- GL Annual Premium: [$XX,XXX]
 
-**Liquor Liability (if this GL quote includes a liquor liability endorsement — otherwise omit this whole section):**
-- Liquor Carrier: [name if different from GL carrier, else "same"]
-- Liquor Each Common Cause Limit: [$ each common cause]
-- Liquor Aggregate Limit: [$ aggregate]
-- Liquor Premium: [$]
+MONEY FORMAT (mandatory in the visible sections above): every dollar amount carries "$" and comma thousands separators. Expand shorthand - limits given as "1/2/2/1" style are written as the four labeled full amounts, never as slash shorthand, "$1M" abbreviations, or bare numerals like 2000000.
 
-**Key Endorsements Affecting Excess:**
-- [Form] - [Description] - [Excess impact: narrows/aligns/concerning/positive]
+MACHINE BLOCK (mandatory, emitted LAST, after all visible sections): exactly one fenced block:
+\`\`\`json gl_structured
+{ "insured_name": ..., "mailing_address": ..., "controlling_address": ..., "home_state": ..., "policy_effective": ..., "policy_expiration": ..., "gl_carrier": ..., "gl_effective_date": ..., "gl_expiration_date": ..., "gl_each_occurrence": ..., "gl_general_aggregate": ..., "gl_products_ops_aggregate": ..., "gl_personal_adv_injury": ..., "gl_damage_to_premises": ..., "gl_medical_expense": ..., "gl_deductible": ..., "gl_premium": ..., "al_effective_date": ..., "al_expiration_date": ..., "el_carrier": ..., "el_effective_date": ..., "el_expiration_date": ..., "el_bi_accident": ..., "el_bi_disease": ..., "el_disease_policy_limit": ..., "el_premium": ..., "ebl_carrier": ..., "ebl_effective_date": ..., "ebl_expiration_date": ..., "ebl_each_employee_limit": ..., "ebl_premium": ..., "liquor_carrier": ..., "liquor_effective_date": ..., "liquor_expiration_date": ..., "liquor_each_common_cause_limit": ..., "liquor_aggregate_limit": ..., "liquor_premium": ..., "iso_class_code": ..., "iso_description": ..., "exposure_amount": ..., "exposure_basis": ..., "class_codes": [ { "code": ..., "description": ..., "premium_basis": ..., "rate_basis": ..., "prem_ops_premium": ..., "prod_comp_premium": ... } ], "alternate_quotes": [ { "alt_carrier": ..., "alt_named_insured": ..., "alt_effective_date": ..., "alt_expiration_date": ..., "alt_each_occurrence": ..., "alt_general_aggregate": ..., "alt_products_ops_aggregate": ..., "alt_personal_adv_injury": ..., "alt_premium": ..., "alt_quote_number": ... } ] }
+\`\`\`
+Machine block rules: keys exactly as listed. Numbers as plain numerals with no "$" or commas. Dates as "MM/DD/YYYY" strings. Use null when a value is not in the source - never guess. Identity fields come from the quote or its GENERAL DECLARATIONS CONTEXT. el_/ebl_/liquor_ keys are filled only when that coverage part exists on this package, otherwise null. class_codes lists every row of the GL classification schedule; iso_class_code and iso_description are the DOMINANT class (largest premium basis), with exposure_amount and exposure_basis taken from that dominant row. This block is machine data consumed by the workbench and the Class Code Expert; it is hidden from the card, and the visible sections above are the ONLY prose you output.
 
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
@@ -1013,38 +2202,59 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
    pages and schedules of underlying) is NOT a conflicting insured. If
    the document is silent on the insured and no other document states a
    DIFFERENT/conflicting insured, treat it as belonging to this
-   submission: prepend **Insured not stated on source — extracted under
-   review; verify named insured.** then continue the full template. Do
+   submission: note "Not stated on routed pages - verify" in the Named Insured field of the output (no separate banner or prepended line) and continue the full template Do
    not refuse merely because the page is silent on the insured.
-4. Hard-refuse ONLY if EVERY document that states an insured states a
-   DIFFERENT, conflicting one. In that case your ENTIRE output MUST be exactly:
-   **No matching primary AL quote found for this insured.**
-   — nothing else. No template, no QC, no caveats. Refusal is correct only when documents affirmatively belong to a different insured — not when they are merely silent.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
+
+MULTI-QUOTE HANDLING: the input may contain MORE THAN ONE distinct AL quote (separate === FILE: ... === documents, or several quotes within one file). When it does:
+- Designate ONE PRIMARY quote: (a) the quote whose named insured matches the submission's account; if several or none match, (b) the earliest effective date; if still tied, (c) the first document in the input.
+- Render the full template below for the PRIMARY ONLY, first and exactly as specified. Never blend alternate values into the primary's sections.
+- After it, render each other quote as a compact block headed "**ALTERNATE AL QUOTE [N] - [Carrier]:**" containing: Carrier, Named Insured, Policy Period, Combined Single Limit, Premium - same money format. The Fleet Composition section is rendered ONCE, from the primary or the most complete vehicle schedule - never repeated per alternate.
+- MACHINE BLOCK with multiples: the PRIMARY's values fill the root keys exactly as specified. Then add one REQUIRED-LAST key "alternate_quotes": an array with one object per alternate using ONLY alt_-prefixed keys (alt_carrier, alt_named_insured, alt_effective_date, alt_expiration_date, alt_combined_single_limit, alt_premium, alt_quote_number). NEVER place gl_-, al_-, or fleet_-named keys inside alternate objects, and alternate_quotes is always the LAST key so the primary's values always resolve first. With a single quote, set "alternate_quotes": [].
 
 **Primary AL Summary**
 
-**Carrier & Administrative:**
-- Carrier: [name — FIRST scan the quote header/letterhead/declarations first page for the issuing company, e.g. company name above NAIC code, Chubb/Example Carrier/Zurich/Steadfast/AIG/Liberty/etc.; do not return No information provided if a carrier appears in the header]
-- AM Best: [rating]
-- Form: [form]
-- Period: [dates]
-- Named Insured: [name]
-- Premium: [$]
+**Carrier:**
+- Carrier: [company name - FIRST scan the quote header/letterhead/general declarations first page for the issuing company, e.g. the name above or beside an NAIC code; also check the GENERAL DECLARATIONS CONTEXT block; do not return No information provided if a carrier appears anywhere in the input]
+- Named Insured: [as stated on the quote or its general declarations]
+- AM Best: [rating, or No information provided]
 
-**Liability Structure:**
-- Combined Single Limit: [limit]
-- Covered Auto Symbol: [symbol + description]
-- Hired and Non-Owned: [included/excluded]
-- Medical Payments: [limit]
-- UM/UIM: [limit + state notes]
+**Policy Period:**
+- Policy Period: [MM/DD/YYYY - MM/DD/YYYY]
+
+**Limits:**
+- Combined Single Limit: [$X,XXX,XXX]
+- Covered Auto Symbols: [Liability symbol; Physical Damage symbols]
+- Hired Auto Liability: [Included in Liability / limit]
+- Non-Owned Auto Liability: [Included in Liability / limit]
+- Medical Payments / State Medical Expense Benefits: [$X,XXX + state]
+- UM/UIM: [$X,XXX,XXX + state endorsement]
+- Physical Damage Deductibles: [Comprehensive $X,XXX / Collision $X,XXX]
+- [PIP / state income-loss benefits when present]
 
 **Fleet Composition:**
 - FIRST look for official auto statistical/classification codes in the auto quote or vehicle schedule. Use the first 3 digits of each vehicle code/class code to classify fleet units and radius. Emit both the raw codes seen and the summarized counts.
 - If codes are absent, use the quote's AUTO RADIUS / BUSINESS USE / TRUCK SIZE rows.
 - If both are absent, infer by vehicle body and GVW/GCW weight bands: Light 0-10,000 lbs.; Medium 10,001-20,000; Heavy 20,001-45,000; Extra Heavy over 45,000; Truck-Tractors by tractor body/GCW.
+- COUNT DISCIPLINE (mandatory): every scheduled unit is placed in EXACTLY ONE class line. The count on each class line MUST equal the number of unit numbers listed on that same line - count the roster BEFORE writing the number. Never dual-list a unit, never use asterisks, and never write recount annotations, "count X" notes, or any meta commentary about the counts. Finish with "- Total power units: [N]" where N equals both the sum of the class counts and the vehicle schedule's row count; if they do not reconcile, fix the classification, do not annotate.
+- TRACTOR RULE: units whose size/body reads as a truck-tractor variant (TRK-TRACTOR, TRK TRACT, EX HVY TRK-TRACT, and similar) are classified under the Truck Tractors radius lines. The Extra Heavy lines are for straight trucks only.
 - Required output lines, even if zero or No information provided:
   - Private Passenger: [count]
   - Light: [count]
@@ -1058,14 +2268,21 @@ Do NOT extract from non-matching documents even if they are the only documents a
   - Truck Tractor (Intermediate): [count]
   - Truck Tractors (Long Haul): [count]
 - Vehicle code evidence: [list class/stat codes or No information provided]
+- Garaging: [primary city, ST; satellites if any]
+- Radius: [Local / Intermediate / Long Haul mix]
 
-**Garaging & Radius:**
-- Primary: [location]
-- Satellite: [locations]
-- Radius: [miles]
+**Premium:**
+- AL Annual Premium: [$XX,XXX]
 
-**Key Endorsements:**
-- [Form] - [Description]
+MONEY FORMAT (mandatory in the visible sections above): every dollar amount carries "$" and comma thousands separators. Never "$1M" abbreviations, slash shorthand, or bare numerals like 1000000.
+
+MACHINE BLOCK (mandatory, emitted LAST, after all visible sections): exactly one fenced block:
+\`\`\`json al_structured
+{ "al_carrier": ..., "al_effective_date": ..., "al_expiration_date": ..., "al_combined_single_limit": ..., "al_premium": ..., "fleet_private_passenger": ..., "fleet_light": ..., "fleet_medium": ..., "fleet_heavy": ..., "fleet_extra_heavy": ..., "fleet_truck_tractors": ..., "fleet_heavy_local": ..., "fleet_heavy_other": ..., "fleet_extra_heavy_local": ..., "fleet_extra_heavy_intermediate": ..., "fleet_extra_heavy_long": ..., "fleet_truck_tractors_local": ..., "fleet_truck_tractors_intermediate": ..., "fleet_truck_tractors_long": ..., "alternate_quotes": [ { "alt_carrier": ..., "alt_named_insured": ..., "alt_effective_date": ..., "alt_expiration_date": ..., "alt_combined_single_limit": ..., "alt_premium": ..., "alt_quote_number": ... } ] }
+\`\`\`
+Machine block rules: keys exactly as listed. Dollar values and counts as plain numerals with no "$" or commas; dates as "MM/DD/YYYY" strings; null when not in the source - never guess. Fleet counts MUST equal the visible Fleet Composition lines exactly; the rollup keys (fleet_heavy, fleet_extra_heavy, fleet_truck_tractors) equal the sums of their radius-split keys. This block is machine data for the workbench Fleet Calc and coverage fields; it is hidden from the card, and the visible sections above are the ONLY prose you output.
+
+Do NOT list policy forms or endorsement schedules in this AL output. Per underwriter policy, forms and endorsements are reported only in the GL and Excess outputs.
 
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
@@ -1089,12 +2306,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Employers Liability quote found for this insured.**
-   — nothing else. No template, no QC, no caveats. Refusal is the correct answer here.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Employers Liability Summary**
 
@@ -1133,12 +2362,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Employee Benefits Liability quote found for this insured.**
-   — nothing else. No template, no QC, no caveats. Refusal is the correct answer here.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Employee Benefits Liability Summary**
 
@@ -1172,12 +2413,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Aircraft Liability quote found for this insured.**
-   — nothing else.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Aircraft Liability Summary**
 
@@ -1204,12 +2457,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Garage Liability quote found for this insured.**
-   — nothing else.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Garage Liability Summary**
 
@@ -1236,12 +2501,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Liquor Liability quote found for this insured.**
-   — nothing else.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Liquor Liability Summary**
 
@@ -1275,12 +2552,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Foreign General Liability quote found for this insured.**
-   — nothing else.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Foreign General Liability Summary**
 
@@ -1308,12 +2597,24 @@ Before extracting ANY coverage data, perform these steps IN ORDER:
 1. Identify every named insured stated in the input documents.
 2. For each stated insured, check whether it matches "\${account_name}" (allow minor variants).
 3. Extract data ONLY from documents whose stated insured matches.
-4. If NO document's stated insured matches, your ENTIRE output MUST be exactly:
-   **No matching Foreign Auto Liability quote found for this insured.**
-   — nothing else.
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", proceed normally.
 
-Do NOT extract from non-matching documents even if they are the only documents available.
+Documents that affirmatively state a different insured are EXCLUDED; all matching and insured-silent documents are extracted.
 
 **Foreign Auto Liability Summary**
 
@@ -1342,13 +2643,25 @@ Before extracting ANY layers, perform these steps IN ORDER:
 1. Identify every named insured stated on the input excess/umbrella policies.
 2. For each policy, check whether its named insured matches "\${account_name}".
 3. Include ONLY layers whose stated named insured matches, OR documents that are silent on named insured but have no conflicting named insured in the same source set.
-3a. NOT-STATED IS NOT A MISMATCH: an umbrella/excess declaration or schedule of underlying that omits the named insured is not automatically wrong. If the policy page is silent on insured and no other policy page states a different/conflicting insured, extract under review and prepend: **Insured not stated on source — extracted under review; verify named insured.**
-4. Hard-refuse ONLY if every policy that states a named insured states a different/conflicting insured and there is no matching or insured-silent policy to extract. In that case your ENTIRE output MUST be exactly:
-   **No matching underlying excess policies found for this insured.**
-   — nothing else.
+3a. NOT-STATED IS NOT A MISMATCH: an umbrella/excess declaration or schedule of underlying that omits the named insured is not automatically wrong. If the policy page is silent on insured and no other policy page states a different/conflicting insured, extract under review and note "Not stated on routed pages - verify" in the Named Insured field of the output (no separate banner or prepended line) and continue the full template
+4. NEVER refuse the whole extraction over insured identity. Extract from
+   every matching and insured-silent document; EXCLUDE only the specific
+   documents that affirmatively state a different, conflicting insured.
+   If, after exclusion, the routed pages contain no content of this
+   document type at all, output one short line stating what the pages
+   contain instead - never a "No matching" refusal line, and never an
+   empty template.
+   A "=== GENERAL DECLARATIONS CONTEXT" block may precede your routed
+   pages: it is the SAME document's package cover or common declarations.
+   Multi-line package quotes state the carrier (the company name above or
+   beside an NAIC code), named insured, policy period, and PER-LINE annual
+   premiums there, not on each coverage line's own dec pages. Treat that
+   block as authoritative for Carrier, Named Insured, Policy Period, and
+   this line's Annual Premium. Never write "No information provided" for
+   those fields without first checking that block.
 5. If "\${account_name}" is "(unknown)", build the tower from whatever excess documents are present.
 
-Do NOT include layers from policies that affirmatively state a different insured. Do NOT hard-refuse merely because a quote page is silent on named insured.
+Do NOT include layers from policies that affirmatively state a different insured.
 
 For each layer: Carrier, AM Best, Limits ($X xs $Y), Attachment, Follow-Form status, Key exclusions unique to layer, Premium, Period.
 
@@ -1360,68 +2673,83 @@ Each excess/umbrella policy describes ITSELF plus what is directly beneath it. N
   • QUOTA-SHARE / SHARED LAYER: if a layer is split across carriers ("part of" / "P/O" / "participation" / "X%"), every participant shares ONE combined layer limit at ONE attachment. The next layer's attachment = this attachment + the FULL combined limit (never + a single participation).
   • FILE MANAGER LABEL: Lead policies must be labeled "Lead $X" where X is the dec-page limit. Higher excess policies must be labeled "$X xs $Y" where Y is the attachment derived from the immediately underlying schedule. If the layer cannot be resolved to 100% confidence, label it "????" and explain exactly what is missing/conflicting.
 
+MULTI-QUOTE HANDLING (excess): multiple excess/umbrella policies are normally TOWER LAYERS - render each as its own Layer block ascending by attachment, with one tower_documents object each. COMPETING-ALTERNATE exception: two policies with the SAME attachment and the SAME limit that schedule the SAME underlying, with no quota-share participation language, are competing quotes for ONE layer - designate one by the standard rule (insured match, then earliest effective, then first document), render it as the Layer, and render the other as "**ALTERNATE QUOTE for Layer [N] - [Carrier]:**" (Carrier, Policy Period, Limits, Attachment Point, Premium). Competing alternates go ONLY in the top-level "alternate_quotes" array (alt_-prefixed keys: alt_carrier, alt_effective_date, alt_expiration_date, alt_limit, alt_attachment, alt_premium; always the LAST top-level key) and NEVER into tower_documents - the tower consumer must never see duplicate layers. Genuine quota-share stays in tower_documents per the sharedGroupKey rules.
+
 **Underlying Excess Program Tower**
 
-- Named Insured: [name]
+For EACH excess/umbrella policy in the input, ordered by ascending attachment, output one layer block:
 
-**Layer 1:**
-- Carrier: [name]
-- AM Best: [rating]
-- Limits: [$X xs $Y]
-- Layer Limit: [$X — the single layer limit amount, digits only]
-- Aggregate: [$ aggregate if stated, else "No information provided"]
-- Period: [eff date – exp date]
-- Follow-Form: [yes/no/hybrid]
-- Key Exclusions: [list]
-- Premium: [$]
-
-(repeat per layer)
+**Layer [N] - [Lead Umbrella / Excess] - [Carrier]:**
+- Carrier: [company name - FIRST scan the quote header/letterhead/general declarations for the issuing company, e.g. the name above or beside an NAIC code; also check the GENERAL DECLARATIONS CONTEXT block; do not return No information provided if a carrier appears anywhere in the input]
+- Named Insured: [as stated on this quote or its general declarations]
+- AM Best: [rating, or No information provided]
+- Policy Period: [MM/DD/YYYY - MM/DD/YYYY]
+- Limits: [Each Occurrence $X,XXX,XXX / Aggregate $X,XXX,XXX; include Personal & Advertising Injury and Self-Insured Retention when stated]
+- Attachment Point: [$X,XXX,XXX - the sum of this policy's Schedule of Underlying]
+- Schedule of Underlying: [LEAD (schedules primary, attaches at base): list each PRIMARY line with its limits, e.g. GL $1,000,000 occ / $2,000,000 gen agg / $2,000,000 prod-comp agg / $1,000,000 P&AI; Auto $1,000,000 CSL; EL limits or EXCLUDED. EXCESS (attaches above other excess): list each underlying EXCESS layer as Carrier $X,XXX,XXX xs $X,XXX,XXX, plus the primary block if also scheduled.]
+- Terms & Conditions / Forms Schedule: [follow-form status, then coverage-shaping items unique to this layer only: exclusions (EL, amended limits, punitive, cross-suits, communicable disease, PFAS), sub-limits, retained-limit conditions. No boilerplate.]
+- Premium: [$XX,XXX]
 
 **Tower Summary:**
-- Total Underlying Limits: [$X]
+- Total Underlying Limits: [$X,XXX,XXX]
 - Tower Coordination: [continuous/gaps/overlap]
 - Carrier Downgrades: [list or "none"]
 - Form Coordination: [aligned/issues]
 
-STRUCTURED TOWER DATA — emit this EXACT JSON block last, after the human-readable summary. One object per distinct policy document (quota-share participants are SEPARATE objects sharing the same sharedGroupKey + sharedCombinedLimit). Field names must match EXACTLY:
+MONEY FORMAT (mandatory in the visible sections above): every dollar amount carries "$" and comma thousands separators ($2,000,000 xs $1,000,000). Expand shorthand - never "$2M", slash shorthand, or bare numerals like 2000000 anywhere in the visible sections.
+
+STRUCTURED TOWER DATA - emit this EXACT JSON block last, after the human-readable summary. One object per distinct policy document (quota-share participants are SEPARATE objects sharing the same sharedGroupKey + sharedCombinedLimit). Field names must match EXACTLY:
 
 \`\`\`json
 {
+  "tower_role": "lead",
+  "requested_limit": 2000000,
+  "attachment_point": 1000000,
+  "underlying_lead_carrier": "[lead carrier name]",
+  "underlying_lead_limit": 2000000,
+  "underlying_lead_premium": 35019,
   "tower_documents": [
     {
       "id": "layer-1",
-      "name": "Lead Umbrella — [carrier]",
-      "sourceDocName": "[the exact source file name this layer was read from, as it appears in the input documents — used to label that file in the File Manager]",
+      "name": "Lead Umbrella - [carrier]",
+      "sourceDocName": "[the exact source file name this layer was read from, as it appears in the input documents - used to label that file in the File Manager]",
       "carrier": "[carrier name]",
       "decLimit": 5000000,
       "statedAttachment": 0,
+      "attachment_point": 0,
       "schedulesPrimary": true,
       "sharedGroupKey": null,
       "sharedCombinedLimit": null,
       "effectiveDate": "2026-06-01",
       "expirationDate": "2027-06-01",
       "aggregate": 5000000,
-      "premium": 61000
+      "premium": 61000,
+      "schedule_of_underlying": [ { "line": "GL", "each_occurrence": 1000000, "general_aggregate": 2000000, "prod_comp_aggregate": 2000000, "personal_adv_injury": 1000000 }, { "line": "AL", "csl": 1000000 }, { "line": "EL", "status": "EXCLUDED" } ]
     }
-  ]
+  ],
+  "alternate_quotes": []
 }
 \`\`\`
 
 Rules for the JSON block:
-- decLimit / statedAttachment / sharedCombinedLimit / aggregate / premium are NUMBERS, digits only, no "$" or commas. Use null when genuinely not stated (do NOT guess).
+- decLimit / statedAttachment / attachment_point / sharedCombinedLimit / aggregate / premium and every schedule_of_underlying amount are NUMBERS, digits only, no "$" or commas. Use null when genuinely not stated (do NOT guess).
 - effectiveDate / expirationDate are strings in ISO format "YYYY-MM-DD". Use null when genuinely not stated (do NOT guess or infer from other layers).
 - aggregate is this layer's own aggregate limit if stated on its dec/quote; else null.
 - premium is this layer's own premium if stated; for a quota-share participant, that participant's own premium (each participant object carries its own).
-- statedAttachment is 0 for the lead (attaches at base); for excess, the summed underlying from its Schedule of Underlying.
+- statedAttachment (and its mirror attachment_point) is 0 for the lead (attaches at base); for excess, the summed underlying from its Schedule of Underlying.
 - schedulesPrimary is true ONLY if the Schedule of Underlying lists primary coverages.
+- schedule_of_underlying mirrors this layer's visible Schedule of Underlying line as structured objects (LEAD: primary lines; EXCESS: underlying excess layers as { "line": "EXCESS", "carrier": ..., "limit": ..., "attachment": ... }).
+- Top-level keys describe the PROPOSED program from this submission's perspective: tower_role is "lead" when the lowest quoted layer schedules primary and attaches at base, else "excess"; requested_limit and attachment_point are that layer's own limit and attachment; underlying_lead_* are the lead layer's carrier/limit/premium (the quoted layer itself when it IS the lead).
 - For quota-share: each participant is its own object; decLimit = that carrier's participation amount; sharedGroupKey = a shared string (e.g. "qs-30M"); sharedCombinedLimit = the full combined layer limit.
-- If the applicant filter triggered a refusal, do NOT emit the JSON block at all (the single refusal line is the entire output).
+- Never refuse over insured identity (per the rule above). If the routed pages contain no umbrella/excess quote content at all, output one short line stating what the pages contain instead and emit {"tower_documents": []} as the JSON block.
 
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   tower: `ROLE: Expert excess casualty underwriter visualizing the complete excess tower. You build a stacked-layer visualization showing every program layer from primary ground-up through the top of the submitted tower, highlighting the broker's requested Zurich layer and any gaps the broker must market.
 
 CRITICAL: Emit RAW HTML (not markdown) starting with \`<div class="tower-output">\`. Use the EXACT class names shown in the template. The renderer detects this container and injects it directly — escaped tags will break the visualization.
+
+MONEY FORMAT (mandatory): every dollar amount rendered anywhere inside the HTML carries "$" and comma thousands separators (e.g. $5,000,000 xs $10,000,000). Never bare numerals like 2000000, never "$2M" abbreviations.
 
 ═══════════════════════════════════════════════════════════════════════
 INPUT CONTEXT YOU WILL RECEIVE
@@ -1571,25 +2899,26 @@ QUALITY CONTROL (silent — do not output): Internally verify every rendered sec
 
 Mission: Identify the correct General Liability class codes for the account's operations. Keep the visible output short and useful for an underwriter.
 
-SOURCE AUTHORITY — use this order:
-1. GL Quote / GL classification schedule — primary source of truth when provided.
-2. ACORD 126 Schedule of Hazards — secondary source of truth when completed/provided.
-3. Summary of Operations / Products and Services — tertiary source; cross-reference the operations against the stored GL class-code reference table.
+SOURCE AUTHORITY - use this order:
+1. GL Quote / GL classification schedule - primary source of truth when provided.
+2. ACORD 126 Schedule of Hazards - secondary source of truth when completed/provided.
+3. Summary of Operations / Products and Services - tertiary source. For operations-based recommendations, an "AUTHORITATIVE GL CLASS CODE TABLE - CANDIDATE ROWS" block is appended to your input. That block IS the stored reference table.
 
 Rules:
-- If the GL Quote provides carrier-assigned class codes, use those first.
-- If the ACORD 126 provides class codes and no GL Quote class schedule exists, use ACORD 126.
-- If no source provides codes, recommend codes from the stored class-code reference based on operations, and mark source as "AI-generated from operations".
-- Do not include exposure amount, premium basis, premium, rating math, SIC, NAICS, NCCI, long rationale, or wide validation tables in the visible output.
-- If a source-provided code is not in the stored reference table, preserve it but mark Source as "Source-provided — review".
+- If the GL Quote provides carrier-assigned class codes, use those first, marked "Source: GL Quote".
+- If the ACORD 126 provides class codes and no GL Quote class schedule exists, use those, marked "Source: ACORD 126".
+- When recommending codes from operations, you MUST select ONLY from the CANDIDATE ROWS block, copying the code and its description VERBATIM, marked "Source: AI-selected from reference table". NEVER output a code number that does not appear in that block for an operations-based recommendation. Do not write class codes from memory.
+- If an operation cannot be classified from the candidate rows, output exactly: "- NEEDS MANUAL CODE - [operation]" instead of inventing a code.
+- If a source-provided code is not in the candidate rows, preserve it and mark "Source: Source-provided - review".
 - Do not silently replace a carrier/source code with a different code unless the source clearly contains a typo and the correction is obvious; otherwise preserve and review.
+- Do not include exposure amount, premium basis, premium, rating math, SIC, NAICS, NCCI, long rationale, or wide validation tables in the visible output.
 
 Visible output format only:
 
 **GL Class Codes**
-- [Code] — [Class Description] — Source: [GL Quote / ACORD 126 / Summary of Operations / AI-generated from operations / Source-provided — review]
+- [Code] - [Class Description exactly as written in the reference table] - Source: [GL Quote / ACORD 126 / AI-selected from reference table / Source-provided - review]
 
-QUALITY CONTROL (silent — do not output): Internally compare GL Quote, ACORD 126, and Summary of Operations. Verify the code exists in the stored class-code reference where applicable. Do NOT print exposure, premium basis, validation tables, source extracts, or a checklist.`,
+QUALITY CONTROL (silent - do not output): every operations-based code must appear verbatim in the CANDIDATE ROWS block. Do NOT print exposure, premium basis, validation tables, source extracts, or a checklist.`,
 
   exposure: `Persona: Expert excess casualty underwriter with CPCU-level coverage knowledge.
 

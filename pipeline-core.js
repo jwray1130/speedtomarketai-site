@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.89-sonnet5-option-2026-07-02';
+window.STM_BUILD = 'v8.7.98-multi-quote-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -5191,6 +5191,15 @@ function cleanVisibleExtractionText99(mid, text) {
   t = t.replace(/```(?:json)?\s*loss_history_structured[\s\S]*?```/gi, '');
   t = t.replace(/```(?:json)?\s*class_codes_structured[\s\S]*?```/gi, '');
   t = t.replace(/```json\s*\{[\s\S]*?"policy_years"[\s\S]*?```/gi, '');
+  // v8.7.94: the tower_documents JSON is machine data for the workbench
+  // lead-excess wiring (workbench-rules parses it from the STORED extraction
+  // text) - it must never render on the A15 card. Strip fenced and bare
+  // trailing forms from the VISIBLE text only; storage is untouched.
+  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"tower_documents"[\s\S]*?```/gi, '');
+  // v8.7.95: hide the quote-family structured machine blocks (workbench
+  // :json tier consumes them from STORED text; the card shows prose only).
+  t = t.replace(/```(?:json)?\s*(?:gl|al|excess)_structured[\s\S]*?```/gi, '');
+  t = t.replace(/\n\{[\s\S]*?"tower_documents"[\s\S]*\}\s*$/g, '');
 
   // Hide visible prompt-QC/checklist/source-verbatim sections that were useful
   // during prompt engineering but clutter the underwriting UI.
