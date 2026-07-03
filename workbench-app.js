@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.103-workbench-stage2-deferred-2026-07-03
+  v8.7.104-rater-batch-2026-07-03
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.103-workbench-stage2-deferred-2026-07-03';
+window.STM_BUILD = 'v8.7.104-rater-batch-2026-07-03';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2598,6 +2598,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const tbl = document.getElementById('classTerritoryTable');
             const tbody = tbl && tbl.querySelector('tbody');
             if (!tbody) return;
+            const prevBatch = window.__stmBatchGlRater87104;
+            window.__stmBatchGlRater87104 = true;
+            let filled = 0;
+            let rowsToApply = [];
+            try {
             const classRows = parseGLClassRows89(submission);
             const stateZip = stateZipFromSubmission89(submission);
             const ensureRows = (n) => {
@@ -2616,16 +2621,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 exposure: get('exposure_amount')?.value,
                 base: normalizeBasisForSelect(get('exposure_basis')?.value)
             }].filter(x => x.code && x.exposure);
-            const rowsToApply = classRows.length ? classRows.map(x => ({...x, state: stateZip.state, zip: stateZip.zip})) : fallback;
+            rowsToApply = classRows.length ? classRows.map(x => ({...x, state: stateZip.state, zip: stateZip.zip})) : fallback;
             ensureRows(Math.max(rowsToApply.length, 1));
             const domRows = Array.from(tbody.querySelectorAll('tr'));
-            let filled = 0;
             const put = (row, df, val) => {
                 const el = row && row.querySelector('[data-f="' + df + '"]');
                 if (!el || val == null || val === '') return;
                 el.value = val;
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
                 el.classList.add('autofilled-from-platform');
                 filled++;
             };
@@ -2638,7 +2640,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'zip', r.zip || stateZip.zip);
                 put(row, 'exposures', r.exposure);
                 put(row, 'base', r.base || '1000');
-                row.querySelectorAll('input, select').forEach(el => el.dispatchEvent(new Event('change', { bubbles: true })));
             });
             // v8.7.11: when real GL class rows exist, clear starter/default rows
             // (for example 91580 / GA / 30009 / $0) so they are not mistaken for
@@ -2651,8 +2652,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.querySelectorAll('[data-out], .computed').forEach(cell => { if (cell.tagName !== 'INPUT') cell.textContent = cell.dataset.out && /rate/i.test(cell.dataset.out) ? '0.000' : '$0'; });
             });
             unlockGlRaterRows94(document);
-            syncUnderwritingRiskProfileFromGlRater8702('after-gl-rater-apply');
-            console.log('[workbench] v8.7.03 GL exposure rater apply:', filled, 'cells filled', rowsToApply);
+            } finally {
+                window.__stmBatchGlRater87104 = prevBatch === true;
+                window.__stmGlRaterDirty87104 = false;
+            }
+            if (typeof window.__stmRecalcGLRater87104 === 'function') {
+                window.__stmRecalcGLRater87104('after-gl-rater-apply');
+            } else {
+                syncUnderwritingRiskProfileFromGlRater8702('after-gl-rater-apply');
+            }
+            console.log('[workbench] v8.7.104 GL exposure rater apply batched:', filled, 'cells filled', rowsToApply);
         }
 
 
@@ -2676,6 +2685,17 @@ document.addEventListener('DOMContentLoaded', () => {
             el.value = String(val);
             el.dispatchEvent(new Event('input', { bubbles:true }));
             el.dispatchEvent(new Event('change', { bubbles:true }));
+            el.classList.add('autofilled-from-platform');
+            return true;
+        }
+        // v8.7.104: silent writer for initial batch hydration. The normal
+        // set85() path deliberately dispatches input/change for interactive
+        // fields, but doing that across the internal rater on page load caused
+        // dozens of synchronous recomputes. Use this only when a caller will
+        // explicitly run the dependent calculator once at the end.
+        function set85Silent87104(el, val) {
+            if (!el || val == null || val === '') return false;
+            el.value = String(val);
             el.classList.add('autofilled-from-platform');
             return true;
         }
@@ -3774,17 +3794,21 @@ document.addEventListener('DOMContentLoaded', () => {
         function applyInternalRaterFromActiveSubmission(submission) {
             const primaryTbody = document.querySelector('#primaryPoliciesTbl tbody');
             const towerTbody = document.querySelector('#towerLimitsTable tbody');
-            const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85(el, val); };
+            const prevInternalBatch87104 = window.__stmBatchInternalRater87104;
+            window.__stmBatchInternalRater87104 = true;
+            let requested = 0, leadLimit = 0, leadAttach = 0, ourAttach = 0;
+            try {
+            const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85Silent87104(el, val); };
             // FIX-2026-06-10 (millions shorthand): extractions sometimes carry
             // "$5M" parsed down to the bare number 5. The workbook's own
             // convention (Worksheet_Change) treats small limit/attachment
             // entries as millions — mirror it here so the tower never shows
             // a naked "5" where $5,000,000 is meant.
             const asMillions99 = (v) => (typeof v === 'number' && v > 0 && v < 1000 ? v * 1000000 : v);
-            const requested = asMillions99(n85(submission?.requested || r85('requested_limit', submission)) || 1000000);
-            const leadLimit = asMillions99(n85(r85('underlying_lead_limit', submission)));
-            const leadAttach = asMillions99(n85(r85('attachment_point', submission)));
-            const ourAttach = leadLimit > 0 ? leadAttach + leadLimit : leadAttach;
+            requested = asMillions99(n85(submission?.requested || r85('requested_limit', submission)) || 1000000);
+            leadLimit = asMillions99(n85(r85('underlying_lead_limit', submission)));
+            leadAttach = asMillions99(n85(r85('attachment_point', submission)));
+            ourAttach = leadLimit > 0 ? leadAttach + leadLimit : leadAttach;
             if (requested) setInput('#nonAdmittedLimit', money85(requested));
             if (ourAttach) setInput('#nonAdmittedAttachment', money85(ourAttach));
 
@@ -3823,8 +3847,24 @@ document.addEventListener('DOMContentLoaded', () => {
                       </tr>`).join('');
                 }
             }
-            document.querySelectorAll('#risk-internal-rater input, #risk-internal-rater select').forEach(el => el.dispatchEvent(new Event('change', { bubbles:true })));
-            console.log('[workbench] v8.6.94 internal rater hydrate:', { requested, leadLimit, leadAttach, ourAttach });
+            } finally {
+                window.__stmBatchInternalRater87104 = prevInternalBatch87104 === true;
+                window.__stmInternalRaterDirty87104 = false;
+            }
+            const runRecalc87104 = () => {
+                try {
+                    if (typeof window.__stmRecalcInternalRater87104 === 'function') {
+                        window.__stmRecalcInternalRater87104('post-hydrate');
+                    } else {
+                        console.warn('[workbench] v8.7.104 internal rater recalc hook unavailable; skipped bulk change dispatch to avoid page freeze.');
+                    }
+                } catch (e) {
+                    console.warn('[workbench] v8.7.104 internal rater deferred recalculation skipped:', e && e.message);
+                }
+            };
+            if (window.requestIdleCallback) window.requestIdleCallback(runRecalc87104, { timeout: 1500 });
+            else setTimeout(runRecalc87104, 0);
+            console.log('[workbench] v8.7.104 internal rater hydrate queued:', { requested, leadLimit, leadAttach, ourAttach });
         }
 
 
@@ -5899,6 +5939,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function recalcGLRater() {
+                if (window.__stmBatchGlRater87104 === true) {
+                    window.__stmGlRaterDirty87104 = true;
+                    return;
+                }
                 let totP = 0, totG = 0;
                 tbody.querySelectorAll('tr').forEach(tr => {
                     const exp = parseNumber(tr.querySelector('[data-f="exposures"]').value);
@@ -5918,6 +5962,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (totalDisplayEl) totalDisplayEl.textContent = fmt.money(totP + totG);
                 syncUnderwritingRiskProfileFromGlRater8702('gl-rater-edit');
             }
+            window.__stmRecalcGLRater87104 = function(reason) {
+                const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+                recalcGLRater();
+                const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+                console.log('[workbench] v8.7.104 GL rater single recalculation:', reason || 'manual', Math.round(t1 - t0) + 'ms');
+                return true;
+            };
 
             // Build 5 default empty rows
             for (let i = 0; i < 5; i++) makeRow();
@@ -6807,6 +6858,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function recalcInternalRater() {
+                if (window.__stmBatchInternalRater87104 === true) {
+                    window.__stmInternalRaterDirty87104 = true;
+                    return;
+                }
                 if (!groundUpTbody || !primaryTbody) return;
                 const hazard = getHazardKey();
                 if (hazardDisplay) {
@@ -6823,6 +6878,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderRatingSummary();
                 syncPricingSummary();
             }
+            window.__stmRecalcInternalRater87104 = function(reason) {
+                const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+                recalcInternalRater();
+                const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+                console.log('[workbench] v8.7.104 internal rater single recalculation:', reason || 'manual', Math.round(t1 - t0) + 'ms');
+                return true;
+            };
 
             // ENGINE-2026-06-10 (Session 6): surface the engine's PANEL-DRIVEN
             // summary outputs. Deliberately NOT shown: D20 / D23 / J235 — in the
@@ -6917,10 +6979,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 recalcInternalRater();
             });
 
+            const prevInitialBatch87104 = window.__stmBatchInternalRater87104;
+            window.__stmBatchInternalRater87104 = true;
             addPrimaryPolicyRow('General Liability', 'TBD', ONE_M);
             addPrimaryPolicyRow('Auto Liability', 'TBD', ONE_M);
             renderTowerDefaults();
             renderHighExcessDefaults();
+            window.__stmBatchInternalRater87104 = prevInitialBatch87104 === true;
+            window.__stmInternalRaterDirty87104 = false;
             recalcInternalRater();
         }
 
