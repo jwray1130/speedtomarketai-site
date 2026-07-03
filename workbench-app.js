@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.101-loss-policy-year-2026-07-02
+  v8.7.102-deal-stability-2026-07-02
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.101-loss-policy-year-2026-07-02';
+window.STM_BUILD = 'v8.7.102-deal-stability-2026-07-02';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -4574,7 +4574,15 @@ document.addEventListener('DOMContentLoaded', () => {
         wireTablist('formsNav',        '.form-panel',           'form-',         'form');
         wireTablist('underwritingNav', '.underwriting-panel',   'underwriting-', 'underwriting');
 
-        $("#dealNum").textContent = Date.now().toString().slice(-6);
+        // v8.7.102: Deal # was Date.now().slice(-6) - a NEW number on every
+        // page load, making the fill non-deterministic across reloads and
+        // flagging phantom edits. Derive it from the submission id instead:
+        // same submission, same number, every load, forever.
+        $("#dealNum").textContent = (function (s) {
+            let h = 5381;
+            for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+            return String(100000 + (h % 900000));
+        })(new URLSearchParams(location.search).get('submission') || 'STM');
         $("#dealName").oninput = e => $("#insuredNameTxt").textContent = e.target.value || "—";
         $("#admission").onchange = e => {
             const c = e.target.value === "admitted" ? "BluePeak Admitted Casualty Company" : "Crestline E&S Insurance Company";
