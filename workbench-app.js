@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.102-deal-stability-2026-07-02
+  v8.7.103-workbench-stage2-deferred-2026-07-03
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.102-deal-stability-2026-07-02';
+window.STM_BUILD = 'v8.7.103-workbench-stage2-deferred-2026-07-03';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1331,10 +1331,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     // the pipeline fill — restored fields get data-user-set so the
                     // 600ms population-pass retry can never clobber them.
                     await restoreWorkbenchEdits8760(data);
-                    // v8.7.99 Stage 2: fetch heavy snapshot.files in its own
-                    // task, merge, and re-run only the file-corpus passes.
+                    // v8.7.103: Stage 2 is now DEFERRED by default.
+                    // The Supabase report proved the staged selects return 200,
+                    // but the browser still blocks after first paint while the
+                    // workbench hydrates/parses/processes snapshot.files[].
+                    // extractMeta.pageTexts. Fetching snap_files still forces
+                    // supabase-js to parse that whole nested array before our
+                    // code can strip it. Therefore the safe fix is to paint and
+                    // populate from Stage 1 only, then lazy-load files only when
+                    // explicitly requested. Existing behavior can be restored for
+                    // diagnostics with localStorage.STM_WORKBENCH_AUTO_STAGE2='1'.
                     if (data.snapshot && data.snapshot._heavyPending) {
-                        (async () => {
+                        const loadWorkbenchFilesStage2 = async (reason) => {
+                            if (!data || !data.snapshot) return null;
+                            if (data.snapshot._stage2Loading) return window.workbenchActiveSubmission || data;
+                            if (data.snapshot._filesLoaded) return window.workbenchActiveSubmission || data;
+                            data.snapshot._stage2Loading = true;
                             try {
                                 await yieldToBrowser8783();
                                 const heavy = await window.sb
@@ -1345,21 +1357,19 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (heavy.error) throw heavy.error;
                                 data.snapshot.files = (heavy.data && heavy.data.snap_files) || [];
                             } catch (hErr) {
-                                console.warn('[workbench] Stage 2 heavy fetch failed, falling back to full row once:', hErr && hErr.message);
+                                console.warn('[workbench] Stage 2 files fetch failed, falling back to full snapshot for explicit file hydration:', hErr && hErr.message);
                                 try {
                                     const full = await window.sb.from('submissions').select('snapshot').eq('id', submissionId).maybeSingle();
                                     if (full.data && full.data.snapshot) data.snapshot = full.data.snapshot;
                                 } catch (_) {}
                             }
                             data.snapshot._heavyPending = false;
+                            data.snapshot._filesDeferred = false;
+                            data.snapshot._filesLoaded = true;
+                            data.snapshot._stage2Loading = false;
                             window.__stmHeavyRefilled8799 = true;
-                            // v8.7.100: the corpus caches (rules adapter bags +
-                            // _csft89Memo) are WeakMaps keyed by the submission
-                            // OBJECT. Stage 1 ran the pipeline with files:[] and
-                            // cached empty corpora against `data`; mutating the
-                            // same object would keep serving those empties. A
-                            // fresh identity makes every cache miss and rebuild
-                            // against the merged files.
+                            // v8.7.100: fresh identity so WeakMap caches rebuild
+                            // against the merged files, not Stage-1 files:[].
                             const refreshed = { ...data };
                             window.workbenchActiveSubmission = refreshed;
                             await yieldToBrowser8783();
@@ -1368,8 +1378,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             try { applyGLExposureRaterFromActiveSubmission(refreshed); } catch (_) {}
                             await yieldToBrowser8783();
                             try { renderFieldCoverageReport(refreshed); } catch (_) {}
-                            console.log('[workbench] Stage 2 heavy merge + refill complete:', (refreshed.snapshot.files || []).length, 'files');
-                        })();
+                            console.log('[workbench] Stage 2 files loaded + refill complete:', (refreshed.snapshot.files || []).length, 'files', '· reason:', reason || 'manual');
+                            return refreshed;
+                        };
+                        window.stmLoadWorkbenchFiles = () => loadWorkbenchFilesStage2('manual');
+                        if (localStorage.STM_WORKBENCH_AUTO_STAGE2 === '1') {
+                            loadWorkbenchFilesStage2('debug-auto');
+                        } else {
+                            data.snapshot._heavyPending = false;
+                            data.snapshot._filesDeferred = true;
+                            window.__stmHeavyRefilled8799 = true;
+                            console.log('[workbench] Stage 2 files deferred to prevent Page Unresponsive. Run window.stmLoadWorkbenchFiles() only if file-text fallback is needed.');
+                        }
                     }
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
@@ -6905,7 +6925,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         setupInternalRater();
-        setTimeout(() => { if (window.workbenchActiveSubmission && !window.__stmHeavyRefilled8799) applyV8685PopulationPass(window.workbenchActiveSubmission); }, 600);
+        setTimeout(() => {
+            const sub = window.workbenchActiveSubmission;
+            const snap = sub && sub.snapshot;
+            if (sub && !window.__stmHeavyRefilled8799 && !(snap && (snap._heavyPending || snap._filesDeferred || snap._stage2Loading))) {
+                applyV8685PopulationPass(sub);
+            }
+        }, 600);
         // v8.7.36: removed [900, 1600, 2600]ms loss-rebind retry cascade.
         // This was a pre-reconciler defense against late DOM resets blanking
         // loss rows. The v8.7.25 MutationObserver in installLossReconciler8725
