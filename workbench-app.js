@@ -1,11 +1,11 @@
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
-  v8.7.104-rater-batch-2026-07-03
+  v8.7.105-gl-rater-structured-2026-07-03
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.104-rater-batch-2026-07-03';
+window.STM_BUILD = 'v8.7.105-gl-rater-structured-2026-07-03';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2239,10 +2239,13 @@ document.addEventListener('DOMContentLoaded', () => {
         function normalizeBasisForSelect(value) {
             const s = String(value || '').toLowerCase();
             if (/payroll/.test(s)) return 'payroll';
+            // v8.7.105: test the broader 1,000 patterns BEFORE the per-$1
+            // pattern. Otherwise a valid quote basis such as "per $1,000"
+            // can be misread as "per $1" and the GL rater will understate
+            // the exposure divisor.
+            if (/sales|revenue|receipts|gross|per\s*\$?1,?000|\/1000|1k|\$\s*1,?000\b/.test(s)) return '1000';
             if (/per\s*\$?100\b|\/100/.test(s)) return '100';
             if (/per\s*\$?1\b|\/1\b/.test(s)) return '1';
-            // Sales, receipts, revenue and most GL class exposures rate per $1,000.
-            if (/sales|revenue|receipts|gross|per\s*\$?1,?000|\/1000|1k/.test(s)) return '1000';
             return '1000';
         }
 
@@ -2529,7 +2532,90 @@ document.addEventListener('DOMContentLoaded', () => {
             return d || (ref && ref.description ? ref.description : 'Description');
         }
 
+        function moneyNumber87105(value) {
+            if (value == null) return 0;
+            const s = String(value).replace(/\u00a0/g, ' ').trim();
+            if (!s || /no information|not stated|included|none|n\/a/i.test(s)) return 0;
+            const compact = /([0-9]+(?:\.[0-9]+)?)\s*(mm|m|million|k|thousand)\b/i.exec(s);
+            if (compact) {
+                const n = Number(compact[1]);
+                const unit = compact[2].toLowerCase();
+                if (!Number.isFinite(n)) return 0;
+                if (unit === 'k' || unit === 'thousand') return Math.round(n * 1000);
+                return Math.round(n * 1000000);
+            }
+            const n = Number(s.replace(/[^0-9.-]/g, ''));
+            return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+        }
+
+        function glQuoteBasisToSelect87105(value) {
+            const s = String(value || '').toLowerCase().replace(/\u00a0/g, ' ').trim();
+            // ISO/quote rate-basis code 1/001 means sales per $1,000 on many
+            // carrier GL class schedules. It is not the rater's "per $1" option.
+            if (/^\(?0*1\)?$/.test(s) || /sales|gross|receipts|revenue|per\s*\$?1,?000|\$\s*1,?000|\/1000|1k/.test(s)) return '1000';
+            if (/^\(?0*4\)?$/.test(s) || /payroll/.test(s)) return 'payroll';
+            if (/per\s*\$?100\b|\/100/.test(s)) return '100';
+            if (/per\s*\$?1\b|\/1\b/.test(s)) return '1';
+            return normalizeBasisForSelect(s || 'gross sales');
+        }
+
+        function rateFromQuotedPremium87105(premium, exposure, baseValue) {
+            const p = moneyNumber87105(premium);
+            const e = moneyNumber87105(exposure);
+            const b = baseValue === 'payroll' ? 100 : (Number(baseValue) || 1000);
+            if (!p || !e || !b) return '';
+            return (p / (e / b)).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+        }
+
+        function structuredGlClassRows87105(submission) {
+            try {
+                const rules = window.WorkbenchRules || null;
+                const parse = rules && typeof rules.parseJsonBlock === 'function' ? rules.parseJsonBlock : null;
+                const rec = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote || null;
+                const text = rec && typeof rec.text === 'string' ? rec.text : '';
+                if (!parse || !text) return [];
+                const obj = parse(text);
+                const arr = obj && Array.isArray(obj.class_codes) ? obj.class_codes : [];
+                const out = [];
+                const seen = new Set();
+                for (const item of arr) {
+                    if (!item || typeof item !== 'object') continue;
+                    const code = String(item.code || item.class_code || item.iso_class_code || '').replace(/[^0-9]/g, '').slice(0, 5);
+                    const exposure = moneyNumber87105(item.premium_basis ?? item.exposure_amount ?? item.exposure ?? item.sales ?? item.gross_sales ?? item.receipts);
+                    if (!/^\d{4,5}$/.test(code) || !isRecognizedGlClass92(code) || exposure <= 0) continue;
+                    const key = code + ':' + exposure;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const base = glQuoteBasisToSelect87105(item.rate_basis ?? item.exposure_basis ?? item.basis ?? item.rating_basis);
+                    const premP = moneyNumber87105(item.prem_ops_premium ?? item.premises_operations_premium ?? item.premops_premium ?? item.prem_ops ?? item.premises_premium);
+                    const premG = moneyNumber87105(item.prod_comp_premium ?? item.products_completed_operations_premium ?? item.products_premium ?? item.products_ops_premium);
+                    out.push({
+                        code,
+                        desc: normalizeGlDesc91(item.description || item.classification || item.iso_description, code),
+                        exposure: exposure.toLocaleString('en-US'),
+                        base,
+                        rateP: rateFromQuotedPremium87105(premP, exposure, base),
+                        rateG: rateFromQuotedPremium87105(premG, exposure, base),
+                        quotePremP: premP || '',
+                        quotePremG: premG || '',
+                        source: 'gl_structured.class_codes'
+                    });
+                }
+                return out.slice(0, 12);
+            } catch (e) {
+                console.warn('[workbench] v8.7.105 structured GL class rows unavailable:', e && e.message);
+                return [];
+            }
+        }
+
         function parseGLClassRows89(submission) {
+            // v8.7.105: Stage 2 files are intentionally deferred, so the GL
+            // rater must not depend on snapshot.files/pageTexts for the class
+            // schedule. Prefer the already-paid GL extraction's structured
+            // class_codes block, which is small, loaded in Stage 1, and works
+            // for every carrier that emits a class schedule.
+            const structuredRows = structuredGlClassRows87105(submission);
+            if (structuredRows.length) return structuredRows;
             const text = collectSnapshotFileTexts89(submission, /quote|acord|application|gl|exposure|supp/i);
             const rows = [];
             const seen = new Set();
@@ -2634,12 +2720,18 @@ document.addEventListener('DOMContentLoaded', () => {
             rowsToApply.forEach((r, i) => {
                 const row = domRows[i];
                 if (!row) return;
+                delete row.dataset.quotePremP;
+                delete row.dataset.quotePremG;
                 put(row, 'code', r.code);
                 put(row, 'desc', r.desc);
                 put(row, 'state', r.state || stateZip.state);
                 put(row, 'zip', r.zip || stateZip.zip);
                 put(row, 'exposures', r.exposure);
                 put(row, 'base', r.base || '1000');
+                put(row, 'rateP', r.rateP);
+                put(row, 'rateG', r.rateG);
+                if (r.quotePremP) row.dataset.quotePremP = String(r.quotePremP);
+                if (r.quotePremG) row.dataset.quotePremG = String(r.quotePremG);
             });
             // v8.7.11: when real GL class rows exist, clear starter/default rows
             // (for example 91580 / GA / 30009 / $0) so they are not mistaken for
@@ -2649,6 +2741,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (idx < rowsToApply.length) return;
                 row.querySelectorAll('input').forEach(inp => { inp.value = ''; inp.classList.remove('autofilled-from-platform'); });
                 row.querySelectorAll('select').forEach(sel => { if (sel.querySelector('option[value="1000"]')) sel.value = '1000'; });
+                delete row.dataset.quotePremP;
+                delete row.dataset.quotePremG;
                 row.querySelectorAll('[data-out], .computed').forEach(cell => { if (cell.tagName !== 'INPUT') cell.textContent = cell.dataset.out && /rate/i.test(cell.dataset.out) ? '0.000' : '$0'; });
             });
             unlockGlRaterRows94(document);
@@ -5950,8 +6044,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const base = (baseSel === 'payroll') ? 100 : Number(baseSel) || 1;
                     const rateP = parseNumber(tr.querySelector('[data-f="rateP"]').value);
                     const rateG = parseNumber(tr.querySelector('[data-f="rateG"]').value);
-                    const premP = (exp / base) * rateP;
-                    const premG = (exp / base) * rateG;
+                    const quotedPremP87105 = parseNumber(tr.dataset.quotePremP || '');
+                    const quotedPremG87105 = parseNumber(tr.dataset.quotePremG || '');
+                    const premP = quotedPremP87105 > 0 ? quotedPremP87105 : (exp / base) * rateP;
+                    const premG = quotedPremG87105 > 0 ? quotedPremG87105 : (exp / base) * rateG;
                     tr.querySelector('[data-out="totalRate"]').textContent = (rateP + rateG).toFixed(3);
                     tr.querySelector('[data-out="premP"]').textContent = fmt.money(premP);
                     tr.querySelector('[data-out="premG"]').textContent = fmt.money(premG);

@@ -1777,8 +1777,11 @@ Before extracting ANY data, perform these steps IN ORDER:
    beside an NAIC code), named insured, policy period, and PER-LINE annual
    premiums there, not on each coverage line's own dec pages. Treat that
    block as authoritative for Carrier, Named Insured, Policy Period, and
-   this line's Annual Premium. Never write "No information provided" for
-   those fields without first checking that block.
+   this line's Annual Premium. For Commercial Auto, however, "AL Annual
+   Premium" means AUTO LIABILITY premium only: first use the LIABILITY row
+   premium from the auto coverage schedule; use the package-cover BUSINESS
+   AUTO total only when no liability-specific premium is stated. Never write
+   "No information provided" for those fields without first checking that block.
 
 Do NOT blend data from multiple insureds under any circumstances.
 
@@ -2281,7 +2284,7 @@ MULTI-QUOTE HANDLING: the input may contain MORE THAN ONE distinct AL quote (sep
 - Radius: [Local / Intermediate / Long Haul mix]
 
 **Premium:**
-- AL Annual Premium: [$XX,XXX]
+- AL Annual Premium: [$XX,XXX] - AUTO LIABILITY premium only. Use the Liability / Auto Liability row premium when stated; do not use the total Business Auto policy premium if it includes physical damage, UM/UIM, med pay, hired auto physical damage, or other non-liability charges.
 
 MONEY FORMAT (mandatory in the visible sections above): every dollar amount carries "$" and comma thousands separators. Never "$1M" abbreviations, slash shorthand, or bare numerals like 1000000.
 
@@ -2289,7 +2292,7 @@ MACHINE BLOCK (mandatory, emitted LAST, after all visible sections): exactly one
 \`\`\`json al_structured
 { "al_carrier": ..., "al_effective_date": ..., "al_expiration_date": ..., "al_combined_single_limit": ..., "al_premium": ..., "fleet_private_passenger": ..., "fleet_light": ..., "fleet_medium": ..., "fleet_heavy": ..., "fleet_extra_heavy": ..., "fleet_truck_tractors": ..., "fleet_heavy_local": ..., "fleet_heavy_other": ..., "fleet_extra_heavy_local": ..., "fleet_extra_heavy_intermediate": ..., "fleet_extra_heavy_long": ..., "fleet_truck_tractors_local": ..., "fleet_truck_tractors_intermediate": ..., "fleet_truck_tractors_long": ..., "alternate_quotes": [ { "alt_carrier": ..., "alt_named_insured": ..., "alt_effective_date": ..., "alt_expiration_date": ..., "alt_combined_single_limit": ..., "alt_premium": ..., "alt_quote_number": ... } ] }
 \`\`\`
-Machine block rules: keys exactly as listed. Dollar values and counts as plain numerals with no "$" or commas; dates as "MM/DD/YYYY" strings; null when not in the source - never guess. Fleet counts MUST equal the visible Fleet Composition lines exactly; the rollup keys (fleet_heavy, fleet_extra_heavy, fleet_truck_tractors) equal the sums of their radius-split keys. This block is machine data for the workbench Fleet Calc and coverage fields; it is hidden from the card, and the visible sections above are the ONLY prose you output.
+Machine block rules: keys exactly as listed. Dollar values and counts as plain numerals with no "$" or commas; dates as "MM/DD/YYYY" strings; null when not in the source - never guess. al_premium is AUTO LIABILITY premium only, not the total Business Auto package premium when separate liability premium is stated. Fleet counts MUST equal the visible Fleet Composition lines exactly; the rollup keys (fleet_heavy, fleet_extra_heavy, fleet_truck_tractors) equal the sums of their radius-split keys. This block is machine data for the workbench Fleet Calc and coverage fields; it is hidden from the card, and the visible sections above are the ONLY prose you output.
 
 Do NOT list policy forms or endorsement schedules in this AL output. Per underwriter policy, forms and endorsements are reported only in the GL and Excess outputs.
 
