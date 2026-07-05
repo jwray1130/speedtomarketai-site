@@ -1960,10 +1960,21 @@ table.queue {
   font-weight: 600;
 }
 .sc-body ul { list-style: none; padding: 0; margin: 4px 0 8px 0; }
-.sc-body li { padding: 3px 0 3px 14px; position: relative; font-size: 12px; line-height: 1.55; }
+/* v8.7.112: breathing room between bullets. Top-level items carry 7px of
+   vertical padding (was 3px) so facts no longer sit on top of each other.
+   Sub-bullets stay tight (2px) and the first sub in a run pulls up toward
+   its parent, so a question and its evidence read as one group with air
+   after the group. Dot offsets recomputed for the new padding. */
+.sc-body li { padding: 7px 0 7px 14px; position: relative; font-size: 12px; line-height: 1.55; }
 /* v8.7.86: the list marker was a 6px x 1px hairline bar - functionally
    invisible next to the workbench's solid bullet glyphs. Round dot instead. */
-.sc-body li::before { content: ""; position: absolute; left: 1px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--signal); }
+.sc-body li::before { content: ""; position: absolute; left: 1px; top: 13px; width: 5px; height: 5px; border-radius: 50%; background: var(--signal); }
+/* v8.7.111: nested sub-bullets (detail lines under a parent question or
+   project). Indented, smaller, muted dot so evidence reads as a child of
+   its parent instead of a sibling. */
+.sc-body li.md-sub { padding: 2px 0 2px 32px; }
+.sc-body li:not(.md-sub) + li.md-sub { margin-top: -5px; }
+.sc-body li.md-sub::before { left: 17px; top: 8px; width: 4px; height: 4px; background: var(--text-3); }
 .sc-body hr { border: none; border-top: 1px dashed var(--line); margin: 12px 0; }
 .sc-body code {
   background: var(--surface-2);

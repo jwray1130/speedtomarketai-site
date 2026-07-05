@@ -3020,8 +3020,37 @@
     if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_v8783');
     if ((fieldName === 'guideline_conflicts_text' || fieldName === 'guideline_conflicts') && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
     if (fieldName === 'summary_operations' && moduleKey === 'summary-ops') return hit(firstReasonableParagraph(clean, 2200), 0.88, 'summary_ops_narrative');
-    if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(firstReasonableParagraph(clean, 2200), 0.90, 'strengths_narrative_alias');
-    if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) return hit(firstReasonableParagraph(clean, 2200), 0.86, 'ops_narrative');
+    if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_alias_v8122');  // v8.7.122: alias carries the same full narrative as account_strengths
+    if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) {
+      // v8.7.119: the v8.7.109 supplemental clean-output format opens with a
+      // Company Overview label cluster; the true operations narrative is the
+      // prose paragraph under the numbered "Operations Summary" header.
+      // Prefer it when present. Every legacy format lacks that header and
+      // falls through to the original behavior byte-for-byte (harness U2/U4).
+      if (moduleKey === 'supplemental') {
+        // v8.7.122: broadened per release audit. Accept optional bold, an
+        // optional trailing colon, and concise valid prose (>= 40 chars) that
+        // is not a placeholder and not a label cluster. Legacy formats still
+        // fall through byte-for-byte (harness U2/U4).
+        const opsM = raw.match(/\*{0,2}\s*\d+\.\s*Operations Summary:?\s*\*{0,2}\s*\n+([\s\S]*?)(?=\n\s*\n|\n\*\*|$)/i);
+        if (opsM && opsM[1]) {
+          const opsBody = String(opsM[1]).trim();
+          const labelLines = (opsBody.match(/^[A-Z][^:\n]{0,40}:\s/gm) || []).length;
+          const isPlaceholder = /^(no information provided|not provided|not stated|n\/?a)\.?$/i.test(opsBody);
+          if (opsBody.length >= 40 && !isPlaceholder && labelLines < 2) {
+            return hit(firstReasonableParagraph(opsBody, 2200), 0.87, 'ops_narrative_section2_v8119');
+          }
+          // v8.7.122: the document declared an Operations Summary section but
+          // its body is a placeholder or a label cluster. Returning null lets
+          // the waterfall continue (website next) instead of falling through
+          // to the generic first-paragraph grab, which would emit title/label
+          // junk. Legacy formats without the header never reach this branch,
+          // so v8.7.105-era behavior stays byte-identical (U4).
+          return null;
+        }
+      }
+      return hit(firstReasonableParagraph(clean, 2200), 0.86, 'ops_narrative');
+    }
     if (fieldName === 'underwriting_rationale' && (moduleKey === 'discrepancy' || moduleKey === 'guidelines' || moduleKey === 'exposure' || moduleKey === 'summary-ops')) return hit(firstReasonableParagraph(clean, 2200), 0.78, 'rationale_narrative');
 
 

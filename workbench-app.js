@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.105-gl-rater-structured-2026-07-03';
+window.STM_BUILD = 'v8.7.123-safety-context-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

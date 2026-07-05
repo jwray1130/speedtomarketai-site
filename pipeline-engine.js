@@ -428,6 +428,156 @@ function sliceTextForModule(f, mid) {
 }
 
 // ============================================================================
+// v8.7.106 SUPPLEMENTAL PRIMACY (A2 input restructure)
+// ROOT CAUSE (TEST 5 forensics, 2026-07-05): ACORD 125/126/131 and true
+// carrier supp apps all route to the single 'supplemental' module and were
+// concatenated into ONE undifferentiated blob. On a mixed-insured fixture
+// (Carroll County ACORD + Anahuac VELA questionnaire) the Layer A applicant
+// filter, with account_name locked to the submission account, correctly
+// excluded the foreign-insured supp app and filled the whole template from
+// the ACORD. Every "No information provided" row was the filter working as
+// written on the wrong document mix. The v8.7.55 test-packet hatch only
+// neutralized the prompt filter for the PURE no-match case; a mixed-match
+// input (ACORD matches account, supp app does not) kept account_name locked
+// and the supp app was silently discarded.
+//
+// FIX, part 1 of 2 (this block): when at least one TRUE supp app file is
+// routed to A2, build the input as a labeled PRIMARY section (the supp app
+// file(s)) followed by labeled SECONDARY sections (ACORD / Narrative / DOO
+// files). The A2 prompt gains a matching SUPPLEMENTAL PRIMACY rule: the
+// primary section's stated Applicant IS the subject insured; secondary
+// sections may only fill fields the primary leaves silent and only when
+// their insured matches the primary applicant.
+// Part 2 of 2 lives in runModule: shouldNeutralizeApplicantFilter8706.
+//
+// BACKWARD COMPAT GUARANTEE: when NO true supp app file is present in the
+// matched set (the overwhelmingly common production case for ACORD-only
+// submissions), buildSupplementalCombinedInput8706 returns a string that is
+// BYTE-IDENTICAL to the legacy '=== FILE: name ===' format. Zero drift.
+// ============================================================================
+function isTrueSuppAppClassification8706(c) {
+  if (!c) return false;
+  const route = classifierToRoute(c.type, c.subType, c.tag);
+  if (route !== 'supplemental') return false;
+  const label = String(c.tag || c.subType || c.type || '').toLowerCase();
+  if (label.indexOf('acord') !== -1) return false;
+  if (label.indexOf('narrative') !== -1) return false;
+  if (label.indexOf('description of operations') !== -1) return false;
+  // Covers: 'Supp App', 'Contractors Supp', 'Manufacturing Supp',
+  // 'HNOA Supp', 'Captive Supp', legacy 'supplemental_*' subtypes,
+  // legacy 'supplemental' type, and questionnaire-titled carrier forms.
+  return /(supp|questionnaire)/.test(label);
+}
+
+function isTrueSuppAppFile8706(f) {
+  if (!f) return false;
+  const cls = Array.isArray(f.classifications) ? f.classifications : [];
+  for (let i = 0; i < cls.length; i++) {
+    if (isTrueSuppAppClassification8706(cls[i])) return true;
+  }
+  // Files from very old sessions may lack classifications[] but carry a
+  // routing-flavored primary type on the record itself.
+  if (!cls.length && f.type) {
+    return isTrueSuppAppClassification8706({ type: f.type, subType: f.subType || null, tag: f.tag || null });
+  }
+  return false;
+}
+
+function splitSupplementalInputFiles8706(matched) {
+  const primary = [];
+  const secondary = [];
+  (matched || []).forEach(function (f) {
+    if (isTrueSuppAppFile8706(f)) primary.push(f); else secondary.push(f);
+  });
+  return { primary: primary, secondary: secondary };
+}
+
+function buildSupplementalCombinedInput8706(matched) {
+  const split = splitSupplementalInputFiles8706(matched);
+  // No true supp app present: legacy format, byte-identical to pre-v8.7.106.
+  if (split.primary.length === 0) {
+    return (matched || []).map(function (f) {
+      return '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, 'supplemental');
+    }).join('\n\n');
+  }
+  const parts = [];
+  split.primary.forEach(function (f) {
+    let part = '=== SUPPLEMENTAL APPLICATION (PRIMARY SOURCE): ' + f.name + ' ===\n\n' + sliceTextForModule(f, 'supplemental');
+    // v8.7.108: append deterministic checkbox marks (captured at ingest by
+    // pipeline-core's tick detector) to the PRIMARY section only. Prompt rule
+    // CB5 treats this block as the authoritative tick states. Absent marks
+    // leave the section byte-identical to v8.7.107.
+    const marks8708 = (f.extractMeta && f.extractMeta.checkboxMarks8708) || f.checkboxMarks8708 || null;
+    const block8708 = buildCheckboxMarksBlock8708(marks8708);
+    if (block8708) part += '\n\n' + block8708;
+    parts.push(part);
+  });
+  split.secondary.forEach(function (f) {
+    parts.push('=== OTHER APPLICATION CONTEXT (SECONDARY, ACORD/NARRATIVE): ' + f.name + ' ===\n\n' + sliceTextForModule(f, 'supplemental'));
+  });
+  return parts.join('\n\n');
+}
+
+// v8.7.123: A5 Safety is a wave-1 file module, so a fresh run fed it ONLY the
+// safety manual. For a generic manual, the prompt's RELEVANCE FILTER had no
+// reliable way to know the account's actual operations. When any
+// supplemental-routed file exists in the same run, prepend a short slice of
+// the APPLICATION text as context, clearly marked for the filter only; the
+// prompt forbids crediting anything in it as a safety control. When no such
+// file exists, the A5 input is byte-identical to before (harness Z3).
+function buildSafetyContextPrefix8723() {
+  try {
+    const suppFiles8723 = (STATE.files || []).filter(f => f.state === 'classified'
+      && ((f.routedToAll && f.routedToAll.includes('supplemental')) || f.routedTo === 'supplemental'));
+    if (!suppFiles8723.length) return '';
+    const ctxSlice8723 = String(sliceTextForModule(suppFiles8723[0], 'supplemental') || '').slice(0, 1500).trim();
+    if (!ctxSlice8723) return '';
+    return '=== ACCOUNT CONTEXT (from the application; for the RELEVANCE FILTER only; NEVER credit anything here as a safety control) ===\n\n' + ctxSlice8723 + '\n\n';
+  } catch (e) { return ''; }
+}
+window.buildSupplementalCombinedInput8706 = buildSupplementalCombinedInput8706;
+
+// v8.7.108: render captured tick states for the A2 input. One line per mark,
+// question label first, machine-verified value second. Consumed by prompt
+// rule CB5 ("=== CHECKBOX MARKS" block is authoritative).
+function buildCheckboxMarksBlock8708(marks) {
+  if (!Array.isArray(marks) || !marks.length) return '';
+  const lines = marks.map(function (m) {
+    const label = String(m.label || '').replace(/"/g, "'");
+    return 'Page ' + m.page + ': "' + label + '" -> ' + m.value + ' marked';
+  });
+  return '=== CHECKBOX MARKS (deterministic vector capture, v8.7.108) ===\n' +
+    'Authoritative tick states read from the PDF vector layer. Questions not listed here had no machine-detectable mark.\n' +
+    lines.join('\n') +
+    '\n=== END CHECKBOX MARKS ===';
+}
+window.buildCheckboxMarksBlock8708 = buildCheckboxMarksBlock8708;
+
+// v8.7.106 FIX, part 2 of 2: neutralize the Layer A prompt filter for
+// strict support-doc modules on deliberate TEST/demo/frankenstein packets
+// whenever ANY detected insured in the module's input fails to match the
+// submission account, INCLUDING the mixed case where another document in
+// the same input DOES match (the exact TEST 5 failure). Production packets
+// (non-fixture filenames) are untouched: the strict v8.7.23 zero-tolerance
+// gate still refuses or quarantines there.
+function shouldNeutralizeApplicantFilter8706(moduleId, gateResult, context) {
+  if (!/^(?:safety|supplemental|subcontract|vendor)$/.test(String(moduleId || ''))) return false;
+  if (!context || !context.account_name || context.account_name === '(unknown)') return false;
+  if (!gateResult || gateResult.proceed !== true) return false;
+  if (!isTestPacketContext8754(context)) return false;
+  const detected = gateResult.allDetected
+    || gateResult.detectedInsureds
+    || (gateResult.precheck && gateResult.precheck.detected)
+    || [];
+  if (!detected.length) return false;
+  for (let i = 0; i < detected.length; i++) {
+    if (!_gateInsuredMatches(detected[i], context.account_name)) return true;
+  }
+  return false;
+}
+window.shouldNeutralizeApplicantFilter8706 = shouldNeutralizeApplicantFilter8706;
+
+// ============================================================================
 // DOCS-VIEW CATEGORY MAP — translates classifier types into docs view
 // category + color so the file lands in the right bucket and gets the right
 // auto-tag color. This is what makes the pipeline output show up in the
@@ -640,8 +790,15 @@ const MODULES = {
   tower:         { code: 'A15', name: 'Excess Tower',            wave: 2, deps: ['supplemental'], inputsFrom: 'extractions', optionalDeps: ['excess','gl_quote','al_quote'], model: 'claude-opus-4-8' },
   // WAVE 3 — analysis on top of Summary of Ops + discrepancy cross-check
   guidelines:    { code: 'A8',  name: 'Guideline Cross-Ref',     wave: 3, deps: ['summary-ops'], inputsFrom: 'extraction',    model: 'claude-opus-4-8'    },
-  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], optionalDeps: ['losses'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
-  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], optionalDeps: ['safety','subcontract','losses','tower','gl_quote','al_quote','excess'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
+  // v8.7.118: A9 previously saw only A6 + losses; severity specifics in the
+  // raw supp app, safety review, subcontract, vendor, website, tower, and
+  // quotes arrived pre-compressed through A6. Full first-hand access now;
+  // optionalDeps inject only COMPLETED extractions, so submissions missing
+  // any of these build a byte-identical prompt minus that block.
+  exposure:      { code: 'A9',  name: 'Exposure to Loss',        wave: 3, deps: ['summary-ops'], optionalDeps: ['losses','supplemental','safety','subcontract','vendor','website','tower','gl_quote','al_quote','excess'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
+  // v8.7.118: A10 gains first-hand supplemental, vendor, and website access
+  // (previously second-hand through A6 only). Same completed-only guarantee.
+  strengths:     { code: 'A10', name: 'Account Strengths',       wave: 3, deps: ['summary-ops'], optionalDeps: ['supplemental','safety','subcontract','vendor','website','losses','tower','gl_quote','al_quote','excess'], inputsFrom: 'extractions',   model: 'claude-opus-4-8'    },
   // Discrepancy only runs when there's an email to compare against. It takes
   // email_intel as its REQUIRED dep, and all the authoritative-source extractions
   // as OPTIONAL deps — the prompt handles the "which sources are present" logic.
@@ -654,8 +811,31 @@ const MODULES = {
 // v8.6.96 - module-specific token budgets and retry policy.
 // A11 Loss History can exceed the global token ceiling because it emits
 // tables plus structured JSON. Give it a larger budget and a retry path.
-const MODULE_MAX_TOKENS = { losses: 12000, guidelines: 16000 };
-const MODULE_RETRY_MAX_TOKENS = { losses: 20000, guidelines: 24000 };
+// v8.7.107: A2 template grew (work-type percentages + checkbox responses).
+// Floor its output budget so a low user maxTokens cannot truncate a dense
+// contractor supp app mid-template.
+const MODULE_MAX_TOKENS = { losses: 12000, guidelines: 16000, supplemental: 8000, safety: 6000 };
+const MODULE_RETRY_MAX_TOKENS = { losses: 20000, guidelines: 24000, supplemental: 12000, safety: 10000 };
+// v8.7.121: parse and coverage-check the A5 machine-only grounding block.
+// credited = plain bullets in Sections 2-4 of the VISIBLE review; checked =
+// documented rows in the Section 5 table. The block must carry at least 75%
+// of that count in '->' anchor lines (merged bullets get honest slack).
+function validateSafetyGrounding8721(text) {
+  const raw = String(text || '');
+  const bm = raw.match(/```(?:text)?\s*safety_grounding\s*\n([\s\S]*?)```/i);
+  const visible = raw.replace(/```(?:text)?\s*safety_grounding[\s\S]*?```/gi, '');
+  const s2 = visible.indexOf('**2.');
+  const s5 = visible.indexOf('**5.');
+  const midSection = (s2 > -1) ? visible.slice(s2, s5 > s2 ? s5 : undefined) : '';
+  const credited = (midSection.match(/^\s*-\s+\S/gm) || []).length;
+  const checked = (visible.match(/\|\s*\u2714\s*\|/g) || []).length;
+  const expected = credited + checked;
+  const anchors = bm ? bm[1].split(/\n+/).filter(l => l.indexOf('->') > -1).length : 0;
+  const ok = expected === 0 ? true : (!!bm && anchors >= Math.max(1, Math.ceil(expected * 0.75)));
+  return { ok, hasBlock: !!bm, anchors, expected, credited, checked };
+}
+window.validateSafetyGrounding8721 = validateSafetyGrounding8721;
+
 function moduleMaxTokens(moduleId, retry) {
   const globalMax = Number(STATE && STATE.api && STATE.api.maxTokens) || 4096;
   const map = retry ? MODULE_RETRY_MAX_TOKENS : MODULE_MAX_TOKENS;
@@ -1191,7 +1371,13 @@ async function applyReclassifications() {
     changed = false;
     for (const [mid, m] of Object.entries(MODULES)) {
       if (modulesToRerun.has(mid)) continue;
-      if (m.deps && m.deps.some(d => modulesToRerun.has(d))) {
+      // v8.7.120: cascade through BOTH required and optional deps, matching
+      // computeDownstream(). Before this, manually reclassifying a file into
+      // an optional source (vendor, website, losses, a quote family) reran
+      // that extraction but left A9/A10/A24 stale even though they now
+      // consume those sources first-hand.
+      const allDeps8720 = [...(m.deps || []), ...(m.optionalDeps || [])];
+      if (allDeps8720.some(d => modulesToRerun.has(d))) {
         modulesToRerun.add(mid);
         changed = true;
       }
@@ -1638,7 +1824,18 @@ async function rerunModules(moduleIds) {
       setNodeState(`[data-module="${mid}"]`, 'running');
 
       let runResult = null;  // null = not attempted, true = success, false = failure
-      if (m.inputsFrom === 'file') {
+      if (mid === 'guidelines') {
+        // v8.7.120: A8 is inputsFrom:'extraction' (singular), so the generic
+        // rerun path fed it A6 text WITHOUT the active carrier guideline; the
+        // old guideline special-case sat in the 'extractions' branch A8 never
+        // reaches. Build the same composite input the initial run uses.
+        if (STATE.extractions['summary-ops']) {
+          const glInput8720 = 'ACCOUNT OPERATIONS:\n\n' + STATE.extractions['summary-ops'].text + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
+          runResult = await runModule(mid, PROMPTS[mid], glInput8720, 'A6 + guidelines', pipelineContext);
+        } else {
+          skipModule(mid, 'no Summary of Ops');
+        }
+      } else if (m.inputsFrom === 'file') {
         const matched = filesByModule[mid];
         if (matched && matched.length > 0) {
           // v8.5 Rule 9: slice each file's text to only the section(s)
@@ -1646,7 +1843,13 @@ async function rerunModules(moduleIds) {
           // containing ACORD 125 + 126 + Loss Runs), this prevents the
           // supplemental module from receiving loss-run text and vice versa.
           // Falls back to f.text for non-combined or pre-v8.5 files.
-          const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
+          // v8.7.106: A2 gets supp-app-primacy input ordering; legacy
+          // format is preserved byte-identically when no supp app exists.
+          const combined = (mid === 'supplemental')
+            ? buildSupplementalCombinedInput8706(matched)
+            : (mid === 'safety')
+              ? buildSafetyContextPrefix8723() + matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n')
+            : matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
           const src = matched.map(f => f.name).join(', ');
           runResult = await runModule(mid, PROMPTS[mid], combined, src, pipelineContext);
         } else {
@@ -1666,6 +1869,18 @@ async function rerunModules(moduleIds) {
         // That meant discrepancy could rerun without seeing the source that
         // triggered it — degraded output vs. the original full run. Combine
         // required + optional deps here to match what the initial run uses.
+        // v8.7.120: required deps gate the rerun; optional deps only enrich.
+        // Without this, A9/A10 could rerun from optional-only sources when A6
+        // was missing, and the prompt's hard-gate message counted as a
+        // successful run, overwriting the prior good extraction (which the
+        // backup/restore below only restores on failure or skip). Tower is
+        // allowlisted: it is designed to run from any quote/supp family.
+        const requiredDeps8720 = m.deps || [];
+        const requiredPresent8720 = requiredDeps8720.filter(d => STATE.extractions[d]);
+        const OPTIONAL_ONLY_OK_8720 = (mid === 'tower');
+        if (requiredDeps8720.length && requiredPresent8720.length === 0 && !OPTIONAL_ONLY_OK_8720) {
+          skipModule(mid, 'required dep missing');
+        } else {
         const allDeps = [
           ...(m.deps || []),
           ...(m.optionalDeps || [])
@@ -1673,12 +1888,7 @@ async function rerunModules(moduleIds) {
         const availableDeps = allDeps.filter(d => STATE.extractions[d]);
         if (availableDeps.length > 0) {
           const combined = availableDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-          if (mid === 'guidelines') {
-            // Guidelines needs the appended guidelines text
-            const soText = STATE.extractions['summary-ops'] ? STATE.extractions['summary-ops'].text : '';
-            const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
-            runResult = await runModule(mid, PROMPTS[mid], glInput, 'A6 + guidelines', pipelineContext);
-          } else if (mid === 'classcode') {
+          if (mid === 'classcode') {
             // v8.7.90: rerun parity for class-code grounding + validation
             runResult = await runModule(mid, PROMPTS[mid], appendGlCandidates8790(combined), availableDeps.map(d => MODULES[d].code).join('+') + '+table', pipelineContext);
             if (runResult === true) validateGlClasscodeOutput8790('rerun');
@@ -1687,6 +1897,19 @@ async function rerunModules(moduleIds) {
           }
         } else {
           skipModule(mid, 'no deps ready');
+        }
+        }
+      }
+
+      // v8.7.120 gate-message belt: even with required deps present, a model
+      // misfire can return the literal hard-gate line for A9/A10. Treat that
+      // as a failed rerun so the FIX #2 restore below preserves the prior
+      // good narrative instead of letting a gate message overwrite it.
+      if (runResult === true && (mid === 'exposure' || mid === 'strengths') && backup[mid]) {
+        const gatedText8720 = ((STATE.extractions[mid] || {}).text || '').trim();
+        if (/^\*\*Summary of Operations not available/.test(gatedText8720)) {
+          logAudit('Pipeline', 'Rerun of ' + MODULES[mid].code + ' returned a hard-gate message; suppressing it and restoring the prior extraction', 'warn');
+          runResult = false;
         }
       }
 
@@ -1772,7 +1995,9 @@ async function rerunGuidelines() {
     changed = false;
     for (const [mid, m] of Object.entries(MODULES)) {
       if (modulesToRerun.includes(mid)) continue;
-      if (m.deps && m.deps.some(d => modulesToRerun.includes(d))) {
+      // v8.7.120: same full-graph cascade as manual reclassification.
+      const allDeps8720g = [...(m.deps || []), ...(m.optionalDeps || [])];
+      if (allDeps8720g.some(d => modulesToRerun.includes(d))) {
         modulesToRerun.push(mid);
         changed = true;
       }
@@ -4863,7 +5088,7 @@ function localApplicantGate8718(moduleId, userContent, context) {
   if (strictSupportDoc && nonMatches.length) {
     if (mismatchAllowedForExtraction) {
       console.warn('[applicant-gate] ' + moduleId + ' LOCAL MISMATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
-      return { proceed: true, reason: 'local_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+      return { proceed: true, reason: 'local_mismatch_allowed_test_packet_v8754', mismatchAllowed: true, mixedInsureds: matches.length > 0, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
     }
     console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + nonMatches.join(', '));
     return { proceed: false, reason: 'local_mismatch_v8723', detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8723' } } };
@@ -4871,7 +5096,7 @@ function localApplicantGate8718(moduleId, userContent, context) {
   if (matches.length) return { proceed: true, reason: 'local_matched', matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true } };
   if (mismatchAllowedForExtraction) {
     console.warn('[applicant-gate] ' + moduleId + ' LOCAL NO-MATCH ALLOWED FOR TEST PACKET. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
-    return { proceed: true, reason: 'local_no_match_allowed_test_packet_v8754', mismatchAllowed: true, detectedInsureds: detected, matchedInsureds: [], allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
+    return { proceed: true, reason: 'local_no_match_allowed_test_packet_v8754', mismatchAllowed: true, mixedInsureds: false, detectedInsureds: detected, matchedInsureds: [], allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8754' } } };
   }
   console.warn('[applicant-gate] ' + moduleId + ' LOCAL REFUSED. Submission insured: "' + context.account_name + '". Documents reference: ' + detected.join(', '));
   return { proceed: false, reason: 'local_no_match', detectedInsureds: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8718' } } };
@@ -4919,6 +5144,7 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
       proceed: true,
       reason: 'precheck_mismatch_allowed_test_packet_v8754',
       mismatchAllowed: true,
+      mixedInsureds: false,
       detectedInsureds: precheck.detected,
       matchedInsureds: [],
       allDetected: precheck.detected,
@@ -5470,7 +5696,16 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     // substitute account_name as "(unknown)" so the supplemental prompt does
     // not self-refuse before extraction. The real submission account remains
     // preserved in gateDetails/submissionInsured metadata.
-    if (gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) {
+    // v8.7.106: ALSO neutralize for the MIXED case on strict support-doc
+    // modules (safety/supplemental/subcontract/vendor) in test-packet mode.
+    // TEST 5 forensics: an input holding both a submission-account ACORD and
+    // a foreign-insured supp app produced matchedInsureds > 0, this branch
+    // was skipped, account_name stayed locked, and the Layer A filter made
+    // the model discard the supp app entirely. Production behavior is
+    // unchanged: shouldNeutralizeApplicantFilter8706 requires the v8.7.55
+    // fixture-filename context to be true.
+    const neutralize8706 = shouldNeutralizeApplicantFilter8706(moduleId, gateResult, context);
+    if ((gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) || neutralize8706) {
       enrichedContext = Object.assign({}, enrichedContext || context || {}, {
         original_account_name: context && context.account_name ? context.account_name : null,
         account_name: '(unknown)',
@@ -5488,25 +5723,34 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     try {
       result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
     } catch (err) {
-      if ((moduleId === 'losses' || moduleId === 'guidelines') && isModelTruncationError(err)) {
-        const isGuidelines = moduleId === 'guidelines';
-        const retryPrompt = effectivePrompt + (isGuidelines
-          ? '\n\nV8.7.11 RETRY AFTER TRUNCATION: The first A8 Guideline Cross-Ref response hit the output token ceiling. Return a concise guideline-conflict digest only. Do not quote source extracts or long guideline passages. If no reliable conflict can be completed, return a review-required unavailable note plus fenced JSON guideline_conflicts_structured.'
-          : '\n\nV8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.');
-        logAudit('Pipeline', isGuidelines ? 'Retrying A8 Guideline Cross-Ref with higher token budget after truncation' : 'Retrying A11 Loss History with higher token budget after truncation', 'warn');
+      // v8.7.121: truncation retry generalized to a per-module map. losses
+      // and guidelines keep their deterministic fallback builders; the two
+      // dense Sonnet modules (A2 supplemental, A5 safety) gain a compact
+      // contract-preserving retry, and rethrow if the retry also truncates
+      // (the caller's failure path and rerun restore handle it honestly).
+      const RETRY_TRUNC_8721 = {
+        losses: { note: 'V8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.', fb: (uc, msg) => buildLossFallbackExtraction96(uc, msg) },
+        guidelines: { note: 'V8.7.11 RETRY AFTER TRUNCATION: The first A8 Guideline Cross-Ref response hit the output token ceiling. Return a concise guideline-conflict digest only. Do not quote source extracts or long guideline passages. If no reliable conflict can be completed, return a review-required unavailable note plus fenced JSON guideline_conflicts_structured.', fb: (uc, msg) => buildGuidelinesFallbackExtraction8711(uc, msg) },
+        supplemental: { note: 'V8.7.121 RETRY AFTER TRUNCATION: The first A2 response hit the output token ceiling. Regenerate the COMPLETE CLEAN OUTPUT CONTRACT more concisely: shorten prose and detail sub-bullets, but NEVER drop a Section 8 question, a stated percentage, a dollar amount, or a count.' },
+        safety: { note: 'V8.7.121 RETRY AFTER TRUNCATION: The first A5 response hit the output token ceiling. Regenerate more concisely: trim Section 2-4 wording, but the fenced safety_grounding block is MANDATORY and must be complete; trim prose, never the block.' }
+      };
+      const rt8721 = RETRY_TRUNC_8721[moduleId];
+      if (rt8721 && isModelTruncationError(err)) {
+        const retryPrompt = effectivePrompt + '\n\n' + rt8721.note;
+        logAudit('Pipeline', 'Retrying ' + MODULES[moduleId].code + ' · ' + MODULES[moduleId].name + ' with higher token budget after truncation', 'warn');
         try {
           result = await callLLM(retryPrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, true) });
           result.retry_attempt = 1;
         } catch (retryErr) {
-          if (isModelTruncationError(retryErr)) {
+          if (isModelTruncationError(retryErr) && rt8721.fb) {
             result = {
-              text: isGuidelines ? buildGuidelinesFallbackExtraction8711(userContent, retryErr.message || err.message) : buildLossFallbackExtraction96(userContent, retryErr.message || err.message),
+              text: rt8721.fb(userContent, retryErr.message || err.message),
               stop_reason: 'fallback_after_truncation',
               usage: retryErr.usage || err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model },
               fallback: true,
               retry_attempt: 1
             };
-            logAudit('Pipeline', isGuidelines ? 'A8 Guideline Cross-Ref used deterministic fallback after retry truncation' : 'A11 Loss History used deterministic fallback after retry truncation', 'warn');
+            logAudit('Pipeline', MODULES[moduleId].code + ' used deterministic fallback after retry truncation', 'warn');
           } else {
             throw retryErr;
           }
@@ -5515,11 +5759,38 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
         throw err;
       }
     }
+    // v8.7.121: deterministic safety_grounding enforcement. The prompt's
+    // anchor contract was previously prompt-only; now the block is parsed
+    // and coverage-checked. One corrective retry; if still short, the output
+    // is kept but flagged review-required (groundingWarning8721) and audited.
+    let extraUsage8721 = null;
+    if (moduleId === 'safety' && result && result.text) {
+      const gv = validateSafetyGrounding8721(result.text);
+      if (!gv.ok) {
+        logAudit('Pipeline', 'A5 safety_grounding ' + (gv.hasBlock ? 'under-anchored (' + gv.anchors + '/' + gv.expected + ')' : 'block MISSING') + ' — corrective retry', 'warn');
+        try {
+          const fix = await callLLM(effectivePrompt + '\n\nV8.7.121 CORRECTIVE RETRY: your previous response omitted or under-filled the MANDATORY fenced safety_grounding block. Regenerate the COMPLETE review. Every credited bullet in Sections 2 through 4 and every documented table row must have exactly one anchor line in the block. If you cannot anchor a claim, delete the claim from the visible sections.', userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, true) });
+          extraUsage8721 = fix.usage || null;
+          const gv2 = validateSafetyGrounding8721(fix.text);
+          if (gv2.ok) {
+            result = fix;
+            result.retry_attempt = (result.retry_attempt || 0) + 1;
+            logAudit('Pipeline', 'A5 corrective retry produced a complete safety_grounding block (' + gv2.anchors + '/' + gv2.expected + ')', 'warn');
+          } else {
+            result.groundingWarning8721 = { anchors: gv2.anchors, expected: gv2.expected, hasBlock: gv2.hasBlock };
+            logAudit('Pipeline', 'A5 still unanchored after corrective retry (' + gv2.anchors + '/' + gv2.expected + ') — keeping first output, marked review-required', 'error');
+          }
+        } catch (gfixErr) {
+          result.groundingWarning8721 = { anchors: gv.anchors, expected: gv.expected, hasBlock: gv.hasBlock, retryError: String(gfixErr && gfixErr.message || gfixErr) };
+          logAudit('Pipeline', 'A5 grounding corrective retry failed (' + (gfixErr && gfixErr.message) + ') — keeping first output, marked review-required', 'error');
+        }
+      }
+    }
     const elapsed = (Date.now() - t0) / 1000;
     const text = result.text;
     const hasQc = /checklist|source extracts/i.test(text);
     const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
-    const cost = calcCost(usage);
+    const cost = calcCost(usage) + (extraUsage8721 ? calcCost(extraUsage8721) : 0);
     STATE.extractions[moduleId] = {
       text: text,
       confidence: estimateExtractionConfidence(text),
@@ -5544,6 +5815,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       matchedInsureds: (gateResult && gateResult.matchedInsureds) || [],
       gateDetails: gateResult || null
     };
+    if (result.groundingWarning8721) STATE.extractions[moduleId].groundingWarning8721 = result.groundingWarning8721;
     if (moduleId === 'losses') {
       try {
         const lossJson98 = parseLossStructuredForArchive98(text);
@@ -6399,7 +6671,14 @@ async function runPipeline() {
       const matched = filesByModule[mid];
       if (matched && matched.length > 0) {
         // v8.5 Rule 9: per-section text slicing. See sliceTextForModule.
-        const combined = matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
+        // v8.7.106: A2 gets supp-app-primacy input ordering; when no true
+        // supp app is routed, the builder returns the legacy format
+        // byte-identically. All other modules keep the legacy path.
+        const combined = (mid === 'supplemental')
+          ? buildSupplementalCombinedInput8706(matched)
+          : (mid === 'safety')
+            ? buildSafetyContextPrefix8723() + matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n')
+          : matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
         const src = matched.map(f => f.name).join(', ');
         wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src, pipelineContext));
       } else {
@@ -6535,7 +6814,8 @@ async function runPipeline() {
       .filter(mid => STATE.extractions[mid])
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
-    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, exposureSources, 'A6 + losses', pipelineContext));
+    const exposurePresent8720 = [...MODULES.exposure.deps, ...(MODULES.exposure.optionalDeps || [])].filter(mid => STATE.extractions[mid]);
+    wave3Tasks.push(runModule('exposure', PROMPTS.exposure, exposureSources, exposurePresent8720.map(d => MODULES[d].code).join('+'), pipelineContext));
 
     // v8.7.84: strengths sources also derive from the descriptor, and the
     // numeric critic now lives in verifyStrengthsNumericPass8784 — shared
@@ -6546,7 +6826,8 @@ async function runPipeline() {
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
     wave3Tasks.push((async () => {
-      const ok = await runModule('strengths', PROMPTS.strengths, strengthSources, 'A6 + safety/sub/loss/tower/quotes', pipelineContext);
+      const strengthsPresent8720 = [...MODULES.strengths.deps, ...(MODULES.strengths.optionalDeps || [])].filter(mid => STATE.extractions[mid]);
+      const ok = await runModule('strengths', PROMPTS.strengths, strengthSources, strengthsPresent8720.map(d => MODULES[d].code).join('+'), pipelineContext);
       if (ok) await verifyStrengthsNumericPass8784('initial');
       return ok;
     })());
@@ -6560,11 +6841,15 @@ async function runPipeline() {
   // nothing to compare). Feeds email_intel as required + whatever authoritative
   // extractions we have as optional inputs. Quotes are the authoritative truth.
   if (STATE.extractions.email_intel) {
-    const discInputs = ['email_intel', 'supplemental', 'gl_quote', 'al_quote', 'excess', 'losses', 'safety']
-      .filter(mid => STATE.extractions[mid])
+    // v8.7.120: derive from the module descriptor (deps + optionalDeps) so
+    // the initial run and rerunModules can never drift; the hardcoded list
+    // silently omitted the specialty-quote families the descriptor names.
+    const discSources8720 = [...MODULES.discrepancy.deps, ...(MODULES.discrepancy.optionalDeps || [])]
+      .filter(mid => STATE.extractions[mid]);
+    const discInputs = discSources8720
       .map(mid => '=== ' + MODULES[mid].code + ' · ' + MODULES[mid].name + ' ===\n\n' + STATE.extractions[mid].text)
       .join('\n\n');
-    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs auth sources', pipelineContext));
+    wave3Tasks.push(runModule('discrepancy', PROMPTS.discrepancy, discInputs, 'A16 vs ' + discSources8720.filter(d => d !== 'email_intel').map(d => MODULES[d].code).join('+'), pipelineContext));
   } else {
     skipModule('discrepancy', 'no email to cross-check');
   }

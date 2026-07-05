@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.105-gl-rater-structured-2026-07-03';
+window.STM_BUILD = 'v8.7.123-safety-context-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -1514,6 +1514,153 @@ loadEdits();
 // ============================================================================
 // FILE PARSING — handle every document format
 // ============================================================================
+// ============================================================================
+// v8.7.108 CHECKBOX TICK CAPTURE (supp app checkbox recovery)
+// PROBLEM: carrier supp apps (VELA fixture) flatten checkbox ticks as tiny
+// stroked vector paths (moveTo + two lineTo segments, roughly 8 to 12 pt).
+// They carry no text, so getTextContent never sees them and every Yes/No
+// answer dies in extraction. The A2 prompt's CHECKBOX TRUTH RULES therefore
+// force "Checkbox not extractable from text" on bare tick questions.
+// FIX: read the tick paths straight from each page's operator list, pair each
+// tick with the nearest Yes/No token to its right on the same baseline, label
+// it with the question text on that line (or the line above for wrapped
+// questions), and inject the result into the A2 primary input as the
+// "=== CHECKBOX MARKS" block that prompt rule CB5 already treats as
+// authoritative. Fail-silent by design: any error, any unpaired tick, or any
+// oversized document simply produces no block and behavior falls back to
+// v8.7.107 exactly.
+// Validated at 100 percent (67 of 67 human-verified marks, zero false
+// emissions, pages 6 and 7 clean) against TEST_5_-_SUPP.pdf under the same
+// pdf.js 3.11.174 build platform.html loads.
+// ============================================================================
+function collectTickPathsFromOps8708(opList, OPS) {
+  const out = [];
+  if (!opList || !opList.fnArray || !OPS) return out;
+  const fn = opList.fnArray;
+  const argsArr = opList.argsArray;
+  let m = [1, 0, 0, 1, 0, 0];
+  const stack = [];
+  const mul = function (o, t) {
+    return [
+      o[0] * t[0] + o[2] * t[1],
+      o[1] * t[0] + o[3] * t[1],
+      o[0] * t[2] + o[2] * t[3],
+      o[1] * t[2] + o[3] * t[3],
+      o[0] * t[4] + o[2] * t[5] + o[4],
+      o[1] * t[4] + o[3] * t[5] + o[5]
+    ];
+  };
+  const apply = function (x, y) {
+    return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  };
+  for (let i = 0; i < fn.length; i++) {
+    const op = fn[i];
+    if (op === OPS.save) { stack.push(m.slice()); continue; }
+    if (op === OPS.restore) { m = stack.pop() || [1, 0, 0, 1, 0, 0]; continue; }
+    if (op === OPS.transform) {
+      const t = argsArr[i];
+      if (t && t.length >= 6) m = mul(m, t);
+      continue;
+    }
+    if (op !== OPS.constructPath) continue;
+    const a = argsArr[i];
+    if (!a || a.length < 2) continue;
+    const ops = a[0];
+    const coords = a[1];
+    let ci = 0;
+    let sub = null; // { segs: n of lineTo, other: n of curves/rects, xs: [], ys: [] }
+    const flush = function () {
+      if (!sub) return;
+      if (sub.segs === 2 && sub.other === 0 && sub.xs.length >= 3) {
+        const x0 = Math.min.apply(null, sub.xs), x1 = Math.max.apply(null, sub.xs);
+        const y0 = Math.min.apply(null, sub.ys), y1 = Math.max.apply(null, sub.ys);
+        const w = x1 - x0, h = y1 - y0;
+        if (w > 4 && w < 18 && h > 4 && h < 18) out.push({ x0: x0, y0: y0, x1: x1, y1: y1 });
+      }
+      sub = null;
+    };
+    for (let k = 0; k < ops.length; k++) {
+      const o = ops[k];
+      if (o === OPS.moveTo) {
+        flush();
+        const p = apply(coords[ci], coords[ci + 1]); ci += 2;
+        sub = { segs: 0, other: 0, xs: [p[0]], ys: [p[1]] };
+      } else if (o === OPS.lineTo) {
+        const p = apply(coords[ci], coords[ci + 1]); ci += 2;
+        if (sub) { sub.segs++; sub.xs.push(p[0]); sub.ys.push(p[1]); }
+      } else if (o === OPS.curveTo) {
+        ci += 6; if (sub) sub.other++;
+      } else if (o === OPS.curveTo2 || o === OPS.curveTo3) {
+        ci += 4; if (sub) sub.other++;
+      } else if (o === OPS.rectangle) {
+        ci += 4; flush();
+      } else if (o === OPS.closePath) {
+        if (sub) sub.other++;
+      }
+    }
+    flush();
+  }
+  return out;
+}
+
+function detectCheckboxMarksOnPage8708(items, ticks) {
+  const marks = [];
+  if (!Array.isArray(items) || !Array.isArray(ticks) || !ticks.length) return marks;
+  const texts = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it || typeof it.str !== 'string' || !it.str.trim()) continue;
+    const tr = it.transform || [1, 0, 0, 1, 0, 0];
+    const h = Number(it.height) || Math.abs(tr[3]) || 10;
+    texts.push({
+      str: it.str,
+      x: tr[4],
+      endX: tr[4] + (Number(it.width) || 0),
+      width: Number(it.width) || 0,
+      mid: tr[5] + h * 0.35
+    });
+  }
+  for (let t = 0; t < ticks.length; t++) {
+    const tk = ticks[t];
+    const tmid = (tk.y0 + tk.y1) / 2;
+    const line = texts.filter(function (s) { return Math.abs(s.mid - tmid) < 6; });
+    let best = null;
+    for (let s = 0; s < line.length; s++) {
+      const it = line[s];
+      const trimmed = it.str.replace(/^\s+/, '');
+      let val = null;
+      if (/^Yes(?![A-Za-z])/.test(trimmed)) val = 'Yes';
+      else if (/^No(?![A-Za-z])/.test(trimmed)) val = 'No';
+      if (!val) continue;
+      const lead = it.str.length - trimmed.length;
+      const fx = it.x + (it.str.length ? it.width * (lead / it.str.length) : 0);
+      const gap = fx - tk.x1;
+      if (fx > tk.x0 && gap < 30 && (best === null || gap < best.gap)) best = { gap: gap, val: val };
+    }
+    if (!best) continue; // tick with no adjacent Yes/No label: never emit a guess
+    const left = line
+      .filter(function (s) { return s.endX <= tk.x0 + 2; })
+      .sort(function (a, b) { return a.x - b.x; });
+    let label = left.map(function (s) { return s.str; }).join(' ').replace(/\s+/g, ' ').trim();
+    if (label.length < 8) {
+      const above = texts
+        .filter(function (s) { return (s.mid - tmid) > 4 && (s.mid - tmid) < 16; })
+        .sort(function (a, b) { return a.x - b.x; });
+      const aboveTxt = above.map(function (s) { return s.str; }).join(' ').replace(/\s+/g, ' ').trim();
+      label = (aboveTxt + (label ? ' | ' + label : '')).trim();
+    }
+    if (label.length > 95) label = label.slice(-95);
+    marks.push({ value: best.val, label: label, ymid: tmid, x: tk.x0 });
+  }
+  marks.sort(function (a, b) { return (b.ymid - a.ymid) || (a.x - b.x); });
+  return marks;
+}
+
+if (typeof window !== 'undefined') {
+  window.collectTickPathsFromOps8708 = collectTickPathsFromOps8708;
+  window.detectCheckboxMarksOnPage8708 = detectCheckboxMarksOnPage8708;
+}
+
 async function extractText(file, metadata, onProgress) {
   const name = file.name.toLowerCase();
   // metadata is an optional out-param object — callers can pass {} to receive
@@ -1573,7 +1720,23 @@ async function extractText(file, metadata, onProgress) {
           const page = await pdf.getPage(n);
           try {
             const content = await page.getTextContent();
-            return { n, items: content.items };
+            // v8.7.108: checkbox tick capture. Only for small documents (supp
+            // apps are short; 70-page ACORD packets skip this entirely so
+            // ingest speed and worker memory stay exactly at v8.7.107 levels).
+            // Fail-silent: any operator-list error leaves marks null and the
+            // pipeline behaves as before.
+            let marks8708 = null;
+            if (pdf.numPages <= 15) {
+              try {
+                const opList8708 = await page.getOperatorList();
+                const ticks8708 = collectTickPathsFromOps8708(opList8708, pdfjsLib.OPS);
+                if (ticks8708.length) {
+                  const detected8708 = detectCheckboxMarksOnPage8708(content.items, ticks8708);
+                  if (detected8708.length) marks8708 = detected8708;
+                }
+              } catch (e8708) { marks8708 = null; }
+            }
+            return { n, items: content.items, marks8708 };
           } finally {
             // Release page-level caches as soon as we're done with the page.
             // Without this, PDF.js holds the rendered operator list, font
@@ -1586,9 +1749,14 @@ async function extractText(file, metadata, onProgress) {
         const failed = settled.find(r => r.status === 'rejected');
         if (failed) throw failed.reason;
         for (const r of settled) {
-          const { n, items } = r.value;
+          const { n, items, marks8708 } = r.value;
           totalItems += items.length;
           pageTexts[n - 1] = items.map(it => it.str).join(' ');
+          if (marks8708 && marks8708.length) {
+            (meta.checkboxMarks8708 = meta.checkboxMarks8708 || []).push(
+              ...marks8708.map(m => ({ page: n, value: m.value, label: m.label }))
+            );
+          }
         }
         const currentPage = Math.min(i + chunk.length, pdf.numPages);
         reportProgress({
@@ -1607,6 +1775,9 @@ async function extractText(file, metadata, onProgress) {
       meta.kind = 'pdf';
       meta.pageCount = pdf.numPages;
       meta.pageTexts = pageTexts;
+      // v8.7.108: cross-page ordering for captured checkbox marks (within-page
+      // order is already top-to-bottom from the detector; sort is stable).
+      if (meta.checkboxMarks8708) meta.checkboxMarks8708.sort((a, b) => a.page - b.page);
       // Scanned-PDF detection: empty or tiny text layer relative to page count.
       // A real 5-page text PDF will have thousands of chars; a scanned image
       // PDF has 0-50 chars of metadata.
@@ -4661,7 +4832,7 @@ function exportExcel() {
     if (STATE.hiddenCards[mid]) return;  // skip hidden cards
     const m = MODULES[mid] || { code: mid, name: mid + ' (legacy module)' };  // FIX-AUDIT-2026-06-09
     const isEdited = STATE.edits[mid] && STATE.edits[mid].htmlOverride;
-    const effectiveText = getEffectiveText(mid);
+    const effectiveText = cleanVisibleExtractionText99(mid, getEffectiveText(mid));  // v8.7.121: no machine blocks in XLSX export
     const rows = [
       [m.code + ' — ' + m.name + (isEdited ? '  (EDITED)' : '')],
       [],
@@ -4807,7 +4978,10 @@ function exportMarkdown() {
     md += 'Mode: ' + ext.mode;
     if (isEdited) md += ' · Edited: ' + new Date(STATE.edits[mid].editedAt).toISOString();
     md += '_\n\n';
-    md += getEffectiveText(mid) + '\n\n---\n\n';
+    // v8.7.121: exports are user-facing; route through the visible cleaner so
+    // machine-only fenced blocks (safety_grounding, *_structured, tower json)
+    // never leak into a clean markdown export. Raw archived text is untouched.
+    md += cleanVisibleExtractionText99(mid, getEffectiveText(mid)) + '\n\n---\n\n';
   });
 
   // Custom cards
@@ -5066,9 +5240,17 @@ function renderMarkdown(md) {
   html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
   // Bullet lines (- or *)
-  html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, '<li>$2</li>');
-  // Wrap consecutive <li> blocks in <ul>
-  html = html.replace(/(<li>[\s\S]*?<\/li>)(?=\s*(?!<li>))/g, m => '<ul>' + m + '</ul>');
+  // v8.7.111: honor one level of sub-bullet nesting. Two-or-more leading
+  // spaces before the dash mark a child line; it renders as an indented,
+  // muted secondary bullet (.md-sub styled in pipeline-app.css). Zero-indent
+  // lines are byte-identical to the previous behavior.
+  html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, (mm, ind, body) => (ind && ind.length >= 2) ? '<li class="md-sub">' + body + '</li>' : '<li>' + body + '</li>');
+  // Wrap consecutive <li> blocks in <ul>. Same two-step mechanism as
+  // pre-v8.7.111 (per-item wrap, then adjacent-ul merge) so zero-indent
+  // content renders byte-identically; the capture start is generalized to
+  // tolerate the md-sub class attribute. Parity is proven against the old
+  // renderer in the harness.
+  html = html.replace(/(<li\b[^>]*>[\s\S]*?<\/li>)(?=\s*(?!<li>))/g, m => '<ul>' + m + '</ul>');
   html = html.replace(/<\/ul>\s*<ul>/g, '');
   // Paragraph-ize remaining blocks separated by blank lines
   html = html.split(/\n\n+/).map(block => {
@@ -5225,6 +5407,11 @@ function cleanVisibleExtractionText99(mid, text) {
   // v8.7.95: hide the quote-family structured machine blocks (workbench
   // :json tier consumes them from STORED text; the card shows prose only).
   t = t.replace(/```(?:json)?\s*(?:gl|al|excess)_structured[\s\S]*?```/gi, '');
+  // v8.7.117: the safety module appends a machine-only safety_grounding
+  // fenced block anchoring every credited claim to the manual's own
+  // identifiers (silent anti-hallucination audit trail). Stored extraction
+  // text keeps it for audit and downstream modules; the card never shows it.
+  t = t.replace(/```(?:text)?\s*safety_grounding[\s\S]*?```/gi, '');
   t = t.replace(/\n\{[\s\S]*?"tower_documents"[\s\S]*\}\s*$/g, '');
 
   // Hide visible prompt-QC/checklist/source-verbatim sections that were useful
