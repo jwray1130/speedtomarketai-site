@@ -1259,11 +1259,36 @@
     return out;
   }
 
+  // v8.7.127: canonical dollars for limit-class fields, on every account.
+  // The A14/A15 contracts speak in M-notation and brokers write bare
+  // shorthand ("2 xs 1"), so limit values can reach the resolver as "$2M",
+  // "2M", or a bare small number meaning millions. Rules, in order: an
+  // explicit m/mm/k/million/thousand suffix always converts to full comma
+  // dollars; a bare numeric 1-100 in a LIMIT field converts to millions
+  // (no $2-$100 umbrella limits exist); 101-999 is ambiguous and passes
+  // through untouched; anything >= 1000 passes through byte-identical so
+  // every currently-correct account is provably unaffected.
+  const LIMIT_UNIT_FIELDS_8727 = ['underlying_lead_limit', 'attachment_point', 'requested_limit'];
+  function normalizeLimitDollars8727(v) {
+    if (v == null || v === '') return v;
+    const s = String(v);
+    const hasSuffix = /[0-9]\s*(m|mm|k|million|thousand)\b/i.test(s);
+    const n = moneyToNumberFor85(s);
+    if (n == null) return v;
+    if (hasSuffix) return n.toLocaleString('en-US');
+    if (n >= 1 && n <= 100) return Math.round(n * 1000000).toLocaleString('en-US');
+    return v;
+  }
+
   function normalizeResolvedValue8716(fieldName, resolved) {
     if (!resolved || resolved.value == null) return resolved;
     if (isNarrativeField8716(fieldName)) {
       const cleaned = cleanNarrativeText8716(resolved.value);
       return Object.assign({}, resolved, { value: cleaned });
+    }
+    if (LIMIT_UNIT_FIELDS_8727.indexOf(fieldName) > -1) {
+      const lv = normalizeLimitDollars8727(resolved.value);
+      if (lv !== resolved.value) return Object.assign({}, resolved, { value: lv });
     }
     return resolved;
   }
@@ -2416,7 +2441,7 @@
     if (!clean) return null;
     const lower = clean.toLowerCase();
     const isLead = /lead\s+(?:umbrella|excess|\$)|lead layer|commercial liability umbrella|schedule of underlying/.test(lower)
-      || /\$?\s*2\s*(?:m|mm|million)?\s*xs\s*\$?\s*1\s*(?:m|mm|million)?/i.test(clean);
+      || /\$?\s*[0-9][0-9,\.]*\s*(?:m|mm|million)?\s*(?:xs|excess\s+of|over)\s*\$?\s*[0-9]/i.test(clean);  // v8.7.127: any X-xs-Y shape; the old literal 2-xs-1 was account-tuned
 
     const money = '(?:\\$?\\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\\.[0-9]+)?)(?:\\s*(?:M|MM|million|K|thousand))?)';
     const toDisplay = (v) => displayMoney85(v);
@@ -2424,7 +2449,16 @@
     let attachment = null;
 
     const xs = new RegExp('(' + money + ')\\s*(?:xs|x\\s*s|excess\\s+of|over)\\s*(' + money + ')', 'i').exec(clean);
-    if (xs) { leadLimit = xs[1]; attachment = xs[2]; }
+    // v8.7.127: in "X xs Y" tower shorthand, bare numbers are ALWAYS millions
+    // in excess casualty ("2 xs 1" means $2M xs $1M on every account). A bare
+    // captured token with no suffix, no thousands separator, and value under
+    // 1000 gets the M suffix here, in context, before display conversion.
+    const xsToken8727 = (v) => {
+      const s = String(v == null ? '' : v);
+      const bare = /^[\s$]*[0-9]+(?:\.[0-9]+)?\s*$/.test(s) && (moneyToNumberFor85(s) || 0) < 1000 && (moneyToNumberFor85(s) || 0) >= 1;
+      return bare ? (s.trim() + 'M') : v;
+    };
+    if (xs) { leadLimit = xsToken8727(xs[1]); attachment = xsToken8727(xs[2]); }
 
     // Declarations often say: Each Occurrence Limit (Liability Coverage) $2,000,000.
     if (!leadLimit) {
@@ -2432,6 +2466,14 @@
         || /Liability\s+Coverage[\s\S]{0,80}?Each\s+Occurrence[\s\S]{0,40}?\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i.exec(clean)
         || /Lead\s+(?:Umbrella|Excess)?\s*[·:\-]?\s*Lead\s*\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/i.exec(clean);
       if (lm) leadLimit = lm[1];
+    }
+    // v8.7.127: the A15 tower contract renders the lead layer as the tag
+    // "Lead $NM" (often inside HTML spans). Capture it directly so the
+    // module-text path fills the card on every account, not just when a
+    // dec page or xs phrase is also present.
+    if (!leadLimit) {
+      const tag8727 = /(?:^|[>\s])Lead\s*\$\s*([0-9]+(?:\.[0-9]+)?)\s*(M|MM|million)\b/i.exec(clean);
+      if (tag8727) leadLimit = tag8727[1] + tag8727[2];
     }
 
     // If no explicit xs value, derive attachment from Schedule of Underlying by
@@ -3018,7 +3060,14 @@
     // Narrative modules — return clean text, bounded for UI textareas.
     if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'exposure_narrative_full_v8783');
     if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_v8783');
-    if ((fieldName === 'guideline_conflicts_text' || fieldName === 'guideline_conflicts') && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
+    // v8.7.125: the UW-tab Guideline Conflicts textarea (#guidelineConflicts)
+    // reads guideline_conflicts_text; firstReasonableParagraph kept only the
+    // first paragraph of the multi-section A8 analysis. Route the _text field
+    // through the same full-fidelity converter A9/A10 use (v8.7.83). The
+    // plain guideline_conflicts field keeps the original one-paragraph
+    // behavior for compact consumers (parity proven in the feed audit).
+    if (fieldName === 'guideline_conflicts_text' && moduleKey === 'guidelines') return hit(narrativeToWorkbenchText(raw, 20000), 0.88, 'guidelines_narrative_full_v8125');
+    if (fieldName === 'guideline_conflicts' && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
     if (fieldName === 'summary_operations' && moduleKey === 'summary-ops') return hit(firstReasonableParagraph(clean, 2200), 0.88, 'summary_ops_narrative');
     if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_alias_v8122');  // v8.7.122: alias carries the same full narrative as account_strengths
     if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) {
