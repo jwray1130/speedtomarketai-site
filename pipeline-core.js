@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.130-al-liability-final-2026-07-05';
+window.STM_BUILD = 'v8.7.135-audit-hardening-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -2858,6 +2858,28 @@ function removeFile(id) {
   const f = STATE.files.find(x => x.id === id);
   if (f) f.cancelled = true;
   STATE.files = STATE.files.filter(f => f.id !== id);
+  // v8.7.132 (trickle-in Phase 2): deleting a source document changes the
+  // inputs of its routed section(s) and everything downstream. Mark stale
+  // deterministically; never auto-run. This enables the revised-quote flow:
+  // delete the superseded quote, then refresh the section, and it
+  // re-extracts from the remaining matched files only.
+  if (f && STATE.pipelineDone && typeof window.markSectionsStale8732 === 'function') {
+    const routed8732 = (f.routedToAll && f.routedToAll.length ? f.routedToAll : (f.routedTo ? [f.routedTo] : []));
+    if (routed8732.length) {
+      routed8732.forEach(mid => {
+        const ext = STATE.extractions[mid];
+        if (!ext) return;
+        const flag = ext.staleInputs8732 || { since: Date.now(), triggers: [] };
+        if (flag.triggers.indexOf('file removed') === -1) flag.triggers.push('file removed');
+        flag.reason = 'source file removed';
+        ext.staleInputs8732 = flag;
+        const remaining = STATE.files.filter(x => ((x.routedToAll || []).indexOf(mid) > -1) || x.routedTo === mid);
+        if (!remaining.length) ext.sourceFilesGone8732 = true;
+      });
+      window.markSectionsStale8732(routed8732, 'source file removed');
+      if (typeof renderSummaryCards === 'function') renderSummaryCards();
+    }
+  }
   renderFileList();
   updateRunButton();
 }
@@ -4726,6 +4748,26 @@ function toggleAuditLog() {
 // Export audit log. Admin mode exports the currently-loaded cloud rows under
 // the active filter (with a marker noting what was filtered); non-admin mode
 // exports session-local STATE.audit (legacy behavior).
+
+// v8.7.133: per-card refresh + stale guards for user-facing hand-offs.
+async function requestSectionRefresh8733(mid, btn) {
+  const m = MODULES[mid];
+  const ext = STATE.extractions[mid];
+  const est = ext && typeof ext.cost === 'number' && ext.cost > 0 ? ' Est ~$' + ext.cost.toFixed(2) + '.' : '';
+  if (!confirm('Refresh ' + (m ? m.code + ' · ' + m.name : mid) + ' from current inputs?' + est + ' This spends API tokens.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try { await window.refreshSection8732(mid); }
+  finally { renderSummaryCards(); }
+}
+function staleGuard8733(actionLabel) {
+  const stale = Object.keys(STATE.extractions).filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732);
+  if (!stale.length) return true;
+  const codes = stale.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ');
+  return confirm(codes + ' have inputs newer than their last run. ' + actionLabel + ' will use the CURRENT (stale) text. Continue anyway?');
+}
+window.requestSectionRefresh8733 = requestSectionRefresh8733;
+window.staleGuard8733 = staleGuard8733;
+
 function exportAudit() {
   const isAdmin = !!(window.currentUser && window.currentUser.role === 'admin');
   let rows, source, filter;
@@ -4767,6 +4809,7 @@ function exportAudit() {
 // EXCEL PACK EXPORT — real .xlsx with per-module tabs + summary + audit
 // ============================================================================
 function exportExcel() {
+  if (!staleGuard8733('Export Excel Pack')) return;  // v8.7.133
   if (Object.keys(STATE.extractions).length === 0) {
     toast('Run pipeline first', 'warn');
     return;
@@ -4947,6 +4990,7 @@ async function copyReferralEmail() {
 // MARKDOWN EXPORT — dump all extractions as a single .md file
 // ============================================================================
 function exportMarkdown() {
+  if (!staleGuard8733('Download Markdown')) return;  // v8.7.133
   if (Object.keys(STATE.extractions).length === 0 && STATE.customCards.length === 0) {
     toast('Run pipeline first (or add a custom card)', 'warn');
     return;
@@ -5300,6 +5344,7 @@ function renderSummaryCards() {
   if (!container) return;
 
   const extractedIds = CARD_ORDER.filter(mid => STATE.extractions[mid]);
+  if (typeof window.renderStaleBanner8733 === 'function') window.renderStaleBanner8733();  // v8.7.133: banner stays truthful on every render
 
   // Update summary header stats
   const sm = document.querySelector('.summary-meta-text');
@@ -5479,6 +5524,18 @@ function renderExtractionCard(mid) {
         : renderMarkdown(visibleText99));
   const editedBadge = isEdited ? '<span style="font-family:var(--font-mono); font-size: 9.5px; color: var(--warning); padding-left: 6px; font-weight: 700; letter-spacing: 0.08em;">· EDITED</span>' : '';
   const updatedBadge = ext.wasUpdated ? '<span class="sc-updated-badge" title="Refreshed by incremental update">UPDATED</span>' : '';
+  // v8.7.133: stale badge — inputs changed since this section last ran.
+  const staleFlag8733 = ext.staleInputs8732;
+  const staleBadge8733 = staleFlag8733
+    ? (mid === 'guidelines'
+        ? '<span class="sc-stale-badge" title="Inputs changed (' + escapeHtml((staleFlag8733.triggers || []).join(', ')) + '). A8 refreshes only via the Re-run Guidelines button.">STALE · A8 BUTTON</span>'
+        : (ext.sourceFilesGone8732
+            ? '<span class="sc-stale-badge" title="All source documents for this section were removed. Refresh to rebuild from remaining inputs.">STALE · SOURCE REMOVED</span>'
+            : '<span class="sc-stale-badge" title="Inputs changed since last run (' + escapeHtml((staleFlag8733.triggers || []).join(', ')) + '). Click the refresh icon to rebuild this section.">STALE</span>'))
+    : '';
+  const refreshBtn8733 = (mid !== 'guidelines')
+    ? '<button class="sc-act sc-refresh" onclick="event.stopPropagation(); requestSectionRefresh8733(\'' + mid + '\', this)" title="Refresh this section from current inputs">\u21bb</button>'
+    : '';
   const revertBtn = isEdited ? `<button class="sc-act" onclick="event.stopPropagation(); revertCard('${mid}')" title="Revert to original AI output">⟲</button>` : '';
 
   // Default to collapsed for a clean summary view. One exception:
@@ -5489,13 +5546,14 @@ function renderExtractionCard(mid) {
   const startCollapsed = !ext.wasUpdated;
 
   return `
-    <div class="sc-card${startCollapsed ? ' collapsed' : ''}${isFull ? ' full' : ''}${isEdited ? ' dirty' : ''}${ext.wasUpdated ? ' was-updated' : ''}" data-mid="${mid}" data-type="extraction">
+    <div class="sc-card${startCollapsed ? ' collapsed' : ''}${isFull ? ' full' : ''}${isEdited ? ' dirty' : ''}${ext.wasUpdated ? ' was-updated' : ''}${staleFlag8733 ? ' is-stale' : ''}" data-mid="${mid}" data-type="extraction">
       <div class="sc-card-head" onclick="toggleCard(this)">
         <div class="sc-card-head-top">
           <span class="sc-tag">${m.code}</span>
           <span class="sc-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}${editedBadge}</span>
-          ${updatedBadge}
+          ${updatedBadge}${staleBadge8733}
           <div class="sc-card-actions">
+            ${refreshBtn8733}
             <button class="sc-act fb-act fb-pos" onclick="event.stopPropagation(); feedbackQuickPositive('${mid}')" title="Good output — log positive feedback">👍</button>
             <button class="sc-act fb-act fb-neg" onclick="event.stopPropagation(); feedbackOpenPopover('${mid}', null, 'negative', this)" title="Something's wrong — give feedback">👎</button>
             <button class="sc-act fb-act fb-sug" onclick="event.stopPropagation(); feedbackOpenPopover('${mid}', null, 'suggestion', this)" title="Suggest what's missing">💬</button>
@@ -5864,6 +5922,7 @@ async function confirmSendToAssistant() {
   toast('Sent to ' + assignee + ' for review', 'success');
   // FIX #1 — persist the transition immediately so the assistant (or a
   // refresh) sees the handoff. Awaited but errors don't throw.
+  if (!staleGuard8733('Send to Assistant')) return;  // v8.7.133
   await persistHandoffState('send-to-assistant');
 }
 

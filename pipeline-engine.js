@@ -1384,6 +1384,22 @@ async function applyReclassifications() {
     }
   }
 
+  // v8.7.134 (trickle-in Phase 4): A8 Guidelines never runs automatically,
+  // including from reclassification. Standing instruction: the Re-run
+  // Guidelines button is its ONLY trigger. Remove it from the cascade and
+  // mark it stale instead so the badge points at the button.
+  if (modulesToRerun.has('guidelines')) {
+    modulesToRerun.delete('guidelines');
+    const gext8734 = STATE.extractions['guidelines'];
+    if (gext8734) {
+      const gflag8734 = gext8734.staleInputs8732 || { since: Date.now(), triggers: [] };
+      if (gflag8734.triggers.indexOf('reclassification') === -1) gflag8734.triggers.push('reclassification');
+      gflag8734.reason = 'inputs changed via reclassification';
+      gext8734.staleInputs8732 = gflag8734;
+    }
+    logAudit('Pipeline', 'A8 Guidelines excluded from reclassification cascade (button-only trigger) — marked stale', 'warn');
+  }
+
   const moduleCount = modulesToRerun.size;
   toast('Re-running ' + moduleCount + ' module' + (moduleCount === 1 ? '' : 's') + ' affected by reclassification…');
   logAudit('Pipeline', 'Partial re-run triggered · ' + changedFiles.length + ' file reclassification(s) · ' + moduleCount + ' modules affected', STATE.api.model);
@@ -1426,6 +1442,134 @@ function computeDownstream(directSet) {
   }
   return affected;
 }
+
+
+// v8.7.132 (trickle-in Phase 2): deterministic stale tracking. When inputs
+// to a synthesis section change (new docs ran, a source section refreshed,
+// or a source file was deleted), downstream sections are MARKED, never
+// auto-run. Zero LLM cost; the underwriter chooses when to refresh.
+// Guidelines (A8) additionally never participates in refreshAllStale8732:
+// its only trigger is the explicit Re-run Guidelines button.
+function markSectionsStale8732(triggerMids, reason) {
+  const direct = new Set(triggerMids);
+  const closure = computeDownstream(direct);
+  const marked = [];
+  closure.forEach(mid => {
+    if (direct.has(mid)) return;
+    const ext = STATE.extractions[mid];
+    if (!ext) return; // section never ran; nothing to be stale
+    const flag = ext.staleInputs8732 || { since: Date.now(), triggers: [] };
+    triggerMids.forEach(t => {
+      const c = (MODULES[t] && MODULES[t].code) || t;
+      if (flag.triggers.indexOf(c) === -1) flag.triggers.push(c);
+    });
+    flag.reason = reason || flag.reason || 'inputs changed';
+    ext.staleInputs8732 = flag;
+    marked.push((MODULES[mid] && MODULES[mid].code) || mid);
+  });
+  if (marked.length) logAudit('Stale', 'Marked stale (' + (reason || 'inputs changed') + '): ' + marked.join(', '), 'warn');
+  return marked;
+}
+
+async function refreshSection8732(mid) {
+  if (!MODULES[mid]) { toast('Unknown section: ' + mid, 'error'); return false; }
+  if (mid === 'guidelines') {
+    // A8 keeps its dedicated flow (active guideline text, own confirm UX).
+    if (typeof rerunGuidelines === 'function') return rerunGuidelines();
+    return false;
+  }
+  logAudit('Refresh', 'Section refresh requested: ' + MODULES[mid].code + ' · ' + MODULES[mid].name, STATE.api.model);
+  await rerunModules([mid]);
+  const ok = !!(STATE.extractions[mid] && !STATE.extractions[mid].rerunFailed && !STATE.extractions[mid].staleFromRerun);
+  if (ok) markSectionsStale8732([mid], 'upstream section refreshed');
+  renderSummaryCards();
+  return ok;
+}
+
+async function refreshAllStale8732() {
+  const staleList = Object.keys(STATE.extractions)
+    .filter(mid => STATE.extractions[mid] && STATE.extractions[mid].staleInputs8732)
+    .filter(mid => mid !== 'guidelines'); // A8 refreshes ONLY via its own button
+  if (!staleList.length) { toast('No stale sections to refresh', 'info'); return []; }
+  // Wave-sort locally so A6 rebuilds before A9/A10/A24 read it, regardless
+  // of insertion order or rerunModules internals.
+  staleList.sort((a, b) => ((MODULES[a] && MODULES[a].wave) || 9) - ((MODULES[b] && MODULES[b].wave) || 9));
+  logAudit('Refresh', 'Refresh all stale: ' + staleList.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') + ' (A8 excluded by design)', STATE.api.model);
+  await rerunModules(staleList);
+  renderSummaryCards();
+  return staleList;
+}
+window.markSectionsStale8732 = markSectionsStale8732;
+window.refreshSection8732 = refreshSection8732;
+window.refreshAllStale8732 = refreshAllStale8732;
+
+
+// v8.7.133 (trickle-in Phase 3): preflight gate. After classification
+// (pennies) and BEFORE any module spends, show what will run and what it
+// cost last time. Cancel = zero spend; files stay classified, in the docs
+// view, and persisted; the routed sections are marked stale so the
+// per-card refresh covers them later.
+function estCost8733(mid) {
+  const ext = STATE.extractions[mid];
+  if (ext && typeof ext.cost === 'number' && ext.cost > 0) return ext.cost;
+  return 0.20; // conservative default for a section with no prior run
+}
+function showIncrementalPreflight8733(newFiles, mids) {
+  return new Promise((resolve) => {
+    const old = document.getElementById('preflight8733');
+    if (old) old.remove();
+    const total = mids.reduce((a, m) => a + estCost8733(m), 0);
+    const esc8735 = (s) => (typeof window.escapeHtml === 'function') ? window.escapeHtml(String(s)) : String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fileRows = newFiles.map(f => '<div class="pf-row"><span class="pf-file">' + esc8735(f.name || 'file') + '</span><span class="pf-route">' + (((f.routedToAll && f.routedToAll.length ? f.routedToAll : [f.routedTo]).filter(Boolean)).map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') || 'no route') + '</span></div>').join('');
+    const modRows = mids.map(m => '<div class="pf-row"><span>' + ((MODULES[m] && (MODULES[m].code + ' · ' + MODULES[m].name)) || m) + '</span><span class="pf-cost">~$' + estCost8733(m).toFixed(2) + '</span></div>').join('');
+    const ov = document.createElement('div');
+    ov.id = 'preflight8733';
+    ov.className = 'preflight-overlay8733';
+    ov.innerHTML = '<div class="preflight-panel8733">'
+      + '<div class="pf-title">Run new documents</div>'
+      + '<div class="pf-sub">Only the sections these documents route to will run. Downstream sections (Summary of Ops, Exposure, Strengths, Tower, Guidelines, etc.) are marked stale for you to refresh when ready — nothing else spends.</div>'
+      + '<div class="pf-section">New documents</div>' + fileRows
+      + '<div class="pf-section">Sections that will run</div>' + modRows
+      + '<div class="pf-total">Estimated total <strong>~$' + total.toFixed(2) + '</strong></div>'
+      + '<div class="pf-actions"><button class="pf-btn pf-cancel">Cancel — save files only</button><button class="pf-btn pf-run">Run ' + mids.length + ' section' + (mids.length === 1 ? '' : 's') + '</button></div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    const done = (v) => { ov.remove(); resolve(v); };
+    ov.querySelector('.pf-run').onclick = () => done(true);
+    ov.querySelector('.pf-cancel').onclick = () => done(false);
+  });
+}
+
+// v8.7.133: persistent stale indicator. Counts every section flagged by
+// markSectionsStale8732, offers Refresh All (A8 always excluded, with its
+// own note), and clears itself when nothing is stale. Rendered centrally
+// from renderSummaryCards so every refresh path keeps it truthful.
+function renderStaleBanner8733() {
+  const stale = Object.keys(STATE.extractions).filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732);
+  let b = document.getElementById('staleBanner8733');
+  if (!stale.length) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'staleBanner8733';
+    b.className = 'stale-banner8733';
+    document.body.appendChild(b);
+  }
+  const refreshable = stale.filter(m => m !== 'guidelines');
+  const est = refreshable.reduce((a, m) => a + estCost8733(m), 0);
+  const codes = stale.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ');
+  const a8Note = stale.indexOf('guidelines') > -1 ? '<div class="sb-a8">A8 Guidelines has new inputs — use the Re-run Guidelines button when ready.</div>' : '';
+  b.innerHTML = '<div class="sb-text"><div class="sb-title">' + stale.length + ' section' + (stale.length === 1 ? ' has' : 's have') + ' new inputs pending refresh</div><div class="sb-sub">' + codes + '</div>' + a8Note + '</div>'
+    + (refreshable.length ? '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + est.toFixed(2) + ')</button>' : '');
+}
+async function confirmRefreshAllStale8733() {
+  const refreshable = Object.keys(STATE.extractions).filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732 && m !== 'guidelines');
+  if (!refreshable.length) { toast('No refreshable stale sections (A8 refreshes only via its button)', 'info'); return; }
+  const est = refreshable.reduce((a, m) => a + estCost8733(m), 0);
+  if (!confirm('Refresh ' + refreshable.length + ' stale section' + (refreshable.length === 1 ? '' : 's') + ' from current inputs (est ~$' + est.toFixed(2) + ')? A8 Guidelines is excluded and refreshes only via its own button.')) return;
+  await refreshAllStale8732();
+}
+window.renderStaleBanner8733 = renderStaleBanner8733;
+window.confirmRefreshAllStale8733 = confirmRefreshAllStale8733;
 
 async function incrementalProcess(newFiles) {
   if (!newFiles || newFiles.length === 0) return;
@@ -1635,16 +1779,38 @@ async function incrementalProcess(newFiles) {
 
     logAudit('Incremental', 'Directly affected: ' + directList + (downstreamList ? ' · Downstream: ' + downstreamList : ''), STATE.api.model);
 
-    // === Phase 3: Re-run the affected modules in wave order ===
-    showIncrementalBanner(allAffected.size, newFiles.length);
-    await rerunModules(Array.from(allAffected));
+    // v8.7.133: preflight gate — nothing spends without the underwriter
+    // seeing the section list and the estimated cost. Cancel keeps the
+    // files (classified, in docs view, persisted) and marks the routed
+    // sections stale so the per-card refresh covers them later.
+    const proceed8733 = await showIncrementalPreflight8733(newFiles, Array.from(directlyAffected));
+    if (!proceed8733) {
+      Array.from(directlyAffected).forEach(mid => {
+        const ext = STATE.extractions[mid];
+        if (!ext) return;
+        const flag = ext.staleInputs8732 || { since: Date.now(), triggers: [] };
+        if (flag.triggers.indexOf('new file (run skipped)') === -1) flag.triggers.push('new file (run skipped)');
+        flag.reason = 'new documents added, run skipped at preflight';
+        ext.staleInputs8732 = flag;
+      });
+      renderSummaryCards();
+      toast('Skipped — files classified and saved. Refresh sections when ready.', 'info');
+      logAudit('Incremental', 'Preflight cancelled by user · files persisted, no modules run · routed sections marked stale', 'warn');
+    } else {
 
-    // === Phase 4: Tag affected extractions as updated for UPDATED badge ===
-    // Only modules that actually have an extraction post-rerun get the
-    // updated marker. Modules that were restored from backup (rerun failed)
-    // already have rerunFailed/staleFromRerun flags set by rerunModules,
-    // and shouldn't get conflicting wasUpdated semantics.
-    allAffected.forEach(mid => {
+    // === Phase 3 (v8.7.132, no-cascade): run ONLY the directly-routed
+    // sections. Downstream synthesis is MARKED stale, never auto-run: the
+    // cost lesson from the first live trickle-in, where three quotes
+    // cascaded into every synthesis module including A8 Guidelines. The
+    // underwriter refreshes sections explicitly when ready.
+    showIncrementalBanner(directlyAffected.size, newFiles.length);
+    await rerunModules(Array.from(directlyAffected));
+
+    // Deterministic stale marking for everything downstream (zero LLM cost).
+    const staleMarked8732 = markSectionsStale8732(Array.from(directlyAffected), 'new documents added');
+
+    // === Phase 4: UPDATED badge on the directly-run sections only ===
+    directlyAffected.forEach(mid => {
       if (STATE.extractions[mid] && !STATE.extractions[mid].rerunFailed) {
         STATE.extractions[mid].wasUpdated = true;
         STATE.extractions[mid].updatedAt = Date.now();
@@ -1653,9 +1819,10 @@ async function incrementalProcess(newFiles) {
     renderSummaryCards();
 
     // === Phase 5: Audit + user feedback ===
-    const affectedCodes = Array.from(allAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
-    toast('Incremental update complete · ' + allAffected.size + ' module' + (allAffected.size === 1 ? '' : 's') + ' refreshed (' + affectedCodes + ')', 'success');
-    logAudit('Incremental', 'Completed. Refreshed: ' + affectedCodes, STATE.api.model);
+    const ranCodes8732 = Array.from(directlyAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
+    toast('Incremental update complete · ran ' + directlyAffected.size + ' section' + (directlyAffected.size === 1 ? '' : 's') + ' (' + ranCodes8732 + ')' + (staleMarked8732.length ? ' · ' + staleMarked8732.length + ' downstream marked stale' : ''), 'success');
+    logAudit('Incremental', 'Completed. Ran: ' + ranCodes8732 + (staleMarked8732.length ? ' · Stale, awaiting refresh: ' + staleMarked8732.join(', ') : ''), STATE.api.model);
+    } // v8.7.133 preflight else-close
   }
 
   // === PERSIST INCREMENTAL UPDATE TO CLOUD ===
@@ -1911,6 +2078,15 @@ async function rerunModules(moduleIds) {
           logAudit('Pipeline', 'Rerun of ' + MODULES[mid].code + ' returned a hard-gate message; suppressing it and restoring the prior extraction', 'warn');
           runResult = false;
         }
+      }
+
+      // v8.7.132: a successful rerun means this section is now built from
+      // current inputs. Clear its stale flag centrally so every refresh path
+      // (per-section, refresh-all, guidelines button, reclassification,
+      // incremental) stays consistent without duplicated bookkeeping.
+      if (runResult === true && STATE.extractions[mid] && STATE.extractions[mid].staleInputs8732) {
+        delete STATE.extractions[mid].staleInputs8732;
+        delete STATE.extractions[mid].sourceFilesGone8732;
       }
 
       // FIX #2 (continued): if rerun failed OR was skipped without producing

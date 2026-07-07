@@ -2186,6 +2186,7 @@ JSON RULES (HARD CONTRACT — non-negotiable):
 Before returning, internally verify the JSON contract. If any required field is missing, mis-typed, mis-named, or mis-nested, REWRITE the JSON block before returning. The HTML may be perfect — the JSON is what the Workbench reads, and a broken JSON contract leaves the underwriter staring at empty form fields.`,
 
   gl_quote: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 ROLE: Excess casualty underwriter extracting data from a primary GL quote or policy. Strict. Silent = "No information provided."
 
@@ -2268,6 +2269,7 @@ Machine block rules: keys exactly as listed. Numbers as plain numerals with no "
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   al_quote: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 ROLE: Excess casualty underwriter extracting data from a primary commercial auto policy. Strict. Silent = "No information provided."
 
@@ -2379,6 +2381,7 @@ QUALITY CONTROL (silent — do not output): Internally verify source support. Do
   // prompt emits "Named Insured: [name]" from day one — no asymmetry
   // like the al_quote gap that caused the Phase 7 cross-applicant leak.
   el_quote: `ROLE: Excess casualty underwriter extracting Employers Liability data from a Workers Compensation / Employers Liability quote or policy. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2435,6 +2438,7 @@ QUALITY CONTROL (silent — do not output): Internally verify source support. Do
   // checks ebl_quote first, gl_quote as fallback.
   // Process improvement (locked): Named Insured + hard contract from day one.
   ebl_quote: `ROLE: Excess casualty underwriter extracting Employee Benefits Liability data from a quote, policy, or EBL endorsement. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2486,6 +2490,7 @@ QUALITY CONTROL (silent — do not output): Internally verify source support. Do
   // genuinely can be a GL endorsement → Option B (gl_quote fallback).
   // All three: Named Insured + hard contract from day one (locked).
   aircraft_quote: `ROLE: Excess casualty underwriter extracting Aircraft / Aviation Liability data from a quote or policy. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2530,6 +2535,7 @@ Documents that affirmatively state a different insured are EXCLUDED; all matchin
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   garage_quote: `ROLE: Excess casualty underwriter extracting Garage Liability data from a quote or policy. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2574,6 +2580,7 @@ Documents that affirmatively state a different insured are EXCLUDED; all matchin
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   liquor_quote: `ROLE: Excess casualty underwriter extracting Liquor Liability data from a quote, policy, or liquor liability endorsement. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2625,6 +2632,7 @@ QUALITY CONTROL (silent — do not output): Internally verify source support. Do
   // them directly like GL/AL — no cloning.
   // Process improvement (locked): Named Insured + hard contract day one.
   foreign_gl_quote: `ROLE: Excess casualty underwriter extracting Foreign / International General Liability data from a quote or policy. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2670,6 +2678,7 @@ Documents that affirmatively state a different insured are EXCLUDED; all matchin
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   foreign_al_quote: `ROLE: Excess casualty underwriter extracting Foreign / International Auto Liability data from a quote or policy. Strict. Silent = "No information provided."
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 APPLICANT FILTER (HARD CONTRACT — FIX-PHASE-6.1-AGGRESSIVE-PREAMBLE-2026-05-14):
 This submission's named insured: "\${account_name}".
@@ -2714,6 +2723,7 @@ Documents that affirmatively state a different insured are EXCLUDED; all matchin
 QUALITY CONTROL (silent — do not output): Internally verify source support. Do NOT print source extracts or a checklist.`,
 
   excess: `VISIBLE OUTPUT RULE: Return concise underwriting extraction only. Do NOT print Source Extracts, checklist tables, QC logs, rewrite steps, or validation artifacts. Perform QC silently and show only useful extracted fields.
+DOCUMENT TYPE GUARD: if the input document is an insurance APPLICATION or broker-prepared submission material (ACORD 125/126/131/137, supplemental or contractor questionnaire, schedule of insurance, broker loss summary) rather than a carrier-issued quote, binder, indication, policy, or declarations, extract NOTHING from it. Output a single line: **No carrier quote received for this line of business.** followed by one sentence naming what the document actually is. Application data is what the broker requested, never what a carrier offered; it must never populate quote fields.
 
 ROLE: Excess casualty underwriter reviewing underlying excess/umbrella policies. Build the program tower.
 
@@ -2836,12 +2846,20 @@ MONEY FORMAT (mandatory): every dollar amount rendered anywhere inside the HTML 
 INPUT CONTEXT YOU WILL RECEIVE
 ═══════════════════════════════════════════════════════════════════════
 
-1. Supplemental extraction — names the broker's requested Zurich layer structure ("$X xs $Y" language) and any underlying schedule
+1. Supplemental extraction: names the broker's requested Zurich layer structure ("$X xs $Y" language) and any application-stated underlying schedule (UNCONFIRMED application data; see SOURCE AUTHORITY below; never render it as bound layers, primaries, or premiums)
 2. Primary GL extraction (if present) — Starr/other carrier, occurrence/aggregate limits, premium, SIR
 3. Primary AL extraction (if present) — carrier, CSL limit, power unit count, premium
 4. Excess extraction (if present) — any existing excess/umbrella layers already bound (carrier, limits, attachment, premium)
 
 If any input is absent, write "—" for that layer's fields. If the requested Zurich layer exceeds Zurich capacity per the guideline cross-reference, mark it PROPOSED with a note showing the compliant quote (capped at guideline max).
+
+SOURCE AUTHORITY (MANDATORY: determines which input may populate which rows):
+- BOUND / IN-PLACE layers and BOTH primaries populate ONLY from actual carrier quote extractions present in the input (Primary GL, Primary AL, Excess, or other quote blocks). Carrier names, limits, attachments, premiums, SIRs, and AM Best ratings in these rows must come from a quote extraction, never from the supplemental or application.
+- The supplemental extraction is authoritative ONLY for the broker's REQUESTED Zurich layer (the ask) and the target tower top. Its underlying schedule is what the application CLAIMS exists; it is unconfirmed and must NEVER appear as an IN-PLACE layer, a primary row, or any premium figure.
+- A position claimed only by the application: omit it, or when tower coherence requires showing the position, render it as an OPEN layer with carrier "Per application, unconfirmed (no quote received)" and "—" for premium. Never IN-PLACE, never with application premiums.
+- When no Primary GL or Primary AL quote extraction is present, that primary shows carrier "—", limits "—", and row-2 "No primary GL quote received" or "No primary AL quote received".
+- When a quote extraction exists for a line, it fully displaces conflicting application data for that line.
+- The Ask vs Offer notes paragraph is the ONLY place application-schedule details may be described, in prose, always tagged "per application, unconfirmed".
 
 ═══════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
@@ -2943,7 +2961,7 @@ QUALITY CONTROL (silent — do not output)
 ═══════════════════════════════════════════════════════════════════════
 
 Before returning, verify:
-- Every layer from the underlying schedule is represented
+- Every layer evidenced by a carrier QUOTE extraction is represented; application-only schedule entries appear, if at all, only per SOURCE AUTHORITY (OPEN and unconfirmed), never as IN-PLACE layers or primaries
 - Attachment points of adjacent layers line up (no accidental corridors or overlaps unless genuine)
 - The proposed Zurich layer appears exactly once with ★
 - Numeric consistency: bound + proposed + open sums should equal the target tower top

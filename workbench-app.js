@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.130-al-liability-final-2026-07-05';
+window.STM_BUILD = 'v8.7.135-audit-hardening-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
