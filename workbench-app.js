@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.135-audit-hardening-2026-07-05';
+window.STM_BUILD = 'v8.7.137-frankenstein-mode-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2609,6 +2609,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function parseGLClassRows89(submission) {
+            // v8.7.136: applicant-gate discipline for the RATER feed. When the
+            // engine marked the gl_quote extraction as a foreign-insured
+            // mismatch (applicantGate === 'mismatch'), every automatic class
+            // schedule source here is untrustworthy: the structured block IS
+            // the foreign quote's, and the file-text path cannot distinguish
+            // a foreign quote PDF from a subject ACORD by name. Feed nothing;
+            // the caller's fallback row resolves from A7 classcode and the
+            // subject's supplemental, and the underwriter prices deliberately.
+            // The explicit test-packet allowance and matched/neutral verdicts
+            // pass through unchanged.
+            const glGate8736 = submission && submission.extractions && submission.extractions.gl_quote && submission.extractions.gl_quote.applicantGate;
+            const gateModeApp8737 = (function () { try { var v = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('STM_APPLICANT_GATE_MODE')) || (typeof window !== 'undefined' && window.STM_APPLICANT_GATE_MODE) || ''; return String(v).toLowerCase() === 'strict' ? 'strict' : 'off'; } catch (_) { return 'off'; } })();
+            if (gateModeApp8737 === 'strict' && glGate8736 === 'mismatch') {
+                console.warn('[workbench] v8.7.136 GL rater auto-feed blocked: gl_quote is a foreign-insured mismatch; no class rows applied');
+                return [];
+            }
             // v8.7.105: Stage 2 files are intentionally deferred, so the GL
             // rater must not depend on snapshot.files/pageTexts for the class
             // schedule. Prefer the already-paid GL extraction's structured

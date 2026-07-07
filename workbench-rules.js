@@ -4558,9 +4558,20 @@
   // insured than the submission. Reuse extractNamedInsured +
   // applicantsMatch (already proven). A module whose stated insured
   // clearly mismatches is dropped from the classification corpus.
+  // v8.7.137: workbench copy of the Frankenstein-mode switch (workbench
+  // pages load without the engine, so the helper is duplicated verbatim).
+  function applicantGateModeWr8737() {
+    try {
+      var v = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('STM_APPLICANT_GATE_MODE')) ||
+              (typeof window !== 'undefined' && window.STM_APPLICANT_GATE_MODE) || '';
+      return String(v).toLowerCase() === 'strict' ? 'strict' : 'off';
+    } catch (_) { return 'off'; }
+  }
+
   function _moduleTextIfApplicant(submission, key) {
     const txt = _moduleText(submission, key);
     if (!txt) return '';
+    if (applicantGateModeWr8737() !== 'strict') return txt;  // v8.7.137: insured matching never filters inputs in frankenstein mode
     try {
       const acct = (submission && (submission.account_name || submission.accountName)) || '';
       if (!acct) return txt; // nothing to compare against — keep
@@ -4580,7 +4591,14 @@
   function extractAuthoritativeGlClassRows8712(submission) {
     const out = [];
     const seen = new Set();
-    const quoteText = (typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '';
+    // v8.7.136: applicant-gate discipline for the derived GL schedule. The
+    // supplemental corpus below already routes through _moduleTextIfApplicant,
+    // but the raw quote FILE text did not: a foreign-insured GL quote's page
+    // text could drive the subject's ISO code, description, and exposure.
+    // When the engine marked gl_quote as a hard mismatch, exclude the quote
+    // file corpus entirely; subject-supplied documents still derive normally.
+    const glGate8736 = submission && submission.extractions && submission.extractions.gl_quote && submission.extractions.gl_quote.applicantGate;
+    const quoteText = (applicantGateModeWr8737() === 'strict' && glGate8736 === 'mismatch') ? '' : ((typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '');  // v8.7.137: strict-only
     const supplementalText = [
       _moduleTextIfApplicant(submission, 'gl_quote'),
       _moduleTextIfApplicant(submission, 'supplemental'),

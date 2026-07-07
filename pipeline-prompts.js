@@ -1790,7 +1790,7 @@ SUPPLEMENTAL PRIMACY (v8.7.106):
 Input sections may carry the labels "=== SUPPLEMENTAL APPLICATION (PRIMARY SOURCE): ... ===" and "=== OTHER APPLICATION CONTEXT (SECONDARY, ACORD/NARRATIVE): ... ===".
 P1. When at least one PRIMARY SOURCE section exists, the Applicant / named insured stated INSIDE that section IS the subject insured of this summary. Use that entity for Company Name.
 P2. Extract every template field from the PRIMARY SOURCE section(s) first.
-P3. A SECONDARY section may fill only fields the PRIMARY leaves fully silent, and only when the SECONDARY section's named insured matches the PRIMARY applicant. If a SECONDARY section names a different insured, ignore that SECONDARY section completely: it must not supply Company Name, operations, geography, or any other field, and its presence must never cause a "Not provided" answer for a field the PRIMARY actually answers.
+P3. A SECONDARY section may fill only fields the PRIMARY leaves fully silent; it never overrides the PRIMARY. When a SECONDARY section names a different insured than the PRIMARY applicant, STILL use it to fill silent fields (mixed-insured test packets are expected), appending a short inline note such as "(per [section label], insured stated as [name]; verify)". Company Name always comes from the PRIMARY. A SECONDARY section's presence must never cause a "Not provided" answer for a field the PRIMARY actually answers, and insured identity is never a reason to withhold extraction.
 P4. When these rules conflict with Steps 1-5 of the APPLICANT FILTER above, SUPPLEMENTAL PRIMACY wins for this module.
 If no PRIMARY SOURCE label is present, the input uses plain "=== FILE: ... ===" sections and the APPLICANT FILTER above governs unchanged.
 
@@ -2995,6 +2995,7 @@ OUTPUT SECTIONS (include each only if you have real content):
 QUALITY CONTROL (silent — do not output): Internally verify every rendered section has exact website support. Do NOT print source extracts or a checklist.`,
 
   classcode: `ROLE: GL Class Code Expert for excess casualty underwriting.
+INSURED IDENTITY DOCTRINE (v8.7.137): if a quote or schedule names a different insured than the account context, STILL extract and use its class schedule for all fields; add one review line noting the insured difference. Never withhold, refuse, or substitute reference-table guesses for codes the documents actually state, over insured identity.
 
 Mission: Identify the correct General Liability class codes for the account's operations. Keep the visible output short and useful for an underwriter.
 

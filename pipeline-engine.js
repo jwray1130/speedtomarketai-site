@@ -5243,6 +5243,24 @@ function isTestPacketContext8754(context) {
   }
 }
 
+// v8.7.137 FRANKENSTEIN MODE (standing instruction): named-insured
+// matching is DETECTION ONLY by default. Mixed-insured packets are a
+// deliberate, months-standing test practice; gates that block, neutralize,
+// or destroy extractions over insured identity keep breaking real work.
+// Default mode is 'off': every gate site below records metadata (chips,
+// audit lines, detectedInsureds) and proceeds. Setting
+// localStorage.STM_APPLICANT_GATE_MODE = 'strict' (or
+// window.STM_APPLICANT_GATE_MODE = 'strict') restores full blocking for
+// production tenants in one line. Nothing else changes between modes.
+function applicantGateMode8737() {
+  try {
+    var v = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('STM_APPLICANT_GATE_MODE')) ||
+            (typeof window !== 'undefined' && window.STM_APPLICANT_GATE_MODE) || '';
+    return String(v).toLowerCase() === 'strict' ? 'strict' : 'off';
+  } catch (_) { return 'off'; }
+}
+if (typeof window !== 'undefined') window.applicantGateMode8737 = applicantGateMode8737;
+
 function applicantMismatchAllowedForSupportDocTest8754(moduleId, context) {
   return APPLICANT_GATED_MODULES.has(moduleId) && isTestPacketContext8754(context || {});
 }
@@ -5260,6 +5278,15 @@ function localApplicantGate8718(moduleId, userContent, context) {
   // This prevents mixed Anahuac/Carroll style payloads from contaminating
   // Summary, Guidelines, Exposure and Strengths.
   const strictSupportDoc = /^(?:safety|supplemental|subcontract|vendor)$/.test(moduleId);
+  // v8.7.137: under default Frankenstein mode a mismatch is NOTED, never
+  // blocked. The v8754 test-packet hatch required fixture-style filenames
+  // (isTestPacketContext8754) and therefore never opened on real-named
+  // mixed packets; this mode check makes the standing instruction
+  // unconditional instead of filename-dependent.
+  if (nonMatches.length && applicantGateMode8737() !== 'strict') {
+    console.warn('[applicant-gate] ' + moduleId + ' insured mismatch NOTED (frankenstein mode, extraction proceeds). Submission insured: "' + (context.account_name || '') + '". Documents reference: ' + nonMatches.join(', '));
+    return { proceed: true, reason: 'mismatch_noted_frankenstein_v8737', mismatchAllowed: true, mixedInsureds: matches.length > 0, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, precheck: { detected, local: true, usage: { input_tokens: 0, output_tokens: 0, model: 'local-applicant-gate-v8737' } } };
+  }
   const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(moduleId, context);
   if (strictSupportDoc && nonMatches.length) {
     if (mismatchAllowedForExtraction) {
@@ -5560,6 +5587,20 @@ function applyPostExtractionApplicantGate8723(accountName) {
     const matches = detected.filter(function(n){ return _gateInsuredMatches(n, accountName); });
     const nonMatches = detected.filter(function(n){ return !_gateInsuredMatches(n, accountName); });
     if (nonMatches.length) {
+      // v8.7.137: default Frankenstein mode. Record the mismatch for chips
+      // and audit, keep the extraction byte-intact. Strict mode below is
+      // unchanged for production tenants.
+      if (applicantGateMode8737() !== 'strict') {
+        ex.applicantGate = 'mismatch_noted_frankenstein_v8737';
+        ex.applicantGateReason = 'post_wave_mismatch_noted_v8737';
+        ex.applicant_match = 'mismatch_noted_frankenstein_v8737';
+        ex.detectedInsureds = nonMatches;
+        ex.matchedInsureds = matches;
+        ex.submissionInsured = accountName;
+        ex.gateDetails = { proceed: true, reason: 'post_wave_mismatch_noted_v8737', mismatchAllowed: true, detectedInsureds: nonMatches, matchedInsureds: matches, allDetected: detected, submissionInsured: accountName };
+        logAudit('Pipeline', 'Insured mismatch NOTED in ' + (MODULES[mid] ? MODULES[mid].code : mid) + ' (frankenstein mode) · extraction kept intact (' + nonMatches.join(', ') + ')', 'warn');
+        return;
+      }
       const mismatchAllowedForExtraction = applicantMismatchAllowedForSupportDocTest8754(mid, { account_name: accountName });
       if (mismatchAllowedForExtraction) {
         ex.applicantGate = 'mismatch_allowed_test_packet_v8754';
@@ -5881,7 +5922,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     // unchanged: shouldNeutralizeApplicantFilter8706 requires the v8.7.55
     // fixture-filename context to be true.
     const neutralize8706 = shouldNeutralizeApplicantFilter8706(moduleId, gateResult, context);
-    if ((gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) || neutralize8706) {
+    if ((gateResult && gateResult.mismatchAllowed && !(gateResult.matchedInsureds && gateResult.matchedInsureds.length)) || neutralize8706 || (applicantGateMode8737() !== 'strict' && gateResult && gateResult.mismatchAllowed)) {  // v8.7.137: mixed-insured packets also neutralize the prompt filter in frankenstein mode
       enrichedContext = Object.assign({}, enrichedContext || context || {}, {
         original_account_name: context && context.account_name ? context.account_name : null,
         account_name: '(unknown)',
