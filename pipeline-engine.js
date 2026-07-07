@@ -113,6 +113,21 @@ const FILE_AND_FORGET_TAGS = new Set([
 //
 // Returns: a module id string, or null if no extraction needed.
 // ============================================================================
+// v8.7.138: per-section classifier entries carry primary_bucket, but the
+// routing call sites were dropping it. An ACORD's GL/AL sections arrive
+// tagged "GL Exposure" / "AL Fleet" style, hit the tag-prefix recovery, and
+// routed to QUOTE modules. Bucket-first for APPLICATIONS sections: the
+// existing bucket switch performs the correct five-way split
+// (supplemental / safety / subcontract / vendor / narrative). Every other
+// bucket and every legacy shape routes exactly as before.
+function routeForSection8738(cl) {
+  if (!cl) return null;
+  const bucket8738 = String(cl.primary_bucket || '').trim().toUpperCase();
+  if (bucket8738 === 'APPLICATIONS') return classifierToRoute('APPLICATIONS', cl.subType, cl.tag);
+  return classifierToRoute(cl.type, cl.subType, cl.tag);
+}
+if (typeof window !== 'undefined') window.routeForSection8738 = routeForSection8738;
+
 function classifierToRoute(classifierType, subType, tag) {
   if (!classifierType) return null;
   const t = String(classifierType).trim();
@@ -129,6 +144,18 @@ function classifierToRoute(classifierType, subType, tag) {
   if (tLower.includes('premium summary') || tLower.includes('premium recap') ||
       tLower.includes('pricing summary') || tLower.includes('rate summary') ||
       tLower.includes('quote proposal')) return null;
+  // v8.7.138 belt: an explicit ACORD-form token anywhere in the combined
+  // label is an APPLICATION signal that outranks GL/AL/excess tag recovery.
+  // Without this, an ACORD 126's GL section tagged "GL Exposure" routed to
+  // gl_quote and the incremental preflight offered to run quote modules on
+  // an application document.
+  const combined8738 = (tLower + ' ' + String(subType || '').toLowerCase() + ' ' + String(tag || '').toLowerCase());
+  if (/\bacord\b/.test(combined8738)) {
+    if (combined8738.includes('safety')) return 'safety';
+    if (combined8738.includes('sub agreement') || combined8738.includes('subcontract')) return 'subcontract';
+    if (combined8738.includes('vendor')) return 'vendor';
+    return 'supplemental';
+  }
   // v8.6.84: Platform/File Manager lead-layer tags must route even when
   // the classifier emits machine-ish forms (lead_2m, lead_umbrella) rather
   // than the human chip text (Lead $2M).
@@ -1607,7 +1634,7 @@ async function incrementalProcess(newFiles) {
     f.reasoning = c.reasoning || '';
     f.suppressTag = !!c.suppressTag;
     stmApplyTowerMetaToFile(f);
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
+    f.routedToAll = (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean);  // v8.7.138: bucket-aware
     f.routedTo = classifierToRoute(c.type, c.subType, c.tag);
     f.state = 'classified';
     anyFilesProcessed = true;
@@ -6551,7 +6578,7 @@ async function runPipeline() {
     f.reasoning = c.reasoning || '';
     stmApplyTowerMetaToFile(f);
     // Route to ALL applicable modules (supports combined docs)
-    f.routedToAll = (c.classifications || []).map(cl => classifierToRoute(cl.type, cl.subType, cl.tag)).filter(Boolean);
+    f.routedToAll = (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean);  // v8.7.138: bucket-aware
     f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
     f.state = 'classified';
     renderFileList();

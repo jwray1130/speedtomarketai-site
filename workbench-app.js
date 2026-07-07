@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.137-frankenstein-mode-2026-07-05';
+window.STM_BUILD = 'v8.7.138-acord-routing-2026-07-05';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
