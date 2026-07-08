@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.140-level10-cost-firewall-2026-07-07';
+window.STM_BUILD = 'v8.7.141-quote-evidence-lock-2026-07-06';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

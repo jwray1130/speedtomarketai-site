@@ -137,109 +137,96 @@ const QUOTE_ROUTES_8739 = new Set(['gl_quote', 'al_quote', 'excess', 'el_quote',
 function sectionLabel8739(cl) {
   return (String(cl && cl.type || '') + ' ' + String(cl && cl.subType || '') + ' ' + String(cl && cl.tag || '')).toLowerCase();
 }
-function appLockSections8739(c) {
-  const listed = (c && Array.isArray(c.classifications)) ? c.classifications.filter(Boolean) : [];
-  if (listed.length) return listed;
-  if (!c) return [];
-  return [{
-    type: c.type || c.classification || null,
-    subType: c.subType || null,
-    tag: c.tag || null,
-    primary_bucket: c.primary_bucket || null,
-    section_hint: c.section_hint || null
-  }];
+function isExplicitQuoteLabel8739(label) {
+  // v8.7.140: 'policy' removed; ACORD 131 carries a POLICY INFORMATION header, which is application data, not carrier-quote authority.
+  return /\bquote\b|\bbinder\b|\bindication\b|\bproposal\b|\bquotation\b|\bdeclarations?\b|\bdec page\b|t&c|\blead\s*\$|\sxs\s*\$|p\/o\s*\$/.test(label);  // v8.7.141: proposal/quotation added
 }
-function appLockParseSectionHint8739(hint, totalPages) {
-  if (!hint) return [1, totalPages || 1];
-  const h = String(hint).toLowerCase().trim();
-  if (h === 'entire document' || h === 'all pages' || h === 'all') return [1, totalPages || 1];
-  const range = h.match(/(?:pages?|p\.?)\s*(\d+)\s*[-–to]+\s*(\d+)/);
-  if (range) return [parseInt(range[1], 10), parseInt(range[2], 10)];
-  const single = h.match(/(?:pages?|p\.?)\s*(\d+)/);
-  if (single) { const n = parseInt(single[1], 10); return [n, n]; }
-  return [1, totalPages || 1];
-}
-function sectionTextForApplicationLock8739(f, cl) {
-  const pages = (f && Array.isArray(f.pageTexts)) ? f.pageTexts : [];
-  if (!pages.length) return String(f && (f.text || f.extractedText || '') || '');
-  const totalPages = pages.length;
-  const span = appLockParseSectionHint8739(cl && cl.section_hint, totalPages);
-  const startIdx = Math.max(0, span[0] - 1);
-  const endIdx = Math.min(totalPages - 1, span[1] - 1);
-  if (startIdx > endIdx) return String(f && (f.text || f.extractedText || '') || '');
-  return pages.slice(startIdx, endIdx + 1).join('\n\n');
-}
-function fileApplicationTextSignal8739(f) {
-  const pages = (f && Array.isArray(f.pageTexts)) ? f.pageTexts.join('\n').slice(0, 60000) : '';
-  const txt = (String(f && (f.text || f.extractedText || '') || '').slice(0, 60000) + '\n' + pages).toLowerCase();
-  // Text-level belt: if classifier labels and filename both miss, official ACORD
-  // page text still proves this is an application package. Avoid a broad bare
-  // "application" match so carrier quote prose is not accidentally locked.
-  return /\bacord\s*(?:125|126|127|129|130|131|137|139|140|152|823|829)\b/.test(txt) ||
-    /\bacord\b[\s\S]{0,120}\b(?:commercial insurance application|general liability section|automobile section|umbrella|excess)\b/.test(txt) ||
-    /\bcommercial insurance application\b/.test(txt) ||
-    /\bapplicant information section\b/.test(txt);
-}
-function isApplicationFile8739(f, c) {
-  const sections = appLockSections8739(c);
-  const labels = sections.map(sectionLabel8739);
-  return /acord|application|questionnaire/i.test(String(f && f.name || '')) ||
-    labels.some(l => /\bacord\b|\bapplication\b|questionnaire/.test(l)) ||
-    sections.some(cl => String(cl && cl.primary_bucket || '').trim().toUpperCase() === 'APPLICATIONS') ||
-    fileApplicationTextSignal8739(f);
-}
-function isExplicitQuoteLabel8739(label, sectionText) {
-  const l = String(label || '').toLowerCase();
-  const t = String(sectionText || '').toLowerCase().slice(0, 12000);
 
-  // v8.7.140-level10 cost firewall:
-  // In an application/ACORD packet, ambiguous insurance headings such as
-  // "Policy Information", "T&C", "Terms and Conditions", "Lead $5M", or
-  // "$10M xs $5M" are NOT enough by themselves to spend on quote modules.
-  // ACORD 125/126/131/auto sections often contain those phrases as requested
-  // coverage or current-policy fields. Require clear carrier-issued quote
-  // evidence before allowing a quote/excess route inside an application file.
-  const strongCarrierLabel = /\bquote\b|\bbinder\b|\bindication\b|\bdeclarations?\b|\bdec\s*page\b|\bproposal\b|\bquotation\b|\bcarrier\s+(?:quote|proposal|indication)\b/.test(l);
-  if (strongCarrierLabel) return true;
-
-  const ambiguousQuoteLikeLabel = /\bpolicy\b|t&c|\bterms\s*(?:and\s*)?conditions\b|\blead\s*\$|\sxs\s*\$|p\/o\s*\$|\blead umbrella\b|\blead excess\b|\bexcess\s*t&c\b|\bumbrella\s*section\b/.test(l);
-  if (!ambiguousQuoteLikeLabel) return false;
-
-  const strongCarrierText = /\bquote\b|\bproposal\b|\bbinder\b|\bindication\b|\bquotation\b|\bdeclarations?\b|\bdec\s*page\b|\bcarrier\b|\bsubjectivit(?:y|ies)\b|\bpremium\b|\brate\b/.test(t);
-  const termsContext = /t&c|\bterms\s*(?:and\s*)?conditions\b/.test(t) && /\bquote\b|\bproposal\b|\bcarrier\b|\bpremium\b|\bsubjectivit(?:y|ies)\b/.test(t);
-  return strongCarrierText || termsContext;
+// v8.7.140: the v8.7.139 file signal trusted filename, tags, and buckets.
+// A generically named file whose classifier output is fully hostile (no
+// ACORD tokens, no APPLICATIONS bucket) bypassed the lock. ACORD forms
+// print their own identity on every page; scan the extracted text for
+// form numbers so the signal is document-derived, classifier-proof.
+const ACORD_FORM_RE_8740 = /\bacord\s*(?:1(?:01|25|26|27|29|31|37|39|40|52|63)|823|829)\b|acord corporation/i;
+function fileHasApplicationSignal8740(f, sections, labels) {
+  if (/acord|application|questionnaire/i.test(String(f && f.name || ''))) return true;
+  if (labels.some(l => /\bacord\b|\bapplication\b|questionnaire/.test(l))) return true;
+  if (sections.some(cl => String(cl && cl.primary_bucket || '').trim().toUpperCase() === 'APPLICATIONS')) return true;
+  try {
+    const txt = String(f && f.text || '') || (Array.isArray(f && f.pageTexts) ? f.pageTexts.join('\n') : '');
+    if (ACORD_FORM_RE_8740.test(txt)) return true;
+  } catch (_) {}
+  return false;
 }
-function routeForFileSection8739(f, c, cl, opts) {
+// v8.7.140: single source of truth for a section's LOCKED route, shared by
+// the routing constructor and sliceTextForModule so slicing can never
+// disagree with routing (the v8.7.139 slice used raw classifier routes and
+// dropped locked ACORD GL/AL pages from the A2 input).
+// v8.7.141 QUOTE-EVIDENCE RULE (supersedes the application-only scope).
+// The v8.7.140 lock fired only on APPLICATION-signal files, so a subcontract
+// packet (TEST 6) with an insurance-requirements exhibit tagged "GL Exposure"
+// still routed to A12: no ACORD token anywhere, hole open in both audited and
+// external builds, reproduced executed. Inverted invariant: quote-family
+// routes require carrier-quote EVIDENCE at file level. Classifier buckets are
+// deliberately NOT evidence; this arc proved they cannot be trusted.
+function filePermitsQuoteRoutes8741(f, labels) {
+  if (/quote|binder|indication|proposal|renewal|declaration|\bdec\b/i.test(String(f && f.name || ''))) return true;
+  if ((labels || []).some(l => isExplicitQuoteLabel8739(l))) return true;
+  try {
+    const txt = String(f && f.text || '') || (Array.isArray(f && f.pageTexts) ? f.pageTexts.join('\n') : '');
+    if (/\bsubjectivit|underwritten by|\bquotation\b|\bthis quote\b|\bpremium:?\s*\$/i.test(txt)) return true;
+  } catch (_) {}
+  return false;
+}
+// Stripped sections travel with their parent document: the dominant
+// application-family route among the file's sections (a sub agreement's
+// exhibit belongs in A3's input, an ACORD's GL pages in A2's).
+function dominantAppRoute8741(sections) {
+  const counts = {};
+  (sections || []).forEach(cl => {
+    const r = routeForSection8738(cl);
+    if (r === 'supplemental' || r === 'safety' || r === 'subcontract' || r === 'vendor') counts[r] = (counts[r] || 0) + 1;
+  });
+  let best = 'supplemental', n = 0;
+  Object.keys(counts).forEach(k => { if (counts[k] > n) { best = k; n = counts[k]; } });
+  return best;
+}
+function lockedSectionRoute8740(f, allSections, cl) {
   const route = routeForSection8738(cl);
-  if (!route) return null;
-  if (!isApplicationFile8739(f, c)) return route;
-  if (QUOTE_ROUTES_8739.has(route) && !isExplicitQuoteLabel8739(sectionLabel8739(cl), sectionTextForApplicationLock8739(f, cl))) {
-    if (!(opts && opts.silent) && typeof logAudit === 'function') {
-      logAudit('Classifier', 'APPLICATION LOCK v8.7.140: section "' + ((cl && (cl.tag || cl.type)) || '?') + '" in ' + (f && f.name || 'file') + ' rerouted ' + route + ' -> supplemental (application file, no carrier-quote evidence)', 'warn');
-    }
-    return 'supplemental';
-  }
+  if (!route) return route;
+  if (!QUOTE_ROUTES_8739.has(route)) return route;
+  const sections = allSections || [];
+  const labels = sections.map(sectionLabel8739);
+  if (!filePermitsQuoteRoutes8741(f, labels)) return dominantAppRoute8741(sections);
+  if (fileHasApplicationSignal8740(f, sections, labels) && !isExplicitQuoteLabel8739(sectionLabel8739(cl))) return dominantAppRoute8741(sections);
   return route;
 }
+if (typeof window !== 'undefined') window.lockedSectionRoute8740 = lockedSectionRoute8740;
+
 function applyApplicationLock8739(f, c, routedToAll) {
   try {
-    const sections = appLockSections8739(c);
-    if (!sections.length) return routedToAll;
-    if (!isApplicationFile8739(f, c)) return routedToAll;
+    const sections = (c && c.classifications) || [];
+    const labels = sections.map(sectionLabel8739);
+    const fileSignal = fileHasApplicationSignal8740(f, sections, labels);
+    // v8.7.141: single source of truth. Route every section through
+    // lockedSectionRoute8740 (quote-evidence rule) whether or not the file
+    // carries application signals; log every reroute for the audit trail.
+    void fileSignal;
     const kept = [];
-    sections.forEach(cl => {
-      const route = routeForFileSection8739(f, c, cl);
-      if (route) kept.push(route);
+    sections.forEach((cl, i) => {
+      const raw = routeForSection8738(cl);
+      if (!raw) return;
+      const route = lockedSectionRoute8740(f, sections, cl);
+      if (route !== raw) {
+        logAudit('Classifier', 'QUOTE-EVIDENCE LOCK v8.7.141: section "' + (cl.tag || cl.type || '?') + '" in ' + (f && f.name || 'file') + ' rerouted ' + raw + ' -> ' + route + ' (no carrier-quote evidence for this section)', 'warn');
+      }
+      kept.push(route);
     });
     const out = kept.filter(Boolean);
     return out.length ? Array.from(new Set(out)) : routedToAll;
   } catch (e) { return routedToAll; }
 }
-if (typeof window !== 'undefined') {
-  window.applyApplicationLock8739 = applyApplicationLock8739;
-  window.routeForFileSection8739 = routeForFileSection8739;
-  window.isApplicationFile8739 = isApplicationFile8739;
-}
+if (typeof window !== 'undefined') window.applyApplicationLock8739 = applyApplicationLock8739;
 
 function routeForSection8738(cl) {
   if (!cl) return null;
@@ -534,12 +521,8 @@ function sliceTextForModule(f, mid) {
   const cls = f.classifications || [];
   if (cls.length <= 1) return f.text || '';
 
-  // Find the classifications that route to THIS module. Use the same
-  // file-aware application lock as the paid-module router so a combined ACORD
-  // section tagged GL Exposure / AL Fleet is sliced into A2, not dropped from
-  // the A2 prompt or leaked into quote-family prompts.
-  const fileContext8739 = { classifications: cls, type: f.classification || f.type || null, subType: f.subType || null, tag: f.tag || f.primaryTag || null, primary_bucket: f.primary_bucket || null };
-  const matchingSections = cls.filter(c => routeForFileSection8739(f, fileContext8739, c, { silent: true }) === mid);
+  // Find the classifications that route to THIS module
+  const matchingSections = cls.filter(c => lockedSectionRoute8740(f, cls, c) === mid);  // v8.7.140: slice by LOCKED route so A2 keeps locked ACORD GL/AL pages
   if (matchingSections.length === 0) {
     // No section explicitly routes here — fall back to whole text rather
     // than send empty input (the module will see the full doc and decide).
@@ -1086,10 +1069,7 @@ const CLASSIFIER_TYPES = [
   // ── APPLICATIONS ─────────────────────────────────────────────────────
   { value: 'ACORD 125',         label: 'ACORD 125',                   bucket: 'APPLICATIONS' },
   { value: 'ACORD 126',         label: 'ACORD 126',                   bucket: 'APPLICATIONS' },
-  { value: 'ACORD 127',         label: 'ACORD 127',                   bucket: 'APPLICATIONS' },
-  { value: 'ACORD 129',         label: 'ACORD 129',                   bucket: 'APPLICATIONS' },
   { value: 'ACORD 131',         label: 'ACORD 131',                   bucket: 'APPLICATIONS' },
-  { value: 'ACORD 137',         label: 'ACORD 137',                   bucket: 'APPLICATIONS' },
   { value: 'Supp App',          label: 'Supp App (generic)',          bucket: 'APPLICATIONS' },
   { value: 'Contractors Supp',  label: 'Contractors Supp',            bucket: 'APPLICATIONS' },
   { value: 'Manufacturing Supp',label: 'Manufacturing Supp',          bucket: 'APPLICATIONS' },
@@ -1762,11 +1742,13 @@ async function incrementalProcess(newFiles) {
     f.reasoning = c.reasoning || '';
     f.suppressTag = !!c.suppressTag;
     stmApplyTowerMetaToFile(f);
-    const rawRoutes8739 = (c.classifications && c.classifications.length)
-      ? (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean)
-      : [classifierToRoute(c.type, c.subType, c.tag)].filter(Boolean);
-    f.routedToAll = applyApplicationLock8739(f, c, rawRoutes8739);  // v8.7.140: file-aware cost firewall
-    f.routedTo = (f.routedToAll && f.routedToAll.length) ? f.routedToAll[0] : (classifierToRoute(c.type, c.subType, c.tag) || null);
+    f.routedToAll = applyApplicationLock8739(f, c, (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean));  // v8.7.139: application lock
+    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);
+    // v8.7.140 (GPT audit claim 4, verified): the v8.7.139 alignment ran
+    // BEFORE this assignment and was dead code. Align AFTER: the primary
+    // route must be a member of the locked route set.
+    const alignLock8740 = f.routedToAll.length && f.routedToAll.indexOf(f.routedTo) === -1;
+    if (alignLock8740) f.routedTo = f.routedToAll[0];
     f.state = 'classified';
     anyFilesProcessed = true;
 
@@ -2187,17 +2169,6 @@ async function rerunModules(moduleIds) {
           skipModule(mid, 'dep missing');
         }
       } else if (m.inputsFrom === 'extractions') {
-        if (mid === 'tower') {
-          // quoteGate8740: A15 requires at least one quote/excess extraction.
-  const towerQuoteDeps8740 = ['excess','gl_quote','al_quote'].filter(d => STATE.extractions[d]);
-          if (towerQuoteDeps8740.length === 0) {
-            skipModule(mid, 'no GL/AL/excess quote extraction available');
-          } else {
-            const towerDeps8740 = [...(STATE.extractions.supplemental ? ['supplemental'] : []), ...towerQuoteDeps8740];
-            const combined8740 = towerDeps8740.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
-            runResult = await runModule(mid, PROMPTS[mid], combined8740, towerDeps8740.map(d => MODULES[d].code).join('+'), pipelineContext);
-          }
-        } else {
         // === FIX #3 — INCLUDE optionalDeps WHEN BUILDING INPUTS ===
         // computeDownstream correctly identifies optionalDeps as triggers
         // (so e.g. discrepancy reruns when an authoritative source changes),
@@ -2209,10 +2180,17 @@ async function rerunModules(moduleIds) {
         // Without this, A9/A10 could rerun from optional-only sources when A6
         // was missing, and the prompt's hard-gate message counted as a
         // successful run, overwriting the prior good extraction (which the
-        // backup/restore below only restores on failure or skip).
+        // backup/restore below only restores on failure or skip). Tower is
+        // allowlisted: it is designed to run from any quote/supp family.
         const requiredDeps8720 = m.deps || [];
         const requiredPresent8720 = requiredDeps8720.filter(d => STATE.extractions[d]);
-        if (requiredDeps8720.length && requiredPresent8720.length === 0) {
+        // v8.7.140: tower quote-authority gate, symmetric with the initial run.
+        if (mid === 'tower' && !['excess', 'gl_quote', 'al_quote'].some(d => STATE.extractions[d])) {
+          skipModule(mid, 'no quote authority (excess/GL/AL quote); supplemental alone does not trigger tower spend');
+          runResult = false;
+        } else {
+        const OPTIONAL_ONLY_OK_8720 = (mid === 'tower');
+        if (requiredDeps8720.length && requiredPresent8720.length === 0 && !OPTIONAL_ONLY_OK_8720) {
           skipModule(mid, 'required dep missing');
         } else {
         const allDeps = [
@@ -2433,7 +2411,7 @@ function stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
 function stmDetectAcordForms(file) {
   const text = stmClassifierTextBlob(file);
   const found = [];
-  ['125','126','127','129','130','131','137','139','140','152','823','829'].forEach(num => {
+  ['125', '126', '131'].forEach(num => {
     const re = new RegExp('\\bA\\s*C\\s*O\\s*R\\s*D\\s*[-\\s]*' + num + '\\b|\\bACORD' + num + '\\b', 'i');
     if (re.test(text)) found.push(num);
   });
@@ -2453,7 +2431,7 @@ function stmIsPropertyOnly(file) {
     /\bbuilding\s+(limit|value|coverage|valuation)\b/i.test(text);
 
   const hasLiability =
-    /\bACORD\s*(125|126|127|129|131|137|139|152|823|829)\b/i.test(text) ||
+    /\bACORD\s*(125|126|131)\b/i.test(text) ||
     /\bgeneral\s+liability\b/i.test(text) ||
     /\bcommercial\s+general\s+liability\b/i.test(text) ||
     /\bCGL\b/i.test(text) ||
@@ -2758,36 +2736,6 @@ const DOC_SIGNATURE_DETECTORS = [
     ],
   },
   {
-    id: 'acord_127',
-    priority: 100,
-    tag: 'ACORD 127',
-    type: 'APPLICATIONS',
-    subType: 'ACORD',
-    primary_bucket: 'APPLICATIONS',
-    description: 'Business/Commercial Auto Section',
-    min_signals: 2,
-    signals: [
-      { name: 'filename_match',       scope: 'filename', pattern: /acord[\s_-]*127(?!\d)/i },
-      { name: 'form_number_stamp',    scope: 'text',     pattern: /\bACORD[\s_-]*127(?!\d)/i },
-      { name: 'title_section_header', scope: 'text',     pattern: /(BUSINESS|COMMERCIAL)\s+AUTO(MOBILE)?\s+SECTION/i },
-    ],
-  },
-  {
-    id: 'acord_137',
-    priority: 100,
-    tag: 'ACORD 137',
-    type: 'APPLICATIONS',
-    subType: 'ACORD',
-    primary_bucket: 'APPLICATIONS',
-    description: 'Business/Commercial Auto Section',
-    min_signals: 2,
-    signals: [
-      { name: 'filename_match',       scope: 'filename', pattern: /acord[\s_-]*137(?!\d)/i },
-      { name: 'form_number_stamp',    scope: 'text',     pattern: /\bACORD[\s_-]*137(?!\d)/i },
-      { name: 'title_section_header', scope: 'text',     pattern: /(BUSINESS|COMMERCIAL)\s+AUTO(MOBILE)?\s+SECTION/i },
-    ],
-  },
-  {
     id: 'acord_131',
     priority: 100,
     tag: 'ACORD 131',
@@ -2940,18 +2888,6 @@ function detectAcordSectionsPerPage(file) {
       stamp: /\bACORD[\s_-]*126(?!\d)/i,
       title: /COMMERCIAL\s+GENERAL\s+LIABILITY\s+(SECTION|EXPOSURE)/i,
       description: 'Commercial General Liability Section',
-    },
-    {
-      tag: 'ACORD 127',
-      stamp: /\bACORD[\s_-]*127(?!\d)/i,
-      title: /(BUSINESS|COMMERCIAL)\s+AUTO(MOBILE)?\s+SECTION/i,
-      description: 'Business/Commercial Auto Section',
-    },
-    {
-      tag: 'ACORD 137',
-      stamp: /\bACORD[\s_-]*137(?!\d)/i,
-      title: /(BUSINESS|COMMERCIAL)\s+AUTO(MOBILE)?\s+SECTION/i,
-      description: 'Business/Commercial Auto Section',
     },
     {
       tag: 'ACORD 131',
@@ -5611,76 +5547,6 @@ function supplementalNoInfoText8754() {
     '- Additional Safety Details: No information provided.';
 }
 
-
-// v8.7.140 A2 COST GUARD: deterministic fallback when A2 truncates twice.
-// This does not pretend the extraction is complete. It preserves a reviewable
-// card and stops a paid truncation loop from ending as a red failed module.
-function stmCleanLine8740(v, maxLen) {
-  return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, maxLen || 220);
-}
-function stmFirstMatch8740(src, patterns, maxLen) {
-  const text = String(src || '');
-  for (const re of patterns) {
-    const m = text.match(re);
-    if (m && m[1]) return stmCleanLine8740(m[1], maxLen || 220);
-  }
-  return '';
-}
-function buildSupplementalFallbackExtraction8740(sourceText, reason) {
-  const src = String(sourceText || '');
-  const company = stmFirstMatch8740(src, [
-    /(?:named insured|applicant(?: name)?|company name|insured name)\s*[:\-]\s*([^\n\r]{2,160})/i,
-    /(?:name of insured)\s*[:\-]\s*([^\n\r]{2,160})/i
-  ], 140);
-  const years = stmFirstMatch8740(src, [
-    /(?:years in business|years operating|in business since|business started)\s*[:\-]\s*([^\n\r]{1,100})/i
-  ], 80);
-  const ops = stmFirstMatch8740(src, [
-    /(?:description of operations|operations description|business description|description of business|operations)\s*[:\-]\s*([^\n\r]{8,360})/i,
-    /(?:nature of business)\s*[:\-]\s*([^\n\r]{8,360})/i
-  ], 300);
-  const state = stmFirstMatch8740(src, [
-    /(?:state|location state)\s*[:\-]\s*([A-Z]{2}\b[^\n\r]*)/i,
-    /\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/
-  ], 80);
-  const fallbackNote = 'A2 fallback used after model truncation retry. Review the source document before relying on this section.';
-  const structured = {
-    fallback: true,
-    review_required: true,
-    fallback_reason: reason || 'MODEL_TRUNCATED_RETRY',
-    company_name: company || null,
-    years_in_business: years || null,
-    operations_description: ops || null,
-    geographic_hint: state || null,
-    status: 'a2_fallback_after_truncation_retry_v8740'
-  };
-  return '**Supplemental Application Summary**\n\n' +
-    '- Company Name: ' + (company || 'Review source manually - fallback could not parse.') + '\n' +
-    '- Years in Business: ' + (years || 'No information parsed by fallback.') + '\n\n' +
-    '**Operations:**\n' +
-    '- Description: ' + (ops || 'Review source manually - fallback could not parse a reliable operations description.') + '\n' +
-    '- Max Height of Work: No information parsed by fallback.\n' +
-    '- Max Depth of Work: No information parsed by fallback.\n' +
-    '- Crane Usage: No information parsed by fallback. Details: No information parsed by fallback.\n\n' +
-    '**Geographic Spread:**\n' +
-    '- ' + (state || 'No geographic spread parsed by fallback.') + '\n\n' +
-    '**Work Mix:**\n' +
-    '- Direct / Self-Performed: No information parsed by fallback.\n' +
-    '- Subcontracted: No information parsed by fallback.\n' +
-    '- Commercial: No information parsed by fallback.\n' +
-    '- Residential: No information parsed by fallback.\n\n' +
-    '**Subcontractor Risk-Transfer:**\n' +
-    '- Additional Insured Required: No information parsed by fallback.\n' +
-    '- COIs Retained: No information parsed by fallback.\n' +
-    '- Indemnification / Hold-Harmless: No information parsed by fallback.\n' +
-    '- Minimum Insurance Limits: No information parsed by fallback.\n\n' +
-    '**Safety Program:**\n' +
-    '- Formal Written Program: No information parsed by fallback.\n' +
-    '- Additional Safety Details: No information parsed by fallback.\n\n' +
-    '**Review Note:** ' + fallbackNote + '\n\n' +
-    '```json supplemental_fallback_structured\n' + JSON.stringify(structured, null, 2) + '\n```';
-}
-
 function buildRefusalDiagnostic(moduleId, accountName, detectedInsureds) {
   if (moduleId === 'subcontract') {
     // Keep applicant-gate details in structured metadata/logs, but keep the
@@ -6004,8 +5870,7 @@ function applyPostWaveOcrRecovery_v8737(accountName) {
         && ex.applicant_match !== 'no_account_name') return;
     // Find the source file(s) routed to this module.
     const routedFiles = STATE.files.filter(function(f){
-      const targets8739 = (f && f.routedToAll && f.routedToAll.length) ? f.routedToAll : (f && f.routedTo ? [f.routedTo] : []);
-      return f && targets8739.indexOf(mid) > -1
+      return f && f.routedTo === mid
         && f.extractMeta && Array.isArray(f.extractMeta.pageTexts)
         && f.extractMeta.pageTexts.length > 0;
     });
@@ -6229,7 +6094,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       const RETRY_TRUNC_8721 = {
         losses: { note: 'V8.6.96 RETRY AFTER TRUNCATION: The first A11 response hit the output token ceiling. Return a much shorter response: concise HTML plus the fenced JSON block loss_history_structured. Do not quote source extracts. Cap notes to four short bullets.', fb: (uc, msg) => buildLossFallbackExtraction96(uc, msg) },
         guidelines: { note: 'V8.7.11 RETRY AFTER TRUNCATION: The first A8 Guideline Cross-Ref response hit the output token ceiling. Return a concise guideline-conflict digest only. Do not quote source extracts or long guideline passages. If no reliable conflict can be completed, return a review-required unavailable note plus fenced JSON guideline_conflicts_structured.', fb: (uc, msg) => buildGuidelinesFallbackExtraction8711(uc, msg) },
-        supplemental: { note: 'V8.7.140 RETRY AFTER TRUNCATION: The first A2 response hit the output token ceiling. Regenerate the COMPLETE CLEAN OUTPUT CONTRACT more concisely: shorten prose and detail sub-bullets, but NEVER drop a Section 8 question, a stated percentage, a dollar amount, or a count.', fb: (uc, msg) => buildSupplementalFallbackExtraction8740(uc, msg) },
+        supplemental: { note: 'V8.7.121 RETRY AFTER TRUNCATION: The first A2 response hit the output token ceiling. Regenerate the COMPLETE CLEAN OUTPUT CONTRACT more concisely: shorten prose and detail sub-bullets, but NEVER drop a Section 8 question, a stated percentage, a dollar amount, or a count.' },
         safety: { note: 'V8.7.121 RETRY AFTER TRUNCATION: The first A5 response hit the output token ceiling. Regenerate more concisely: trim Section 2-4 wording, but the fenced safety_grounding block is MANDATORY and must be complete; trim prose, never the block.' }
       };
       const rt8721 = RETRY_TRUNC_8721[moduleId];
@@ -6832,11 +6697,10 @@ async function runPipeline() {
     f.reasoning = c.reasoning || '';
     stmApplyTowerMetaToFile(f);
     // Route to ALL applicable modules (supports combined docs)
-    const rawRoutes8739 = (c.classifications && c.classifications.length)
-      ? (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean)
-      : [classifierToRoute(c.type, c.subType, c.tag)].filter(Boolean);
-    f.routedToAll = applyApplicationLock8739(f, c, rawRoutes8739);  // v8.7.140: file-aware cost firewall
-    f.routedTo = (f.routedToAll && f.routedToAll.length) ? f.routedToAll[0] : (classifierToRoute(c.type, c.subType, c.tag) || null);  // primary routing aligned to locked route
+    f.routedToAll = applyApplicationLock8739(f, c, (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean));  // v8.7.139: application lock
+    f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
+    const alignLock8740b = f.routedToAll.length && f.routedToAll.indexOf(f.routedTo) === -1;
+    if (alignLock8740b) f.routedTo = f.routedToAll[0];  // v8.7.140: align to locked routes
     f.state = 'classified';
     renderFileList();
     // === PUSH TO DOCS VIEW (full ingestion with thumbnails + storage) ===
@@ -7271,18 +7135,18 @@ async function runPipeline() {
   // with a quote proposal but no supp app would skip the tower under the
   // old rules — wrong, since the tower data is right there in the quote.
   const towerMod = MODULES.tower;
-  // v8.7.140 cost firewall: A15 must never run from A2/supplemental alone.
-  // Supplemental context can enrich a real tower, but a tower requires an
-  // actual quote/excess source. This prevents ACORD-only full runs from
-  // spending on A15 just because A2 succeeded.
-  // quoteGate8740: A15 requires at least one quote/excess extraction.
-  const towerQuoteDeps8740 = ['excess','gl_quote','al_quote'].filter(d => STATE.extractions[d]);
-  const towerPresent = [...(STATE.extractions.supplemental ? ['supplemental'] : []), ...towerQuoteDeps8740];
-  if (towerQuoteDeps8740.length > 0) {
+  const towerCandidates = [...(towerMod.deps || []), ...(towerMod.optionalDeps || [])];
+  const towerPresent = towerCandidates.filter(d => STATE.extractions[d]);
+  // v8.7.140 (GPT audit claim 3, verified): supplemental alone must never
+  // trigger Tower spend. An ACORD-only run has no limit stack to draw; the
+  // v8.6 any-input rule burned an Opus call rendering an empty tower.
+  // Quote authority = at least one of excess / gl_quote / al_quote.
+  const towerQuoteAuth8740 = ['excess', 'gl_quote', 'al_quote'].filter(d => STATE.extractions[d]);
+  if (towerPresent.length > 0 && towerQuoteAuth8740.length > 0) {
     const towerInput = towerPresent.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
     wave2Tasks.push(runModule('tower', PROMPTS.tower, towerInput, towerPresent.map(d => MODULES[d].code).join('+'), pipelineContext));
   } else {
-    skipModule('tower', 'no GL/AL/excess quote extraction available');
+    skipModule('tower', towerPresent.length > 0 ? 'no quote authority (excess/GL/AL quote); supplemental alone does not trigger tower spend' : 'no supplemental, excess, gl_quote, or al_quote extraction available');
   }
 
   await Promise.all(wave2Tasks);

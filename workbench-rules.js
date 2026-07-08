@@ -878,25 +878,9 @@
     if (isInsuredNotStated(extractedName)) return 'unverifiable';
     const m = applicantsMatch(extractedName, submissionAccountName);
     if (m === true) return 'match';
-    if (m === false) return 'mismatch';     // advisory by default; strict mode blocks
+    if (m === false) return 'mismatch';     // wrong applicant — block (unchanged)
     return 'unverifiable';
   }
-  function applicantGateModeWorkbench8737() {
-    try {
-      const G = (typeof window !== 'undefined') ? window : globalThis;
-      const stored = (typeof localStorage !== 'undefined' && localStorage.getItem)
-        ? localStorage.getItem('STM_APPLICANT_GATE_MODE') : null;
-      const raw = stored || (G && G.STM_APPLICANT_GATE_MODE) || '';
-      return String(raw).toLowerCase() === 'strict' ? 'strict' : 'off';
-    } catch (_) {
-      return 'off';
-    }
-  }
-
-  function applicantMismatchBlocksWorkbench8737() {
-    return applicantGateModeWorkbench8737() === 'strict';
-  }
-
 
   function checkApplicantMatch(submission, moduleKey, moduleRec) {
     if (!submission || !submission.account_name) return null;
@@ -3800,10 +3784,10 @@
     if (accountName && accountName !== '(unknown)') {
       const stated = extractNamedInsured(text);
       // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16: block only a
-      // genuinely DIFFERENT insured. Default practice/frankenstein mode treats
-      // mismatches as advisory; strict mode preserves the old block.
-      if (stated && applicantVerdict(stated, accountName) === 'mismatch'
-          && applicantMismatchBlocksWorkbench8737()) {
+      // genuinely DIFFERENT insured. "Not stated"/"(unknown)" on quote
+      // pages → unverifiable → allow tower under review (test submission
+      // root cause). Anahuac wrong-applicant → still 'mismatch' → blocked.
+      if (stated && applicantVerdict(stated, accountName) === 'mismatch') {
         console.warn(
           '[WorkbenchRules] Cross-applicant defense: excess tower stated insured "' +
           stated + '" does not match submission "' + accountName +
@@ -4005,10 +3989,9 @@
     if (accountName && accountName !== '(unknown)') {
       const stated = extractNamedInsured(excessText);
       // FIX-PHASE-GO-LIVE-80-UNKNOWN-INSURED-2026-05-16: block only a
-      // genuinely DIFFERENT insured. Default practice/frankenstein mode treats
-      // mismatches as advisory; strict mode preserves the old block.
-      if (stated && applicantVerdict(stated, accountName) === 'mismatch'
-          && applicantMismatchBlocksWorkbench8737()) {
+      // genuinely DIFFERENT insured. Silent-on-insured quote pages →
+      // unverifiable → allow under review. Anahuac → still blocked.
+      if (stated && applicantVerdict(stated, accountName) === 'mismatch') {
         console.warn(
           '[WorkbenchRules] Cross-applicant defense: excess tower_documents stated insured "' +
           stated + '" does not match submission "' + accountName +
@@ -4275,14 +4258,13 @@
       const rec = ex[k];
       if (!rec || typeof rec.text !== 'string' || !rec.text.trim()) return false;
       if (/no matching .* found for this insured/i.test(rec.text)) return false;
-      // Cross-applicant gate — strict mode only; default is advisory.
+      // Cross-applicant gate — identical defense to Phases 6.1 / 4 / 7.
       if (acct && acct !== '(unknown)'
           && typeof extractNamedInsured === 'function'
           && typeof applicantsMatch === 'function') {
         const stated = extractNamedInsured(rec.text);
-        if (stated && applicantsMatch(stated, acct) === false
-            && applicantMismatchBlocksWorkbench8737()) {
-          return false; // strict mode only; default practice/frankenstein mode is advisory
+        if (stated && applicantsMatch(stated, acct) === false) {
+          return false; // contaminated extraction — do NOT count it
         }
       }
       return true;
@@ -4429,7 +4411,7 @@
             && typeof extractNamedInsured === 'function'
             && typeof applicantsMatch === 'function') {
           const s = extractNamedInsured(r.text);
-          if (s && applicantsMatch(s, acct) === false && applicantMismatchBlocksWorkbench8737()) return false;
+          if (s && applicantsMatch(s, acct) === false) return false;
         }
         return true;
       };
@@ -4467,7 +4449,7 @@
           && typeof extractNamedInsured === 'function'
           && typeof applicantsMatch === 'function') {
         const s = extractNamedInsured(r.text);
-        if (s && applicantsMatch(s, acct) === false && applicantMismatchBlocksWorkbench8737()) return ''; // strict mode only
+        if (s && applicantsMatch(s, acct) === false) return ''; // contaminated
       }
       return r.text.toLowerCase();
     };
