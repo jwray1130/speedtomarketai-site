@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.144-tower-lead-authority-2026-07-08';
+window.STM_BUILD = 'v8.7.147-pending-closure-2026-07-08';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3906,21 +3906,79 @@ document.addEventListener('DOMContentLoaded', () => {
             const towerTbody = document.querySelector('#towerLimitsTable tbody');
             const prevInternalBatch87104 = window.__stmBatchInternalRater87104;
             window.__stmBatchInternalRater87104 = true;
-            let requested = 0, leadLimit = 0, leadAttach = 0, ourAttach = 0;
+            let requested = 0, leadLimit = 0, towerSum8745 = 0, weAreLead8745 = false, attachDisplay8745 = 'Primary';
             try {
             const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85Silent87104(el, val); };
             // FIX-2026-06-10 (millions shorthand): extractions sometimes carry
             // "$5M" parsed down to the bare number 5. The workbook's own
             // convention (Worksheet_Change) treats small limit/attachment
-            // entries as millions — mirror it here so the tower never shows
+            // entries as millions; mirror it here so the tower never shows
             // a naked "5" where $5,000,000 is meant.
             const asMillions99 = (v) => (typeof v === 'number' && v > 0 && v < 1000 ? v * 1000000 : v);
             requested = asMillions99(n85(submission?.requested || r85('requested_limit', submission)) || 1000000);
             leadLimit = asMillions99(n85(r85('underlying_lead_limit', submission)));
-            leadAttach = asMillions99(n85(r85('attachment_point', submission)));
-            ourAttach = leadLimit > 0 ? leadAttach + leadLimit : leadAttach;
+            // v8.7.145 ATTACHMENT XS OF PRIMARY (spec locked with Justin,
+            // 2026-07-08): the box holds the SUM of the underlying lead and
+            // excess layer limits the system identified, quota-share counted
+            // once at the combined limit (buildTowerFromExcessModule handles
+            // both). The primary NEVER enters the number: that is workbook
+            // D19 convention, and the engine re-adds the primary itself
+            // (groundLayerWindow adjustment, attachmentCutOff primaryBase).
+            // When nothing sits beneath us, WE are the lead and the box
+            // shows the literal word "Primary". The engine reads that as 0
+            // (cleanNumber), exactly the workbook's own C162 "Primary"
+            // convention, and convertToDollars returns on non-numeric text
+            // before rewriting the field, so the word survives blur.
+            // The retired v8.7.104 formula (attachment_point + lead limit)
+            // predated the v8.7.144 json-first flip: after the flip it
+            // displayed the layer's exhaust point on lead quotes and
+            // double-counted the lead on excess quotes. attachment_point is
+            // no longer read here at all.
+            const rules8745 = window.WorkbenchRules || {};
+            let towerInfo8745 = null;
+            try {
+                if (typeof rules8745.buildTowerFromExcessModule === 'function') {
+                    towerInfo8745 = rules8745.buildTowerFromExcessModule(submission);
+                    const tv8745 = towerInfo8745 && !towerInfo8745.blocked ? Number(towerInfo8745.totalTowerLimit) : 0;
+                    if (Number.isFinite(tv8745) && tv8745 > 0) towerSum8745 = tv8745;
+                }
+            } catch (e) { console.warn('[workbench] v8.7.145 tower sum unavailable:', e && e.message); }
+            try {
+                const ex8745 = (submission && submission.snapshot && submission.snapshot.extractions)
+                    || (submission && submission.extractions) || {};
+                const txt8745 = (ex8745.excess && typeof ex8745.excess.text === 'string') ? ex8745.excess.text
+                    : ((ex8745.tower && typeof ex8745.tower.text === 'string') ? ex8745.tower.text : null);
+                const obj8745 = (txt8745 && typeof rules8745.parseJsonBlock === 'function')
+                    ? rules8745.parseJsonBlock(txt8745) : null;
+                const role8745 = (obj8745 && typeof rules8745.lookupJsonField === 'function')
+                    ? rules8745.lookupJsonField(obj8745, 'tower_role') : null;
+                if (role8745 != null && String(role8745).toLowerCase() === 'lead') weAreLead8745 = true;
+            } catch (_) { /* role probe is best-effort */ }
+            try {
+                if (!weAreLead8745 && typeof rules8745.detectLeadQuotePosition8709 === 'function') {
+                    const pos8745 = rules8745.detectLeadQuotePosition8709(submission, towerInfo8745);
+                    if (pos8745 && pos8745.requestedLead && !pos8745.underlyingLead) weAreLead8745 = true;
+                }
+            } catch (_) { /* detector is best-effort */ }
+            // Precedence: physically assembled underlying layers always win,
+            // then the we-are-lead signals, then the text-era single-lead
+            // fallback, then the rule that no layers beneath us means we ARE
+            // the lead.
+            if (towerSum8745 > 0) {
+                attachDisplay8745 = money85(towerSum8745);
+            } else if (weAreLead8745) {
+                attachDisplay8745 = 'Primary';
+            } else if (leadLimit > 0) {
+                attachDisplay8745 = money85(leadLimit);
+            } else {
+                attachDisplay8745 = 'Primary';
+            }
             if (requested) setInput('#nonAdmittedLimit', money85(requested));
-            if (ourAttach) setInput('#nonAdmittedAttachment', money85(ourAttach));
+            // ALWAYS write this box: workbench.html ships a hardcoded
+            // 100,000,000 default in the input, and the retired skip-on-falsy
+            // guard left that phantom on screen whenever the derivation came
+            // up empty.
+            setInput('#nonAdmittedAttachment', attachDisplay8745);
 
             if (primaryTbody) {
                 const rows = [
@@ -3942,13 +4000,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (towerTbody) {
                 const leadCarrier = r85('underlying_lead_carrier', submission) || r85('gl_carrier', submission) || 'Underlying Lead';
                 const rows = [];
-                if (leadLimit) rows.push({ limit:leadLimit, attach:leadAttach, carrier:leadCarrier, prem:n85(r85('underlying_lead_premium', submission)), target:'Underlying' });
-                if (requested) rows.push({ limit:requested, attach:ourAttach || leadLimit || 0, carrier:'Internal', prem:0, target:'Target' });
+                // v8.7.145: the underlying lead row's Attachment xs P cell is
+                // intentionally BLANK (Justin, 2026-07-08); its old value came
+                // from the retired attachment_point read. The internal row
+                // carries the exact display the #nonAdmittedAttachment box
+                // shows ("Primary" or the underlying sum).
+                if (leadLimit) rows.push({ limit:leadLimit, attachDisplay:'', carrier:leadCarrier, prem:n85(r85('underlying_lead_premium', submission)), target:'Underlying' });
+                if (requested) rows.push({ limit:requested, attachDisplay:attachDisplay8745, carrier:'Internal', prem:0, target:'Target' });
                 if (rows.length) {
                     towerTbody.innerHTML = rows.map((x,i) => `
                       <tr${i===rows.length-1?' class="is-internal-layer"':''}>
                         <td><div class="currency-wrap"><input type="text" data-tw="limit" class="convert-to-millions" value="${money85(x.limit)}"></div></td>
-                        <td><div class="currency-wrap"><input type="text" data-tw="attach" class="convert-to-millions" value="${money85(x.attach)}"></div></td>
+                        <td><div class="currency-wrap"><input type="text" data-tw="attach" class="convert-to-millions" value="${x.attachDisplay}"></div></td>
                         <td class="computed" data-tw-out="internalPrem">$0</td><td class="computed" data-tw-out="internalPpm">$0</td>
                         <td><input type="text" data-tw="carrier" value="${String(x.carrier).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></td>
                         <td><div class="currency-wrap"><input type="text" data-tw="cPrem" value="${money85(x.prem)}"></div></td>
@@ -3974,7 +4037,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             if (window.requestIdleCallback) window.requestIdleCallback(runRecalc87104, { timeout: 1500 });
             else setTimeout(runRecalc87104, 0);
-            console.log('[workbench] v8.7.104 internal rater hydrate queued:', { requested, leadLimit, leadAttach, ourAttach });
+            console.log('[workbench] v8.7.145 internal rater hydrate queued:', { requested, leadLimit, towerSum: towerSum8745, weAreLead: weAreLead8745, attachDisplay: attachDisplay8745 });
         }
 
 

@@ -4027,6 +4027,17 @@ body:not(.docs-fullwidth) main {
 .sc-act.sc-refresh { font-size: 13px; }
 .sc-act.sc-refresh:hover { color: var(--warning); }
 .stale-banner8733 { position: fixed; bottom: 18px; right: 18px; z-index: 950; display: flex; align-items: center; gap: 14px; background: var(--panel, #101A2E); border: 1px solid var(--warning); border-radius: 8px; padding: 12px 16px; max-width: 520px; box-shadow: 0 8px 30px rgba(0,0,0,0.45); }
+/* v8.7.147: docked sidebar pending panel (replaces the floating banner on
+   the platform page; sits under Run Pipeline, always visible). */
+.pending-dock8747 { margin-top: 10px; border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border, #1E2A44); background: var(--panel, #101A2E); }
+.pending-dock8747.pd-current { opacity: 0.75; }
+.pending-dock8747.pd-current .sb-title { color: var(--text-3); font-weight: 600; font-size: 12px; }
+.pending-dock8747.pd-pending { border-color: var(--warning); }
+.pending-dock8747.pd-pending .sb-title { color: var(--warning); font-weight: 700; font-size: 13px; }
+.pending-dock8747 .sb-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); margin-top: 4px; }
+.pending-dock8747 .sb-a8 { font-size: 11px; color: var(--text-2); margin-top: 6px; }
+.pending-dock8747 .sb-btn { display: block; width: 100%; margin-top: 9px; background: var(--warning); color: #0B1D3A; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 700; font-size: 12px; cursor: pointer; }
+.pending-dock8747 .sb-btn:hover { filter: brightness(1.08); }
 .stale-banner8733 .sb-title { font-weight: 700; font-size: 13px; color: var(--warning); }
 .stale-banner8733 .sb-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
 .stale-banner8733 .sb-a8 { font-size: 11px; color: var(--text-2); margin-top: 5px; }

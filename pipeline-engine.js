@@ -1690,6 +1690,96 @@ window.markSectionsStale8732 = markSectionsStale8732;
 window.refreshSection8732 = refreshSection8732;
 window.refreshAllStale8732 = refreshAllStale8732;
 
+// v8.7.147 (pending closure): trickle-built submissions never reach the
+// synthesis waves. markSectionsStale8732 deliberately skips sections that
+// never ran (line above: "section never ran; nothing to be stale"), so on
+// an incrementally-built submission A6/A7/A9/A10 were invisible forever:
+// never stale, never in the banner, never scheduled. Live repro
+// 2026-07-08: 8 wave-1 modules ran, banner offered only the stale A15.
+// Pending work is now STALE sections PLUS never-ran synthesis sections
+// whose run gates pass against current extractions, evaluated with the
+// SAME gates the initial pipeline applies (any-dep for A6, tower inputs
+// plus towerQuoteAuth8740 for A15, A6-present for A7/A9/A10, email_intel
+// for A24). One Refresh All reaches full-run parity in a single click:
+// rerunModules executes the whole closure wave-ordered, so A6 completes
+// before A7/A9/A10 read it, and every per-module gate inside rerunModules
+// still applies if an upstream run fails. A8 Guidelines keeps its
+// doctrine: never in bulk refresh, button only. ACORD-only submissions
+// stay silent by construction: no intake extractions means no gate opens.
+function moduleEligibleNeverRan8747(mid, assumePresent) {
+  if (STATE.extractions[mid]) return false; // ran already: stale logic owns it
+  const has = (k) => !!STATE.extractions[k] || !!(assumePresent && assumePresent.has(k));
+  if (mid === 'summary-ops') {
+    return (MODULES['summary-ops'].deps || []).some(has);
+  }
+  if (mid === 'tower') {
+    const cand = [...(MODULES.tower.deps || []), ...(MODULES.tower.optionalDeps || [])];
+    return cand.some(has) && ['excess', 'gl_quote', 'al_quote'].some(has);
+  }
+  if (mid === 'classcode') {
+    return has('summary-ops') && ['gl_quote', 'supplemental', 'summary-ops'].some(has);
+  }
+  if (mid === 'exposure' || mid === 'strengths') {
+    return has('summary-ops');
+  }
+  if (mid === 'discrepancy') {
+    // Email must actually exist; a simulated A6 never conjures an email.
+    return !!STATE.extractions.email_intel;
+  }
+  return false; // guidelines (button only) and wave-1 file-fed modules
+}
+
+function computePendingClosure8747() {
+  // Ordered plan so pricing and execution cover the full cascade upfront:
+  // stale first, then wave-2 never-ran, then wave-3 never-ran evaluated
+  // as if the earlier batches completed (assumePresent).
+  const stale = Object.keys(STATE.extractions)
+    .filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732 && m !== 'guidelines');
+  const assume = new Set();
+  const seen = new Set(stale);
+  const newBatches = [];
+  [2, 3].forEach(w => {
+    const batch = Object.keys(MODULES)
+      .filter(mid => MODULES[mid].wave === w && mid !== 'guidelines')
+      .filter(mid => !seen.has(mid) && moduleEligibleNeverRan8747(mid, assume));
+    batch.forEach(mid => { seen.add(mid); assume.add(mid); });
+    if (batch.length) newBatches.push(batch);
+  });
+  const all = [...stale, ...newBatches.flat()];
+  const a8Pending = !!(STATE.extractions.guidelines && STATE.extractions.guidelines.staleInputs8732)
+    || (!STATE.extractions.guidelines && (!!STATE.extractions['summary-ops'] || assume.has('summary-ops')));
+  return { stale, newBatches, all, a8Pending, est: all.reduce((a, m) => a + estCost8733(m), 0) };
+}
+
+async function refreshAllPending8747() {
+  const plan = computePendingClosure8747();
+  if (!plan.all.length) { toast('Nothing pending. All sections are current.', 'info'); return []; }
+  logAudit('Refresh', 'Refresh all pending · stale: [' + plan.stale.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ')
+    + '] · new: [' + plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') + '] (A8 excluded by design)', STATE.api.model);
+  // One rerunModules call: its internal wave loop runs A6/A15 before
+  // A7/A9/A10, and its per-module gates skip anything whose upstream
+  // failed, so no blind spend on a broken cascade.
+  await rerunModules(plan.all);
+  renderSummaryCards();
+  return plan.all;
+}
+
+async function confirmRefreshAllPending8747() {
+  const plan = computePendingClosure8747();
+  if (!plan.all.length) { toast('Nothing pending. All sections are current.', 'info'); return; }
+  const staleCodes = plan.stale.map(m => (MODULES[m] && MODULES[m].code) || m);
+  const newCodes = plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m);
+  const parts = [];
+  if (staleCodes.length) parts.push(staleCodes.length + ' stale (' + staleCodes.join(', ') + ')');
+  if (newCodes.length) parts.push(newCodes.length + ' not yet run (' + newCodes.join(', ') + ')');
+  if (!confirm('Refresh ' + parts.join(' plus ') + ' from current inputs (est ~$' + plan.est.toFixed(2) + ')? Runs in wave order so A6 completes before its dependents. A8 Guidelines is excluded and refreshes only via its own button.')) return;
+  await refreshAllPending8747();
+}
+window.moduleEligibleNeverRan8747 = moduleEligibleNeverRan8747;
+window.computePendingClosure8747 = computePendingClosure8747;
+window.refreshAllPending8747 = refreshAllPending8747;
+window.confirmRefreshAllPending8747 = confirmRefreshAllPending8747;
+
 
 // v8.7.133 (trickle-in Phase 3): preflight gate. After classification
 // (pennies) and BEFORE any module spends, show what will run and what it
@@ -1714,7 +1804,7 @@ function showIncrementalPreflight8733(newFiles, mids) {
     ov.className = 'preflight-overlay8733';
     ov.innerHTML = '<div class="preflight-panel8733">'
       + '<div class="pf-title">Run new documents</div>'
-      + '<div class="pf-sub">Only the sections these documents route to will run. Downstream sections (Summary of Ops, Exposure, Strengths, Tower, Guidelines, etc.) are marked stale for you to refresh when ready — nothing else spends.</div>'
+      + '<div class="pf-sub">Only the sections these documents route to will run. Downstream and not-yet-run synthesis (Summary of Ops, Exposure, Strengths, Tower, Guidelines, etc.) queue in the sidebar pending panel for you to refresh when ready. Nothing else spends.</div>'
       + '<div class="pf-section">New documents</div>' + fileRows
       + '<div class="pf-section">Sections that will run</div>' + modRows
       + '<div class="pf-total">Estimated total <strong>~$' + total.toFixed(2) + '</strong></div>'
@@ -1731,29 +1821,59 @@ function showIncrementalPreflight8733(newFiles, mids) {
 // markSectionsStale8732, offers Refresh All (A8 always excluded, with its
 // own note), and clears itself when nothing is stale. Rendered centrally
 // from renderSummaryCards so every refresh path keeps it truthful.
+// v8.7.147: the floating bottom-right banner is retired in favor of a
+// permanently docked panel in the left sidebar under Run Pipeline
+// (#pendingDock8747 in platform.html). Justin's directive: the floater
+// hovered over content and never went away; the dock is always there,
+// quiet when current, actionable when work is pending. The function
+// keeps its v8.7.133 name because renderSummaryCards calls it on every
+// render, which is exactly the truthfulness contract we want. Pages
+// without the dock (none today) fall back to the legacy floating body
+// append so the affordance can never silently vanish. Both surfaces are
+// driven by computePendingClosure8747, so never-ran synthesis sections
+// count as pending everywhere.
 function renderStaleBanner8733() {
-  const stale = Object.keys(STATE.extractions).filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732);
+  const plan = computePendingClosure8747();
+  const dock = document.getElementById('pendingDock8747');
+  const anyExtractions = Object.keys(STATE.extractions).length > 0;
+  const staleCodes = plan.stale.map(m => (MODULES[m] && MODULES[m].code) || m);
+  const newCodes = plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m);
+  const a8Note = plan.a8Pending ? '<div class="sb-a8">A8 Guidelines has inputs ready. Use the Re-run Guidelines button when ready.</div>' : '';
+  if (dock) {
+    const legacy = document.getElementById('staleBanner8733');
+    if (legacy) legacy.remove();
+    if (!anyExtractions) { dock.style.display = 'none'; dock.innerHTML = ''; return; }
+    dock.style.display = '';
+    if (!plan.all.length) {
+      dock.className = 'pending-dock8747 pd-current';
+      dock.innerHTML = '<div class="sb-title">All sections current</div>' + a8Note;
+      return;
+    }
+    dock.className = 'pending-dock8747 pd-pending';
+    dock.innerHTML = '<div class="sb-title">' + plan.all.length + ' section' + (plan.all.length === 1 ? '' : 's') + ' pending</div>'
+      + (staleCodes.length ? '<div class="sb-sub">Stale: ' + staleCodes.join(', ') + '</div>' : '')
+      + (newCodes.length ? '<div class="sb-sub">Not yet run: ' + newCodes.join(', ') + '</div>' : '')
+      + a8Note
+      + '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
+    return;
+  }
+  // Legacy floating fallback (no dock on this page).
   let b = document.getElementById('staleBanner8733');
-  if (!stale.length) { if (b) b.remove(); return; }
+  if (!plan.all.length) { if (b) b.remove(); return; }
   if (!b) {
     b = document.createElement('div');
     b.id = 'staleBanner8733';
     b.className = 'stale-banner8733';
     document.body.appendChild(b);
   }
-  const refreshable = stale.filter(m => m !== 'guidelines');
-  const est = refreshable.reduce((a, m) => a + estCost8733(m), 0);
-  const codes = stale.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ');
-  const a8Note = stale.indexOf('guidelines') > -1 ? '<div class="sb-a8">A8 Guidelines has new inputs — use the Re-run Guidelines button when ready.</div>' : '';
-  b.innerHTML = '<div class="sb-text"><div class="sb-title">' + stale.length + ' section' + (stale.length === 1 ? ' has' : 's have') + ' new inputs pending refresh</div><div class="sb-sub">' + codes + '</div>' + a8Note + '</div>'
-    + (refreshable.length ? '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + est.toFixed(2) + ')</button>' : '');
+  b.innerHTML = '<div class="sb-text"><div class="sb-title">' + plan.all.length + ' section' + (plan.all.length === 1 ? ' has' : 's have') + ' work pending</div><div class="sb-sub">' + [...staleCodes, ...newCodes].join(', ') + '</div>' + a8Note + '</div>'
+    + '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
 }
 async function confirmRefreshAllStale8733() {
-  const refreshable = Object.keys(STATE.extractions).filter(m => STATE.extractions[m] && STATE.extractions[m].staleInputs8732 && m !== 'guidelines');
-  if (!refreshable.length) { toast('No refreshable stale sections (A8 refreshes only via its button)', 'info'); return; }
-  const est = refreshable.reduce((a, m) => a + estCost8733(m), 0);
-  if (!confirm('Refresh ' + refreshable.length + ' stale section' + (refreshable.length === 1 ? '' : 's') + ' from current inputs (est ~$' + est.toFixed(2) + ')? A8 Guidelines is excluded and refreshes only via its own button.')) return;
-  await refreshAllStale8732();
+  // v8.7.147: kept name (wired into both banner surfaces and any older
+  // callers); the brains moved to the closure-based confirm so never-ran
+  // synthesis is included and priced upfront.
+  return confirmRefreshAllPending8747();
 }
 window.renderStaleBanner8733 = renderStaleBanner8733;
 window.confirmRefreshAllStale8733 = confirmRefreshAllStale8733;
@@ -2013,8 +2133,11 @@ async function incrementalProcess(newFiles) {
 
     // === Phase 5: Audit + user feedback ===
     const ranCodes8732 = Array.from(directlyAffected).map(mid => MODULES[mid]?.code || mid).join(', ');
-    toast('Incremental update complete · ran ' + directlyAffected.size + ' section' + (directlyAffected.size === 1 ? '' : 's') + ' (' + ranCodes8732 + ')' + (staleMarked8732.length ? ' · ' + staleMarked8732.length + ' downstream marked stale' : ''), 'success');
-    logAudit('Incremental', 'Completed. Ran: ' + ranCodes8732 + (staleMarked8732.length ? ' · Stale, awaiting refresh: ' + staleMarked8732.join(', ') : ''), STATE.api.model);
+    // v8.7.147: never-ran synthesis sections that just became eligible are
+    // pending work too; say so, and point at the sidebar panel.
+    const newlyEligible8747 = computePendingClosure8747().newBatches.flat().map(mid => (MODULES[mid] && MODULES[mid].code) || mid);
+    toast('Incremental update complete · ran ' + directlyAffected.size + ' section' + (directlyAffected.size === 1 ? '' : 's') + ' (' + ranCodes8732 + ')' + (staleMarked8732.length ? ' · ' + staleMarked8732.length + ' downstream marked stale' : '') + (newlyEligible8747.length ? ' · ' + newlyEligible8747.length + ' synthesis section' + (newlyEligible8747.length === 1 ? '' : 's') + ' now eligible (see sidebar)' : ''), 'success');
+    logAudit('Incremental', 'Completed. Ran: ' + ranCodes8732 + (staleMarked8732.length ? ' · Stale, awaiting refresh: ' + staleMarked8732.join(', ') : '') + (newlyEligible8747.length ? ' · Newly eligible, never run: ' + newlyEligible8747.join(', ') : ''), STATE.api.model);
     } // v8.7.133 preflight else-close
   }
 
