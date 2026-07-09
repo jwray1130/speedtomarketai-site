@@ -995,6 +995,43 @@ const MODULES = {
 };
 
 
+// v8.7.155 SUPPORT-ONLY DIRECT RUN LOCK
+// A3 Subcontract, A4 Vendor Agreement, A11 Loss History, and quote/terms
+// sections are support context. They may enrich Summary of Operations after
+// a true operations/intake anchor exists, and they still mark existing
+// downstream cards stale during incremental updates, but they must not create
+// a full A6/A7/A8/A9/A10 synthesis cascade by themselves. This specifically
+// stops a simple subcontract-only pipeline run from spending beyond A3.
+const SUMMARY_OPS_CORE_SOURCES_8755 = ['supplemental', 'safety', 'website', 'email_intel'];
+function summaryOpsAllSources8755() {
+  const so = MODULES && MODULES['summary-ops'];
+  return so ? [...(so.deps || []), ...(so.optionalDeps || [])] : [];
+}
+function _summaryOpsHas8755(mid, assumePresent) {
+  return !!(STATE && STATE.extractions && STATE.extractions[mid]) || !!(assumePresent && assumePresent.has && assumePresent.has(mid));
+}
+function hasSummaryOpsCoreInput8755(assumePresent) {
+  return SUMMARY_OPS_CORE_SOURCES_8755.some(function(mid){ return _summaryOpsHas8755(mid, assumePresent); });
+}
+function summaryOpsAvailableSources8755(assumePresent) {
+  return summaryOpsAllSources8755().filter(function(mid){ return _summaryOpsHas8755(mid, assumePresent); });
+}
+function summaryOpsCanRun8755(assumePresent) {
+  return summaryOpsAvailableSources8755(assumePresent).length > 0 && hasSummaryOpsCoreInput8755(assumePresent);
+}
+function summaryOpsSkipReason8755(presentDeps) {
+  const list = (presentDeps || []).map(function(mid){ return (MODULES[mid] && MODULES[mid].code) || mid; }).join('+');
+  if (!list) return 'no intake extractions available';
+  return 'support-only input(s) available (' + list + '); waiting for A2/A5/A1/A16 before Summary of Operations';
+}
+if (typeof window !== 'undefined') {
+  window.SUMMARY_OPS_CORE_SOURCES_8755 = SUMMARY_OPS_CORE_SOURCES_8755;
+  window.hasSummaryOpsCoreInput8755 = hasSummaryOpsCoreInput8755;
+  window.summaryOpsCanRun8755 = summaryOpsCanRun8755;
+  window.summaryOpsSkipReason8755 = summaryOpsSkipReason8755;
+}
+
+
 // v8.6.96 - module-specific token budgets and retry policy.
 // A11 Loss History can exceed the global token ceiling because it emits
 // tables plus structured JSON. Give it a larger budget and a retry path.
@@ -1722,19 +1759,19 @@ window.refreshAllStale8732 = refreshAllStale8732;
 // 2026-07-08: 8 wave-1 modules ran, banner offered only the stale A15.
 // Pending work is now STALE sections PLUS never-ran synthesis sections
 // whose run gates pass against current extractions, evaluated with the
-// SAME gates the initial pipeline applies (any-dep for A6, tower inputs
+// SAME gates the initial pipeline applies (core-ops-source for A6, tower inputs
 // plus towerQuoteAuth8740 for A15, A6-present for A7/A9/A10, email_intel
 // for A24). One Refresh All reaches full-run parity in a single click:
 // rerunModules executes the whole closure wave-ordered, so A6 completes
 // before A7/A9/A10 read it, and every per-module gate inside rerunModules
 // still applies if an upstream run fails. A8 Guidelines keeps its
 // doctrine: never in bulk refresh, button only. ACORD-only submissions
-// stay silent by construction: no intake extractions means no gate opens.
+// stay silent by construction: no intake extractions means no gate opens; support-only A3/A4/A11/quote context also stays terminal until A2/A5/A1/A16 exists.
 function moduleEligibleNeverRan8747(mid, assumePresent) {
   if (STATE.extractions[mid]) return false; // ran already: stale logic owns it
   const has = (k) => !!STATE.extractions[k] || !!(assumePresent && assumePresent.has(k));
   if (mid === 'summary-ops') {
-    return (MODULES['summary-ops'].deps || []).some(has);
+    return summaryOpsCanRun8755(assumePresent);
   }
   if (mid === 'tower') {
     const cand = [...(MODULES.tower.deps || []), ...(MODULES.tower.optionalDeps || [])];
@@ -2397,8 +2434,16 @@ async function rerunModules(moduleIds) {
         // allowlisted: it is designed to run from any quote/supp family.
         const requiredDeps8720 = m.deps || [];
         const requiredPresent8720 = requiredDeps8720.filter(d => STATE.extractions[d]);
+        // v8.7.155: rerun path parity with the initial run. Refresh-all must
+        // not open A6 from A3/A4/support documents alone.
+        if (mid === 'summary-ops' && !summaryOpsCanRun8755()) {
+          const soPresent8755 = summaryOpsAvailableSources8755();
+          const soReason8755 = summaryOpsSkipReason8755(soPresent8755);
+          skipModule(mid, soReason8755);
+          runResult = null;
+          if (typeof logAudit === 'function') logAudit('Pipeline', 'Skipped A6 rerun by v8.7.155 support-only direct run lock: ' + soReason8755, 'ok');
         // v8.7.140: tower quote-authority gate, symmetric with the initial run.
-        if (mid === 'tower' && !['excess', 'gl_quote', 'al_quote'].some(d => STATE.extractions[d])) {
+        } else if (mid === 'tower' && !['excess', 'gl_quote', 'al_quote'].some(d => STATE.extractions[d])) {
           skipModule(mid, 'no quote authority (excess/GL/AL quote); supplemental alone does not trigger tower spend');
           runResult = false;
         } else {
@@ -8127,11 +8172,15 @@ async function runPipeline() {
   const availableDeps = soMod.deps.filter(d => STATE.extractions[d]);
   const soOptionalDeps = (soMod.optionalDeps || []).filter(d => STATE.extractions[d]);
   const soAllDeps = [...availableDeps, ...soOptionalDeps];
-  if (availableDeps.length > 0) {
+  // v8.7.155: support-only context must not create a full synthesis cascade.
+  // A6 runs only when a core operations anchor exists; A3/A4/A11/quotes then enrich it.
+  if (availableDeps.length > 0 && summaryOpsCanRun8755()) {
     const combined = soAllDeps.map(d => '=== ' + MODULES[d].code + ' · ' + MODULES[d].name + ' ===\n\n' + STATE.extractions[d].text).join('\n\n');
     wave2Tasks.push(runModule('summary-ops', PROMPTS['summary-ops'], combined, soAllDeps.map(d => MODULES[d].code).join('+'), pipelineContext));
   } else {
-    skipModule('summary-ops', 'no intake extractions available');
+    const soReason8755 = summaryOpsSkipReason8755(soAllDeps);
+    skipModule('summary-ops', soReason8755);
+    if (soAllDeps.length > 0 && typeof logAudit === 'function') logAudit('Pipeline', 'A6 cascade locked by v8.7.155: ' + soReason8755, 'ok');
   }
 
   // Excess Tower — synthesizes supplemental + (optional) excess / gl_quote / al_quote extractions

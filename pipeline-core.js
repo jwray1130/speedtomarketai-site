@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.154-subcontract-summary-bullets-2026-07-09';
+window.STM_BUILD = 'v8.7.155-support-only-direct-run-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -19,7 +19,7 @@ window.debugBuildInfo = function() {
   };
 };
 
-// v8.7.154 DEPLOYMENT SANITY CHECK
+// v8.7.155 DEPLOYMENT SANITY CHECK
 // Confirms what the server is serving now, bypassing the browser cache.
 // Use from console: await window.verifyServedBuild()
 window.verifyServedBuild = async function() {
