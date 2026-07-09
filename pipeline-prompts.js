@@ -1406,7 +1406,9 @@ CRITICAL — for COMBINED ACORD packets (a single PDF containing multiple
 ACORD forms — typically 125 + 126 + 127 + 129 + 131 + 139 + 140 etc.):
 
   v8.6.11 (per Justin's review): we ONLY emit classifications for
-  ACORD 125, ACORD 126, and ACORD 131. The other ACORD forms in the
+  ACORD 125, ACORD 126, and ACORD 131. These three are LABEL-ONLY:
+  they are recognized for the file card and are never extraction inputs.
+  The other ACORD forms in the
   packet (127, 129, 137, 139, 140, 152, etc.) are processed as part of
   the document but produce NO classification entries — they will not
   appear in the chip layer.
@@ -1431,6 +1433,11 @@ ACORD forms — typically 125 + 126 + 127 + 129 + 131 + 139 + 140 etc.):
       "Self-Insured Retention", "Excess Limits Required"
     • Schedule of underlying coverages
   If you see any of those signatures, emit the ACORD 131 entry.
+  Every OTHER ACORD form or schedule (127, 129, 137, 139, 140, 152, 163,
+  823, 829, 101, and any similar) must NOT receive its own ACORD-numbered
+  tag. Group all such pages into a single classification entry with
+  tag = "Supporting Forms" and primary_bucket = "APPLICATIONS". Supporting
+  Forms are label-only and never extraction inputs.
 
   Detect each ACORD form by its number printed on every page
   (e.g., "ACORD 125 (2016/03)" appears on every page of the 125 section).
@@ -1753,7 +1760,9 @@ If a Subcontract/Sub Agreement extraction exists and contains risk-transfer fact
 
 QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, COI, waiver, indemnity/hold harmless, AI/PNC, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
-  supplemental: `VISIBLE OUTPUT RULE: Return only the CLEAN OUTPUT CONTRACT format defined below. Do NOT print Source Extracts, checklists, QC logs, rewrite steps, validation artifacts, or provenance tags. Perform QC silently and show only useful extracted fields.
+  supplemental: `DOCTRINE (v8.7.142): ACORD forms are filed for reference only and are never extraction inputs; build this extraction solely from supplemental applications, questionnaires, and narrative documents actually provided.
+
+VISIBLE OUTPUT RULE: Return only the CLEAN OUTPUT CONTRACT format defined below. Do NOT print Source Extracts, checklists, QC logs, rewrite steps, validation artifacts, or provenance tags. Perform QC silently and show only useful extracted fields.
 
 ROLE: Expert excess-casualty underwriter. Extract every underwriting fact expressly shown in the commercial application. If silent on a field, write "Not provided."
 

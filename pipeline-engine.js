@@ -84,6 +84,12 @@ const ROUTING = {
 // extraction. Justin's UW workflow uses these for visual reference only.
 // ============================================================================
 const FILE_AND_FORGET_TAGS = new Set([
+  // v8.7.142 ACORD LABEL-ONLY (standing instruction): ACORD 125, 126, and
+  // 131 are the ONLY recognized ACORD forms, and recognition means a File
+  // Manager label and nothing else. No routing, no extraction, no spend.
+  // Every other ACORD form is not individually recognized; the classifier
+  // groups it under one 'Supporting Forms' tag, equally inert.
+  'ACORD 125', 'ACORD 126', 'ACORD 131', 'Supporting Forms',
   'BOR', 'AOR', 'BOR Letter', 'AOR Letter',
   'AIA Contract', 'Owner-GC Contract', 'Owner-Contractor Contract',
   'Geotech Report', 'Site Plan', 'Project Budget',
@@ -148,6 +154,32 @@ function isExplicitQuoteLabel8739(label) {
 // print their own identity on every page; scan the extracted text for
 // form numbers so the signal is document-derived, classifier-proof.
 const ACORD_FORM_RE_8740 = /\bacord\s*(?:1(?:01|25|26|27|29|31|37|39|40|52|63)|823|829)\b|acord corporation/i;
+
+// v8.7.142: the classifier prompt already restricts ACORD recognition to
+// 125/126/131, but the live model has emitted other form tags anyway.
+// Enforce deterministically: any other ACORD-numbered tag becomes a single
+// 'Supporting Forms' entry (label-only via FILE_AND_FORGET). Chips stay
+// clean and routing sees only recognized forms.
+function normalizeAcordTags8742(c) {
+  try {
+    const cls = (c && c.classifications) || [];
+    let sawSupporting = false;
+    const out = [];
+    cls.forEach(cl => {
+      const tag = String(cl && cl.tag || '');
+      if (/^\s*acord\s*\d+/i.test(tag) && !/^\s*acord\s*(125|126|131)\b/i.test(tag)) {
+        if (!sawSupporting) { out.push(Object.assign({}, cl, { tag: 'Supporting Forms', type: 'Supporting Forms' })); sawSupporting = true; }
+        return;
+      }
+      out.push(cl);
+    });
+    c.classifications = out;
+    if (/^\s*acord\s*\d+/i.test(String(c && c.tag || '')) && !/^\s*acord\s*(125|126|131)\b/i.test(String(c.tag))) { c.tag = 'Supporting Forms'; c.type = 'Supporting Forms'; }
+  } catch (_) {}
+  return c;
+}
+if (typeof window !== 'undefined') window.normalizeAcordTags8742 = normalizeAcordTags8742;
+
 function fileHasApplicationSignal8740(f, sections, labels) {
   if (/acord|application|questionnaire/i.test(String(f && f.name || ''))) return true;
   if (labels.some(l => /\bacord\b|\bapplication\b|questionnaire/.test(l))) return true;
@@ -181,15 +213,22 @@ function filePermitsQuoteRoutes8741(f, labels) {
 // Stripped sections travel with their parent document: the dominant
 // application-family route among the file's sections (a sub agreement's
 // exhibit belongs in A3's input, an ACORD's GL pages in A2's).
-function dominantAppRoute8741(sections) {
+function dominantAppRoute8741(f, sections) {
   const counts = {};
   (sections || []).forEach(cl => {
     const r = routeForSection8738(cl);
     if (r === 'supplemental' || r === 'safety' || r === 'subcontract' || r === 'vendor') counts[r] = (counts[r] || 0) + 1;
   });
-  let best = 'supplemental', n = 0;
+  let best = null, n = 0;
   Object.keys(counts).forEach(k => { if (counts[k] > n) { best = k; n = counts[k]; } });
-  return best;
+  if (best) return best;
+  // v8.7.142: no application-family sections to adopt. If the file is ACORD
+  // content, label-only doctrine applies and the section drops entirely;
+  // otherwise fall back to supplemental as before.
+  const nm = String(f && f.name || '');
+  const txt = String(f && f.text || '') || (Array.isArray(f && f.pageTexts) ? f.pageTexts.join('\n') : '');
+  if (/acord/i.test(nm) || ACORD_FORM_RE_8740.test(txt)) return null;
+  return 'supplemental';
 }
 function lockedSectionRoute8740(f, allSections, cl) {
   const route = routeForSection8738(cl);
@@ -197,8 +236,8 @@ function lockedSectionRoute8740(f, allSections, cl) {
   if (!QUOTE_ROUTES_8739.has(route)) return route;
   const sections = allSections || [];
   const labels = sections.map(sectionLabel8739);
-  if (!filePermitsQuoteRoutes8741(f, labels)) return dominantAppRoute8741(sections);
-  if (fileHasApplicationSignal8740(f, sections, labels) && !isExplicitQuoteLabel8739(sectionLabel8739(cl))) return dominantAppRoute8741(sections);
+  if (!filePermitsQuoteRoutes8741(f, labels)) return dominantAppRoute8741(f, sections);
+  if (fileHasApplicationSignal8740(f, sections, labels) && !isExplicitQuoteLabel8739(sectionLabel8739(cl))) return dominantAppRoute8741(f, sections);
   return route;
 }
 if (typeof window !== 'undefined') window.lockedSectionRoute8740 = lockedSectionRoute8740;
@@ -223,7 +262,12 @@ function applyApplicationLock8739(f, c, routedToAll) {
       kept.push(route);
     });
     const out = kept.filter(Boolean);
-    return out.length ? Array.from(new Set(out)) : routedToAll;
+    if (out.length) return Array.from(new Set(out));
+    // v8.7.142: nothing survived the lock. For application/ACORD files that
+    // IS the label-only outcome; return empty so no module runs and no
+    // preflight section appears. Non-application files keep the legacy
+    // passthrough safety unchanged.
+    return fileHasApplicationSignal8740(f, sections, labels) ? [] : routedToAll;
   } catch (e) { return routedToAll; }
 }
 if (typeof window !== 'undefined') window.applyApplicationLock8739 = applyApplicationLock8739;
@@ -242,7 +286,7 @@ function classifierToRoute(classifierType, subType, tag) {
   if (/^\?{3,4}$/.test(t)) return null;
 
   // File-and-forget: chip-only, no extraction
-  if (FILE_AND_FORGET_TAGS.has(t)) return null;
+  if (FILE_AND_FORGET_TAGS.has(t) || (tag && FILE_AND_FORGET_TAGS.has(String(tag).trim()))) return null;  // v8.7.142: tag counts too (Supporting Forms under a bucket call)
 
   // Direct lookup
   if (ROUTING[t]) return ROUTING[t];
@@ -258,7 +302,15 @@ function classifierToRoute(classifierType, subType, tag) {
   // gl_quote and the incremental preflight offered to run quote modules on
   // an application document.
   const combined8738 = (tLower + ' ' + String(subType || '').toLowerCase() + ' ' + String(tag || '').toLowerCase());
-  if (/\bacord\b|\bapplication\b|questionnaire/.test(combined8738)) {  // v8.7.139: widened
+  if (/\bacord\b/.test(combined8738)) return null;  // v8.7.142: ACORD content is label-only
+  // v8.7.143: the classifier can sidestep the form-number rule by tagging an
+  // ACORD section with its PRINTED TITLE instead ("COMMERCIAL INSURANCE
+  // APPLICATION" is the ACORD 125 masthead). Every ACORD form title is
+  // label-only too; a section named this way must never reach A2 or anything
+  // else. True supplemental apps carry their own product names (VELA,
+  // questionnaire, carrier supp titles) and are unaffected.
+  if (/commercial insurance application|applicant information section|business auto section|commercial general liability section|umbrella\s*\/\s*excess section|property section|commercial inland marine section|statement of values|additional premises information schedule|additional remarks schedule|commercial auto driver information schedule|forms and endorsements schedule/.test(combined8738)) return null;
+  if (/\bapplication\b|questionnaire/.test(combined8738)) {  // v8.7.139: widened; true applications still route
     if (combined8738.includes('safety')) return 'safety';
     if (combined8738.includes('sub agreement') || combined8738.includes('subcontract')) return 'subcontract';
     if (combined8738.includes('vendor')) return 'vendor';
@@ -276,7 +328,7 @@ function classifierToRoute(classifierType, subType, tag) {
   if (tLower.startsWith('gl ') || tLower.startsWith('gl quote') || tLower.includes('gl t&c') || tLower.includes('gl exposure')) return 'gl_quote';
   if (tLower.startsWith('al ') || tLower.startsWith('al quote') || tLower.includes('al t&c') || tLower.includes('al fleet')) return 'al_quote';
   if (tLower.startsWith('el quote') || tLower.includes('employers liability')) return 'excess';
-  if (tLower.startsWith('acord 125') || tLower.startsWith('acord 126') || tLower.startsWith('acord 131')) return 'supplemental';
+  if (tLower.startsWith('acord')) return null;  // v8.7.142: ACORD forms are label-only, never routed
   if (tLower.startsWith('supp app') || tLower.startsWith('contractors supp') || tLower.startsWith('manufacturing supp')) return 'supplemental';
   if (tLower.startsWith('cover note') || tLower.startsWith('broker email') || tLower.startsWith('target prem')) return 'email_intel';
   if (tLower.startsWith('safety')) return 'safety';
@@ -648,7 +700,7 @@ function buildSupplementalCombinedInput8706(matched) {
     parts.push(part);
   });
   split.secondary.forEach(function (f) {
-    parts.push('=== OTHER APPLICATION CONTEXT (SECONDARY, ACORD/NARRATIVE): ' + f.name + ' ===\n\n' + sliceTextForModule(f, 'supplemental'));
+    parts.push('=== OTHER APPLICATION CONTEXT (SECONDARY, NARRATIVE): ' + f.name + ' ===\n\n' + sliceTextForModule(f, 'supplemental'));
   });
   return parts.join('\n\n');
 }
@@ -1742,6 +1794,7 @@ async function incrementalProcess(newFiles) {
     f.reasoning = c.reasoning || '';
     f.suppressTag = !!c.suppressTag;
     stmApplyTowerMetaToFile(f);
+    normalizeAcordTags8742(c);  // v8.7.142: unrecognized ACORD tags -> Supporting Forms
     f.routedToAll = applyApplicationLock8739(f, c, (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean));  // v8.7.139: application lock
     f.routedTo = classifierToRoute(c.type, c.subType, c.tag);
     // v8.7.140 (GPT audit claim 4, verified): the v8.7.139 alignment ran
@@ -6697,6 +6750,7 @@ async function runPipeline() {
     f.reasoning = c.reasoning || '';
     stmApplyTowerMetaToFile(f);
     // Route to ALL applicable modules (supports combined docs)
+    normalizeAcordTags8742(c);  // v8.7.142: unrecognized ACORD tags -> Supporting Forms
     f.routedToAll = applyApplicationLock8739(f, c, (c.classifications || []).map(cl => routeForSection8738(cl)).filter(Boolean));  // v8.7.139: application lock
     f.routedTo = classifierToRoute(c.type, c.subType, c.tag);  // primary routing (backward compat)
     const alignLock8740b = f.routedToAll.length && f.routedToAll.indexOf(f.routedTo) === -1;

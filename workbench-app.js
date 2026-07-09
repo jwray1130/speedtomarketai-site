@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.141-quote-evidence-lock-2026-07-06';
+window.STM_BUILD = 'v8.7.143-acord-title-belt-2026-07-08';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
