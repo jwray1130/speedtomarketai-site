@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.147-pending-closure-2026-07-08';
+window.STM_BUILD = 'v8.7.152-cache-proof-build-badge-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

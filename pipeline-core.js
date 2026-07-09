@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.147-pending-closure-2026-07-08';
+window.STM_BUILD = 'v8.7.152-cache-proof-build-badge-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -17,6 +17,27 @@ window.debugBuildInfo = function() {
     hint: 'If this build string is older than your last deploy, hard-refresh ' +
           '(Ctrl+Shift+R) or check Vercel deploy status.'
   };
+};
+
+// v8.7.152 DEPLOYMENT SANITY CHECK
+// Confirms what the server is serving now, bypassing the browser cache.
+// Use from console: await window.verifyServedBuild()
+window.verifyServedBuild = async function() {
+  const out = { runningBuild: window.STM_BUILD || null, servedCoreBuild: null, ok: false, error: null };
+  try {
+    const res = await fetch('pipeline-core.js?stm_probe=' + Date.now(), { cache: 'no-store' });
+    out.httpStatus = res.status;
+    const txt = await res.text();
+    const m = txt.match(/window\.STM_BUILD\s*=\s*['"]([^'"]+)['"]/);
+    out.servedCoreBuild = m ? m[1] : null;
+    out.ok = !!out.servedCoreBuild && out.servedCoreBuild === out.runningBuild;
+    if (!out.ok) console.warn('[STM BUILD MISMATCH]', out);
+    else console.log('[STM BUILD VERIFIED]', out);
+  } catch (e) {
+    out.error = e && (e.message || String(e));
+    console.warn('[STM BUILD VERIFY FAILED]', out);
+  }
+  return out;
 };
 
 // Extracted from app.html as Phase 8 step 7 (the final maintainability split).
@@ -4690,12 +4711,109 @@ if (typeof toast === 'undefined') {
 // ============================================================================
 // AUDIT LOG — every LLM call, file event, export action
 // ============================================================================
+function auditActiveSubmissionId8750() {
+  try {
+    return (typeof STATE !== 'undefined' && (STATE.activeSubmissionId || (STATE.activeSubmission && STATE.activeSubmission.id) || (STATE.currentSubmission && STATE.currentSubmission.id))) || null;
+  } catch (e) { return null; }
+}
+
+function auditPersistLocal8750(row) {
+  try {
+    if (typeof localStorage === 'undefined' || !row) return;
+    const key = 'stm_audit_ring_v8750';
+    const prior = JSON.parse(localStorage.getItem(key) || '[]');
+    const arr = Array.isArray(prior) ? prior : [];
+    arr.push(row);
+    while (arr.length > 1000) arr.shift();
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch (e) { /* local audit persistence is best effort */ }
+}
+
+function auditReadLocal8750() {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const arr = JSON.parse(localStorage.getItem('stm_audit_ring_v8750') || '[]');
+    if (!Array.isArray(arr)) return [];
+    const sid = auditActiveSubmissionId8750();
+    if (sid) {
+      const scoped = arr.filter(r => !r || !r.submissionId || String(r.submissionId) === String(sid));
+      if (scoped.length) return scoped.slice(-500);
+    }
+    return arr.slice(-500);
+  } catch (e) { return []; }
+}
+
+function buildAuditExportDiagnostic8750(reason) {
+  const mods = [];
+  try {
+    const exts = (typeof STATE !== 'undefined' && STATE.extractions) || {};
+    const moduleMap = (typeof MODULES !== 'undefined' && MODULES) || {};
+    Object.keys(exts).forEach(mid => {
+      const e = exts[mid] || {};
+      const m = moduleMap[mid] || {};
+      mods.push({
+        module_id: mid,
+        code: m.code || mid,
+        name: m.name || mid,
+        mode: e.mode || null,
+        confidence: e.confidence || 0,
+        cost: e.cost || 0,
+        timing: e.timing || 0,
+        fallback: !!e.fallback,
+        review_required: !!(e.review_required || e.a8_review_required_fallback_v8749 || e.deterministic_fallback_v8750),
+        rerun_failed: !!e.rerunFailed,
+        rerun_skipped: !!e.rerunSkipped,
+        stale: !!e.staleInputs8732,
+        stop_reason: e.stop_reason || null,
+        sourceInfo: e.sourceInfo || null,
+        text_preview: String(e.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500)
+      });
+    });
+  } catch (e) {}
+  const files = [];
+  try {
+    ((typeof STATE !== 'undefined' && STATE.files) || []).forEach(f => {
+      files.push({
+        name: f.name || f.fileName || null,
+        state: f.state || null,
+        type: f.type || f.fileType || null,
+        route: f.routedTo || null,
+        routes: f.routedToAll || null,
+        classification: f.classification || f.bucket || null,
+        confidence: f.confidence || f.classifierConfidence || null,
+        text_chars: String(f.text || '').length,
+        pages: f.extractMeta && Array.isArray(f.extractMeta.pageTexts) ? f.extractMeta.pageTexts.length : null
+      });
+    });
+  } catch (e) {}
+  return {
+    reason: reason || 'audit_export',
+    build: (typeof window !== 'undefined' && window.STM_BUILD) || null,
+    generated_at: new Date().toISOString(),
+    active_submission_id: auditActiveSubmissionId8750(),
+    pipeline_run: (typeof STATE !== 'undefined' && STATE.pipelineRun) || null,
+    pipeline_done: !!(typeof STATE !== 'undefined' && STATE.pipelineDone),
+    pipeline_running: !!(typeof STATE !== 'undefined' && STATE.pipelineRunning),
+    run_total_cost: (typeof STATE !== 'undefined' && STATE.runTotalCost) || 0,
+    audit_rows_in_state: Array.isArray((typeof STATE !== 'undefined' && STATE.audit) || null) ? STATE.audit.length : 0,
+    module_count: mods.length,
+    modules: mods,
+    file_count: files.length,
+    files: files
+  };
+}
+
 function logAudit(actor, action, meta) {
-  STATE.audit.push({
+  if (!Array.isArray(STATE.audit)) STATE.audit = [];
+  const row = {
     time: new Date().toISOString().slice(11, 19),
     actor, action, meta: meta || '—',
-    ts: Date.now()
-  });
+    ts: Date.now(),
+    build: (typeof window !== 'undefined' && window.STM_BUILD) || null,
+    submissionId: auditActiveSubmissionId8750()
+  };
+  STATE.audit.push(row);
+  auditPersistLocal8750(row);
   renderAuditIfOpen();
   // Phase 6 step 1: also persist to Supabase audit_events (fire-and-forget).
   // Never blocks, never throws, silently no-ops when not signed in. See
@@ -4768,30 +4886,119 @@ function staleGuard8733(actionLabel) {
 window.requestSectionRefresh8733 = requestSectionRefresh8733;
 window.staleGuard8733 = staleGuard8733;
 
-function exportAudit() {
-  const isAdmin = !!(window.currentUser && window.currentUser.role === 'admin');
-  let rows, source, filter;
-  if (isAdmin) {
-    rows = (STATE.adminAudit.rows || []).map(r => ({
-      created_at:    r.created_at,
-      category:      r.category,
-      message:       r.message,
-      meta:          r.meta,
-      user_id:       r.user_id,
-      submission_id: r.submission_id
-    }));
-    source = 'supabase.public.audit_events';
-    filter = STATE.adminAudit.category;
-  } else {
-    rows = STATE.audit || [];
-    source = 'session_state';
-    filter = null;
+function auditExportNormalizeRow8751(row, source) {
+  if (!row) return null;
+  return {
+    source: source || row.source || 'unknown',
+    time: row.time || null,
+    created_at: row.created_at || null,
+    actor: row.actor || row.category || null,
+    action: row.action || row.message || null,
+    meta: row.meta == null ? null : row.meta,
+    ts: row.ts || null,
+    build: row.build || window.STM_BUILD || null,
+    submission_id: row.submission_id || row.submissionId || auditActiveSubmissionId8750() || null,
+    pipeline_run: row.pipeline_run || row.pipelineRun || (STATE && STATE.pipelineRun) || null,
+    user_id: row.user_id || null,
+    category: row.category || null,
+    message: row.message || null
+  };
+}
+
+function auditExportRowKey8751(row) {
+  return [row.source || '', row.ts || row.created_at || row.time || '', row.actor || row.category || '', row.action || row.message || '', JSON.stringify(row.meta == null ? '' : row.meta)].join('|');
+}
+
+function auditExportAddRows8751(target, seen, rows, source) {
+  if (!Array.isArray(rows)) return;
+  rows.forEach(function(row) {
+    const n = auditExportNormalizeRow8751(row, source);
+    if (!n) return;
+    const key = auditExportRowKey8751(n);
+    if (seen.has(key)) return;
+    seen.add(key);
+    target.push(n);
+  });
+}
+
+async function auditExportSnapshotRows8751() {
+  const sid = auditActiveSubmissionId8750();
+  const out = [];
+  try {
+    if (!sid || !Array.isArray(STATE.submissions)) return out;
+    let rec = STATE.submissions.find(function(s){ return s && s.id === sid; }) || null;
+    if (rec && rec.snapshot && Array.isArray(rec.snapshot.audit)) {
+      auditExportAddRows8751(out, new Set(), rec.snapshot.audit, 'active_submission_snapshot');
+      return out;
+    }
+    if (rec && !rec.snapshot && typeof sbFetchSubmissionSnapshot === 'function') {
+      try {
+        const snap = await sbFetchSubmissionSnapshot(sid);
+        if (snap && Array.isArray(snap.audit)) {
+          rec.snapshot = Object.assign({}, rec.snapshot || {}, snap);
+          auditExportAddRows8751(out, new Set(), snap.audit, 'active_submission_cloud_snapshot');
+        }
+      } catch (e) {
+        console.warn('[audit export] snapshot fetch failed:', e && e.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[audit export] snapshot scan failed:', e && e.message || e);
   }
-  if (rows.length === 0) { toast('No audit events to export', 'warn'); return; }
+  return out;
+}
+
+// Export audit log. v8.7.151 makes this a dead-end-proof troubleshooting export:
+// it merges active session rows, active submission snapshot rows, local browser
+// audit ring rows, and admin/cloud rows when present. If none exist, it still
+// downloads diagnostic state instead of stranding the user with a toast.
+async function exportAudit() {
+  const isAdmin = !!(window.currentUser && window.currentUser.role === 'admin');
+  const rows = [];
+  const seen = new Set();
+
+  const sessionRows = Array.isArray(STATE.audit) ? STATE.audit.slice() : [];
+  auditExportAddRows8751(rows, seen, sessionRows, isAdmin ? 'session_state_admin' : 'session_state');
+
+  const snapshotRows = await auditExportSnapshotRows8751();
+  auditExportAddRows8751(rows, seen, snapshotRows, 'active_submission_snapshot');
+
+  const ringRows = auditReadLocal8750();
+  auditExportAddRows8751(rows, seen, ringRows, 'local_audit_ring_v8750');
+
+  const adminRows = (isAdmin && STATE.adminAudit && Array.isArray(STATE.adminAudit.rows))
+    ? STATE.adminAudit.rows.map(function(r){ return {
+        created_at:    r.created_at,
+        category:      r.category,
+        message:       r.message,
+        meta:          r.meta,
+        user_id:       r.user_id,
+        submission_id: r.submission_id
+      }; })
+    : [];
+  auditExportAddRows8751(rows, seen, adminRows, 'supabase.public.audit_events.loaded_admin_grid');
+
+  let source = rows.length ? 'merged_active_audit_v8751' : 'diagnostic_state_no_audit_rows_v8751';
+  if (!rows.length) {
+    auditExportAddRows8751(rows, seen, [{
+      time: new Date().toISOString().slice(11, 19),
+      actor: 'Diagnostic',
+      action: 'No audit rows were present; exported current pipeline state instead',
+      meta: (window.STM_BUILD || 'no-build') + ' · diagnostic_state_no_audit_rows_v8751',
+      ts: Date.now(),
+      build: window.STM_BUILD || null,
+      submissionId: auditActiveSubmissionId8750()
+    }], source);
+  }
+
   const payload = {
     source: source,
-    filter_category: filter,
+    filter_category: (isAdmin && STATE.adminAudit && STATE.adminAudit.category) || null,
     generated_at: new Date().toISOString(),
+    build: window.STM_BUILD || null,
+    active_submission_id: auditActiveSubmissionId8750(),
+    diagnostic_only: source === 'diagnostic_state_no_audit_rows_v8751',
+    diagnostic: buildAuditExportDiagnostic8750(source === 'diagnostic_state_no_audit_rows_v8751' ? 'no_audit_rows' : 'audit_export'),
     event_count: rows.length,
     events: rows
   };
@@ -4799,10 +5006,10 @@ function exportAudit() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'stm_audit_' + (isAdmin ? 'cloud_' : '') + Date.now() + '.json';
+  a.download = 'stm_audit_' + source.replace(/[^a-z0-9]+/gi, '_') + '_' + Date.now() + '.json';
   a.click();
   URL.revokeObjectURL(url);
-  toast((isAdmin ? 'Cloud audit JSON · ' : 'Audit JSON · ') + rows.length + ' events');
+  toast((payload.diagnostic_only ? 'Diagnostic audit JSON exported · ' : 'Audit JSON exported · ') + rows.length + ' event' + (rows.length === 1 ? '' : 's'));
 }
 
 // ============================================================================
@@ -6286,6 +6493,10 @@ function updateDecisionPane() {
     verdict = 'Incomplete';
     verdictDetail = `${extracted.length} modules ran but guideline cross-reference did not — not enough input to determine appetite.`;
     isError = true;
+  } else if (guidelines && (guidelines.review_required || guidelines.fallback || guidelines.a8_review_required_fallback_v8749 || guidelines.deterministic_fallback_v8750 || guidelines.a8_engine_qc_v8750)) {
+    verdict = 'Quote w/ Conditions';
+    verdictDetail = 'Guideline cross-reference is review-required. Senior UW review is required before treating guidelines as cleared.';
+    isReferral = true;
   } else {
     // Parse guidelines for structured decision signals
     const text = guidelines.text;

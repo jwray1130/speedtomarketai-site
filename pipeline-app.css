@@ -2879,6 +2879,30 @@ body.viewing-as-assistant .actions-pane {
 .sc-card:hover .sc-card-actions,
 .sc-card.editing .sc-card-actions,
 .sc-card.dirty .sc-card-actions { opacity: 1; }
+/* v8.7.148: card title starvation fix. The action cluster above is
+   invisible at rest (opacity 0) but still RESERVED its width, so in
+   half-width cards the UPDATED badge plus five hidden buttons squeezed
+   .sc-name into "Supple..." / "Prima...". The cluster now overlays the
+   head on hover instead of reserving space, invisible buttons can no
+   longer intercept clicks (pointer-events), and the head row may wrap
+   as a last resort so the name is never clipped by badges. */
+.sc-card-head-top { position: relative; flex-wrap: wrap; }
+.sc-card-actions {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 3px;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.sc-card:hover .sc-card-actions,
+.sc-card.editing .sc-card-actions,
+.sc-card.dirty .sc-card-actions { pointer-events: auto; }
 .sc-act {
   width: 24px; height: 24px;
   border-radius: 4px;

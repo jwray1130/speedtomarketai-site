@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- v8.7.152 no-cache deploy guard: the build badge is populated from local JS, so HTML/JS/CSS must not be silently reused across deploys. -->
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Speed to Market AI · Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,15 +78,15 @@
      GoTrue instance. On this page it contributes client + session events
      only (the gate UI is opt-in via .stm-auth-pending, which only
      workbench.html sets). -->
-<script src="platform-auth.js"></script>
+<script src="platform-auth.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Phase 8 step 1: extraction prompts and injection defense, served as a separate file for maintainability. Must load before any inline JS block that references PROMPTS or PROMPT_INJECTION_DEFENSE. -->
-<script src="pipeline-prompts.js"></script>
-<link rel="stylesheet" href="pipeline-app.css">
+<script src="pipeline-prompts.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
+<link rel="stylesheet" href="pipeline-app.css?v=8.7.152-cache-proof-build-badge-2026-07-09">
 <!-- Documents view (Speed File Manager native port).
      CSS is namespaced under #docs-view-root so it cannot leak into Altitude.
      Additional libs the document viewer needs: jszip (docx pagination, pptx parsing,
      archives) and jspdf (Tagged-Pages export, single-doc download as PDF). -->
-<link rel="stylesheet" href="pipeline-documents-view.css">
+<link rel="stylesheet" href="pipeline-documents-view.css?v=8.7.152-cache-proof-build-badge-2026-07-09">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -1410,20 +1414,20 @@
 <div class="toast-wrap" id="toastWrap"></div>
 
 <!-- Phase 8 step 7: core runtime. Defines window.STATE, window.sb, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
-<script src="pipeline-core.js"></script>
+<script src="pipeline-core.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
-<script src="pipeline-supabase-data.js"></script>
+<script src="pipeline-supabase-data.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Phase 8 step 4: Admin operator-console renderers. Must load AFTER supabase-data.js (renderers call sb* helpers from there). -->
-<script src="pipeline-admin-views.js"></script>
+<script src="pipeline-admin-views.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Phase 8 step 5: Website-scraping subsystem (BFS crawler, sitemap discovery, Jina fallback). Must load AFTER the inline init script (which defines llmProxyFetch). -->
-<script src="pipeline-scraper.js"></script>
+<script src="pipeline-scraper.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Phase 8 step 6: Pipeline subsystem (DAG, classifier, orchestrator, module fan-out). Must load AFTER prompts.js (uses PROMPTS), supabase-data.js (uses sb*), admin-views.js, scraper.js, and the inline init (uses llmProxyFetch, logAudit, etc). -->
-<script src="pipeline-engine.js"></script>
+<script src="pipeline-engine.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 <!-- Documents view (Speed File Manager — native port). Module exports
      window.initDocumentsView() which app.js invokes once at boot. Must load
      AFTER app.js (uses window.STATE / window.sb) and AFTER pdfjsLib + xlsx +
      mammoth + jszip + jspdf are loaded in <head>. -->
-<script src="pipeline-documents-view.js"></script>
+<script src="pipeline-documents-view.js?v=8.7.152-cache-proof-build-badge-2026-07-09"></script>
 
 
 </body>

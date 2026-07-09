@@ -1658,6 +1658,28 @@ function markSectionsStale8732(triggerMids, reason) {
   return marked;
 }
 
+
+async function persistRefreshSnapshot8751(source) {
+  // v8.7.151: manual section refreshes and the A8 button mutate the active
+  // extraction/audit state after the original pipeline run. Persist the updated
+  // snapshot immediately so reloads and Export Audit JSON see the latest card,
+  // fallback flags, and FAILED/fallback audit rows.
+  try {
+    if (typeof archiveCurrentSubmission !== 'function') return null;
+    if (!STATE || !STATE.pipelineDone || !STATE.pipelineRun) return null;
+    const res = await archiveCurrentSubmission({ source: source || 'manual-refresh' });
+    if (res && res.cloudSaved === false && typeof logAudit === 'function') {
+      logAudit('Persistence', 'Manual refresh snapshot kept in-memory only · ' + (source || 'manual-refresh') + ' · ' + (res.cloudError ? (res.cloudError.message || String(res.cloudError)) : 'cloud save failed'), 'warn');
+    }
+    return res;
+  } catch (e) {
+    console.warn('[persistRefreshSnapshot8751] skipped:', e && e.message || e);
+    if (typeof logAudit === 'function') logAudit('Persistence', 'Manual refresh snapshot save failed · ' + (source || 'manual-refresh') + ' · ' + (e && e.message || e), 'warn');
+    return null;
+  }
+}
+if (typeof window !== 'undefined') window.persistRefreshSnapshot8751 = persistRefreshSnapshot8751;
+
 async function refreshSection8732(mid) {
   if (!MODULES[mid]) { toast('Unknown section: ' + mid, 'error'); return false; }
   if (mid === 'guidelines') {
@@ -1670,6 +1692,7 @@ async function refreshSection8732(mid) {
   const ok = !!(STATE.extractions[mid] && !STATE.extractions[mid].rerunFailed && !STATE.extractions[mid].staleFromRerun);
   if (ok) markSectionsStale8732([mid], 'upstream section refreshed');
   renderSummaryCards();
+  await persistRefreshSnapshot8751('section-refresh-' + mid);
   return ok;
 }
 
@@ -1684,6 +1707,7 @@ async function refreshAllStale8732() {
   logAudit('Refresh', 'Refresh all stale: ' + staleList.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') + ' (A8 excluded by design)', STATE.api.model);
   await rerunModules(staleList);
   renderSummaryCards();
+  await persistRefreshSnapshot8751('refresh-all-stale');
   return staleList;
 }
 window.markSectionsStale8732 = markSectionsStale8732;
@@ -1726,7 +1750,15 @@ function moduleEligibleNeverRan8747(mid, assumePresent) {
     // Email must actually exist; a simulated A6 never conjures an email.
     return !!STATE.extractions.email_intel;
   }
-  return false; // guidelines (button only) and wave-1 file-fed modules
+  if (mid === 'guidelines') {
+    // v8.7.148 (Justin directive): never-ran A8 joins the catch-up. The
+    // initial full run auto-runs A8 in wave 3, so a trickle catch-up
+    // reaching first-run parity includes it. The button-only doctrine
+    // still governs REFRESH: a stale A8 (ran before, inputs changed)
+    // never enters bulk and keeps its Re-run Guidelines button.
+    return has('summary-ops');
+  }
+  return false; // wave-1 file-fed modules never enter the closure
 }
 
 function computePendingClosure8747() {
@@ -1740,14 +1772,16 @@ function computePendingClosure8747() {
   const newBatches = [];
   [2, 3].forEach(w => {
     const batch = Object.keys(MODULES)
-      .filter(mid => MODULES[mid].wave === w && mid !== 'guidelines')
+      .filter(mid => MODULES[mid].wave === w)
       .filter(mid => !seen.has(mid) && moduleEligibleNeverRan8747(mid, assume));
     batch.forEach(mid => { seen.add(mid); assume.add(mid); });
     if (batch.length) newBatches.push(batch);
   });
   const all = [...stale, ...newBatches.flat()];
-  const a8Pending = !!(STATE.extractions.guidelines && STATE.extractions.guidelines.staleInputs8732)
-    || (!STATE.extractions.guidelines && (!!STATE.extractions['summary-ops'] || assume.has('summary-ops')));
+  // v8.7.148: a8Pending now means exactly one thing: A8 RAN and its
+  // inputs changed, so the button-only refresh doctrine applies. A
+  // never-ran A8 rides inside newBatches like any other first run.
+  const a8Pending = !!(STATE.extractions.guidelines && STATE.extractions.guidelines.staleInputs8732);
   return { stale, newBatches, all, a8Pending, est: all.reduce((a, m) => a + estCost8733(m), 0) };
 }
 
@@ -1755,12 +1789,13 @@ async function refreshAllPending8747() {
   const plan = computePendingClosure8747();
   if (!plan.all.length) { toast('Nothing pending. All sections are current.', 'info'); return []; }
   logAudit('Refresh', 'Refresh all pending · stale: [' + plan.stale.map(m => (MODULES[m] && MODULES[m].code) || m).join(', ')
-    + '] · new: [' + plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') + '] (A8 excluded by design)', STATE.api.model);
+    + '] · new: [' + plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m).join(', ') + '] (stale A8 excluded; never-ran A8 included)', STATE.api.model);
   // One rerunModules call: its internal wave loop runs A6/A15 before
   // A7/A9/A10, and its per-module gates skip anything whose upstream
   // failed, so no blind spend on a broken cascade.
   await rerunModules(plan.all);
   renderSummaryCards();
+  await persistRefreshSnapshot8751('refresh-all-pending');
   return plan.all;
 }
 
@@ -1772,7 +1807,7 @@ async function confirmRefreshAllPending8747() {
   const parts = [];
   if (staleCodes.length) parts.push(staleCodes.length + ' stale (' + staleCodes.join(', ') + ')');
   if (newCodes.length) parts.push(newCodes.length + ' not yet run (' + newCodes.join(', ') + ')');
-  if (!confirm('Refresh ' + parts.join(' plus ') + ' from current inputs (est ~$' + plan.est.toFixed(2) + ')? Runs in wave order so A6 completes before its dependents. A8 Guidelines is excluded and refreshes only via its own button.')) return;
+  if (!confirm('Refresh ' + parts.join(' plus ') + ' from current inputs (est ~$' + plan.est.toFixed(2) + ')? Runs in wave order so A6 completes before its dependents.' + (plan.a8Pending ? ' Stale A8 Guidelines is excluded and refreshes only via its own button.' : ''))) return;
   await refreshAllPending8747();
 }
 window.moduleEligibleNeverRan8747 = moduleEligibleNeverRan8747;
@@ -1838,7 +1873,7 @@ function renderStaleBanner8733() {
   const anyExtractions = Object.keys(STATE.extractions).length > 0;
   const staleCodes = plan.stale.map(m => (MODULES[m] && MODULES[m].code) || m);
   const newCodes = plan.newBatches.flat().map(m => (MODULES[m] && MODULES[m].code) || m);
-  const a8Note = plan.a8Pending ? '<div class="sb-a8">A8 Guidelines has inputs ready. Use the Re-run Guidelines button when ready.</div>' : '';
+  const a8Note = plan.a8Pending ? '<div class="sb-a8">A8 Guidelines inputs changed. Stale A8 refreshes only via the Re-run Guidelines button.</div>' : '';
   if (dock) {
     const legacy = document.getElementById('staleBanner8733');
     if (legacy) legacy.remove();
@@ -2313,7 +2348,7 @@ async function rerunModules(moduleIds) {
         // old guideline special-case sat in the 'extractions' branch A8 never
         // reaches. Build the same composite input the initial run uses.
         if (STATE.extractions['summary-ops']) {
-          const glInput8720 = 'ACCOUNT OPERATIONS:\n\n' + STATE.extractions['summary-ops'].text + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
+          const glInput8720 = buildGuidelinesInput8749(STATE.extractions['summary-ops'].text, getActiveGuideline(), 'normal');
           runResult = await runModule(mid, PROMPTS[mid], glInput8720, 'A6 + guidelines', pipelineContext);
         } else {
           skipModule(mid, 'no Summary of Ops');
@@ -2506,11 +2541,27 @@ async function rerunGuidelines() {
     await rerunModules(modulesToRerun);
     renderSummaryCards();
     updateDecisionPane();
-    logAudit('Pipeline', 'Guidelines re-run complete · ' + modulesToRerun.length + ' modules refreshed', '—');
-    toast('Guidelines refreshed · ' + modulesToRerun.length + ' module' + (modulesToRerun.length === 1 ? '' : 's') + ' updated');
+    // v8.7.148: truthful outcome. rerunModules does not throw on a module
+    // failure (runModule returns false and the backup restores), so this
+    // path used to toast success while the A8 card sat in error. Inspect
+    // the result and report what actually happened; runModule already
+    // wrote 'FAILED A8: <cause>' to the audit trail.
+    const g8748 = STATE.extractions['guidelines'];
+    if (!g8748 || g8748.rerunFailed) {
+      logAudit('Pipeline', 'Guidelines re-run FAILED · see the FAILED A8 audit line above for the cause', 'error');
+      toast('Guidelines re-run failed · Export Audit JSON now includes session/diagnostic state for troubleshooting', 'error');
+    } else if (g8748.fallback || g8748.a8_review_required_fallback_v8749) {
+      logAudit('Pipeline', 'Guidelines re-run completed with review-required fallback · no clean clearance should be inferred', 'warn');
+      toast('Guidelines fallback created · review required before relying on A8', 'warn');
+    } else {
+      logAudit('Pipeline', 'Guidelines re-run complete · ' + modulesToRerun.length + ' modules refreshed', '—');
+      toast('Guidelines refreshed · ' + modulesToRerun.length + ' module' + (modulesToRerun.length === 1 ? '' : 's') + ' updated');
+    }
+    await persistRefreshSnapshot8751('rerun-guidelines');
   } catch (err) {
     logAudit('Pipeline', 'Guidelines re-run FAILED: ' + err.message, 'error');
     toast('Guidelines re-run failed: ' + err.message, 'error');
+    await persistRefreshSnapshot8751('rerun-guidelines-error');
   } finally {
     STATE.pipelineRunning = false;
     if (btn) { btn.disabled = false; btn.querySelector('svg').style.animation = ''; }
@@ -5847,6 +5898,510 @@ function buildGuidelinesFallbackExtraction8711(sourceText, reason) {
     + msg + '</p></div>\n\n```json guideline_conflicts_structured\n'
     + JSON.stringify(structured, null, 2) + '\n```';
 }
+
+
+// v8.7.149/v8.7.150 — A8 input-budget hardening and review-required fallback.
+// The live failure report for v8.7.148 named two likely causes: oversized
+// active guidelines and double-truncation. A8 now builds a bounded input for
+// initial and rerun paths, retries with an even smaller focused guideline on
+// request-size failures, and emits a review-required fallback card instead of
+// leaving Guidelines blank/error-only.
+function a8HtmlEscape8749(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
+  });
+}
+
+function a8NormalizeText8749(text) {
+  return String(text || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function a8ClipMiddle8749(text, maxChars, label) {
+  const raw = String(text || '');
+  const max = Math.max(1000, Number(maxChars) || 1000);
+  if (raw.length <= max) return raw;
+  const head = Math.floor(max * 0.58);
+  const tail = Math.max(500, max - head - 220);
+  return raw.slice(0, head)
+    + '\n\n[... ' + (label || 'content') + ' clipped by v8.7.150 input guard: '
+    + (raw.length - head - tail).toLocaleString() + ' chars omitted ...]\n\n'
+    + raw.slice(Math.max(head, raw.length - tail));
+}
+
+function a8CompactGuideline8749(guidelineText, targetChars, operationText) {
+  const raw = a8NormalizeText8749(guidelineText || '');
+  const target = Math.max(12000, Number(targetChars) || 50000);
+  if (raw.length <= target) return raw;
+
+  const ops = a8NormalizeText8749(operationText || '').toLowerCase();
+  const dynamicWords = Array.from(new Set((ops.match(/\b[a-z][a-z0-9&\/\-]{4,}\b/g) || [])
+    .filter(function(w) {
+      return !/^(there|their|about|which|would|could|should|insured|account|operations|summary|provided|information|section|policy|coverage|liability|general|primary)$/.test(w);
+    })
+    .slice(0, 40)));
+  const staticWords = [
+    'prohibit','prohibited','ineligible','decline','referral','refer','empowerment','authority',
+    'minimum attachment','attachment point','attachment strategy','hazard grade','required calculation',
+    'construction','contractor','subcontract','subcontractor','street','road','bridge','highway',
+    'concrete','excavat','grading','demolition','height','crane','railroad','auto','fleet',
+    'snow','ice','residential','roof','energy','environmental','pollution','professional',
+    'cyber','warehouse','aviation','aircraft','garage','liquor','wrap','project specific'
+  ];
+  const words = staticWords.concat(dynamicWords).map(function(w){ return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+  const hitRe = new RegExp(words.join('|'), 'i');
+  const lines = raw.split(/\n+/);
+  const keep = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    if (hitRe.test(lines[i])) {
+      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) keep.add(j);
+    }
+  }
+  let focused = Array.from(keep).sort(function(a,b){ return a-b; }).map(function(i){ return lines[i]; }).join('\n');
+  if (focused.length < Math.min(8000, target * 0.25)) {
+    focused = raw.slice(0, Math.floor(target * 0.45)) + '\n\n' + focused;
+  }
+  focused = a8ClipMiddle8749(focused, target, 'carrier guideline');
+  return '[v8.7.150 COMPACTED GUIDELINE VIEW: the active guideline was ' + raw.length.toLocaleString()
+    + ' chars. This focused view keeps prohibition/referral/empowerment/attachment/risk-trigger sections and operation-matched nearby context. If an exact citation is not present in this compacted view, say review required rather than inventing wording.]\n\n'
+    + focused;
+}
+
+
+function a8Keywords8750(text) {
+  const stop = /^(there|their|about|which|would|could|should|insured|account|operations|summary|provided|information|section|policy|coverage|liability|general|primary|carrier|guideline|guidelines|underwriting|business|details|include|includes|including|required|state|states)$/;
+  return Array.from(new Set(a8NormalizeText8749(text || '').toLowerCase()
+    .replace(/[^a-z0-9$]+/g, ' ')
+    .split(/\s+/)
+    .filter(function(w){ return w.length >= 4 && !stop.test(w); })
+    .map(function(w){ return w.slice(0, 12); })));
+}
+
+function a8BuildGuidelineScout8750(summaryOpsText, guidelineText, maxChars) {
+  const raw = a8NormalizeText8749(guidelineText || '');
+  if (!raw) return '';
+  const kw = Array.from(a8Keywords8750(summaryOpsText || '') || []);
+  [
+    'prohibited','ineligible','decline','referral','refer','empowerment','authority',
+    'minimum','attachment','hazard','construction','contractor','subcontractor',
+    'bridge','road','street','highway','concrete','excavat','grading','rail',
+    'auto','fleet','truck','crane','demolition','pollution','professional','cyber'
+  ].forEach(function(x){ if (kw.indexOf(x) === -1) kw.push(x); });
+  const hitRe = new RegExp(kw.filter(Boolean).map(function(w){ return String(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|'), 'i');
+  const actionRe = /prohibit|ineligible|decline|referral|refer|empowerment|authority|minimum attachment|attachment point|attachment strategy|hazard grade|required calculation|section\s*1\.5|approval required|not acceptable/i;
+  const lines = raw.split(/\n+/).map(function(x){ return x.trim(); }).filter(Boolean);
+  const keep = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    if (hitRe.test(lines[i]) || actionRe.test(lines[i])) {
+      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) keep.add(j);
+    }
+  }
+  const chosen = Array.from(keep).sort(function(a,b){ return a-b; });
+  if (!chosen.length) return '';
+  let out = chosen.map(function(i){ return lines[i]; }).join('\n');
+  out = a8ClipMiddle8749(out, Math.max(4000, maxChars || 16000), 'A8 deterministic guideline scout');
+  return '[v8.7.150 DETERMINISTIC CANDIDATE GUIDELINE EXCERPTS: exact guideline lines selected by operation keywords and trigger terms. Use these as citation candidates; do not treat absence from this list as clearance.]\n' + out;
+}
+
+function buildGuidelinesInput8749(summaryOpsText, guidelineText, mode) {
+  const m = mode || 'normal';
+  const summaryLimit = m === 'ultra' ? 8000 : (m === 'compact' ? 14000 : 24000);
+  const guidelineLimit = m === 'ultra' ? 16000 : (m === 'compact' ? 32000 : 52000);
+  const scoutLimit = m === 'ultra' ? 9000 : (m === 'compact' ? 14000 : 22000);
+  const soRaw = a8NormalizeText8749(summaryOpsText || '');
+  const glRaw = String(guidelineText || '');
+  const so = a8ClipMiddle8749(soRaw, summaryLimit, 'A6 Summary of Operations');
+  const scout = a8BuildGuidelineScout8750(soRaw, glRaw, scoutLimit);
+  const gl = glRaw.length > guidelineLimit
+    ? a8CompactGuideline8749(glRaw, guidelineLimit, soRaw)
+    : a8NormalizeText8749(glRaw);
+  return 'ACCOUNT OPERATIONS:\n\n' + so
+    + (scout ? '\n\n---\n\n' + scout : '')
+    + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + gl
+    + '\n\n---\n\nENGINE INPUT NOTE: v8.7.150 bounded the A8 input and included deterministic candidate guideline excerpts. Produce the full A8 sections when possible. If exact guideline wording is absent from the bounded input, mark Review Required; never invent or silently clear it.';
+}
+
+function isA8InputBudgetError8749(err) {
+  const hay = String((err && err.message) || '') + ' ' + String((err && err.bodySnippet) || '') + ' ' + String((err && err.category) || '') + ' ' + String((err && err.status) || '');
+  return /INPUT_ERROR|prompt\s+is\s+too\s+long|input\s+is\s+too\s+long|context\s+(?:length|window)|too\s+many\s+tokens|token\s+limit|request\s+too\s+large|413|maximum\s+context|messages?.*tokens/i.test(hay);
+}
+
+function buildGuidelinesFailureFallback8749(sourceText, reason) {
+  const msg = 'A8 Guideline Cross-Ref could not complete a reliable live model answer. No guideline conflicts should be treated as cleared. Review required before relying on guideline compliance.';
+  const r = String(reason || 'unknown A8 failure').slice(0, 500);
+  const structured = {
+    guideline_conflicts_text: msg + ' Engine detail: ' + r,
+    guideline_conflicts: [],
+    fallback: true,
+    fallback_reason: r,
+    review_required: true,
+    status: 'a8_review_required_fallback_v8749'
+  };
+  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable — review required.</strong><p>'
+    + a8HtmlEscape8749(msg) + '</p><p><strong>Engine detail:</strong> '
+    + a8HtmlEscape8749(r) + '</p></div>\n\n```json guideline_conflicts_structured\n'
+    + JSON.stringify(structured, null, 2) + '\n```';
+}
+
+
+// v8.7.150 — deterministic A8 floor and QC addendum.
+// A8 is expensive and high-impact; a model/proxy failure must not leave the
+// card blank or generic. This local pass uses the same active guideline text
+// and A6 summary to produce a conservative, review-required guideline card
+// with real trigger lines whenever the live LLM output is absent, malformed,
+// or misses hard deterministic requirements such as Section 1.5.
+function a8SplitInput8750(sourceText, guidelineText) {
+  const raw = String(sourceText || '');
+  const marker = /CARRIER UNDERWRITING GUIDELINE:/i;
+  const acct = /ACCOUNT OPERATIONS:/i;
+  if (marker.test(raw)) {
+    const parts = raw.split(marker);
+    const left = parts[0].replace(acct, '').replace(/---\n*$/g, '').trim();
+    const right = parts.slice(1).join('CARRIER UNDERWRITING GUIDELINE:')
+      .replace(/---\n*ENGINE INPUT NOTE:[\s\S]*$/i, '')
+      .trim();
+    return { summary: left || raw, guideline: String(guidelineText || right || '').trim() };
+  }
+  return { summary: raw, guideline: String(guidelineText || '').trim() };
+}
+
+function a8GuidelineQuote8750(guidelineText, patterns, fallback) {
+  const lines = a8NormalizeText8749(guidelineText || '').split(/\n+/).map(function(l){ return l.trim(); }).filter(Boolean);
+  const pats = (patterns || []).map(function(p){ return p instanceof RegExp ? p : new RegExp(String(p), 'i'); });
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = 0; j < pats.length; j++) {
+      if (pats[j].test(lines[i])) return lines[i].replace(/^[-•]\s*/, '').trim();
+    }
+  }
+  return fallback || 'Exact guideline wording not visible in active guideline text; review required.';
+}
+
+function a8Has8750(text, re) { return re.test(String(text || '').toLowerCase()); }
+
+function a8OpsData8750(summaryText) {
+  const t = a8NormalizeText8749(summaryText || '').toLowerCase();
+  const flags = {
+    bridge: /\bbridge|elevated highway|overpass|viaduct/.test(t),
+    road: /\bstreet|\broad\b|highway|interstate|txdot|paving|civil contractor|heavy civil|infrastructure/.test(t),
+    concrete: /concrete|reinf conc|prestress|girder|abutment|column|slab/.test(t),
+    concreteMixTransit: /mix[-\s]?in[-\s]?transit|ready[-\s]?mix|concrete mixer/.test(t),
+    excavation: /excavat|trench|grading|earthwork|site work/.test(t),
+    liftStation: /lift station|pump station|wastewater|water treatment/.test(t),
+    railroad: /railroad|railway|light rail|fixed rail|right[-\s]?of[-\s]?way|cg\s*24\s*17/.test(t),
+    ny: /new york|\bny\b|nyc|five borough|5 borough|manhattan|brooklyn|queens|bronx|staten island/.test(t),
+    heights: /height|crane|scaffold|window wash|glazier|mason|structural steel|iron erection|aerial lift|fall protection/.test(t),
+    crane: /crane|hoist|rigging/.test(t),
+    scaffold: /scaffold/.test(t),
+    energy: /solar|wind farm|energy generation|power generation|oil and gas|pipeline/.test(t),
+    oilGasPipeline: /pipeline.*oil|oil.*pipeline|pipeline.*gas|gas.*pipeline/.test(t),
+    blasting: /blast|explosive/.test(t),
+    dredging: /dredg/.test(t),
+    damLevee: /\bdam\b|reservoir|levee|dike|revetment/.test(t),
+    tunneling: /tunnel/.test(t),
+    snowIce: /snow|ice removal|deicing|de-icing/.test(t),
+    wasteHauler: /waste hauler|trash hauling|refuse hauling/.test(t),
+    residential: /residential|homebuilder|single family|apartments|multi[-\s]?unit/.test(t)
+  };
+  const items = [];
+  if (flags.bridge) items.push('Bridge or elevated highway construction');
+  if (flags.road) items.push('Street, road, highway, or heavy civil construction');
+  if (flags.concrete) items.push('Concrete construction work');
+  if (flags.excavation) items.push('Excavation, grading, trenching, or earthwork');
+  if (flags.liftStation) items.push('Lift station, pump station, wastewater, or water-treatment related work');
+  if (flags.railroad) items.push('Work near railroad or rail right-of-way');
+  if (flags.heights) items.push('Work from heights, crane, scaffold, glazing, masonry, or steel exposure');
+  if (flags.energy) items.push('Energy, solar, oil/gas, or power-generation related exposure');
+  if (flags.residential) items.push('Residential construction exposure');
+  if (!items.length) {
+    const snippets = a8NormalizeText8749(summaryText || '').split(/\n|\.\s+/).map(function(x){ return x.trim(); }).filter(function(x){ return x.length > 18 && x.length < 180; }).slice(0, 8);
+    snippets.forEach(function(x){ items.push(x); });
+  }
+  return { flags: flags, items: Array.from(new Set(items)).slice(0, 18), text: t };
+}
+
+function a8Trigger8750(list, detail, state, conflict, severity, explanation, key) {
+  if (list.some(function(x){ return x.key === key; })) return;
+  list.push({
+    key: key,
+    operational_detail: detail,
+    states: state || 'All States',
+    guideline_conflict: conflict,
+    severity: severity,
+    explanation: explanation
+  });
+}
+
+function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
+  const split = a8SplitInput8750(sourceText, guidelineText);
+  const summary = split.summary;
+  const guideline = split.guideline || (typeof getActiveGuideline === 'function' ? getActiveGuideline() : '');
+  const ops = a8OpsData8750(summary);
+  const f = ops.flags;
+  const triggers = [];
+  const hasGuideline = a8NormalizeText8749(guideline).length > 100;
+  if (!hasGuideline) {
+    a8Trigger8750(triggers,
+      'Active carrier guideline text',
+      'All States',
+      'No active carrier guideline text was available to the A8 engine.',
+      'Review Required',
+      'A8 cannot clear appetite without guideline text. Load or save the carrier guideline, then re-run A8.',
+      'no_guideline');
+  }
+  if (/section\s*1\.5|attachment point strategy/i.test(guideline)) {
+    a8Trigger8750(triggers,
+      'Section 1.5 Attachment Point Strategy applicability',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/section\s*1\.5.*attachment point strategy/i, /attachment point strategy/i], 'Section 1.5 — Attachment Point Strategy'),
+      'Required Calculation',
+      'The account needs an attachment-point calculation using hazard grade and size data. If payroll, revenue, total cost of work, or hazard grade is missing, UW must obtain it before treating the guideline review as complete.',
+      'section_1_5');
+  }
+  if (f.bridge) {
+    a8Trigger8750(triggers,
+      'Bridge or elevated highway construction',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/all bridge contractors require a minimum/i, /bridge construction.*navigable waters/i, /bridge contractor underwriting guideline/i], 'All bridge contractors require a minimum $5m attachment point.'),
+      'Minimum Attachment / Empowerment Review',
+      'The operations include bridge or elevated-highway work. UW must confirm the required attachment point and whether any navigable-water bridge exposure requires higher empowerment.',
+      'bridge');
+  }
+  if (f.ny) {
+    a8Trigger8750(triggers,
+      'New York contracting operations',
+      'NY',
+      a8GuidelineQuote8750(guideline, [/minimum attachment point.*5 boroughs/i, /maximum limit.*new york state/i, /contractor operating in new york/i], '$5,000,000 minimum attachment point for any contractor operating in the 5 boroughs of New York City'),
+      'Minimum Attachment / Capacity Restriction',
+      'New York construction operations trigger special attachment and capacity restrictions. UW must confirm borough/state exposure and apply the required exclusion or capacity limit.',
+      'new_york');
+  }
+  if (f.heights || f.crane || f.scaffold) {
+    a8Trigger8750(triggers,
+      'Work from heights, crane, scaffold, glazing, masonry, or steel exposure',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/work from heights/i, /minimum \$5m ground up attachment point/i, /no tower cranes/i, /scaffolding.*ten stories/i], 'Given the inherent nature of the risk, Zurich E&S looks to ensure that we manage losses from activity performed at heights.'),
+      'Minimum Attachment / Adjacent Match — Verify',
+      'The operation appears to involve height, crane, scaffold, glazing, masonry, steel, or related jobsite exposure. UW must verify whether the work-from-heights guideline applies and whether a $5M ground-up attachment is required.',
+      'heights');
+  }
+  if (f.concreteMixTransit) {
+    a8Trigger8750(triggers,
+      'Concrete mix-in-transit or ready-mix exposure',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/concrete mix[-\s]?in[-\s]?transit/i, /\$5m minimum attachment point/i], 'Regardless of risk size, a $5M Minimum Attachment Point is required when there is exposure in: Concrete Mix-In-Transit'),
+      'Minimum Attachment',
+      'Concrete mix-in-transit/ready-mix exposure requires a specific minimum attachment check.',
+      'concrete_mix');
+  }
+  if (f.wasteHauler) {
+    a8Trigger8750(triggers,
+      'Waste hauler exposure',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/waste haulers/i, /\$5m minimum attachment point/i], 'Regardless of risk size, a $5M Minimum Attachment Point is required when there is exposure in: Waste Haulers'),
+      'Minimum Attachment',
+      'Waste hauling exposure requires a specific minimum attachment check.',
+      'waste_hauler');
+  }
+  if (f.snowIce) {
+    a8Trigger8750(triggers,
+      'Snow and ice removal operations',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/snow and ice removal contractors/i, /minimum \$5m attachment/i], 'SNOW AND ICE REMOVAL CONTRACTORS: minimum $5m attachment.'),
+      'Minimum Attachment / Empowerment Review',
+      'Snow and ice operations can require a $5M minimum attachment and empowerment review for exceptions.',
+      'snow_ice');
+  }
+  if (f.railroad) {
+    a8Trigger8750(triggers,
+      'Railroad or rail right-of-way work',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/railroad protective liability/i, /railroads.*urban transit/i, /railways|metros|bus companies|operators of highways/i], 'Railroad Protective Liability'),
+      'Adjacent Match — Verify',
+      'The submission references rail or work near railroad right-of-way. UW must verify whether this is only contractual endorsement/COI wording or an actual rail/railroad protective exposure.',
+      'railroad');
+  }
+  if (f.energy) {
+    a8Trigger8750(triggers,
+      'Energy, solar, oil/gas, or power-generation related exposure',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/energy related risks/i, /pipeline construction - oil/i, /pipeline construction - gas/i], 'Energy related risks or any risk that conflicts with Zurich\'s sustainability efforts'),
+      f.oilGasPipeline ? 'Head of UW Empowerment / Adjacent Match — Verify' : 'Adjacent Match — Verify',
+      'Energy or pipeline-adjacent exposure should be verified against the guideline before clearance. If it is incidental, document that conclusion; if operational, refer as required.',
+      'energy');
+  }
+  if (f.blasting) {
+    a8Trigger8750(triggers, 'Blasting or explosives work', 'All States', a8GuidelineQuote8750(guideline, [/blasting or explosives operators/i], 'Blasting or Explosives Operators'), 'Prohibited', 'Blasting/explosives are listed as prohibited construction exposures.', 'blasting');
+  }
+  if (f.dredging) {
+    a8Trigger8750(triggers, 'Dredging operations', 'All States', a8GuidelineQuote8750(guideline, [/dredging/i], 'Dredging'), 'Prohibited', 'Dredging appears in the construction prohibited list and must not be cleared without UW review.', 'dredging');
+  }
+  if (f.damLevee) {
+    a8Trigger8750(triggers, 'Dam, reservoir, dike, levee, or revetment construction', 'All States', a8GuidelineQuote8750(guideline, [/dam or reservoir construction/i, /dike, levee or revetment construction/i], 'Dam or Reservoir Construction'), 'Prohibited', 'Dam/reservoir/levee-style construction appears in the prohibited construction list.', 'dam_levee');
+  }
+  if (f.tunneling) {
+    a8Trigger8750(triggers, 'Tunneling operations', 'All States', a8GuidelineQuote8750(guideline, [/tunneling/i], 'Tunneling through the use of tunnel boring machines with diameters of 5 meters or greater'), 'Prohibited / Adjacent Match — Verify', 'Tunneling exposure must be verified against the prohibited tunneling wording and tunnel-boring-machine threshold.', 'tunneling');
+  }
+  if (f.liftStation) {
+    a8Trigger8750(triggers,
+      'Lift station, pump station, wastewater, or water-treatment related work',
+      'All States',
+      a8GuidelineQuote8750(guideline, [/operation of water treatment facilities/i, /water treatment facilities/i], 'Operation of water treatment facilities by a construction or engineering company'),
+      'Adjacent Match — Verify',
+      'Lift station or water/wastewater work may be construction-only or may involve operation of water-treatment facilities. UW must verify the scope before clearing.',
+      'lift_station');
+  }
+  const cleanItems = ops.items.filter(function(item) {
+    const l = item.toLowerCase();
+    return !triggers.some(function(t) {
+      const d = String(t.operational_detail || '').toLowerCase();
+      return d.indexOf(l.slice(0, Math.min(16, l.length))) >= 0 || l.indexOf(d.slice(0, Math.min(16, d.length))) >= 0;
+    });
+  });
+  return {
+    summary: summary,
+    guideline: guideline,
+    triggers: triggers,
+    cleanItems: cleanItems,
+    reviewedItems: ops.items,
+    reason: String(reason || '').slice(0, 500)
+  };
+}
+
+function a8RenderTrigger8750(t) {
+  return '**Operational Detail/Product/Service:** ' + t.operational_detail + '\n'
+    + '**State(s):** ' + t.states + '\n'
+    + '**Guideline Conflict:** "' + t.guideline_conflict + '"\n'
+    + '**Severity:** ' + t.severity + '\n'
+    + '**Explanation:** ' + t.explanation;
+}
+
+function a8BuildDeterministicOutput8750(sourceText, guidelineText, reason, addendumOnly) {
+  const data = a8BuildDeterministicData8750(sourceText, guidelineText, reason);
+  const triggers = data.triggers;
+  const clean = data.cleanItems.length ? data.cleanItems.join('; ') : 'None identified from deterministic review; all recognized items were listed above as triggers or require review.';
+  const referral = triggers.filter(function(t){ return /Referral|Empowerment|Adjacent Match|Review/i.test(t.severity); });
+  const prohibited = triggers.filter(function(t){ return /Prohibited/i.test(t.severity); });
+  const minAttach = triggers.filter(function(t){ return /Minimum Attachment|Required Calculation/i.test(t.severity) || /Attachment Point/i.test(t.operational_detail); });
+  const lines = [];
+  if (addendumOnly) {
+    lines.push('\n\n---\n\n**Engine QC Addendum — deterministic guideline triggers added by v8.7.150:**');
+  } else {
+    lines.push('<div class="guideline-output guideline-deterministic-output"><strong>Guideline Cross-Ref completed with deterministic engine QC — review required.</strong><p>A8 produced a conservative guideline review from the active guideline text and A6 Summary of Operations. This is used when the live model output is unavailable, malformed, or misses hard deterministic triggers.</p></div>\n');
+  }
+  if (data.reason) lines.push('**Engine Detail:** ' + data.reason);
+  if (triggers.length) {
+    triggers.forEach(function(t){ lines.push(a8RenderTrigger8750(t)); });
+  } else {
+    lines.push('No deterministic guideline triggers were identified. Review required if the source summary is incomplete.');
+  }
+  lines.push('**Clean Items (no underwriter action required):**\n' + clean);
+  lines.push('**Referral Triggers:**\n' + (referral.length ? referral.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.severity; }).join('\n') : '- None identified'));
+  lines.push('**Prohibited Exposures:**\n' + (prohibited.length ? prohibited.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.guideline_conflict; }).join('\n') : '- None identified'));
+  lines.push('**Minimum Attachment Requirements:**\n' + (minAttach.length ? minAttach.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.guideline_conflict; }).join('\n') : '- None applicable'));
+  lines.push('**Source Narrative Operational Details and Listed Products & Services (verbatim):**\n' + a8ClipMiddle8749(data.summary, 5000, 'A6 Summary of Operations'));
+  lines.push('**Checklist — Did Every Item Appear in the Analysis or Clean List?**\n' + (data.reviewedItems.length ? data.reviewedItems.map(function(item){ return '✔ ' + item + ' — appeared as a Trigger above, OR appeared in the Clean Items list'; }).join('\n') : '✔ A6 Summary reviewed; no discrete item list could be parsed.'));
+  const structured = {
+    guideline_conflicts_text: 'A8 deterministic engine QC output. Review required before binding.',
+    guideline_conflicts: triggers.map(function(t){ return {
+      operational_detail: t.operational_detail,
+      states: t.states,
+      guideline_conflict: t.guideline_conflict,
+      severity: t.severity,
+      explanation: t.explanation
+    }; }),
+    clean_items: data.cleanItems,
+    reviewed_items: data.reviewedItems,
+    review_required: true,
+    fallback: !addendumOnly,
+    engine_qc_addendum: !!addendumOnly,
+    status: addendumOnly ? 'a8_engine_qc_addendum_v8750' : 'a8_deterministic_review_required_v8750',
+    reason: data.reason || null
+  };
+  lines.push('```json guideline_conflicts_structured\n' + JSON.stringify(structured, null, 2) + '\n```');
+  return { text: lines.join('\n\n'), data: data };
+}
+
+function a8OutputHasCoreSections8750(text) {
+  const t = String(text || '');
+  return /Clean Items/i.test(t) && /Referral Triggers/i.test(t) && /Prohibited Exposures/i.test(t) && /Minimum Attachment Requirements/i.test(t);
+}
+
+function a8EnsureGuidelinesOutput8750(text, sourceText, guidelineText) {
+  const raw = String(text || '').trim();
+  const deterministic = a8BuildDeterministicOutput8750(sourceText, guidelineText, '', false);
+  const weak = raw.length < 700
+    || !a8OutputHasCoreSections8750(raw)
+    || /Guideline Cross-Ref unavailable|could not complete a reliable live model answer|No guideline conflicts should be treated as cleared/i.test(raw);
+  if (weak) {
+    return {
+      text: deterministic.text,
+      replaced: true,
+      appended: false,
+      reason: 'A8 live output was empty, fallback-only, or missing required sections',
+      triggerCount: deterministic.data.triggers.length
+    };
+  }
+  const missing = [];
+  const lower = raw.toLowerCase();
+  deterministic.data.triggers.forEach(function(t) {
+    const key = String(t.operational_detail || '').toLowerCase().split(/[,/]/)[0].slice(0, 28);
+    const mustHaveSection15 = t.key === 'section_1_5' && !/section\s*1\.5|attachment point strategy/i.test(raw);
+    if (mustHaveSection15 || (key && lower.indexOf(key) < 0 && /Required Calculation|Minimum Attachment|Prohibited/i.test(t.severity))) {
+      missing.push(t);
+    }
+  });
+  if (!missing.length) return { text: raw, replaced: false, appended: false, reason: null, triggerCount: deterministic.data.triggers.length };
+  const subset = Object.assign({}, deterministic.data, { triggers: missing });
+  const add = a8BuildDeterministicOutput8750(sourceText, guidelineText, 'Engine QC found deterministic triggers missing from the live A8 output.', true).text;
+  return {
+    text: raw + add,
+    replaced: false,
+    appended: true,
+    reason: 'Engine QC addendum appended ' + missing.length + ' deterministic trigger(s) missing from live output',
+    triggerCount: deterministic.data.triggers.length
+  };
+}
+
+
+// v8.7.150 — A8 fallback result wrapper. The deterministic floor above
+// produces a full Guideline Cross-Ref section with required headers, a
+// structured JSON block, and review-required flags. This wrapper keeps the
+// runModule failure paths compact and consistent.
+function a8FallbackResult8750(inputText, reason, stopReason, usage, retryAttempt) {
+  const output = a8BuildDeterministicOutput8750(
+    inputText || '',
+    (typeof getActiveGuideline === 'function' ? getActiveGuideline() : ''),
+    reason || 'A8 live model call failed',
+    false
+  );
+  return {
+    text: output.text,
+    stop_reason: stopReason || 'fallback_after_a8_failure',
+    usage: usage || { input_tokens: 0, output_tokens: 0, model: (MODULES.guidelines && MODULES.guidelines.model) || STATE.api.model },
+    fallback: true,
+    retry_attempt: retryAttempt || 0,
+    a8_review_required_fallback_v8749: true,
+    deterministic_fallback_v8750: true,
+    a8_engine_qc_v8750: true,
+    a8_engine_qc_reason_v8750: String(reason || 'A8 live model call failed').slice(0, 500),
+    a8_deterministic_replacement_v8750: true,
+    review_required: true
+  };
+}
+
+function isGuidelinesOutputUsable8750(text) {
+  const t = String(text || '');
+  if (!a8OutputHasCoreSections8750(t)) return false;
+  if (/Guideline Cross-Ref unavailable|could not complete a reliable live model answer|No guideline conflicts should be treated as cleared/i.test(t)) return false;
+  return true;
+}
+
 function parseLossStructuredForArchive98(text) {
   if (!text || typeof text !== 'string') return null;
   function tryJson(src) {
@@ -6262,6 +6817,26 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     try {
       result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
     } catch (err) {
+      // v8.7.149: A8 has its own input-budget recovery. The v8.7.148
+      // transcript reported the Guidelines button still failing, with the
+      // likely causes being an oversized active guideline or double
+      // truncation. If the proxy rejects the request for input/token size,
+      // retry once with an ultra-compact guideline view; if that still
+      // cannot produce a model answer, persist a visible review-required
+      // fallback instead of leaving the card blank/error-only.
+      if (moduleId === 'guidelines' && isA8InputBudgetError8749(err)) {
+        const retryInput8749 = buildGuidelinesInput8749((STATE.extractions['summary-ops'] && STATE.extractions['summary-ops'].text) || userContent, getActiveGuideline(), 'ultra');
+        const retryPrompt8749 = effectivePrompt + '\n\nV8.7.149 INPUT-BUDGET RETRY: The previous A8 request was too large for the model/proxy. Use this compacted input, cite only wording visible in it, and flag review required instead of clearing anything whose exact guideline text is absent.';
+        logAudit('Pipeline', 'Retrying A8 Guidelines with ultra-compact input after request/token-size failure', 'warn');
+        try {
+          result = await callLLM(retryPrompt8749, retryInput8749, moduleModel, { maxTokens: moduleMaxTokens(moduleId, true) });
+          result.retry_attempt = 1;
+          result.a8_compacted_input_v8749 = true;
+        } catch (retryErr8749) {
+          result = a8FallbackResult8750(retryInput8749, retryErr8749.message || err.message, 'fallback_after_a8_input_budget_failure', retryErr8749.usage || err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model }, 1);
+          logAudit('Pipeline', 'A8 used deterministic review-required fallback after compact retry failed: ' + (retryErr8749.message || err.message), 'warn');
+        }
+      } else {
       // v8.7.121: truncation retry generalized to a per-module map. losses
       // and guidelines keep their deterministic fallback builders; the two
       // dense Sonnet modules (A2 supplemental, A5 safety) gain a compact
@@ -6290,13 +6865,24 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
               retry_attempt: 1
             };
             logAudit('Pipeline', MODULES[moduleId].code + ' used deterministic fallback after retry truncation', 'warn');
+          } else if (moduleId === 'guidelines') {
+            result = a8FallbackResult8750(userContent, retryErr.message || err.message, 'fallback_after_a8_retry_failure', retryErr.usage || err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model }, 1);
+            logAudit('Pipeline', 'A8 used deterministic review-required fallback after retry failure: ' + (retryErr.message || err.message), 'warn');
           } else {
             throw retryErr;
           }
         }
+      } else if (moduleId === 'guidelines') {
+        result = a8FallbackResult8750(userContent, err.message, 'fallback_after_a8_llm_failure', err.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model }, 0);
+        logAudit('Pipeline', 'A8 used deterministic review-required fallback after LLM failure: ' + err.message, 'warn');
       } else {
         throw err;
       }
+      }
+    }
+    if (moduleId === 'guidelines' && result && result.text && !isGuidelinesOutputUsable8750(result.text)) {
+      logAudit('Pipeline', 'A8 output failed required Guidelines section contract — using deterministic review-required fallback', 'warn');
+      result = a8FallbackResult8750(userContent, 'A8 response omitted required Referral/Prohibited/Minimum Attachment sections', 'fallback_after_a8_invalid_output', (result && result.usage) || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model }, (result && result.retry_attempt) || 0);
     }
     // v8.7.121: deterministic safety_grounding enforcement. The prompt's
     // anchor contract was previously prompt-only; now the block is parsed
@@ -6326,7 +6912,23 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       }
     }
     const elapsed = (Date.now() - t0) / 1000;
-    const text = result.text;
+    let text = result.text;
+    if (moduleId === 'guidelines') {
+      const a8qc8750 = a8EnsureGuidelinesOutput8750(text, userContent, (typeof getActiveGuideline === 'function' ? getActiveGuideline() : ''));
+      text = a8qc8750.text;
+      if (a8qc8750.replaced || a8qc8750.appended) {
+        result.a8_engine_qc_v8750 = true;
+        result.a8_engine_qc_reason_v8750 = a8qc8750.reason;
+        result.review_required = true;
+        result.deterministic_fallback_v8750 = true;
+        if (a8qc8750.replaced) {
+          result.fallback = true;
+          result.a8_deterministic_replacement_v8750 = true;
+          result.a8_review_required_fallback_v8749 = true;
+        }
+        logAudit('Pipeline', 'A8 engine QC ' + (a8qc8750.replaced ? 'replaced weak output' : 'appended deterministic addendum') + ' · ' + a8qc8750.reason, 'warn');
+      }
+    }
     const hasQc = /checklist|source extracts/i.test(text);
     const usage = result.usage || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model };
     const cost = calcCost(usage) + (extraUsage8721 ? calcCost(extraUsage8721) : 0);
@@ -6341,6 +6943,12 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       retry_attempt: result.retry_attempt || 0,
       fallback: !!result.fallback,
       stop_reason: result.stop_reason || null,
+      a8_engine_qc_v8750: !!result.a8_engine_qc_v8750,
+      a8_engine_qc_reason_v8750: result.a8_engine_qc_reason_v8750 || null,
+      a8_deterministic_replacement_v8750: !!result.a8_deterministic_replacement_v8750,
+      review_required: !!(result.review_required || result.a8_review_required_fallback_v8749 || result.deterministic_fallback_v8750 || result.a8_engine_qc_v8750),
+      a8_review_required_fallback_v8749: !!result.a8_review_required_fallback_v8749,
+      deterministic_fallback_v8750: !!result.deterministic_fallback_v8750,
       // v8.7.23 - expose applicant-gate state structurally even when
       // the module is allowed to proceed. Audits/downstream exporters no
       // longer need to scrape prose to determine whether an applicant check ran.
@@ -7353,7 +7961,7 @@ async function runPipeline() {
       skipModule('classcode', 'no class-code source data');
     }
 
-    const glInput = 'ACCOUNT OPERATIONS:\n\n' + soText + '\n\n---\n\nCARRIER UNDERWRITING GUIDELINE:\n\n' + getActiveGuideline();
+    const glInput = buildGuidelinesInput8749(soText, getActiveGuideline(), 'normal');
     wave3Tasks.push(runModule('guidelines', PROMPTS.guidelines, glInput, 'A6 + guidelines', pipelineContext));
     // v8.7.84: exposure sources derive from the module descriptor (deps +
     // optionalDeps) so the initial run and rerunModules can never drift.
