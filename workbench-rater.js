@@ -870,14 +870,15 @@
      limit:    full-dollar our limit            (D17)
      qs:       full-dollar quota-share or 0     (D18)
      attach:   full-dollar attachment xs primary(D19)
-     primary:  full-dollar max primary limit    (D36)
-     addl:     [full-dollar additional underlying limits]  (D39:D44)
+     primary:  full-dollar GL primary limit     (D36)
+     autoPrimary: full-dollar Auto primary limit (D37)
+     addl:     [full-dollar other primary limits] (D39:D44)
      calcLimit:full-dollar rated/calc limit     (S18)
      glBase:   GL 1M base premium               (pins E49)
      otherBase:Other 1M base premium            (pins I49)
    }) → {
-     bands: [{ top, glFactor, glPremium, otherFactor, otherPremium,
-               layerRate, hidden, inLayer }]            // rows 49..158, B-ordered
+     bands: [{ top, glFactor, glPremium, autoFactor, autoPremium,
+               otherFactor, otherPremium, layerRate, hidden, inLayer }]            // rows 49..158, B-ordered
      cutOff, showHigh, hlStart, hlEnd,
      premium (D20), totalWithTria (D23), totalLayerPrem (D28),
      zurichPremium (D29), perMillion (D30), calculatedPremium (J235),
@@ -903,7 +904,7 @@
       if (num(p.qs) > 0) st.D18 = num(p.qs);
       st.D19 = num(p.attach);
       st.D36 = num(p.primary) || 1000000;
-      st.D37 = 0;
+      st.D37 = num(p.autoPrimary) || 0;
       const addl = Array.isArray(p.addl) ? p.addl : [];
       for (let i = 0; i < 6; i++) { const v = num(addl[i]); if (v > 0) st['D' + (39 + i)] = v; }
       st.S18 = num(p.calcLimit) || st.D17;
@@ -932,11 +933,10 @@
       // the source of truth, so the counts are ALWAYS cleared and only the
       // rows the panel provides are written — no phantom fleet in any compute.
       for (let r = 17; r <= 30; r++) extra['M' + r] = '';
-      // E37 is the Auto U/L premium. The panel routes its Auto row here so
-      // Excel's relativity denominator SUM($E$36:$E$44) sees it; the premium
-      // chain itself (K37 → the G-bands) still waits on D37 Auto-primary
-      // wiring, so with D37 = 0 nothing leaks into the bands. Blank clears
-      // the workbook's saved 365,000 literal when the panel has no Auto row.
+      // E37 is the Auto U/L premium. The panel routes its Auto row here and
+      // D37 carries the Auto primary limit, exactly like Rating Worksheet V2;
+      // the G-band and D174:D198 Auto formulas stay blank unless both are set.
+      // Blank clears the workbook's saved 365,000 literal when the panel has no Auto row.
       extra['E37'] = num(ul.auto) > 0 ? num(ul.auto) : '';
       // GL manual premium + DIL factor ride along (only when supplied) so the
       // F35 / K35 rate labels compute from the panel's own GL row.
@@ -999,12 +999,16 @@
       const bands = [];
       for (let r = 49; r <= 158; r++) {
         const top = g('B' + r);
-        const gf = g('D' + r), of = g('H' + r);
+        const gf = g('D' + r), af = g('F' + r), of = g('H' + r);
         const lr = g('J' + r);
         bands.push({
           top: typeof top === 'number' ? top : 0,
           glFactor: typeof gf === 'number' ? gf : null,
           glPremium: num(g('E' + r)),
+          // Kept out of the UI design, but retained in the model so worksheet
+          // math that depends on C/D/E 174:198 and W49:W158 never loses Auto.
+          autoFactor: typeof af === 'number' ? af : null,
+          autoPremium: num(g('G' + r)),
           otherFactor: typeof of === 'number' ? of : null,
           otherPremium: num(g('I' + r)),
           layerRate: typeof lr === 'number' ? lr : 0,

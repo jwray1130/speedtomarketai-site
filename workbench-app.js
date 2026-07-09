@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.152-cache-proof-build-badge-2026-07-09';
+window.STM_BUILD = 'v8.7.153-internal-rater-formula-lock-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -6240,7 +6240,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupALFleetRater();
 
         /* ============================================================
-           PHASE 17 - INTERNAL RATER (Excel/VBA aligned, no Auto)
+           PHASE 17 - INTERNAL RATER (Excel/VBA aligned)
            ============================================================
            This section ports the workbook's Rating Worksheet V2 behavior:
            - hazard grade populates the same GL/Other factor arrays used by VBA
@@ -6355,19 +6355,74 @@ document.addEventListener('DOMContentLoaded', () => {
                 return num;
             }
 
+            function formatMoneyTextRaw(value) {
+                const raw0 = String(value == null ? '' : value).trim();
+                if (!raw0) return '';
+                if (/[A-Za-z]/.test(raw0)) return raw0;   // preserve Primary / Carrier text
+                const raw = raw0.replace(/[$,\s]/g, '');
+                const m = raw.match(/^(-?)(\d*)(?:\.(\d*))?$/);
+                if (!m || !m[2]) return raw0;
+                const sign = m[1] || '';
+                const intPart = (m[2].replace(/^0+(?=\d)/, '') || '0');
+                const decPart = m[3] != null ? '.' + m[3] : '';
+                const n = Number(intPart);
+                if (!Number.isFinite(n)) return raw0;
+                return sign + n.toLocaleString('en-US') + decPart;
+            }
+
+            function caretForDigitCount(text, count) {
+                if (!(count > 0)) return 0;
+                let seen = 0;
+                for (let i = 0; i < text.length; i += 1) {
+                    if (/\d/.test(text.charAt(i))) seen += 1;
+                    if (seen >= count) return i + 1;
+                }
+                return text.length;
+            }
+
+            function liveFormatMoneyInput(input) {
+                if (!input || input.readOnly) return;
+                const before = String(input.value || '');
+                if (!before || /[A-Za-z]/.test(before)) return;
+                const active = document.activeElement === input;
+                const start = active && typeof input.selectionStart === 'number' ? input.selectionStart : before.length;
+                const digitsBefore = (before.slice(0, start).match(/\d/g) || []).length;
+                const after = formatMoneyTextRaw(before);
+                if (after && after !== before) {
+                    input.value = after;
+                    if (active && typeof input.setSelectionRange === 'function') {
+                        const pos = caretForDigitCount(after, digitsBefore);
+                        try { input.setSelectionRange(pos, pos); } catch (_) { /* ignore */ }
+                    }
+                }
+            }
+
+            function formatInternalRaterMoneyFields() {
+                if (!section) return;
+                section.querySelectorAll('.currency-wrap input, input.convert-to-millions').forEach(input => {
+                    if (!input || document.activeElement === input) return;
+                    const before = String(input.value || '');
+                    const after = formatMoneyTextRaw(before);
+                    if (after && after !== before) input.value = after;
+                });
+            }
+
             function hookCurrency(input, opts = {}) {
                 if (!input) return;
                 const normalize = () => {
                     if (input.readOnly) return;            // derived cells (tower/HE attachments) are engine-written
                     if (input.classList.contains('convert-to-millions')) convertToDollars(input, opts.recalc !== false);
                     else if (input.value.trim()) {
-                        input.value = cleanNumber(input.value).toLocaleString('en-US');
+                        input.value = formatMoneyTextRaw(input.value);
                         if (opts.recalc !== false) recalcInternalRater();
                     }
                 };
                 input.addEventListener('blur', normalize);
                 input.addEventListener('change', normalize);
                 input.addEventListener('input', () => {
+                    // Live comma-format only. Do NOT apply the workbook's <1000 => millions
+                    // convention until blur/change, so typing "5" can still become "50".
+                    liveFormatMoneyInput(input);
                     if (opts.recalc !== false) recalcInternalRater();
                 });
             }
@@ -6382,7 +6437,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function coverageBucket(coverage) {
-                return /general|\bgl\b/i.test(String(coverage || '')) ? 'gl' : 'other';
+                const text = String(coverage || '');
+                if (/general|\bgl\b/i.test(text)) return 'gl';
+                if (/auto|\bal\b/i.test(text)) return 'auto';
+                return 'other';
             }
 
             function addPrimaryPolicyRow(coverage = 'General Liability', carrier = 'TBD', limit = ONE_M, ulPrem = '', manualPrem = '') {
@@ -6527,7 +6585,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         qs: cleanNumber(qsEl?.value),
                         attach: cleanNumber(attachInput?.value),
                         primary: maxPrimaryLimit(),
-                        addl: underlyingLimits(),
+                        autoPrimary: autoPrimaryLimit(),
+                        addl: otherPrimaryLimits(),
                         calcLimit: calcLimit(),
                         glBase, otherBase,
                         fleet: gatherFleet(),
@@ -6555,7 +6614,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const bfx = (v, top) => (kBF > 0 && top <= lastBF && typeof v === 'number') ? v * kBF : v;
                     const rows = [];
                     for (const b of ER.bands) {
-                        const row = { top: b.top, glFactor: b.glFactor, glPremium: b.glPremium, otherFactor: b.otherFactor, otherPremium: b.otherPremium, layerRate: b.layerRate };
+                        const row = { top: b.top, glFactor: b.glFactor, glPremium: b.glPremium, autoFactor: b.autoFactor, autoPremium: b.autoPremium, otherFactor: b.otherFactor, otherPremium: b.otherPremium, layerRate: b.layerRate };
                         state.groundRows.push(row);
                         state.groundByTop.set(b.top, row);
                         if (b.hidden) continue;             // VBA: B ≥ cutOff hides the row
@@ -6567,7 +6626,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <td class="computed">${money(bfx(b.glPremium, b.top))}</td>
                             <td class="computed">${b.otherFactor == null ? '-' : b.otherFactor.toFixed(3)}</td>
                             <td class="computed">${money(bfx(b.otherPremium, b.top))}</td>
-                            <td class="computed">${b.layerRate ? bfx(b.layerRate, b.top).toFixed(3) : '-'}</td>
+                            <td class="computed">${b.layerRate ? b.layerRate.toFixed(3) : '-'}</td>
                         </tr>
                     `);
                     }
@@ -6638,13 +6697,36 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function underlyingLimits() {
+                // Workbook mapping: D36 = GL primary, D37 = Auto primary,
+                // D39:D44 = other primary policies. Keep this ordered shape for
+                // cutoff logic without feeding GL/Auto back into the Other cells.
+                const rows = primaryRows();
+                const gl = rows.filter(row => row.bucket === 'gl').map(row => row.limit || 0).filter(value => value > 0);
+                const auto = rows.filter(row => row.bucket === 'auto').map(row => row.limit || 0).filter(value => value > 0);
+                const other = rows.filter(row => row.bucket === 'other').map(row => row.limit || 0).filter(value => value > 0);
+                return [Math.max(0, ...gl), Math.max(0, ...auto)].concat(other).filter(value => value > 0);
+            }
+
+            function otherPrimaryLimits() {
                 return primaryRows()
+                    .filter(row => row.bucket === 'other')
                     .map(row => row.limit || 0)
                     .filter(value => value > 0);
             }
 
+            function autoPrimaryLimit() {
+                const limits = primaryRows()
+                    .filter(row => row.bucket === 'auto')
+                    .map(row => row.limit || 0)
+                    .filter(value => value > 0);
+                return Math.max(0, ...limits);
+            }
+
             function maxPrimaryLimit() {
-                const limits = underlyingLimits();
+                const limits = primaryRows()
+                    .filter(row => row.bucket === 'gl')
+                    .map(row => row.limit || 0)
+                    .filter(value => value > 0);
                 return Math.max(ONE_M, ...limits);
             }
 
@@ -6699,7 +6781,7 @@ document.addEventListener('DOMContentLoaded', () => {
             function premiumForTops(tops) {
                 return tops.reduce((sum, top) => {
                     const row = state.groundByTop.get(asMillionBand(top));
-                    return sum + (row ? (row.glPremium + row.otherPremium) : 0);
+                    return sum + (row ? ((row.glPremium || 0) + (row.autoPremium || 0) + (row.otherPremium || 0)) : 0);
                 }, 0);
             }
 
@@ -6712,11 +6794,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ratedLimit = calcLimit();
                 if (attachment >= HIGH_EXCESS_THRESHOLD) {
                     const row = state.groundByTop.get(95 * ONE_M);
-                    return row ? row.glPremium + row.otherPremium : 0;
+                    return row ? ((row.glPremium || 0) + (row.autoPremium || 0) + (row.otherPremium || 0)) : 0;
                 }
                 if ((attachment + ratedLimit) > HIGH_EXCESS_THRESHOLD || polLimit > STANDARD_LIMIT_THRESHOLD) {
                     const row = state.groundByTop.get(asMillionBand(attachment));
-                    return row ? row.glPremium + row.otherPremium : 0;
+                    return row ? ((row.glPremium || 0) + (row.autoPremium || 0) + (row.otherPremium || 0)) : 0;
                 }
                 return 0;
             }
@@ -6836,7 +6918,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         qs: cleanNumber(qsEl?.value),
                         attach: cleanNumber(attachInput?.value),
                         primary: maxPrimaryLimit(),
-                        addl: underlyingLimits(),
+                        autoPrimary: autoPrimaryLimit(),
+                        addl: otherPrimaryLimits(),
                         calcLimit: calcLimit(),
                         glBase: state.lastBases?.glBase || 0,
                         otherBase: state.lastBases?.otherBase || 0,
@@ -6984,7 +7067,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         qs: cleanNumber(qsEl?.value),
                         attach: cleanNumber(attachInput?.value),
                         primary: maxPrimaryLimit(),
-                        addl: underlyingLimits(),
+                        autoPrimary: autoPrimaryLimit(),
+                        addl: otherPrimaryLimits(),
                         calcLimit: calcLimit(),
                         glBase: state.lastBases?.glBase || 0,
                         otherBase: state.lastBases?.otherBase || 0,
@@ -7045,12 +7129,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const rows = primaryRows();
                 const glBase = rows.filter(row => row.bucket === 'gl').reduce((sum, row) => sum + row.firstMil, 0);
-                const otherBase = rows.filter(row => row.bucket !== 'gl').reduce((sum, row) => sum + row.firstMil, 0);
+                const otherBase = rows.filter(row => row.bucket === 'other').reduce((sum, row) => sum + row.firstMil, 0);
                 state.lastBases = { glBase, otherBase };   // for the high-excess engine pass
                 renderGroundUp(glBase, otherBase);
                 recalcTowerRows();
                 recalcHighExcessRows();
                 renderRatingSummary();
+                formatInternalRaterMoneyFields();
                 syncPricingSummary();
             }
             window.__stmRecalcInternalRater87104 = function(reason) {
