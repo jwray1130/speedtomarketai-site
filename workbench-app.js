@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.153-internal-rater-formula-lock-2026-07-09';
+window.STM_BUILD = 'v8.7.154-subcontract-summary-bullets-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {

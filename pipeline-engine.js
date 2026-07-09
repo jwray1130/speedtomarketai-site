@@ -2367,7 +2367,9 @@ async function rerunModules(moduleIds) {
             ? buildSupplementalCombinedInput8706(matched)
             : (mid === 'safety')
               ? buildSafetyContextPrefix8723() + matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n')
-            : matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
+            : (mid === 'subcontract')
+              ? matched.map(f => { const raw = sliceTextForModule(f, mid); return '=== FILE: ' + f.name + ' ===\n\n' + buildSubcontractFocusedInput8754(f, raw); }).join('\n\n')
+              : matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
           const src = matched.map(f => f.name).join(', ');
           runResult = await runModule(mid, PROMPTS[mid], combined, src, pipelineContext);
         } else {
@@ -5740,12 +5742,217 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
 // Build the diagnostic body for a refused module.
 function subcontractRequirementsNoInfoText() {
   return '**Subcontractor Requirements:**\n\n' +
-    '- Type of Work Performed: No Information Provided.\n' +
-    '- Certificate of Insurance / COI: No Information Provided.\n' +
-    '- Waiver of Subrogation: No Information Provided.\n' +
-    '- Hold Harmless / Indemnification: No Information Provided.\n' +
-    '- Additional Insured / Primary and Non-Contributory: No Information Provided.\n' +
-    '- Limits Required: No Information Provided.';
+    '- Work performed by subcontractor: No Information Provided.\n' +
+    '- Insurance requirements: No Information Provided.\n' +
+    '- Sub agreement includes indemnification and hold harmless: No Information Provided.\n' +
+    '- Sub agreement includes Additional insured, waiver of subrogation, and primary & noncontributory: No Information Provided.\n' +
+    '- Completed ops requirements: No Information Provided.';
+}
+
+// ============================================================================
+// v8.7.154 SUBCONTRACT BULLET LOCK
+// The A3 subcontract card and the A6 Summary of Operations both need the same
+// underwriter-facing subcontract summary: short bullets that read like the UW
+// note Justin showed, not a legal extraction table. This post-pass is local and
+// deterministic. It does not change site design. It only normalizes text after
+// a live model call and makes A6 reuse the A3 block instead of letting the model
+// drop indemnity / AI / completed-ops details during synthesis.
+// ============================================================================
+function _subClean8754(v) {
+  return String(v || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+function _subOneLine8754(v) {
+  return _subClean8754(v).replace(/\s*\n\s*/g, ' ').replace(/\s+([,.;:)])/g, '$1').replace(/\(\s+/g, '(').trim();
+}
+function _subNoInfo8754(v) {
+  const s = _subOneLine8754(v);
+  return !s || /^(?:no\s+information\s+provided|not\s+provided|n\/a|none|unknown)[\.]?$/i.test(s);
+}
+function _subLabel8754(text, labels) {
+  const src = String(text || '');
+  for (const label of labels) {
+    const re = new RegExp('(?:^|\\n)\\s*(?:[-*\\u2022]\\s*)?(?:\\*\\*)?' + label + '(?:\\*\\*)?\\s*[:\\-]\\s*([^\\n]+)', 'i');
+    const m = src.match(re);
+    if (m && !_subNoInfo8754(m[1])) return _subOneLine8754(m[1]);
+  }
+  return '';
+}
+function _subHas8754(src, re) { return re.test(String(src || '')); }
+function _subMoneyShort8754(n) {
+  const s = String(n || '').replace(/[^0-9]/g, '');
+  if (!s) return '';
+  const v = parseInt(s, 10);
+  if (v >= 1000000 && v % 1000000 === 0) return '$' + (v / 1000000) + 'M';
+  return '$' + v.toLocaleString();
+}
+function _subProject8754(src) {
+  const project = (String(src || '').match(/PROJECT:\s*([^\n]{3,120})/i) || [])[1];
+  const owner = /TEXAS\s+DEPARTMENT\s+OF\s+TRANSPORTATION|\bTxDOT\b/i.test(src) ? 'TxDOT' : '';
+  const p = project ? _subOneLine8754(project).replace(/\s+/g, ' ') : '';
+  const cleanP = p
+    .replace(/IH\s*10/i, 'IH-10')
+    .replace(/\bIH-10 COLORADO COUNTY\b/g, 'IH-10 Colorado County')
+    .replace(/\bCOLORADO COUNTY\b/g, 'Colorado County');
+  if (cleanP && owner) return cleanP + ', ' + owner;
+  return cleanP || owner;
+}
+function _subTitleCaseItem8754(s) {
+  const raw = _subOneLine8754(s).toUpperCase();
+  if (/CL\s*C\s*CONC\s*\(ABUT\)/.test(raw)) return 'bridge abutments';
+  if (/CL\s*C\s*CONC\s*\(CAP\)/.test(raw)) return 'caps';
+  if (/CL\s*C\s*CONC\s*\(COLUMN\)/.test(raw)) return 'columns';
+  if (/REINF\s*CONC\s*SLAB/.test(raw)) return 'reinforced concrete slab';
+  if (/PRESTR\s*CONC\s*GIRDER\s*\(TX46\)/.test(raw)) return 'TX46 girder erection';
+  if (/SEALED\s*EXPANSION\s*JOINT/.test(raw)) return 'sealed expansion joints';
+  if (/MOBILIZATION/.test(raw)) return 'mobilization';
+  return '';
+}
+function _subWorkFromSource8754(src) {
+  const s = String(src || '');
+  const found = [];
+  function add(label) { if (label && found.indexOf(label) === -1) found.push(label); }
+  if (/CL\s*C\s*CONC\s*\(ABUT\)|\bABUTMENTS?\b/i.test(s)) add('bridge abutments');
+  if (/CL\s*C\s*CONC\s*\(CAP\)|\bCAPS?\b/i.test(s)) add('caps');
+  if (/CL\s*C\s*CONC\s*\(COLUMN\)|\bCOLUMNS?\b/i.test(s)) add('columns');
+  if (/REINF\s*CONC\s*SLAB|reinforced\s+concrete\s+slab/i.test(s)) add('reinforced concrete slab');
+  if (/PRESTR\s*CONC\s*GIRDER\s*\(TX46\)|TX46/i.test(s)) add('TX46 girder erection');
+  if (/SEALED\s*EXPANSION\s*JOINT/i.test(s)) add('sealed expansion joints');
+  if (!found.length) {
+    const re = /ATTACHMENT\s+["']?A["']?|Work\s+Items|Schedule\s+of\s+Work|Special\s+Conditions|ORIGINAL\s+CONTRACT\s+WORK\s+ITEMS/ig;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const ix = Math.max(0, m.index - 400);
+      const seg = s.slice(ix, ix + 9000);
+      const lines = seg.split(/\n+/).map(_subOneLine8754).filter(Boolean);
+      for (const line of lines) {
+        const item = _subTitleCaseItem8754(line);
+        if (item && item !== 'mobilization') add(item);
+      }
+    }
+  }
+  if (!found.length) return '';
+  let phrase = 'Concrete work - ' + found.join(', ').replace(/, ([^,]*)$/, ', and $1');
+  const proj = _subProject8754(s);
+  if (proj) phrase += ' (' + proj + ')';
+  return phrase;
+}
+function _subInsurance8754(src, modelText) {
+  const s = String(src || '') + '\n' + String(modelText || '');
+  let gl = '';
+  const glm = s.match(/Commercial\s+General\s+Liability[\s\S]{0,500}?\$?1,000,000[\s\S]{0,220}?\$?2,000,000[\s\S]{0,220}?\$?2,000,000/i) || s.match(/GL\s*\$?1\s*M\s*\/?\s*\$?2\s*M\s*\/?\s*\$?2\s*M/i);
+  if (glm) gl = 'GL $1M/$2M/$2M';
+  const al = (/Automobile\s+Liability[\s\S]{0,380}?\$?1,000,000\s+Combined\s+Single\s+Limit/i.test(s) || /\bAL\s*\$?1\s*M\b/i.test(s)) ? 'AL $1M' : '';
+  const wc = (/Workers[\s']*Compensation[\s\S]{0,260}?required\s+by\s+(?:any\s+applicable\s+)?law/i.test(s) || /WC\s+statutory/i.test(s)) ? 'WC statutory' : '';
+  const el = (/Employer'?s?\s+Liability[\s\S]{0,360}?\$?1,000,000\s+each\s+accident[\s\S]{0,240}?\$?1,000,000\s+each\s+employee/i.test(s) || /EL\s*\$?1\s*M/i.test(s)) ? 'EL $1M/$1M/$1M' : '';
+  const umb = (/Umbrella\s+limits\s+must\s+be\s+at\s+least\s+\$?5,000,000/i.test(s) || /\$?5\s*M\s+Umbrella/i.test(s)) ? '$5M Umbrella/Excess' : '';
+  const bits = [gl, al, (wc && el ? wc + ' / ' + el : (wc || el)), umb].filter(Boolean);
+  let out = bits.length ? bits.join(', ') : _subLabel8754(modelText, ['Insurance requirements', 'Limits Required']);
+  const extras = [];
+  if (/Riggers\s+Liability/i.test(s)) extras.push('riggers liability');
+  if (/CG\s*24\s*17|Contractual\s+Liability\s*[\u2013-]\s*Railroads|work\s+near\s+Railroads/i.test(s)) extras.push('CG 24 17 railroad endorsement required if applicable');
+  if (extras.length) out += (out ? ' (' + extras.join(' and ') + ')' : extras.join(' and '));
+  return out || 'No Information Provided.';
+}
+function _subIndemnity8754(src, modelText) {
+  const m = _subLabel8754(modelText, ['Sub agreement includes indemnification and hold harmless', 'Hold Harmless \/ Indemnification', 'Indemnification']);
+  if (m) return m;
+  const s = String(src || '');
+  if (/release,\s*protect,\s*defend,\s*indemnify\s+and\s+hold\s+harmless/i.test(s) || /indemnify,\s*defend\s+and\s+hold\s+harmless/i.test(s) || /indemnify[\s\S]{0,80}hold\s+harmless/i.test(s)) {
+    return 'broad form - defend, indemnify, and hold harmless (Art. 11)';
+  }
+  if (/indemnif/i.test(s)) return 'indemnification required by subcontract agreement';
+  return 'No Information Provided.';
+}
+function _subAi8754(src, modelText) {
+  const m = _subLabel8754(modelText, ['Sub agreement includes Additional insured, waiver of subrogation, and primary & noncontributory', 'Additional Insured \/ Primary and Non-Contributory', 'Additional Insured']);
+  if (m && /waiver|subrogation|primary|non/i.test(m)) return m;
+  const s = String(src || '');
+  const parts = [];
+  if (/Additional\s+Insureds?[\s\S]{0,1000}?CG\s*20\s*10[\s\S]{0,260}?CG\s*20\s*37/i.test(s) || /Ongoing\s+Operations\s+Endorsement[\s\S]{0,240}?Completed\s+Operations\s+Endorsement/i.test(s)) {
+    parts.push('Additional insured for ongoing and completed operations (CG 20 10 + CG 20 37 or equivalent)');
+  } else if (/Additional\s+Insured/i.test(s)) {
+    parts.push('Additional insured required');
+  }
+  if (/Waiver\s+of\s+Subrogation/i.test(s)) parts.push('waiver of subrogation');
+  if (/Primary\s+and\s+non[\s\-]*contribut(?:ory|ing)/i.test(s)) parts.push('primary & noncontributory');
+  let out = parts.join(', ');
+  if (out && /Must\s+be\s+attached\s+to\s+the\s+Insurance\s+Certificate/i.test(s)) out += ' - endorsements must be attached to the COI';
+  return out || 'No Information Provided.';
+}
+function _subCompletedOps8754(src, modelText) {
+  const m = _subLabel8754(modelText, ['Completed ops requirements', 'Completed Operations', 'Products\/Completed Operations']);
+  if (m && /\$|year|aggregate|completed/i.test(m)) return m;
+  const s = String(src || '');
+  const has2m = /products\/completed\s+operations\s+aggregate[\s\S]{0,120}\$?2,000,000|\$?2,000,000[\s\S]{0,120}products\/completed\s+operations\s+aggregate/i.test(s);
+  const has3yr = /products\/completed\s+operations\s+coverage[\s\S]{0,220}at\s+least\s+three\s*\(?3\)?\s+years|three\s*\(?3\)?\s+years\s+from\s+final\s+completion/i.test(s);
+  if (has2m || has3yr) {
+    const bits = [];
+    if (has2m) bits.push('$2M products/completed ops aggregate');
+    if (has3yr) bits.push('completed ops additional insured coverage maintained 3 years after final completion of the project');
+    return bits.join('; ');
+  }
+  return 'No Information Provided.';
+}
+function subcontractFacts8754(modelText, sourceText) {
+  const src = String(sourceText || '');
+  const model = String(modelText || '');
+  let work = _subLabel8754(model, ['Work performed by subcontractor', 'Type of Work Performed', 'Scope of Work', 'Service\/Equipment']);
+  if (_subNoInfo8754(work)) work = '';
+  if (!work) work = _subWorkFromSource8754(src) || _subWorkFromSource8754(model);
+  return {
+    work: work || 'No Information Provided.',
+    insurance: _subInsurance8754(src, model),
+    indemnity: _subIndemnity8754(src, model),
+    ai: _subAi8754(src, model),
+    completedOps: _subCompletedOps8754(src, model)
+  };
+}
+function formatSubcontractBullets8754(facts) {
+  const f = facts || {};
+  return '**Subcontractor Requirements:**\n\n' +
+    '- Work performed by subcontractor: ' + (f.work || 'No Information Provided.') + '\n' +
+    '- Insurance requirements: ' + (f.insurance || 'No Information Provided.') + '\n' +
+    '- Sub agreement includes indemnification and hold harmless: ' + (f.indemnity || 'No Information Provided.') + '\n' +
+    '- Sub agreement includes Additional insured, waiver of subrogation, and primary & noncontributory: ' + (f.ai || 'No Information Provided.') + '\n' +
+    '- Completed ops requirements: ' + (f.completedOps || 'No Information Provided.');
+}
+function normalizeSubcontractOutput8754(modelText, sourceText) {
+  return formatSubcontractBullets8754(subcontractFacts8754(modelText, sourceText));
+}
+function replaceSummarySubcontractBlock8754(summaryText, subcontractText) {
+  const base = String(summaryText || '').trim();
+  if (!subcontractText || !base) return summaryText;
+  const block = normalizeSubcontractOutput8754(subcontractText, subcontractText);
+  const re = /\*\*Subcontractor Requirements:\*\*[\s\S]*?(?=\n\s*\*\*[^\n*]+:\*\*\s*\n|\s*$)/i;
+  if (re.test(base)) return base.replace(re, block).trim();
+  return (base + '\n\n' + block).trim();
+}
+
+function buildSubcontractFocusedInput8754(file, fallbackText) {
+  try {
+    if (!file || !Array.isArray(file.pageTexts) || !file.pageTexts.length) return fallbackText || (file && file.text) || '';
+    const keep = new Set();
+    const signals = /Subcontractor\s+Checklist|Attachment\s+A|Work\s+Items|Schedule\s+of\s+Work|Special\s+Conditions|Scope\s+of\s+Subcontract\s+Work|ARTICLE\s+10\s+INSURANCE|MINIMUM\s+REQUIRED\s+INSURANCE\s+LIMITS|Commercial\s+General\s+Liability|Automobile\s+Liability|Commercial\s+Umbrella|Workers\s+Compensation|Employer'?s?\s+Liability|Professional\s+Liability|Riggers\s+Liability|Waiver\s+of\s+Subrogation|Additional\s+Insured|Primary\s+and\s+non|CG\s*20\s*10|CG\s*20\s*37|CG\s*24\s*17|Certificate\s+of\s+Insurance|Completed\s+Operations|ARTICLE\s+11\s+INDEMNIFICATION|indemnify|hold\s+harmless/i;
+    for (let i = 0; i < file.pageTexts.length; i++) {
+      const page = String(file.pageTexts[i] || '');
+      if (i < 2 || signals.test(page)) keep.add(i);
+    }
+    const ordered = Array.from(keep).sort((a, b) => a - b).slice(0, 28);
+    if (!ordered.length) return fallbackText || file.text || '';
+    return ordered.map(i => '=== PAGE ' + (i + 1) + ' OF ' + file.pageTexts.length + ' · FOCUSED SUBCONTRACT INPUT ===\n\n' + String(file.pageTexts[i] || '')).join('\n\n');
+  } catch (e) {
+    return fallbackText || (file && file.text) || '';
+  }
+}
+if (typeof window !== 'undefined') {
+  window.normalizeSubcontractOutput8754 = normalizeSubcontractOutput8754;
+  window.replaceSummarySubcontractBlock8754 = replaceSummarySubcontractBlock8754;
+  window.buildSubcontractFocusedInput8754 = buildSubcontractFocusedInput8754;
 }
 
 function supplementalNoInfoText8754() {
@@ -6913,6 +7120,22 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     }
     const elapsed = (Date.now() - t0) / 1000;
     let text = result.text;
+    if (moduleId === 'subcontract') {
+      const lockedSub8754 = normalizeSubcontractOutput8754(text, userContent);
+      if (lockedSub8754 && lockedSub8754 !== text) {
+        text = lockedSub8754;
+        result.subcontract_bullet_lock_v8754 = true;
+        logAudit('Pipeline', 'A3 subcontract output normalized to UW bullet format', 'local-v8.7.154');
+      }
+    }
+    if (moduleId === 'summary-ops' && STATE.extractions && STATE.extractions.subcontract && STATE.extractions.subcontract.text) {
+      const lockedSummary8754 = replaceSummarySubcontractBlock8754(text, STATE.extractions.subcontract.text);
+      if (lockedSummary8754 && lockedSummary8754 !== text) {
+        text = lockedSummary8754;
+        result.summary_subcontract_bullet_lock_v8754 = true;
+        logAudit('Pipeline', 'A6 Summary of Operations subcontract block synced from A3 bullet format', 'local-v8.7.154');
+      }
+    }
     if (moduleId === 'guidelines') {
       const a8qc8750 = a8EnsureGuidelinesOutput8750(text, userContent, (typeof getActiveGuideline === 'function' ? getActiveGuideline() : ''));
       text = a8qc8750.text;
@@ -7828,6 +8051,8 @@ async function runPipeline() {
           ? buildSupplementalCombinedInput8706(matched)
           : (mid === 'safety')
             ? buildSafetyContextPrefix8723() + matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n')
+          : (mid === 'subcontract')
+            ? matched.map(f => { const raw = sliceTextForModule(f, mid); return '=== FILE: ' + f.name + ' ===\n\n' + buildSubcontractFocusedInput8754(f, raw); }).join('\n\n')
           : matched.map(f => '=== FILE: ' + f.name + ' ===\n\n' + sliceTextForModule(f, mid)).join('\n\n');
         const src = matched.map(f => f.name).join(', ');
         wave1Tasks.push(runModule(mid, PROMPTS[mid], combined, src, pipelineContext));

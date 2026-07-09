@@ -1748,15 +1748,14 @@ OUTPUT FORMAT — use exactly this structure:
 - [Safety Practice 2]
 
 **Subcontractor Requirements:**
-- Type of Work Performed: [subcontracted work/scope/trades, or "No Information Provided."]
-- Certificate of Insurance / COI: [COI requirement and timing, or "No Information Provided."]
-- Waiver of Subrogation: [waiver requirement and protected parties, or "No Information Provided."]
-- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or "No Information Provided."]
-- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or "No Information Provided."]
-- Limits Required: [GL/AL/Umbrella limits exactly as provided, or "No Information Provided."]
+- Work performed by subcontractor: [subcontracted work/scope/trades, or "No Information Provided."]
+- Insurance requirements: [GL, AL, WC/EL, Umbrella/Excess, Riggers Liability, railroad endorsement, and other stated insurance requirements in one short line, or "No Information Provided."]
+- Sub agreement includes indemnification and hold harmless: [defense/indemnity/hold harmless wording in one short line, or "No Information Provided."]
+- Sub agreement includes Additional insured, waiver of subrogation, and primary & noncontributory: [AI ongoing/completed ops, waiver, PNC, endorsement forms, COI attachment wording in one short line, or "No Information Provided."]
+- Completed ops requirements: [products/completed ops aggregate, completed-ops AI/tail duration, or "No Information Provided."]
 
 IMPORTANT SUBCONTRACT RULE:
-If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements** using the six bullets above. Do not write "No Information Provided" for subcontractor requirements when the Sub Agreement contains AI, indemnity/hold-harmless, PNC, waiver, COI, GL/AL/Umbrella limits, completed operations, tail/duration, or similar risk-transfer terms.
+If a Subcontract/Sub Agreement extraction exists and contains risk-transfer facts, the Summary must incorporate them under **Subcontractor Requirements** using the five bullets above. Do not write "No Information Provided" for subcontractor requirements when the Sub Agreement contains work scope, COI, AI, indemnity/hold-harmless, PNC, waiver, GL/AL/WC/EL/Umbrella limits, completed operations, tail/duration, railroad endorsement, riggers liability, or similar risk-transfer terms. Use the A3 subcontract extraction as the authority for this block, and preserve the same bullet style.
 
 QUALITY CONTROL (silent — do not output): Internally verify Products/Services, geography, safety, subcontracted work, COI, waiver, indemnity/hold harmless, AI/PNC, and limits. Do NOT print Source Products & Services, Source Extracts, a checklist, verification table, rewrite log, or "All items checked" language in the visible output.`,
 
@@ -1868,25 +1867,23 @@ QUALITY CONTROL (silent - do not output): Internally verify every field against 
 
   subcontract: `Role: Excess casualty insurance underwriter reviewing an uploaded subcontract/subcontractor agreement.
 
-Task: Extract only subcontractor risk-transfer requirements relevant to excess casualty underwriting.
+Task: Produce the underwriter-facing subcontract summary used by A3 and fed into A6 Summary of Operations. Extract the work scope and risk-transfer requirements relevant to excess casualty underwriting.
 
 Output only the section and bullets below. Do not include source extracts, explanations, checklists, legal analysis, QC logs, rewrite steps, or commentary. Do not infer or assume anything. Report only what the agreement states. If a field is not found, write exactly: No Information Provided.
 
-Ignore Professional Liability, Workers' Compensation, and Employer's Liability requirements.
-
 **Subcontractor Requirements:**
 
-- Type of Work Performed: [subcontracted work/scope/trades stated in the agreement, or No Information Provided.]
-- Certificate of Insurance / COI: [COI requirement and timing, or No Information Provided.]
-- Waiver of Subrogation: [waiver requirement and protected parties, or No Information Provided.]
-- Hold Harmless / Indemnification: [hold harmless or indemnification requirement, or No Information Provided.]
-- Additional Insured / Primary and Non-Contributory: [AI, primary, non-contributory, and protected parties, or No Information Provided.]
-- Limits Required: [only GL, Auto Liability, and Umbrella/Excess limits; use clean shorthand where possible, e.g. GL $1M/$2M, AL $1M, Umbrella $5M. If no applicable limits are stated, No Information Provided.]
+- Work performed by subcontractor: [short natural-language scope/trades/project, e.g. Concrete work - bridge abutments, caps, columns, reinforced deck slab, TX46 girder erection, and sealed expansion joints (IH-10 Colorado County, TxDOT), or No Information Provided.]
+- Insurance requirements: [one short line with GL, AL, WC/EL, Umbrella/Excess, Riggers Liability, railroad endorsement, and other stated requirements, e.g. GL $1M/$2M/$2M, AL $1M, WC statutory / EL $1M/$1M/$1M, $5M Umbrella/Excess (riggers liability and CG 24 17 railroad endorsement required if applicable), or No Information Provided.]
+- Sub agreement includes indemnification and hold harmless: [defend/indemnify/hold harmless wording in one short line, or No Information Provided.]
+- Sub agreement includes Additional insured, waiver of subrogation, and primary & noncontributory: [ongoing/completed ops AI, waiver, PNC, endorsement forms, COI attachment wording in one short line, or No Information Provided.]
+- Completed ops requirements: [products/completed ops aggregate and completed-ops AI/tail duration, or No Information Provided.]
 
 Rules:
+- Match the concise bullet style above.
 - Keep each bullet short and easy to follow.
-- Do not include Professional Liability.
-- Do not include Workers' Compensation or Employer's Liability.
+- Include WC/EL, riggers liability, railroad endorsement, and completed-ops duration when the subcontract states them.
+- Do not include Professional Liability unless it is the only applicable insurance detail; otherwise exclude it.
 - Do not add underwriting opinions.
 - Do not summarize unrelated contract provisions.
 - Do not include any checklist or source-extract section.`,
