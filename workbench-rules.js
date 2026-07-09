@@ -1178,12 +1178,12 @@
     fleet_truck_tractors_local: ['al_quote:json', 'al_quote', 'supplemental'],
     fleet_truck_tractors_intermediate: ['al_quote:json', 'al_quote', 'supplemental'],
     fleet_truck_tractors_long:  ['al_quote:json', 'al_quote', 'supplemental'],
-    underlying_lead_limit:      ['excess', 'tower', 'excess:json', 'tower:json'],
-    underlying_lead_carrier:    ['excess', 'tower', 'excess:json', 'tower:json'],
-    underlying_lead_premium:    ['excess', 'tower', 'excess:json', 'tower:json'],
+    underlying_lead_limit:      ['excess:json', 'tower:json', 'excess', 'tower'],  // v8.7.144: structured first; narrative text is a fallback, never an authority
+    underlying_lead_carrier:    ['excess:json', 'tower:json', 'excess', 'tower'],
+    underlying_lead_premium:    ['excess:json', 'tower:json', 'excess', 'tower'],
     tower_role:                 ['excess', 'tower', 'excess:json', 'tower:json'],
     requested_limit:            ['submission.requested_limit', 'submission.requested', 'submission.requestedLimit', 'submission.limit', 'excess', 'tower', 'excess:json', 'tower:json'],
-    attachment_point:           ['excess', 'tower', 'excess:json', 'tower:json']
+    attachment_point:           ['excess:json', 'tower:json', 'excess', 'tower']  // jsonFirst8744
   };
 
   // ─── Compute utilities ────────────────────────────────────────────────────
@@ -2440,6 +2440,16 @@
   function parseUnderlyingLayer85(clean, fieldName) {
     if (!clean) return null;
     const lower = clean.toLowerCase();
+    // v8.7.144 LAYER REGION DISCIPLINE: the A15 narrative below the layer
+    // chips discusses HYPOTHETICAL structures ("a typical structure would
+    // add a $5,000,000 xs $2,000,000 first-excess layer"). A whole-text
+    // first-match xs scan read that hypothetical as the bound lead and
+    // poisoned the workbench and the Internal Rater. Generic xs scanning is
+    // confined to the text ABOVE the first narrative header; the explicit
+    // "Lead $X" chip token is read first and accepts both "$2M" and
+    // "$2,000,000" forms.
+    const narrCut8744 = clean.search(/\n\s*\**\s*(?:Ask vs Offer|Tower Completion|Primary Adequacy|Capacity|Adequacy|Recommendation)\b/i);
+    const layerRegion8744 = narrCut8744 > -1 ? clean.slice(0, narrCut8744) : clean;
     const isLead = /lead\s+(?:umbrella|excess|\$)|lead layer|commercial liability umbrella|schedule of underlying/.test(lower)
       || /\$?\s*[0-9][0-9,\.]*\s*(?:m|mm|million)?\s*(?:xs|excess\s+of|over)\s*\$?\s*[0-9]/i.test(clean);  // v8.7.127: any X-xs-Y shape; the old literal 2-xs-1 was account-tuned
 
@@ -2448,7 +2458,8 @@
     let leadLimit = null;
     let attachment = null;
 
-    const xs = new RegExp('(' + money + ')\\s*(?:xs|x\\s*s|excess\\s+of|over)\\s*(' + money + ')', 'i').exec(clean);
+    let leadTag8744 = /(?:^|[>\s])Lead\s*\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million))\b/i.exec(clean);
+    const xs = new RegExp('(' + money + ')\\s*(?:xs|x\\s*s|excess\\s+of|over)\\s*(' + money + ')', 'i').exec(layerRegion8744);
     // v8.7.127: in "X xs Y" tower shorthand, bare numbers are ALWAYS millions
     // in excess casualty ("2 xs 1" means $2M xs $1M on every account). A bare
     // captured token with no suffix, no thousands separator, and value under
@@ -2458,7 +2469,8 @@
       const bare = /^[\s$]*[0-9]+(?:\.[0-9]+)?\s*$/.test(s) && (moneyToNumberFor85(s) || 0) < 1000 && (moneyToNumberFor85(s) || 0) >= 1;
       return bare ? (s.trim() + 'M') : v;
     };
-    if (xs) { leadLimit = xsToken8727(xs[1]); attachment = xsToken8727(xs[2]); }
+    if (leadTag8744) leadLimit = leadTag8744[1];  // v8.7.144: the chip token is unambiguous and wins
+    if (xs) { if (!leadLimit) leadLimit = xsToken8727(xs[1]); attachment = xsToken8727(xs[2]); }
 
     // Declarations often say: Each Occurrence Limit (Liability Coverage) $2,000,000.
     if (!leadLimit) {
@@ -2471,10 +2483,10 @@
     // "Lead $NM" (often inside HTML spans). Capture it directly so the
     // module-text path fills the card on every account, not just when a
     // dec page or xs phrase is also present.
-    if (!leadLimit) {
-      const tag8727 = /(?:^|[>\s])Lead\s*\$\s*([0-9]+(?:\.[0-9]+)?)\s*(M|MM|million)\b/i.exec(clean);
-      if (tag8727) leadLimit = tag8727[1] + tag8727[2];
-    }
+    // v8.7.144: the suffix-only Lead-$ regex above (v8.7.127) is superseded
+    // by leadTag8744, which also accepts the full-comma form the A15 chip
+    // actually prints ("Lead $2,000,000").
+
 
     // If no explicit xs value, derive attachment from Schedule of Underlying by
     // taking the highest primary limit shown under the schedule section.

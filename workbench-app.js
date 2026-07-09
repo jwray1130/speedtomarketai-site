@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.143-acord-title-belt-2026-07-08';
+window.STM_BUILD = 'v8.7.144-tower-lead-authority-2026-07-08';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
