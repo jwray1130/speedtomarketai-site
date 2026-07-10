@@ -1771,6 +1771,85 @@ async function persistRefreshSnapshot8751(source) {
 }
 if (typeof window !== 'undefined') window.persistRefreshSnapshot8751 = persistRefreshSnapshot8751;
 
+// v8.7.160 PER-FILE EXTRACTION CACHE (wave-1 modules only). Identical work
+// never bills twice: the key is a SHA-256 over the exact prompt text, the
+// exact bounded input text, the module id, and the serving model, so any
+// prompt edit, input change, or model change is an automatic miss. Scope
+// is deliberately wave-1 file-fed extractions: those carry the repeat
+// cost when the same PDFs are re-dropped, while synthesis inputs churn
+// with any upstream byte (near-zero hit rate) and A10 carries a paid
+// post-verify pass outside runModule that cached text would re-trigger.
+// A8 stays uncached per the Phase 2 goal. Storage: the extraction_cache
+// Supabase table when available, with a bounded localStorage ring
+// fallback so the cache still works offline and degrades silently.
+const CACHE_SCHEMA_8760 = 'stm-cache-v1';
+const CACHE_RING_KEY_8760 = 'stm_extraction_cache_v8760';
+const CACHE_RING_BUDGET_8760 = 2500000;
+// v8.7.165: post-processing contract versions. Cached payloads store the
+// FINAL post-QC text, so a deterministic formatter change must invalidate
+// old entries even when prompt, input, and model are unchanged. Bump a
+// module's entry whenever its post-processing contract changes.
+const MODULE_CACHE_CONTRACT_8765 = { subcontract: 'c8766-section-range', safety: 'c8721', losses: 'c8711' };  // v8.7.167: bumped for the A3 section-range input contract
+function cacheable8760(moduleId) {
+  return !!(MODULES[moduleId] && MODULES[moduleId].wave === 1 && moduleId !== 'guidelines');
+}
+async function sha256Hex8760(str) {
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (_) {
+    let h = 0xcbf29ce484222325n; const prime = 0x100000001b3n;
+    const s2 = String(str);
+    for (let i = 0; i < s2.length; i++) { h ^= BigInt(s2.charCodeAt(i)); h = (h * prime) & 0xffffffffffffffffn; }
+    return 'fnv' + h.toString(16);
+  }
+}
+async function cacheKey8760(moduleId, promptText, inputText, model) {
+  const ph = await sha256Hex8760(String(promptText || ''));
+  const ih = await sha256Hex8760(String(inputText || ''));
+  return CACHE_SCHEMA_8760 + ':' + moduleId + ':' + String(model || '') + ':' + ph.slice(0, 24) + ':' + ih.slice(0, 24);
+}
+function cacheRingRead8760() {
+  try { return JSON.parse(localStorage.getItem(CACHE_RING_KEY_8760) || '[]') || []; } catch (_) { return []; }
+}
+function cacheRingGet8760(key) {
+  const hit = cacheRingRead8760().find(r => r && r.k === key);
+  return hit ? { payload: hit.p, created_run: hit.r || null, created_at: hit.t || null } : null;
+}
+function cacheRingPut8760(key, payload, createdRun) {
+  try {
+    const ring = cacheRingRead8760().filter(r => r && r.k !== key);
+    ring.push({ k: key, p: payload, r: createdRun || null, t: new Date().toISOString(), s: JSON.stringify(payload).length });
+    let total = ring.reduce((a, r) => a + (r.s || 0), 0);
+    while (total > CACHE_RING_BUDGET_8760 && ring.length > 1) { const gone = ring.shift(); total -= (gone.s || 0); }
+    localStorage.setItem(CACHE_RING_KEY_8760, JSON.stringify(ring));
+  } catch (_) { /* quota or private mode: cache is best-effort */ }
+}
+async function extractionCacheGet8760(key) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.sbCacheGet8760 === 'function' && window.sb) {
+      const row = await window.sbCacheGet8760(key);
+      if (row && row.payload && row.payload.text) return row;
+    }
+  } catch (_) {}
+  return cacheRingGet8760(key);
+}
+function extractionCachePut8760(key, moduleId, model, payload, createdRun) {
+  cacheRingPut8760(key, payload, createdRun);
+  try {
+    if (typeof window !== 'undefined' && typeof window.sbCachePut8760 === 'function' && window.sb) {
+      const ph = key.split(':')[3] || '';
+      Promise.resolve(window.sbCachePut8760(key, moduleId, model, ph, payload, createdRun)).catch(function(){});
+    }
+  } catch (_) {}
+}
+if (typeof window !== 'undefined') {
+  window.cacheable8760 = cacheable8760;
+  window.cacheKey8760 = cacheKey8760;
+  window.extractionCacheGet8760 = extractionCacheGet8760;
+  window.extractionCachePut8760 = extractionCachePut8760;
+}
+
 async function refreshSection8732(mid) {
   if (!MODULES[mid]) { toast('Unknown section: ' + mid, 'error'); return false; }
   if (mid === 'guidelines') {
@@ -1884,7 +1963,7 @@ async function refreshAllPending8747() {
   // One rerunModules call: its internal wave loop runs A6/A15 before
   // A7/A9/A10, and its per-module gates skip anything whose upstream
   // failed, so no blind spend on a broken cascade.
-  await rerunModules(plan.all);
+  try { await rerunModules(plan.all); } finally { endSpendPlan8762(); }  // v8.7.164: plan cannot outlive a throw
   renderSummaryCards();
   await persistRefreshSnapshot8751('refresh-all-pending');
   return plan.all;
@@ -2242,8 +2321,9 @@ async function incrementalProcess(newFiles) {
     // cost lesson from the first live trickle-in, where three quotes
     // cascaded into every synthesis module including A8 Guidelines. The
     // underwriter refreshes sections explicitly when ready.
+    beginSpendPlan8762('incremental update', directlyAffected.size, 0);  // v8.7.163: begin only after the preflight is confirmed
     showIncrementalBanner(directlyAffected.size, newFiles.length);
-    await rerunModules(Array.from(directlyAffected));
+    try { await rerunModules(Array.from(directlyAffected)); } finally { endSpendPlan8762(); }  // v8.7.164
 
     // Deterministic stale marking for everything downstream (zero LLM cost).
     const staleMarked8732 = markSectionsStale8732(Array.from(directlyAffected), 'new documents added');
@@ -2375,6 +2455,12 @@ function hideIncrementalBanner() {
 }
 
 async function rerunModules(moduleIds) {
+  // v8.7.163: the executor only declares a plan when no orchestrator has
+  // (single-card refresh, guidelines cascade); an incremental update or
+  // Refresh All plan set upstream is authoritative and never overwritten.
+  const ownSpendPlan8763 = !STATE.spendPlan8762;
+  if (ownSpendPlan8763) beginSpendPlan8762('confirmed refresh', (moduleIds || []).length, 0);
+  try {  // v8.7.165: exception-safe executor lifecycle
   // FIX-PHASE-6-PROMPT-TEMPLATE-SUBSTITUTION-2026-05-14
   // Build pipelineContext from the active submission's persisted record.
   // On a rerun, the account_name is already known from the prior pipeline
@@ -2588,7 +2674,7 @@ async function rerunModules(moduleIds) {
       && STATE.extractions.strengths
       && STATE.extractions.strengths.mode === 'live'
       && !STATE.extractions.strengths.staleFromRerun) {
-    await verifyStrengthsNumericPass8784('rerun');
+    try { await verifyStrengthsNumericPass8784('rerun'); } catch (e8764) { logAudit('Pipeline', 'A10 post-verify threw after rerun · draft kept unverified · ' + (e8764 && e8764.message || e8764), 'warn'); }
   }
 
   // Surface a single warning toast if any reruns failed and were restored,
@@ -2596,6 +2682,9 @@ async function rerunModules(moduleIds) {
   const failCount = Object.keys(rerunFailures).length;
   if (failCount > 0) {
     toast(failCount + ' module' + (failCount === 1 ? '' : 's') + ' could not re-run · prior extractions preserved', 'warn');
+  }
+  } finally {
+    if (ownSpendPlan8763) endSpendPlan8762();  // v8.7.165: plan cannot outlive any throw in the executor
   }
 }
 
@@ -2664,6 +2753,7 @@ async function rerunGuidelines() {
     toast('Guidelines re-run failed: ' + err.message, 'error');
     await persistRefreshSnapshot8751('rerun-guidelines-error');
   } finally {
+    endSpendPlan8762();  // v8.7.163
     STATE.pipelineRunning = false;
     if (btn) { btn.disabled = false; btn.querySelector('svg').style.animation = ''; }
   }
@@ -2682,6 +2772,59 @@ const CLASSIFY_CONFIG = {
   enableVerifyPass: true,          // run second-pass verification
   maxCharsPerCall: 400000,         // safety cap ~100k tokens; enough for most submission docs
 };
+
+// v8.7.161 CLASSIFIER BOUNDED INPUT. maxCharsPerCall was 400k straight to
+// Opus, so a 360k-char subcontract shipped nearly whole, and blunt
+// truncation blinds the classifier to back-of-document sections while
+// giving it no page boundaries to hint against. Oversized files now send
+// a page SAMPLE with true page-number markers: full head pages, the tail
+// pages, and evenly strided middle pages up to the budget, plus an
+// instruction to base section_hint ranges only on the marked pages.
+// Small and mid-size files are untouched, and combined/ambiguous packets
+// still classify from real content, just bounded.
+const CLASSIFY_SAMPLE_8761 = { threshold: 120000, targetChars: 96000, headPages: 6, tailPages: 2 };
+function boundedClassifierInput8761(file) {
+  const txt = String((file && file.text) || '');
+  const total = txt.length;
+  if (total <= CLASSIFY_SAMPLE_8761.threshold) {
+    return { text: txt, sampled: false, sentChars: total, totalChars: total, pagesSent: null, totalPages: Array.isArray(file && file.pageTexts) ? file.pageTexts.length : null };
+  }
+  const note = 'NOTE: OVERSIZED DOCUMENT SAMPLED FOR CLASSIFICATION. Pages below carry their TRUE page numbers; unshown pages are omitted. Base every section_hint page range ONLY on the PAGE numbers marked below; a section spanning omitted pages may use the nearest shown pages.\n\n';
+  const pages = Array.isArray(file && file.pageTexts) ? file.pageTexts : null;
+  if (pages && pages.length > 2) {
+    const N = pages.length;
+    const chosen = new Set();
+    for (let i = 0; i < Math.min(CLASSIFY_SAMPLE_8761.headPages, N); i++) chosen.add(i);
+    for (let i = Math.max(0, N - CLASSIFY_SAMPLE_8761.tailPages); i < N; i++) chosen.add(i);
+    const mid = [];
+    for (let i = CLASSIFY_SAMPLE_8761.headPages; i < N - CLASSIFY_SAMPLE_8761.tailPages; i++) mid.push(i);
+    let budget = CLASSIFY_SAMPLE_8761.targetChars;
+    chosen.forEach(i => { budget -= (String(pages[i] || '').length + 40); });
+    const avg = mid.length ? Math.max(400, Math.round(mid.reduce((a, i) => a + String(pages[i] || '').length, 0) / mid.length)) : 1;
+    const slots = Math.max(1, Math.floor(Math.max(0, budget) / (avg + 40)));
+    const step = Math.max(1, Math.ceil(mid.length / slots));
+    for (let k = 0; k < mid.length; k += step) chosen.add(mid[k]);
+    const ordered = Array.from(chosen).sort((a, b) => a - b);
+    const out = [];
+    let used = 0;
+    for (const i of ordered) {
+      const body = String(pages[i] || '');
+      const blockText = '=== PAGE ' + (i + 1) + ' OF ' + N + ' ===\n' + body;
+      if (used + blockText.length > CLASSIFY_SAMPLE_8761.targetChars && out.length) break;
+      out.push(blockText);
+      used += blockText.length + 2;
+    }
+    const text = note + out.join('\n\n');
+    return { text, sampled: true, sentChars: text.length, totalChars: total, pagesSent: out.length, totalPages: N };
+  }
+  const head = txt.slice(0, Math.floor(CLASSIFY_SAMPLE_8761.targetChars * 0.6));
+  const midStart = Math.floor(total * 0.45);
+  const midPart = txt.slice(midStart, midStart + Math.floor(CLASSIFY_SAMPLE_8761.targetChars * 0.15));
+  const tail = txt.slice(-Math.floor(CLASSIFY_SAMPLE_8761.targetChars * 0.25));
+  const text = note + head + '\n\n[OMITTED chars ' + head.length + '-' + midStart + ']\n\n' + midPart + '\n\n[OMITTED chars ' + (midStart + midPart.length) + '-' + (total - tail.length) + ']\n\n' + tail;
+  return { text, sampled: true, sentChars: text.length, totalChars: total, pagesSent: null, totalPages: null };
+}
+if (typeof window !== 'undefined') window.boundedClassifierInput8761 = boundedClassifierInput8761;
 
 function truncateForLLM(text, maxChars) {
   if (!text || text.length <= maxChars) return text;
@@ -5222,7 +5365,11 @@ async function classifyFile(file) {
     // prompt — brokers often name attachments generically (doc2.pdf) but
     // describe them clearly in the email body. This is a meaningful accuracy
     // lift at zero additional cost.
-    const docText = truncateForLLM(file.text, CLASSIFY_CONFIG.maxCharsPerCall);
+    const bounded8761 = boundedClassifierInput8761(file);
+    const docText = truncateForLLM(bounded8761.text, CLASSIFY_CONFIG.maxCharsPerCall);
+    if (bounded8761.sampled) {
+      logAudit('Classifier', 'CLS bounded input: ' + file.name + ' sent ' + bounded8761.sentChars.toLocaleString('en-US') + ' of ' + bounded8761.totalChars.toLocaleString('en-US') + ' chars' + (bounded8761.pagesSent ? ' (' + bounded8761.pagesSent + ' of ' + bounded8761.totalPages + ' pages sampled)' : ''), 'info');
+    }
     let userMsg = '';
     if (file.parentEmailId && (file.emailSubject || file.emailContext)) {
       userMsg += 'EMAIL CONTEXT (this file was unpacked from an email attachment):\n';
@@ -5230,7 +5377,7 @@ async function classifyFile(file) {
       if (file.emailContext) userMsg += '  Broker referenced this attachment: "' + file.emailContext + '"\n';
       userMsg += '\n';
     }
-    userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (full, ${file.text.length.toLocaleString()} chars):\n\n${docText}`;
+    userMsg += `FILENAME: ${file.name}\n\nDOCUMENT TEXT (${bounded8761.sampled ? `SAMPLED ${bounded8761.sentChars.toLocaleString()} of ${bounded8761.totalChars.toLocaleString()}` : `full, ${file.text.length.toLocaleString()}`} chars):\n\n${docText}`;
 
     // Classifier runs on Opus — misclassification cascades through whole pipeline
     const result = await callLLM(PROMPTS.classifier, userMsg, 'claude-opus-4-8');
@@ -5828,6 +5975,14 @@ async function gateModuleByApplicant(moduleId, userContent, context) {
       precheck
     };
   }
+  if (typeof applicantGateMode8737 === 'function' && applicantGateMode8737() !== 'strict') {
+    // v8.7.165: the LLM-precheck branch predated the v8.7.137 default-off
+    // doctrine and could still hard-refuse a Frankenstein packet the local
+    // detector missed. Default mode NOTES the mismatch and proceeds;
+    // strict mode keeps the refusal below.
+    console.warn('[applicant-gate] ' + moduleId + ' PRECHECK MISMATCH NOTED (frankenstein default). Submission insured: "' + context.account_name + '". Documents reference: ' + precheck.detected.join(', '));
+    return { proceed: true, reason: 'precheck_mismatch_noted_frankenstein_v8737', mismatchAllowed: true, mixedInsureds: true, detectedInsureds: precheck.detected, matchedInsureds: [], allDetected: precheck.detected, precheck };
+  }
   console.warn('[applicant-gate] ' + moduleId + ' REFUSED. Submission insured: "' + context.account_name +
     '". Documents reference: ' + precheck.detected.join(', '));
   return {
@@ -6032,20 +6187,336 @@ function replaceSummarySubcontractBlock8754(summaryText, subcontractText) {
   return (base + '\n\n' + block).trim();
 }
 
+// v8.7.159 A3 BOUNDED INPUT CAP. The v8.7.154 builder kept pages 1-2 plus
+// any page matching broad coverage words, first-28 by index, with NO char
+// cap, and the no-pageTexts fallback returned the ENTIRE raw text. On a
+// 99-page legal package that meant six figures of characters (live audit:
+// A3 at ~$1.33 / 261k tokens) and generic boilerplate could crowd out
+// Attachment A at the back of the file. Selection is now tiered: pages
+// 1-2 and structural anchors (checklist, scope article, insurance
+// article, indemnification article, Attachment A / work items, safety
+// questionnaire) always win, supporting coverage-word pages fill the
+// remaining budget in page order, and hard caps of 18 pages / 60k chars
+// apply with per-page clipping only when an anchor page alone would
+// blow the budget. The no-pageTexts fallback is a bounded keyword-window
+// slicer, never the whole document. Every build logs pages/chars kept vs
+// total so the savings are visible in Export Audit JSON.
+var A3_MAX_CHARS_8759 = 60000;
+var A3_MAX_PAGES_8759 = 18;
+var A3_PAGE_CLIP_8759 = 8000;
+var A3_ANCHOR_RE_8759 = /Subcontractor\s+Checklist|Scope\s+of\s+(?:the\s+)?(?:Subcontract\s+)?Work|ARTICLE\s+\d+\s*[-.:]?\s*INSURANCE|MINIMUM\s+REQUIRED\s+INSURANCE|ARTICLE\s+\d+\s*[-.:]?\s*INDEMNIF|Attachment\s+A\b|Work\s+Items|Schedule\s+of\s+Work|Special\s+Conditions|Safety\s+Questionnaire/i;
+var A3_SUPPORT_RE_8759 = /Commercial\s+General\s+Liability|Automobile\s+Liability|Commercial\s+Umbrella|Workers\s+Compensation|Employer'?s?\s+Liability|Professional\s+Liability|Riggers\s+Liability|Waiver\s+of\s+Subrogation|Additional\s+Insured|Primary\s+and\s+non|CG\s*20\s*10|CG\s*20\s*37|CG\s*24\s*17|Certificate\s+of\s+Insurance|Completed\s+Operations|indemnify|hold\s+harmless/i;
+function a3AuditKept8759(keptPages, totalPages, keptChars, totalChars, mode) {
+  try {
+    if (typeof logAudit === 'function') {
+      logAudit('Pipeline', 'A3 bounded input (' + mode + '): kept ' + keptPages + ' of ' + totalPages + ' pages · ' + keptChars.toLocaleString('en-US') + ' of ' + totalChars.toLocaleString('en-US') + ' chars (caps ' + A3_MAX_PAGES_8759 + 'p / ' + A3_MAX_CHARS_8759.toLocaleString('en-US') + ')', 'info');
+    }
+  } catch (_) {}
+}
 function buildSubcontractFocusedInput8754(file, fallbackText) {
   try {
-    if (!file || !Array.isArray(file.pageTexts) || !file.pageTexts.length) return fallbackText || (file && file.text) || '';
-    const keep = new Set();
-    const signals = /Subcontractor\s+Checklist|Attachment\s+A|Work\s+Items|Schedule\s+of\s+Work|Special\s+Conditions|Scope\s+of\s+Subcontract\s+Work|ARTICLE\s+10\s+INSURANCE|MINIMUM\s+REQUIRED\s+INSURANCE\s+LIMITS|Commercial\s+General\s+Liability|Automobile\s+Liability|Commercial\s+Umbrella|Workers\s+Compensation|Employer'?s?\s+Liability|Professional\s+Liability|Riggers\s+Liability|Waiver\s+of\s+Subrogation|Additional\s+Insured|Primary\s+and\s+non|CG\s*20\s*10|CG\s*20\s*37|CG\s*24\s*17|Certificate\s+of\s+Insurance|Completed\s+Operations|ARTICLE\s+11\s+INDEMNIFICATION|indemnify|hold\s+harmless/i;
-    for (let i = 0; i < file.pageTexts.length; i++) {
-      const page = String(file.pageTexts[i] || '');
-      if (i < 2 || signals.test(page)) keep.add(i);
+    var raw = String((file && file.text) || fallbackText || '');
+    if (!file || !Array.isArray(file.pageTexts) || !file.pageTexts.length) {
+      // Bounded keyword-window fallback: never the whole document.
+      if (raw.length <= A3_MAX_CHARS_8759) return raw;
+      var windows = [[0, 6000]];
+      var probe = new RegExp(A3_ANCHOR_RE_8759.source + '|' + A3_SUPPORT_RE_8759.source, 'gi');
+      var m8759;
+      while ((m8759 = probe.exec(raw)) !== null) {
+        windows.push([Math.max(0, m8759.index - 1200), Math.min(raw.length, m8759.index + 2400)]);
+        if (windows.length > 80) break;
+      }
+      windows.sort(function(a, b){ return a[0] - b[0]; });
+      var merged = [];
+      windows.forEach(function(w){
+        var last = merged[merged.length - 1];
+        if (last && w[0] <= last[1] + 200) { last[1] = Math.max(last[1], w[1]); } else { merged.push([w[0], w[1]]); }
+      });
+      var parts = [];
+      var used = 0;
+      for (var k = 0; k < merged.length && used < A3_MAX_CHARS_8759; k++) {
+        var seg = raw.slice(merged[k][0], Math.min(merged[k][1], merged[k][0] + (A3_MAX_CHARS_8759 - used)));
+        parts.push('=== EXCERPT chars ' + merged[k][0] + '+ · FOCUSED SUBCONTRACT INPUT ===\n\n' + seg);
+        used += seg.length;
+      }
+      var outText = parts.join('\n\n');
+      if (used >= A3_MAX_CHARS_8759) outText += '\n\n[A3 INPUT CAP REACHED · remaining document omitted]';
+      a3AuditKept8759(parts.length, 1, outText.length, raw.length, 'keyword-window');
+      return outText || raw.slice(0, A3_MAX_CHARS_8759);
     }
-    const ordered = Array.from(keep).sort((a, b) => a - b).slice(0, 28);
-    if (!ordered.length) return fallbackText || file.text || '';
-    return ordered.map(i => '=== PAGE ' + (i + 1) + ' OF ' + file.pageTexts.length + ' · FOCUSED SUBCONTRACT INPUT ===\n\n' + String(file.pageTexts[i] || '')).join('\n\n');
+    var pages = file.pageTexts;
+    var totalChars = 0;
+    for (var t = 0; t < pages.length; t++) totalChars += String(pages[t] || '').length;
+    // v8.7.166 SECTION-RANGE EXTRACTION (definitive A3 input contract).
+    // Rounds 159-165 patched page selection and in-page clipping; GPT's
+    // round-6 sim against the real TEST 6 still lost the $5M umbrella
+    // line, the Auto/WC/EL block, and the core 11.1 release/protect/
+    // defend/indemnify wording, reproduced executed here: on a dense page
+    // every hit's window MERGES into one span and the per-window share
+    // degenerates back into a front slice. The requirement is semantic,
+    // so the builder now extracts the SECTIONS the A3 card cites,
+    // verbatim and across page boundaries: the insurance article through
+    // the next article heading, the indemnification article through the
+    // next heading, Attachment A / Work Items through the next
+    // attachment, plus scope, the head pages, and the safety
+    // questionnaire. Table-of-contents decoys are skipped by scoring each
+    // heading match on the section content that follows it. Leftover
+    // budget flows to support pages, and the v8.7.165 per-page machinery
+    // below remains the fallback whenever no core section heading exists.
+    var fullDoc8766 = '';
+    var pageStarts8766 = [];
+    for (var pi8766 = 0; pi8766 < pages.length; pi8766++) { pageStarts8766.push(fullDoc8766.length); fullDoc8766 += String(pages[pi8766] || '') + '\n'; }
+    function a3PageOfChar8766(pos) {
+      var lo = 0, hi = pageStarts8766.length - 1;
+      while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (pageStarts8766[mid] <= pos) lo = mid; else hi = mid - 1; }
+      return lo + 1;
+    }
+    function a3PickHeading8766(headRe, contentRe) {
+      // v8.7.166b: collect all matches, score by following section content.
+      // The later-index tiebreak exists to beat table-of-contents decoys,
+      // which sit FAR from the body heading; two matches within 1,500 chars
+      // are the same physical heading (e.g. "ARTICLE 10 INSURANCE" followed
+      // by "MINIMUM REQUIRED INSURANCE"), where the EARLIER start must win
+      // or the heading prefix is shaved off (reproduced executed).
+      var re = new RegExp(headRe.source, 'gi');
+      var cands = [], m8766;
+      while ((m8766 = re.exec(fullDoc8766)) !== null) {
+        var look = fullDoc8766.slice(m8766.index, m8766.index + 1400);
+        cands.push({ idx: m8766.index, hits: (look.match(contentRe) || []).length });
+        if (re.lastIndex <= m8766.index) re.lastIndex = m8766.index + 1;
+        if (cands.length > 60) break;
+      }
+      if (!cands.length) return -1;
+      var maxHits = Math.max.apply(null, cands.map(function(c){ return c.hits; }));
+      var top = cands.filter(function(c){ return c.hits >= Math.max(1, maxHits - 1); });
+      top.sort(function(a, b){ return a.idx - b.idx; });
+      var pick = top[0];
+      for (var ti = 1; ti < top.length; ti++) { if (top[ti].idx - pick.idx > 1500) pick = top[ti]; }
+      return pick.idx;
+    }
+    function a3SectionStart8766(label, headRe, contentRe, endRe, cap) {
+      var start = a3PickHeading8766(headRe, contentRe);
+      if (start < 0) return null;
+      return { label: label, start: start, endRe: endRe, cap: cap };
+    }
+    function a3ResolveSectionEnds8766(defs) {
+      // v8.7.166b: a section genuinely ends where the next FOUND section
+      // begins, regardless of whether the extractor preserved a newline
+      // before the next heading. The endRe remains a secondary boundary.
+      var starts = defs.map(function(d){ return d.start; }).sort(function(a, b){ return a - b; });
+      return defs.map(function(d){
+        var boundary = fullDoc8766.length;
+        for (var bi = 0; bi < starts.length; bi++) { if (starts[bi] > d.start + 40) { boundary = starts[bi]; break; } }
+        var endSearch = new RegExp(d.endRe.source, 'gi');
+        endSearch.lastIndex = d.start + 40;
+        var em8766 = endSearch.exec(fullDoc8766);
+        var naturalEnd = Math.min(boundary, em8766 ? em8766.index : fullDoc8766.length, d.start + d.cap * 3);
+        var end = naturalEnd;
+        var trimmed = false;
+        if (end - d.start > d.cap) { end = d.start + d.cap; trimmed = true; }
+        return { label: d.label, start: d.start, end: end, naturalEnd: naturalEnd, trimmed: trimmed };
+      });
+    }
+    var A3_ART_END_8766 = /\n\s*ARTICLE\s+\d+\b/;
+    var secStarts8766 = [
+      a3SectionStart8766('ARTICLE INSURANCE', /ARTICLE\s+\d+\s*[-.:]?\s*INSURANCE|MINIMUM\s+REQUIRED\s+INSURANCE/, /Liability|\$\s?[0-9]|Umbrella|Compensation|occurrence|aggregate/gi, A3_ART_END_8766, 10000),
+      a3SectionStart8766('ARTICLE INDEMNIFICATION', /ARTICLE\s+\d+\s*[-.:]?\s*INDEMNIF/, /indemnif|hold\s+harmless|defend|release/gi, A3_ART_END_8766, 8000),
+      // v8.7.167 (GPT round-8, confirmed on the real TEST 6): the plain
+      // ATTACHMENT A pattern missed quoted headings like ATTACHMENT "A" and
+      // curly-quote variants, so the only candidate was the page-2 list
+      // reference and the real table rode in as a clip-prone support page.
+      // The pattern now accepts straight and curly quotes around the letter,
+      // and the content scorer demands table evidence (work-item rows,
+      // quantities, trade nouns) so a bare reference line can never outscore
+      // the actual attachment.
+      a3SectionStart8766('ATTACHMENT A / WORK ITEMS', /ATTACHMENT\s*["'\u201C\u201D]?\s*A\b\s*["'\u201C\u201D]?|WORK\s+ITEMS\s+AND\s+SPECIAL\s+CONDITIONS/, /Work\s+Items|CONCRETE|GIRDER|JOINT|RETROFIT|ITEM\s+NO|\bQTY\b|UNIT\s+PRICE|Special\s+Conditions/gi, /\n\s*(ATTACHMENT\s+["'\u201C\u201D]?[B-Z]\b|EXHIBIT\s+[A-Z]\b|ARTICLE\s+\d+\b)/, 10000),
+      a3SectionStart8766('SCOPE OF WORK', /Scope\s+of\s+(?:the\s+)?(?:Subcontract\s+)?Work|ARTICLE\s+\d+\s*[-.:]?\s*SCOPE/, /work|perform|project|furnish/gi, A3_ART_END_8766, 5000),
+      a3SectionStart8766('SAFETY QUESTIONNAIRE', /Safety\s+Questionnaire/, /safety|EMR|OSHA|question/gi, /\n\s*(ATTACHMENT|ARTICLE|EXHIBIT)\b/, 4000)
+    ].filter(Boolean);
+    var secDefs8766 = a3ResolveSectionEnds8766(secStarts8766);
+    var coreHit8766 = secDefs8766.some(function(x){ return /INSURANCE|INDEMNIF|ATTACHMENT/.test(x.label); });
+    if (coreHit8766) {
+      secDefs8766.sort(function(a, b){ return a.start - b.start; });
+      var mergedSecs8766 = [];
+      secDefs8766.forEach(function(sec){
+        var last = mergedSecs8766[mergedSecs8766.length - 1];
+        if (last && sec.start <= last.end) { last.end = Math.max(last.end, sec.end); last.naturalEnd = Math.max(last.naturalEnd || last.end, sec.naturalEnd || sec.end); last.label += ' + ' + sec.label; last.trimmed = last.trimmed || sec.trimmed; }
+        else mergedSecs8766.push(sec);
+      });
+      // v8.7.166c (GPT finding 2, reproduced executed): sections claim the
+      // leftover budget BEFORE any support page is considered. Priority:
+      // insurance first, then attachment/work items, then indemnification;
+      // each grows only toward its own natural boundary, so a trimmed
+      // insurance article recovers its umbrella and endorsement tail
+      // instead of that budget going to generic support pages.
+      var headCount8766 = Math.min(2, pages.length);
+      var headBudget8766 = 0;
+      for (var hb8766 = 0; hb8766 < headCount8766; hb8766++) headBudget8766 += Math.min(String(pages[hb8766] || '').length, 5000) + 60;
+      var secTotal8766 = mergedSecs8766.reduce(function(a, x){ return a + (x.end - x.start) + 80; }, 0);
+      var leftover8766 = A3_MAX_CHARS_8759 - headBudget8766 - secTotal8766;
+      var prio8766 = ['INSURANCE', 'ATTACHMENT', 'INDEMNIF'];
+      var grew8766 = true;
+      while (leftover8766 > 800 && grew8766) {
+        grew8766 = false;
+        for (var pr8766 = 0; pr8766 < prio8766.length && leftover8766 > 800; pr8766++) {
+          for (var ms8766 = 0; ms8766 < mergedSecs8766.length && leftover8766 > 800; ms8766++) {
+            var gsec = mergedSecs8766[ms8766];
+            if (gsec.label.indexOf(prio8766[pr8766]) < 0) continue;
+            var groom = Math.min((gsec.naturalEnd || gsec.end) - gsec.end, leftover8766, 2000);
+            if (groom > 200) { gsec.end += groom; leftover8766 -= groom; grew8766 = true; if (gsec.end >= (gsec.naturalEnd || gsec.end)) gsec.trimmed = false; }
+          }
+        }
+      }
+      var parts8766 = [];
+      var used8766 = 0;
+      for (var hp8766 = 0; hp8766 < headCount8766; hp8766++) {
+        var hbody = String(pages[hp8766] || '');
+        if (hbody.length > 5000) hbody = hbody.slice(0, 5000) + '\n[head page clipped for A3 input cap]';
+        parts8766.push('=== PAGE ' + (hp8766 + 1) + ' OF ' + pages.length + ' · FOCUSED SUBCONTRACT INPUT ===\n\n' + hbody);
+        used8766 += hbody.length + 60;
+      }
+      mergedSecs8766.forEach(function(sec){
+        var body = fullDoc8766.slice(sec.start, sec.end);
+        if (sec.trimmed) body += '\n[section trimmed for A3 input cap]';
+        parts8766.push('=== SECTION: ' + sec.label + ' (pages ' + a3PageOfChar8766(sec.start) + '-' + a3PageOfChar8766(Math.max(sec.start, sec.end - 1)) + ') ===\n\n' + body);
+        used8766 += body.length + 80;
+      });
+      var coveredPages8766 = new Set([0, 1]);
+      mergedSecs8766.forEach(function(sec){ for (var cp8766 = a3PageOfChar8766(sec.start) - 1; cp8766 <= a3PageOfChar8766(Math.max(sec.start, sec.end - 1)) - 1; cp8766++) coveredPages8766.add(cp8766); });
+      for (var sp8766 = 2; sp8766 < pages.length && used8766 < A3_MAX_CHARS_8759 - 1200; sp8766++) {
+        if (coveredPages8766.has(sp8766)) continue;
+        var spBody = String(pages[sp8766] || '');
+        if (!A3_SUPPORT_RE_8759.test(spBody) && !A3_ANCHOR_RE_8759.test(spBody)) continue;
+        var room8766 = A3_MAX_CHARS_8759 - used8766 - 100;
+        if (spBody.length > Math.min(3000, room8766)) spBody = spBody.slice(0, Math.min(3000, room8766)) + '\n[page clipped for A3 input cap]';
+        parts8766.push('=== PAGE ' + (sp8766 + 1) + ' OF ' + pages.length + ' · SUPPORT ===\n\n' + spBody);
+        used8766 += spBody.length + 60;
+      }
+      var result8766 = parts8766.join('\n\n');
+      if (result8766.length > A3_MAX_CHARS_8759 + 2500) result8766 = result8766.slice(0, A3_MAX_CHARS_8759 + 2000) + '\n[A3 INPUT CAP REACHED]';
+      a3AuditKept8759(parts8766.length, pages.length, result8766.length, totalChars, 'section-range');
+      return result8766;
+    }
+    // v8.7.165 TYPE-RANKED SELECTION + IN-PAGE ANCHOR WINDOWS (GPT round-5
+    // findings, both reproduced executed on v8.7.164):
+    //   1) front-clipping an anchor page kept the PAGE but cut the CLAUSE:
+    //      with 18 anchors the fair clip fell to ~2.4k and Article 10
+    //      limits, the 11.1 indemnity wording, and work-item detail all
+    //      vanished from pages that were "preserved";
+    //   2) first-18-by-page-order selection let twenty early Special
+    //      Conditions riders evict Attachment A at page 90 before emit
+    //      even started.
+    // Selection now guarantees the FIRST page of each distinct anchor TYPE
+    // before filling with remaining anchor pages in page order; and when an
+    // anchor page must be clipped, the excerpt is built from merged windows
+    // AROUND the matched anchor and money/clause terms inside the page,
+    // never a blind head slice. Page indexes 0/1 only when they exist.
+    var anchorSet = new Set();
+    if (pages.length > 0) anchorSet.add(0);
+    if (pages.length > 1) anchorSet.add(1);
+    var supportList = [];
+    var pageStr8765 = [];
+    for (var i = 0; i < pages.length; i++) {
+      pageStr8765[i] = String(pages[i] || '');
+      if (A3_ANCHOR_RE_8759.test(pageStr8765[i])) anchorSet.add(i);
+      else if (i > 1 && A3_SUPPORT_RE_8759.test(pageStr8765[i])) supportList.push(i);
+    }
+    var A3_TYPE_RES_8765 = [
+      /Subcontractor\s+Checklist/i,
+      /Scope\s+of\s+(?:the\s+)?(?:Subcontract\s+)?Work/i,
+      /ARTICLE\s+\d+\s*[-.:]?\s*INSURANCE|MINIMUM\s+REQUIRED\s+INSURANCE/i,
+      /ARTICLE\s+\d+\s*[-.:]?\s*INDEMNIF/i,
+      /Attachment\s+A\b/i,
+      /Work\s+Items/i,
+      /Special\s+Conditions|Schedule\s+of\s+Work/i,
+      /Safety\s+Questionnaire/i
+    ];
+    var mustKeep8765 = new Set();
+    if (pages.length > 0) mustKeep8765.add(0);
+    if (pages.length > 1) mustKeep8765.add(1);
+    A3_TYPE_RES_8765.forEach(function(re){
+      for (var t = 0; t < pageStr8765.length; t++) { if (re.test(pageStr8765[t])) { mustKeep8765.add(t); break; } }
+    });
+    var anchors = Array.from(mustKeep8765);
+    Array.from(anchorSet).sort(function(a, b){ return a - b; }).forEach(function(idx){
+      if (anchors.length < A3_MAX_PAGES_8759 && anchors.indexOf(idx) < 0) anchors.push(idx);
+    });
+    anchors = anchors.sort(function(a, b){ return a - b; }).slice(0, A3_MAX_PAGES_8759);
+    var supports = [];
+    for (var si = 0; si < supportList.length && anchors.length + supports.length < A3_MAX_PAGES_8759; si++) {
+      if (anchors.indexOf(supportList[si]) < 0) supports.push(supportList[si]);
+    }
+    if (!anchors.length && !supports.length) return raw.slice(0, A3_MAX_CHARS_8759);
+    var headerOverhead8764 = 60;
+    var anchorClip8764 = Math.max(1200, Math.min(A3_PAGE_CLIP_8759, Math.floor((A3_MAX_CHARS_8759 * 0.75) / Math.max(1, anchors.length)) - headerOverhead8764));
+    var A3_WINDOW_TERMS_8765 = new RegExp(A3_ANCHOR_RE_8759.source + '|' + A3_SUPPORT_RE_8759.source + '|\\$\\s?[0-9][0-9,]*|INDEMNITY|hold\\s+harmless|LIMITS', 'gi');
+    function a3AnchorExcerpt8765(body, clipBudget) {
+      if (body.length <= clipBudget) return body;
+      var wins = [];
+      var mw;
+      A3_WINDOW_TERMS_8765.lastIndex = 0;
+      while ((mw = A3_WINDOW_TERMS_8765.exec(body)) !== null) {
+        wins.push([Math.max(0, mw.index - 800), Math.min(body.length, mw.index + 3200)]);
+        if (wins.length > 40) break;
+      }
+      if (!wins.length) return body.slice(0, clipBudget) + '\n[page clipped for A3 input cap]';
+      wins.sort(function(a, b){ return a[0] - b[0]; });
+      var merged = [];
+      wins.forEach(function(w){
+        var last = merged[merged.length - 1];
+        if (last && w[0] <= last[1] + 120) last[1] = Math.max(last[1], w[1]); else merged.push([w[0], w[1]]);
+      });
+      // v8.7.165b: share the clip budget ACROSS windows. The first cut of
+      // this function spent the whole budget on window one, so a deep
+      // Article 10/11 clause with its own window still vanished
+      // (reproduced executed). Each merged window now gets a fair share,
+      // and any leftover extends the final window forward.
+      var perWin8765 = Math.max(500, Math.floor(clipBudget / merged.length));
+      var parts = [];
+      var used = 0;
+      for (var k = 0; k < merged.length && used < clipBudget; k++) {
+        var segLimit = Math.min(merged[k][1] - merged[k][0], perWin8765, clipBudget - used);
+        var seg = body.slice(merged[k][0], merged[k][0] + segLimit);
+        parts.push(seg);
+        used += seg.length + 8;
+      }
+      var leftover8765 = clipBudget - used;
+      if (leftover8765 > 200 && merged.length) {
+        var lastW = merged[merged.length - 1];
+        var lastStart = lastW[0] + parts[parts.length - 1].length;
+        parts[parts.length - 1] += body.slice(lastStart, Math.min(body.length, lastStart + leftover8765));
+      }
+      return parts.join('\n[...]\n') + '\n[page excerpted around anchors for A3 input cap]';
+    }
+    var picked8764 = {};
+    var chars = 0;
+    var clippedAny8764 = false;
+    anchors.forEach(function(idx){
+      var body = pageStr8765[idx];
+      if (body.length > anchorClip8764) { body = a3AnchorExcerpt8765(body, anchorClip8764); clippedAny8764 = true; }
+      picked8764[idx] = body;
+      chars += body.length + headerOverhead8764;
+    });
+    var droppedSupport8764 = false;
+    for (var sj = 0; sj < supports.length; sj++) {
+      var sidx = supports[sj];
+      var srem = A3_MAX_CHARS_8759 - chars;
+      if (srem <= 600) { droppedSupport8764 = sj <= supports.length - 1; break; }
+      var sbody = String(pages[sidx] || '');
+      if (sbody.length + headerOverhead8764 > srem) { sbody = sbody.slice(0, Math.max(400, Math.min(A3_PAGE_CLIP_8759, srem - headerOverhead8764))) + '\n[page clipped for A3 input cap]'; clippedAny8764 = true; }
+      else if (sbody.length > A3_PAGE_CLIP_8759) { sbody = sbody.slice(0, A3_PAGE_CLIP_8759) + '\n[page clipped for A3 input cap]'; clippedAny8764 = true; }
+      picked8764[sidx] = sbody;
+      chars += sbody.length + headerOverhead8764;
+    }
+    var orderedIdx8764 = Object.keys(picked8764).map(Number).sort(function(a, b){ return a - b; });
+    var out = orderedIdx8764.map(function(idx){ return '=== PAGE ' + (idx + 1) + ' OF ' + pages.length + ' · FOCUSED SUBCONTRACT INPUT ===\n\n' + picked8764[idx]; });
+    var result = out.join('\n\n');
+    if (clippedAny8764 || droppedSupport8764) result += '\n\n[A3 INPUT CAP APPLIED · anchor pages preserved; remaining support pages clipped or omitted]';
+    a3AuditKept8759(out.length, pages.length, result.length, totalChars, 'tiered-pages');
+    return result;
   } catch (e) {
-    return fallbackText || (file && file.text) || '';
+    var safe = String(fallbackText || (file && file.text) || '');
+    return safe.length > A3_MAX_CHARS_8759 ? safe.slice(0, A3_MAX_CHARS_8759) : safe;
   }
 }
 if (typeof window !== 'undefined') {
@@ -7024,6 +7495,13 @@ function synthesizeNarrativeFromOcr_v8737(ocrText, moduleId, headerTitle, accoun
 window.applyPostWaveOcrRecovery_v8737 = applyPostWaveOcrRecovery_v8737;
 
 async function runModule(moduleId, systemPrompt, userContent, sourceInfo, context) {
+  // v8.7.162: spend circuit breaker checks BEFORE any state change or
+  // gate precheck spend. A blocked module writes no extraction, so the
+  // pending panel can still plan it later.
+  if (typeof spendPlanGate8762 === 'function' && !spendPlanGate8762(moduleId)) {
+    try { skipModule(moduleId, 'cost firewall'); } catch (_) { setNodeState(`[data-module="${moduleId}"]`, 'skipped', 'cost firewall'); }
+    return false;
+  }
   setNodeState(`[data-module="${moduleId}"]`, 'running');
   const t0 = Date.now();
   const moduleModel = MODULES[moduleId]?.model;  // per-module preference
@@ -7122,8 +7600,36 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       ? substitutePromptVars(systemPrompt, enrichedContext)
       : systemPrompt;
     let result;
+    // v8.7.160: extraction cache lookup. Placed after the applicant gate on
+    // purpose so gate semantics never change; keyed on the exact prompt and
+    // bounded input so correctness is by construction, not by policy.
+    let cacheKeyPending8760 = null;
+    if (cacheable8760(moduleId)) {
+      try {
+        // v8.7.164: mirror callLLM's exact model resolution (forceGlobal and
+        // admin-forced override) and fold the prompt-injection defense
+        // addendum into the hashed prompt, so the key reflects the request
+        // actually sent, never a nominal one.
+        const effectiveModel8764 = (STATE.api.forceGlobal || STATE.adminOverrideModel === 'forced') ? STATE.api.model : (moduleModel || STATE.api.model);
+        const promptForKey8764 = effectivePrompt + '\n' + (typeof PROMPT_INJECTION_DEFENSE === 'string' ? PROMPT_INJECTION_DEFENSE : '') + '\n#contract:' + (MODULE_CACHE_CONTRACT_8765[moduleId] || 'c1');
+        cacheKeyPending8760 = await cacheKey8760(moduleId, promptForKey8764, userContent, effectiveModel8764);
+        const cachedRow8760 = await extractionCacheGet8760(cacheKeyPending8760);
+        if (cachedRow8760 && cachedRow8760.payload && cachedRow8760.payload.text) {
+          result = {
+            text: String(cachedRow8760.payload.text),
+            usage: { input_tokens: 0, output_tokens: 0, model: effectiveModel8764 },
+            stop_reason: 'cached',
+            retry_attempt: 0,
+            fallback: !!cachedRow8760.payload.fallback,
+            cached8760: true,
+            cachedFrom8760: cachedRow8760.created_run || null
+          };
+          logAudit('Pipeline', 'CACHE HIT ' + ((MODULES[moduleId] && MODULES[moduleId].code) || moduleId) + ' · reused identical extraction' + (cachedRow8760.created_run ? ' from run ' + cachedRow8760.created_run : '') + ' · $0.00 (key ' + cacheKeyPending8760.slice(-12) + ')', 'info');
+        }
+      } catch (_) { /* cache is best-effort; fall through to live */ }
+    }
     try {
-      result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
+      if (!result) result = await callLLM(effectivePrompt, userContent, moduleModel, { maxTokens: moduleMaxTokens(moduleId, false) });
     } catch (err) {
       // v8.7.149: A8 has its own input-budget recovery. The v8.7.148
       // transcript reported the Guidelines button still failing, with the
@@ -7197,7 +7703,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
     // and coverage-checked. One corrective retry; if still short, the output
     // is kept but flagged review-required (groundingWarning8721) and audited.
     let extraUsage8721 = null;
-    if (moduleId === 'safety' && result && result.text) {
+    if (moduleId === 'safety' && result && result.text && !result.cached8760) {
       const gv = validateSafetyGrounding8721(result.text);
       if (!gv.ok) {
         logAudit('Pipeline', 'A5 safety_grounding ' + (gv.hasBlock ? 'under-anchored (' + gv.anchors + '/' + gv.expected + ')' : 'block MISSING') + ' — corrective retry', 'warn');
@@ -7267,6 +7773,8 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       retry_attempt: result.retry_attempt || 0,
       fallback: !!result.fallback,
       stop_reason: result.stop_reason || null,
+      cached8760: !!result.cached8760,
+      cachedFrom8760: result.cachedFrom8760 || null,
       a8_engine_qc_v8750: !!result.a8_engine_qc_v8750,
       a8_engine_qc_reason_v8750: result.a8_engine_qc_reason_v8750 || null,
       a8_deterministic_replacement_v8750: !!result.a8_deterministic_replacement_v8750,
@@ -7287,6 +7795,14 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       gateDetails: gateResult || null
     };
     if (result.groundingWarning8721) STATE.extractions[moduleId].groundingWarning8721 = result.groundingWarning8721;
+    // v8.7.160: store the final post-QC text so a future identical input
+    // replays this exact card for free. Never stores cached replays,
+    // fallbacks, or grounding-flagged output (degraded results retry live).
+    try {
+      if (cacheKeyPending8760 && !result.cached8760 && !result.fallback && !result.groundingWarning8721) {
+        extractionCachePut8760(cacheKeyPending8760, moduleId, (usage && usage.model) || moduleModel || STATE.api.model, { text: text, fallback: false }, STATE.pipelineRun || null);
+      }
+    } catch (_) {}
     if (moduleId === 'losses') {
       try {
         const lossJson98 = parseLossStructuredForArchive98(text);
@@ -7469,6 +7985,57 @@ function validateGlClasscodeOutput8790(trigger) {
   } catch (e) {
     logAudit('Pipeline', 'A7 class-code validation skipped: ' + (e && e.message), 'warn');
   }
+}
+
+// v8.7.162 SPEND CIRCUIT BREAKER. Runtime complement to the preflight
+// abort above the wave-1 dispatch: every legitimate flow declares the
+// plan the user just saw or confirmed (full run: routed wave-1 set plus
+// a synthesis ceiling; incremental: the preflighted directly-affected
+// set; confirmed refresh: the exact closure list), and runModule counts
+// attempts against it. Attempts beyond the plan pause ONCE for a user
+// decision: continue extends the allowance, decline halts all remaining
+// unplanned runs with zero further dialogs. Enforced only while
+// pipelineRunning, so a stale plan after a crash is inert, and every
+// begin overwrites. This would have caught every unplanned-cascade bug
+// in the v8.7.13x-15x arc at the first extra module.
+const SPEND_PLAN_MARGIN_FULLRUN_8762 = 8;
+function beginSpendPlan8762(source, plannedCount, margin) {
+  STATE.spendPlan8762 = { source: String(source || 'run'), allowed: Math.max(0, plannedCount | 0) + Math.max(0, margin | 0), attempted: 0, extra: 0, halted: false, at: Date.now() };
+}
+function endSpendPlan8762() { STATE.spendPlan8762 = null; }
+function spendPlanGate8762(moduleId) {
+  const p = STATE.spendPlan8762;
+  // v8.7.163: plan-scoped liveness. The v8.7.162 gate keyed on
+  // STATE.pipelineRunning, which only the full run and the guidelines
+  // button ever set, so the breaker was inert for incremental updates and
+  // Refresh All, the exact flows that motivated it (self-caught in the
+  // capstone audit). A plan is now live from begin to end, with a 10
+  // minute staleness expiry so a crashed flow can never wedge future runs.
+  if (!p) return true;
+  if (Date.now() - (p.at || 0) > 600000) { STATE.spendPlan8762 = null; return true; }
+  p.attempted += 1;
+  if (p.attempted <= p.allowed + p.extra) return true;
+  const code = (MODULES[moduleId] && MODULES[moduleId].code) || moduleId;
+  if (p.halted) {
+    logAudit('CostFirewall', 'cost firewall: skipped ' + code + ' (halted by user after unplanned cascade)', 'warn');
+    return false;
+  }
+  logAudit('CostFirewall', 'cost firewall stopped unplanned cascade: attempt ' + p.attempted + ' exceeds the plan of ' + (p.allowed + p.extra) + ' (' + p.source + ') at ' + code, 'error');
+  let ok = false;
+  try { ok = confirm('Cost firewall: this ' + p.source + ' planned ' + p.allowed + ' module runs but is attempting more (' + code + ' would be number ' + p.attempted + '). Continue and allow the extra runs?'); } catch (_) { ok = false; }
+  if (ok) {
+    p.extra += Math.max(5, p.attempted - p.allowed);
+    logAudit('CostFirewall', 'cost firewall override confirmed by user · allowance extended to ' + (p.allowed + p.extra), 'warn');
+    return true;
+  }
+  p.halted = true;
+  logAudit('CostFirewall', 'cost firewall halt confirmed by user · remaining unplanned module runs will be skipped', 'error');
+  return false;
+}
+if (typeof window !== 'undefined') {
+  window.beginSpendPlan8762 = beginSpendPlan8762;
+  window.endSpendPlan8762 = endSpendPlan8762;
+  window.spendPlanGate8762 = spendPlanGate8762;
 }
 
 function skipModule(moduleId, reason) {
@@ -8065,6 +8632,13 @@ async function runPipeline() {
     const validlyHandled = routed.length + intentionallySkipped.length;
     const handlingRatio = validlyHandled / classified.length;
 
+    // v8.7.162: declare the spend plan for this full run: the routed
+    // wave-1 set the user just approved, plus a fixed synthesis ceiling
+    // (A6/A15/A7/A8/A9/A10/A24 and one slack slot).
+    const plannedWave18762 = new Set();
+    routed.forEach(f => (f.routedToAll || []).forEach(mid => { if (MODULES[mid] && MODULES[mid].wave === 1) plannedWave18762.add(mid); }));
+    beginSpendPlan8762('full run', plannedWave18762.size, SPEND_PLAN_MARGIN_FULLRUN_8762);
+
     // The core check. If less than 50% of classified files have a valid
     // route OR are intentionally file-and-forget, the routing layer is
     // broken and we should NOT spend money on wave-1.
@@ -8445,6 +9019,7 @@ async function runPipeline() {
       toast('Pipeline error · ' + (pipelineErr && pipelineErr.message ? pipelineErr.message.slice(0, 80) : 'unknown'), 'error');
     }
   } finally {
+    endSpendPlan8762();  // v8.7.162
     // Always reset UI state regardless of how we got here. Without this
     // guard, an unexpected error mid-pipeline would leave the Run button
     // disabled, STATE.pipelineRunning = true, and the timer ticking

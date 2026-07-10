@@ -1809,3 +1809,25 @@ window.sbDeleteAllDocumentPages         = sbDeleteAllDocumentPages;
 window.sbDeleteDocumentPagesForSubmission = sbDeleteDocumentPagesForSubmission;
 window.sbCollectDocumentStoragePathsForSubmission = sbCollectDocumentStoragePathsForSubmission;
 window.sbDeleteStoragePaths = sbDeleteStoragePaths;
+
+// v8.7.160: extraction cache rows. Best-effort by design: any error
+// returns null/false and the engine falls back to the local ring.
+async function sbCacheGet8760(cacheKey) {
+  try {
+    const { data, error } = await window.sb.from('extraction_cache')
+      .select('payload, created_run, created_at').eq('cache_key', cacheKey).maybeSingle();
+    if (error || !data || !data.payload) return null;
+    return data;
+  } catch (_) { return null; }
+}
+async function sbCachePut8760(cacheKey, moduleId, model, promptHash, payload, createdRun) {
+  try {
+    const { error } = await window.sb.from('extraction_cache').upsert({
+      cache_key: cacheKey, module_id: moduleId, model: model || null,
+      prompt_hash: promptHash || null, payload: payload, created_run: createdRun || null
+    }, { onConflict: 'user_id,cache_key' });  // v8.7.164: composite per-user key
+    return !error;
+  } catch (_) { return false; }
+}
+window.sbCacheGet8760 = sbCacheGet8760;
+window.sbCachePut8760 = sbCachePut8760;

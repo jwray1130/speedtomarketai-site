@@ -4077,3 +4077,6 @@ body:not(.docs-fullwidth) main {
 .preflight-panel8733 .pf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .preflight-panel8733 .pf-btn { border-radius: 6px; padding: 9px 14px; font-weight: 700; font-size: 12.5px; cursor: pointer; border: 1px solid var(--line-warm, #2A3A56); background: transparent; color: var(--text-2); }
 .preflight-panel8733 .pf-btn.pf-run { background: var(--warning); color: #0B1D3A; border-color: var(--warning); }
+
+/* v8.7.160: extraction cache badge */
+.sc-mode-cached8760 { color: #4FD1C5; font-weight: 700; letter-spacing: 0.04em; }
