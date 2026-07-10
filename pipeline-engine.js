@@ -210,6 +210,59 @@ function filePermitsQuoteRoutes8741(f, labels) {
   } catch (_) {}
   return false;
 }
+
+// v8.7.157: quote labels inside support/application packets are not enough.
+// Prior stack builds treated an explicit label like "Lead $5M" or "Excess T&C"
+// as carrier-quote evidence even when the parent file was an ACORD or
+// subcontract agreement. That reopened the exact money-burn class the route
+// locks were supposed to close. For application/support files, a quote route
+// now needs carrier-quote evidence in the section text itself.
+function sectionTextForRouteProof8757(f, cl) {
+  try {
+    const pages = (f && (f.pageTexts || (f.extractMeta && f.extractMeta.pageTexts))) || [];
+    if (Array.isArray(pages) && pages.length && cl && cl.section_hint && typeof parseSectionHint === 'function') {
+      const range = parseSectionHint(cl.section_hint, pages.length);
+      const start = Math.max(1, range[0] || 1);
+      const end = Math.min(pages.length, range[1] || start);
+      return pages.slice(start - 1, end).join('\n');
+    }
+  } catch (_) {}
+  try { return String(f && f.text || ''); } catch (_) { return ''; }
+}
+function fileRequiresSectionQuoteProof8757(f, sections, labels) {
+  const nm = String(f && f.name || '');
+  const joinedLabels = (labels || []).join(' ');
+  const txt = String(f && f.text || '') || (Array.isArray(f && f.pageTexts) ? f.pageTexts.join('\n') : '');
+  if (fileHasApplicationSignal8740(f, sections || [], labels || [])) return true;
+  // v8.7.158: the free-text support probe was too greedy. Real carrier
+  // quotes routinely print "additional insured" and "waiver of
+  // subrogation" in their forms schedules, which flipped pure quote files
+  // into proof-required mode and rerouted premium-less T&C slices to
+  // supplemental (phantom A2 spend, reproduced executed). Quote-named
+  // files without an application signal never need per-section proof, and
+  // free TEXT counts only for the unambiguous support-document phrases;
+  // the broader phrase list still applies to the filename and labels.
+  if (/quote|binder|indication|proposal|renewal|declaration|\bdec\b/i.test(nm)) return false;
+  if (/subcontract|sub\s*agreement|vendor agreement|certificate of insurance|\bCOI\b|additional insured|waiver of subrogation|insurance requirements/i.test(nm + ' ' + joinedLabels)) return true;
+  return /subcontract|sub\s*agreement|vendor agreement|certificate of insurance/i.test(txt.slice(0, 12000));
+}
+function sectionHasCarrierQuoteEvidence8757(f, cl) {
+  const label = sectionLabel8739(cl);
+  const txt = sectionTextForRouteProof8757(f, cl);
+  const sample = String(txt || '').slice(0, 8000);
+  if (!sample.trim()) return false;
+  const strong = /\b(quote|quotation|binder|indication|proposal|subjectivit(?:y|ies)|underwritten by|carrier\s*:|naic\b|am best|total premium|premium\s*:?\s*\$|minimum premium|policy period\s*:?\s*\d{1,2}\/\d{1,2}\/\d{2,4}|quote\s*(?:no\.?|number))\b/i.test(sample);
+  const hasMoneyPremium = /\bpremium\b[\s\S]{0,80}\$\s*[0-9]/i.test(sample);
+  const isQuoteNamed = /\bquote\b|\bbinder\b|\bindication\b|\bproposal\b|\bquotation\b|\bdeclarations?\b|\bdec page\b/i.test(label);
+  const isLayerNamed = /t&c|\blead\s*\$|\sxs\s*\$|p\/o\s*\$/i.test(label);
+  if (isQuoteNamed && strong) return true;
+  if (isLayerNamed && (hasMoneyPremium || /\b(carrier\s*:|underwritten by|quote|proposal|binder|indication|subjectivit(?:y|ies))\b/i.test(sample))) return true;
+  return false;
+}
+if (typeof window !== 'undefined') {
+  window.sectionHasCarrierQuoteEvidence8757 = sectionHasCarrierQuoteEvidence8757;
+  window.fileRequiresSectionQuoteProof8757 = fileRequiresSectionQuoteProof8757;
+}
 // Stripped sections travel with their parent document: the dominant
 // application-family route among the file's sections (a sub agreement's
 // exhibit belongs in A3's input, an ACORD's GL pages in A2's).
@@ -236,6 +289,7 @@ function lockedSectionRoute8740(f, allSections, cl) {
   if (!QUOTE_ROUTES_8739.has(route)) return route;
   const sections = allSections || [];
   const labels = sections.map(sectionLabel8739);
+  if (fileRequiresSectionQuoteProof8757(f, sections, labels) && !sectionHasCarrierQuoteEvidence8757(f, cl)) return dominantAppRoute8741(f, sections);
   if (!filePermitsQuoteRoutes8741(f, labels)) return dominantAppRoute8741(f, sections);
   if (fileHasApplicationSignal8740(f, sections, labels) && !isExplicitQuoteLabel8739(sectionLabel8739(cl))) return dominantAppRoute8741(f, sections);
   return route;
@@ -2592,14 +2646,14 @@ async function rerunGuidelines() {
     // failure (runModule returns false and the backup restores), so this
     // path used to toast success while the A8 card sat in error. Inspect
     // the result and report what actually happened; runModule already
-    // wrote 'FAILED A8: <cause>' to the audit trail.
+    // wrote the failure or deterministic-QC reason to the audit trail.
     const g8748 = STATE.extractions['guidelines'];
     if (!g8748 || g8748.rerunFailed) {
-      logAudit('Pipeline', 'Guidelines re-run FAILED · see the FAILED A8 audit line above for the cause', 'error');
+      logAudit('Pipeline', 'Guidelines re-run FAILED · export Audit JSON for the A8 cause/fallback trail', 'error');
       toast('Guidelines re-run failed · Export Audit JSON now includes session/diagnostic state for troubleshooting', 'error');
-    } else if (g8748.fallback || g8748.a8_review_required_fallback_v8749) {
-      logAudit('Pipeline', 'Guidelines re-run completed with review-required fallback · no clean clearance should be inferred', 'warn');
-      toast('Guidelines fallback created · review required before relying on A8', 'warn');
+    } else if (g8748.fallback || g8748.review_required || g8748.a8_review_required_fallback_v8749 || g8748.deterministic_fallback_v8750 || g8748.a8_engine_qc_v8750) {
+      logAudit('Pipeline', 'Guidelines re-run completed with review-required A8 output · no clean clearance should be inferred', 'warn');
+      toast('Guidelines review required · A8 produced fallback/QC output', 'warn');
     } else {
       logAudit('Pipeline', 'Guidelines re-run complete · ' + modulesToRerun.length + ' modules refreshed', '—');
       toast('Guidelines refreshed · ' + modulesToRerun.length + ' module' + (modulesToRerun.length === 1 ? '' : 's') + ' updated');
@@ -6146,13 +6200,13 @@ function buildGuidelinesFallbackExtraction8711(sourceText, reason) {
     review_required: true,
     status: 'a8_fallback_after_truncation'
   };
-  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable — review required.</strong><p>'
+  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable. Review required.</strong><p>'
     + msg + '</p></div>\n\n```json guideline_conflicts_structured\n'
     + JSON.stringify(structured, null, 2) + '\n```';
 }
 
 
-// v8.7.149/v8.7.150 — A8 input-budget hardening and review-required fallback.
+// v8.7.149/v8.7.150 - A8 input-budget hardening and review-required fallback.
 // The live failure report for v8.7.148 named two likely causes: oversized
 // active guidelines and double-truncation. A8 now builds a bounded input for
 // initial and rerun paths, retries with an even smaller focused guideline on
@@ -6295,14 +6349,14 @@ function buildGuidelinesFailureFallback8749(sourceText, reason) {
     review_required: true,
     status: 'a8_review_required_fallback_v8749'
   };
-  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable — review required.</strong><p>'
+  return '<div class="guideline-output guideline-fallback-output"><strong>Guideline Cross-Ref unavailable. Review required.</strong><p>'
     + a8HtmlEscape8749(msg) + '</p><p><strong>Engine detail:</strong> '
     + a8HtmlEscape8749(r) + '</p></div>\n\n```json guideline_conflicts_structured\n'
     + JSON.stringify(structured, null, 2) + '\n```';
 }
 
 
-// v8.7.150 — deterministic A8 floor and QC addendum.
+// v8.7.150 - deterministic A8 floor and QC addendum.
 // A8 is expensive and high-impact; a model/proxy failure must not leave the
 // card blank or generic. This local pass uses the same active guideline text
 // and A6 summary to produce a conservative, review-required guideline card
@@ -6410,7 +6464,7 @@ function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
     a8Trigger8750(triggers,
       'Section 1.5 Attachment Point Strategy applicability',
       'All States',
-      a8GuidelineQuote8750(guideline, [/section\s*1\.5.*attachment point strategy/i, /attachment point strategy/i], 'Section 1.5 — Attachment Point Strategy'),
+      a8GuidelineQuote8750(guideline, [/section\s*1\.5.*attachment point strategy/i, /attachment point strategy/i], 'Section 1.5 - Attachment Point Strategy'),
       'Required Calculation',
       'The account needs an attachment-point calculation using hazard grade and size data. If payroll, revenue, total cost of work, or hazard grade is missing, UW must obtain it before treating the guideline review as complete.',
       'section_1_5');
@@ -6438,7 +6492,7 @@ function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
       'Work from heights, crane, scaffold, glazing, masonry, or steel exposure',
       'All States',
       a8GuidelineQuote8750(guideline, [/work from heights/i, /minimum \$5m ground up attachment point/i, /no tower cranes/i, /scaffolding.*ten stories/i], 'Given the inherent nature of the risk, Zurich E&S looks to ensure that we manage losses from activity performed at heights.'),
-      'Minimum Attachment / Adjacent Match — Verify',
+      'Minimum Attachment / Adjacent Match - Verify',
       'The operation appears to involve height, crane, scaffold, glazing, masonry, steel, or related jobsite exposure. UW must verify whether the work-from-heights guideline applies and whether a $5M ground-up attachment is required.',
       'heights');
   }
@@ -6474,7 +6528,7 @@ function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
       'Railroad or rail right-of-way work',
       'All States',
       a8GuidelineQuote8750(guideline, [/railroad protective liability/i, /railroads.*urban transit/i, /railways|metros|bus companies|operators of highways/i], 'Railroad Protective Liability'),
-      'Adjacent Match — Verify',
+      'Adjacent Match - Verify',
       'The submission references rail or work near railroad right-of-way. UW must verify whether this is only contractual endorsement/COI wording or an actual rail/railroad protective exposure.',
       'railroad');
   }
@@ -6483,7 +6537,7 @@ function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
       'Energy, solar, oil/gas, or power-generation related exposure',
       'All States',
       a8GuidelineQuote8750(guideline, [/energy related risks/i, /pipeline construction - oil/i, /pipeline construction - gas/i], 'Energy related risks or any risk that conflicts with Zurich\'s sustainability efforts'),
-      f.oilGasPipeline ? 'Head of UW Empowerment / Adjacent Match — Verify' : 'Adjacent Match — Verify',
+      f.oilGasPipeline ? 'Head of UW Empowerment / Adjacent Match - Verify' : 'Adjacent Match - Verify',
       'Energy or pipeline-adjacent exposure should be verified against the guideline before clearance. If it is incidental, document that conclusion; if operational, refer as required.',
       'energy');
   }
@@ -6497,14 +6551,14 @@ function a8BuildDeterministicData8750(sourceText, guidelineText, reason) {
     a8Trigger8750(triggers, 'Dam, reservoir, dike, levee, or revetment construction', 'All States', a8GuidelineQuote8750(guideline, [/dam or reservoir construction/i, /dike, levee or revetment construction/i], 'Dam or Reservoir Construction'), 'Prohibited', 'Dam/reservoir/levee-style construction appears in the prohibited construction list.', 'dam_levee');
   }
   if (f.tunneling) {
-    a8Trigger8750(triggers, 'Tunneling operations', 'All States', a8GuidelineQuote8750(guideline, [/tunneling/i], 'Tunneling through the use of tunnel boring machines with diameters of 5 meters or greater'), 'Prohibited / Adjacent Match — Verify', 'Tunneling exposure must be verified against the prohibited tunneling wording and tunnel-boring-machine threshold.', 'tunneling');
+    a8Trigger8750(triggers, 'Tunneling operations', 'All States', a8GuidelineQuote8750(guideline, [/tunneling/i], 'Tunneling through the use of tunnel boring machines with diameters of 5 meters or greater'), 'Prohibited / Adjacent Match - Verify', 'Tunneling exposure must be verified against the prohibited tunneling wording and tunnel-boring-machine threshold.', 'tunneling');
   }
   if (f.liftStation) {
     a8Trigger8750(triggers,
       'Lift station, pump station, wastewater, or water-treatment related work',
       'All States',
       a8GuidelineQuote8750(guideline, [/operation of water treatment facilities/i, /water treatment facilities/i], 'Operation of water treatment facilities by a construction or engineering company'),
-      'Adjacent Match — Verify',
+      'Adjacent Match - Verify',
       'Lift station or water/wastewater work may be construction-only or may involve operation of water-treatment facilities. UW must verify the scope before clearing.',
       'lift_station');
   }
@@ -6533,34 +6587,35 @@ function a8RenderTrigger8750(t) {
     + '**Explanation:** ' + t.explanation;
 }
 
-function a8BuildDeterministicOutput8750(sourceText, guidelineText, reason, addendumOnly) {
+function a8BuildDeterministicOutput8750(sourceText, guidelineText, reason, addendumOnly, triggerOverride) {
   const data = a8BuildDeterministicData8750(sourceText, guidelineText, reason);
   const triggers = data.triggers;
+  const triggerList8757 = Array.isArray(triggerOverride) ? triggerOverride : triggers;
   const clean = data.cleanItems.length ? data.cleanItems.join('; ') : 'None identified from deterministic review; all recognized items were listed above as triggers or require review.';
-  const referral = triggers.filter(function(t){ return /Referral|Empowerment|Adjacent Match|Review/i.test(t.severity); });
-  const prohibited = triggers.filter(function(t){ return /Prohibited/i.test(t.severity); });
-  const minAttach = triggers.filter(function(t){ return /Minimum Attachment|Required Calculation/i.test(t.severity) || /Attachment Point/i.test(t.operational_detail); });
+  const referral = triggerList8757.filter(function(t){ return /Referral|Empowerment|Adjacent Match|Review/i.test(t.severity); });
+  const prohibited = triggerList8757.filter(function(t){ return /Prohibited/i.test(t.severity); });
+  const minAttach = triggerList8757.filter(function(t){ return /Minimum Attachment|Required Calculation/i.test(t.severity) || /Attachment Point/i.test(t.operational_detail); });
   const lines = [];
   if (addendumOnly) {
-    lines.push('\n\n---\n\n**Engine QC Addendum — deterministic guideline triggers added by v8.7.150:**');
+    lines.push('\n\n---\n\n**Engine QC Addendum - deterministic guideline triggers added by v8.7.150:**');
   } else {
-    lines.push('<div class="guideline-output guideline-deterministic-output"><strong>Guideline Cross-Ref completed with deterministic engine QC — review required.</strong><p>A8 produced a conservative guideline review from the active guideline text and A6 Summary of Operations. This is used when the live model output is unavailable, malformed, or misses hard deterministic triggers.</p></div>\n');
+    lines.push('<div class="guideline-output guideline-deterministic-output"><strong>Guideline Cross-Ref completed with deterministic engine QC - review required.</strong><p>A8 produced a conservative guideline review from the active guideline text and A6 Summary of Operations. This is used when the live model output is unavailable, malformed, or misses hard deterministic triggers.</p></div>\n');
   }
   if (data.reason) lines.push('**Engine Detail:** ' + data.reason);
-  if (triggers.length) {
-    triggers.forEach(function(t){ lines.push(a8RenderTrigger8750(t)); });
+  if (triggerList8757.length) {
+    triggerList8757.forEach(function(t){ lines.push(a8RenderTrigger8750(t)); });
   } else {
     lines.push('No deterministic guideline triggers were identified. Review required if the source summary is incomplete.');
   }
   lines.push('**Clean Items (no underwriter action required):**\n' + clean);
-  lines.push('**Referral Triggers:**\n' + (referral.length ? referral.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.severity; }).join('\n') : '- None identified'));
-  lines.push('**Prohibited Exposures:**\n' + (prohibited.length ? prohibited.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.guideline_conflict; }).join('\n') : '- None identified'));
-  lines.push('**Minimum Attachment Requirements:**\n' + (minAttach.length ? minAttach.map(function(t){ return '- ' + t.operational_detail + ' — ' + t.guideline_conflict; }).join('\n') : '- None applicable'));
+  lines.push('**Referral Triggers:**\n' + (referral.length ? referral.map(function(t){ return '- ' + t.operational_detail + ' - ' + t.severity; }).join('\n') : '- None identified'));
+  lines.push('**Prohibited Exposures:**\n' + (prohibited.length ? prohibited.map(function(t){ return '- ' + t.operational_detail + ' - ' + t.guideline_conflict; }).join('\n') : '- None identified'));
+  lines.push('**Minimum Attachment Requirements:**\n' + (minAttach.length ? minAttach.map(function(t){ return '- ' + t.operational_detail + ' - ' + t.guideline_conflict; }).join('\n') : '- None applicable'));
   lines.push('**Source Narrative Operational Details and Listed Products & Services (verbatim):**\n' + a8ClipMiddle8749(data.summary, 5000, 'A6 Summary of Operations'));
-  lines.push('**Checklist — Did Every Item Appear in the Analysis or Clean List?**\n' + (data.reviewedItems.length ? data.reviewedItems.map(function(item){ return '✔ ' + item + ' — appeared as a Trigger above, OR appeared in the Clean Items list'; }).join('\n') : '✔ A6 Summary reviewed; no discrete item list could be parsed.'));
+  lines.push('**Checklist - Did Every Item Appear in the Analysis or Clean List?**\n' + (data.reviewedItems.length ? data.reviewedItems.map(function(item){ return '✔ ' + item + ' - appeared as a Trigger above, OR appeared in the Clean Items list'; }).join('\n') : '✔ A6 Summary reviewed; no discrete item list could be parsed.'));
   const structured = {
     guideline_conflicts_text: 'A8 deterministic engine QC output. Review required before binding.',
-    guideline_conflicts: triggers.map(function(t){ return {
+    guideline_conflicts: triggerList8757.map(function(t){ return {
       operational_detail: t.operational_detail,
       states: t.states,
       guideline_conflict: t.guideline_conflict,
@@ -6610,7 +6665,8 @@ function a8EnsureGuidelinesOutput8750(text, sourceText, guidelineText) {
   });
   if (!missing.length) return { text: raw, replaced: false, appended: false, reason: null, triggerCount: deterministic.data.triggers.length };
   const subset = Object.assign({}, deterministic.data, { triggers: missing });
-  const add = a8BuildDeterministicOutput8750(sourceText, guidelineText, 'Engine QC found deterministic triggers missing from the live A8 output.', true).text;
+  void subset;
+  const add = a8BuildDeterministicOutput8750(sourceText, guidelineText, 'Engine QC found deterministic triggers missing from the live A8 output.', true, missing).text;
   return {
     text: raw + add,
     replaced: false,
@@ -6621,7 +6677,7 @@ function a8EnsureGuidelinesOutput8750(text, sourceText, guidelineText) {
 }
 
 
-// v8.7.150 — A8 fallback result wrapper. The deterministic floor above
+// v8.7.150 - A8 fallback result wrapper. The deterministic floor above
 // produces a full Guideline Cross-Ref section with required headers, a
 // structured JSON block, and review-required flags. This wrapper keeps the
 // runModule failure paths compact and consistent.
@@ -7133,7 +7189,7 @@ async function runModule(moduleId, systemPrompt, userContent, sourceInfo, contex
       }
     }
     if (moduleId === 'guidelines' && result && result.text && !isGuidelinesOutputUsable8750(result.text)) {
-      logAudit('Pipeline', 'A8 output failed required Guidelines section contract — using deterministic review-required fallback', 'warn');
+      logAudit('Pipeline', 'A8 output failed required Guidelines section contract - using deterministic review-required fallback', 'warn');
       result = a8FallbackResult8750(userContent, 'A8 response omitted required Referral/Prohibited/Minimum Attachment sections', 'fallback_after_a8_invalid_output', (result && result.usage) || { input_tokens: 0, output_tokens: 0, model: moduleModel || STATE.api.model }, (result && result.retry_attempt) || 0);
     }
     // v8.7.121: deterministic safety_grounding enforcement. The prompt's

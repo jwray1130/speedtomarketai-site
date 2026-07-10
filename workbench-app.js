@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.155-support-only-direct-run-2026-07-09';
+window.STM_BUILD = 'v8.7.158-route-proof-verified-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
