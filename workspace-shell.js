@@ -3,7 +3,7 @@
   'use strict';
   const root = document.documentElement;
   if (!root.dataset.workspace) return;
-  window.STM_UI_BUILD = 'workspace-2026.09.08.3';
+  window.STM_UI_BUILD = 'workspace-2026.09.08.4';
   const isWorkbench = root.dataset.workspace === 'workbench';
   const validTheme = value => value === 'light' || value === 'dark';
   function savedTheme() { try { return localStorage.getItem('stm-theme'); } catch (_) { return null; } }
@@ -92,6 +92,8 @@
     for(const [id,label] of Object.entries({webNameInput:'Insured business name',webZipInput:'ZIP code or city',webUrlInput:'Insured website address',searchInput:'Search documents'}))$(id)?.setAttribute('aria-label',label);
     for(const id of ['authError','authSuccess','stmAuthError','stmAuthSuccess'])$(id)?.setAttribute('aria-live',id.endsWith('Error')?'assertive':'polite');
     let queueFilter='all',selectedModule=null,selectedContext=null,blueprintBuilt=false,indexSignature='',sourceContext;
+    function selectMapWave(wave){root.dataset.mapWave=String(wave);document.querySelectorAll('[data-map-wave]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mapWave===String(wave))));}
+    document.querySelectorAll('[data-map-wave]').forEach(button=>button.addEventListener('click',()=>selectMapWave(button.dataset.mapWave)));
     const filterStatuses={review:'AWAITING UW REVIEW',progress:'IN PROGRESS',bound:'BOUND'};
     function filterQueue(){
       if(!$('wsQueueSearch'))return;
@@ -103,16 +105,15 @@
     }
     $('wsQueueSearch')?.addEventListener('input',filterQueue);
     document.querySelectorAll('[data-queue-filter]').forEach(button=>button.addEventListener('click',()=>{queueFilter=button.dataset.queueFilter;document.querySelectorAll('[data-queue-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));filterQueue();}));
-    $('wsSourcesToggle')?.addEventListener('click',()=>{
-      const compact=innerWidth<=850;
-      const open=compact?document.body.classList.toggle('ws-sources-open'):!document.body.classList.toggle('ws-sources-collapsed');
-      $('wsSourcesToggle').setAttribute('aria-expanded',String(open));
-    });
-    function inspectorOpen(open){document.body.classList.toggle('ws-inspector-open',open);$('wsInspectorToggle')?.setAttribute('aria-expanded',String(open));}
-    $('wsInspectorToggle')?.addEventListener('click',()=>inspectorOpen(!document.body.classList.contains('ws-inspector-open')));
+    function sourcesOpen(open){document.body.classList.toggle('ws-sources-open',open);document.body.classList.toggle('ws-sources-collapsed',!open);$('wsSourcesToggle')?.setAttribute('aria-expanded',String(open));}
+    $('wsSourcesToggle')?.addEventListener('click',()=>{const open=!document.body.classList.contains('ws-sources-open');sourcesOpen(open);if(open&&$('wsSourcesToggle')?.dataset.pending==='true')requestAnimationFrame(()=>$('pendingDock8747')?.scrollIntoView({block:'nearest'}));});
+    const sourceHeading=document.querySelector('.ws-source-pane .pane-head');
+    if(sourceHeading){const close=document.createElement('button');close.type='button';close.className='ws-source-close';close.setAttribute('aria-label','Close source intake');close.textContent='×';close.addEventListener('click',()=>{sourcesOpen(false);$('wsSourcesToggle')?.focus();});sourceHeading.append(close);}
+    function inspectorOpen(open){document.body.classList.toggle('ws-inspector-open',open);$('wsInspectorToggle')?.setAttribute('aria-expanded',String(open));setText('wsDrawerTitle',selectedModule?'Result detail':'Account tools');}
+    $('wsInspectorToggle')?.addEventListener('click',()=>{if(selectedModule){closeInspector();inspectorOpen(true);}else inspectorOpen(!document.body.classList.contains('ws-inspector-open'));});
     function closeInspector(){selectedModule=null;if($('wsModuleInspector'))$('wsModuleInspector').hidden=true;inspectorOpen(false);document.querySelectorAll('.ws-selected,.ws-upstream').forEach(n=>n.classList.remove('ws-selected','ws-upstream'));document.querySelectorAll('.ws-network-edges').forEach(n=>n.remove());}
     $('wsInspectorClose')?.addEventListener('click',closeInspector);
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('ws-inspector-open')){closeInspector();$('wsInspectorToggle')?.focus();}});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('ws-inspector-open')){closeInspector();$('wsInspectorToggle')?.focus();}else if(e.key==='Escape'&&document.body.classList.contains('ws-sources-open')){sourcesOpen(false);$('wsSourcesToggle')?.focus();}});
     function moduleStatus(id,live){
       const state=window.STATE||{},ex=state.extractions?.[id];
       const node=[...document.querySelectorAll('#pipelineFlow .pipe-node[data-module]')].find(n=>n.dataset.module===id);
@@ -139,7 +140,7 @@
     }
     document.addEventListener('click',e=>{
       const node=e.target.closest?.('.pipe-node[data-module],.pipe-node[data-inspect-module]');if(!node)return;
-      selectedModule=node.dataset.module||node.dataset.inspectModule;selectedContext=window.STATE?.activeSubmissionId;inspectorOpen(true);refreshInspector(!!window.STATE?.pipelineRunning);drawDependencies();
+      selectedModule=node.dataset.module||node.dataset.inspectModule;selectedContext=window.STATE?.activeSubmissionId;inspectorOpen(true);refreshInspector(!!window.STATE?.pipelineRunning);drawDependencies();$('wsInspectorClose')?.focus();
     });
     document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('.pipe-node[data-module],.pipe-node[data-inspect-module]')){e.preventDefault();e.target.click();}});
     $('wsReviewModule')?.addEventListener('click',()=>{
@@ -151,10 +152,12 @@
     function blueprint(){
       const host=$('wsBlueprint');if(!host||blueprintBuilt||!Object.keys(window.MODULES||{}).length)return;blueprintBuilt=true;
       for(const [wave,title,caption]of[[0,'Classify','Document routing'],[1,'Extract','Source intelligence'],[2,'Synthesize','Account context'],[3,'Analyze','Underwriting insight']]){
-        const lane=document.createElement('section');lane.className='pipe-stage';const head=document.createElement('div');head.className='pipe-stage-label';head.textContent='0'+(wave+1)+' / '+title;const description=document.createElement('em');description.textContent=caption;head.append(description);lane.append(head);
+        const lane=document.createElement('section');lane.className='pipe-stage';lane.dataset.wave=String(wave);const head=document.createElement('div');head.className='pipe-stage-label';head.textContent='0'+(wave+1)+' / '+title;const description=document.createElement('em');description.textContent=caption;head.append(description);lane.append(head);
         const nodes=document.createElement('div');nodes.className='pipe-nodes';if(wave===1)nodes.style.gridTemplateColumns='repeat(2,minmax(0,1fr))';
         const modules=wave===0?[['classifier',{code:'CLS',name:'Document routing'}]]:Object.entries(window.MODULES).filter(([id,m])=>m.wave===wave);
-        for(const [id,m]of modules){const node=document.createElement('div');node.className='pipe-node';if(id!=='classifier')node.dataset.inspectModule=id;const h=document.createElement('div');h.className='pipe-node-head';const code=document.createElement('span');code.className='pipe-node-tag';code.textContent=m.code;const status=document.createElement('span');status.className='pipe-node-status';status.textContent='PLANNED';h.append(code,status);const name=document.createElement('div');name.className='pipe-node-name';name.textContent=m.name;node.append(h,name);nodes.append(node);}
+        for(const [id,m]of modules){const node=document.createElement('div');node.className='pipe-node';if(id!=='classifier')node.dataset.inspectModule=id;const h=document.createElement('div');h.className='pipe-node-head';const code=document.createElement('span');code.className='pipe-node-tag';code.textContent=m.code;const status=document.createElement('span');status.className='pipe-node-status';status.textContent='PLANNED';h.append(code,status);const name=document.createElement('div');name.className='pipe-node-name';name.textContent=m.name;node.append(h,name);
+          if(wave===2){const detail=document.createElement('p');detail.className='ws-node-description';detail.textContent=id==='summary-ops'?'Operations, controls and business context.':'Underlying policies and the excess structure.';node.append(detail);}
+          nodes.append(node);}
         lane.append(nodes);host.append(lane);
       }
     }
@@ -173,22 +176,25 @@
       const boards=[$('pipelineFlow'),$('wsBlueprint')].filter(Boolean);
       for(const board of boards){
         const previous=board.querySelector('.ws-network-edges');
-        if(!selectedModule||!board.getBoundingClientRect?.().width){previous?.remove();continue;}
+        if(!board.getBoundingClientRect?.().width){previous?.remove();continue;}
         const nodes=[...board.querySelectorAll('[data-module],[data-inspect-module]')];
-        const target=nodes.find(n=>(n.dataset.module||n.dataset.inspectModule)===selectedModule);if(!target){previous?.remove();continue;}
-        const m=window.MODULES[selectedModule],rect=board.getBoundingClientRect(),targetRect=target.getBoundingClientRect();
+        const rect=board.getBoundingClientRect();
         const paths=[];
-        for(const id of [...(m.deps||[]),...(m.optionalDeps||[])]){
-          const source=nodes.find(n=>(n.dataset.module||n.dataset.inspectModule)===id);if(!source)continue;const r=source.getBoundingClientRect();
-          const x1=r.right-rect.left+2,y1=r.top-rect.top+r.height/2,x2=targetRect.left-rect.left-2,y2=targetRect.top-rect.top+targetRect.height/2;
-          const dx=Math.max(16,(x2-x1)*.48);paths.push({d:`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`,support:!(m.deps||[]).includes(id)});
+        const targets=selectedModule?nodes.filter(n=>(n.dataset.module||n.dataset.inspectModule)===selectedModule):nodes.filter(n=>window.MODULES[n.dataset.module||n.dataset.inspectModule]?.wave>=2);
+        for(const target of targets){
+          const m=window.MODULES[target.dataset.module||target.dataset.inspectModule],targetRect=target.getBoundingClientRect();if(!m)continue;
+          for(const id of [...(m.deps||[]),...(selectedModule?m.optionalDeps||[]:[])]){
+            const source=nodes.find(n=>(n.dataset.module||n.dataset.inspectModule)===id);if(!source)continue;const r=source.getBoundingClientRect();
+            const x1=r.right-rect.left,y1=r.top-rect.top+r.height/2,x2=targetRect.left-rect.left,y2=targetRect.top-rect.top+targetRect.height/2;
+            const dx=Math.max(24,(x2-x1)*.52);paths.push({d:`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`,support:!(m.deps||[]).includes(id)});
+          }
         }
         const signature=JSON.stringify(paths);if(previous?.dataset.signature===signature)continue;previous?.remove();
-        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ws-network-edges');svg.dataset.signature=signature;svg.setAttribute('aria-hidden','true');svg.setAttribute('width',String(board.scrollWidth));svg.setAttribute('height',String(board.scrollHeight));
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ws-network-edges');svg.dataset.signature=signature;svg.dataset.focused=String(!!selectedModule);svg.setAttribute('aria-hidden','true');svg.setAttribute('width',String(board.scrollWidth));svg.setAttribute('height',String(board.scrollHeight));
         for(const item of paths){const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',item.d);path.setAttribute('class',item.support?'supporting':'core');svg.append(path);}board.append(svg);
       }
     }
-    window.addEventListener('resize',()=>{if(selectedModule)requestAnimationFrame(drawDependencies);});
+    window.addEventListener('resize',()=>requestAnimationFrame(drawDependencies));
     function summaryIndex(){
       const index=$('wsSummaryIndex');if(!index)return;
       const cards=[...document.querySelectorAll('#summaryCards .sc-card[data-mid]')];
@@ -201,14 +207,14 @@
       const active=isWorkbench?'workbench':document.body.classList.contains('docs-fullwidth')?'documents':$('view-admin')?.classList.contains('active')?'admin':$('view-submission')?.classList.contains('active')?'submission':'queue';
       const previous=root.dataset.activeSystem;
       root.dataset.activeSystem=active;
-      $('wsSourcesToggle')?.setAttribute('aria-expanded',String(innerWidth<=850?document.body.classList.contains('ws-sources-open'):!document.body.classList.contains('ws-sources-collapsed')));
+      $('wsSourcesToggle')?.setAttribute('aria-expanded',String(document.body.classList.contains('ws-sources-open')));
       if(previous&&previous!==active){const main=$('wsMain');if(main)main.scrollTop=0;closeInspector();}
       if($('wsMain'))$('wsMain').inert=active==='documents';
       nav.querySelectorAll('[data-system-target]').forEach(item=>{const selected=item.dataset.systemTarget===active;item.classList.toggle('active',selected);if(selected)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current');});
       const title=isWorkbench?$('heroInsuredName')?.textContent:$('sh-name')?.textContent;
       const state=window.STATE;
       const contextKey=String(state?.activeSubmissionId||'draft');
-      if(sourceContext!==contextKey){sourceContext=contextKey;if(innerWidth>850&&document.body.classList.contains('ws-sources-collapsed')!==!!state?.pipelineDone)document.body.classList.toggle('ws-sources-collapsed',!!state?.pipelineDone);}
+      if(sourceContext!==contextKey){sourceContext=contextKey;sourcesOpen(!(state?.pipelineDone||state?.pipelineRunning));selectMapWave(state?.pipelineDone?3:1);}
       root.dataset.analysisComplete=String(!!state?.pipelineDone);
       const hasContext=isWorkbench||state?.activeSubmissionId||state?.newSubmissionDraftMode||state?.files?.length;
       setText('wsContextName',hasContext&&title?title:'No submission selected');
@@ -222,10 +228,11 @@
       }
       const nodes=[...document.querySelectorAll('#pipelineFlow [data-module].pipe-node')];
       const moduleIds=Object.keys(window.MODULES||{});
+      for(const wave of [1,2,3])setText('wsWave'+wave+'Count',moduleIds.filter(id=>window.MODULES[id].wave===wave).length);
       const total=moduleIds.length||24;
       const running=!!state?.pipelineRunning;
       // Old nodes stay mounted after account changes; current STATE owns the readout.
-      if(running&&state?.pipelineRun)observedRun=state.pipelineRun;
+      if(running&&state?.pipelineRun&&observedRun!==state.pipelineRun){observedRun=state.pipelineRun;sourcesOpen(false);}
       const liveNodes=!!(state?.pipelineRun&&state.pipelineRun===observedRun);
       const extractions=state?.extractions||{};
       const done=moduleIds.filter(id=>extractions[id]&&String(extractions[id].text||'').trim()).length;
@@ -249,20 +256,25 @@
         if(row.dataset.wsAccessible)return;row.dataset.wsAccessible='true';row.tabIndex=0;row.setAttribute('aria-label','Open submission: '+(row.querySelector('.acct-name')?.textContent||'Account').replace(/ACTIVE|×/g,'').trim());row.addEventListener('keydown',e=>{if(e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();row.click();}});
       });
       blueprint();storedBoard(liveNodes);summaryIndex();filterQueue();
+      for(const [id,wave] of [['stageClassifier',0],['wave1',1],['wave2',2],['wave3',3]]){const lane=$(id)?.closest('.pipe-stage');if(lane)lane.dataset.wave=String(wave);}
+      const dock=$('pendingDock8747'),pending=!!dock&&(dock.classList.contains('pd-pending')||!!dock.querySelector('.sb-a8'))&&dock.style.display!=='none';
+      if($('wsSourcesToggle')){$('wsSourcesToggle').dataset.pending=String(pending);setText('wsSourcesToggle',pending?'Sources · refresh pending':'Sources');}
+      setText('wsMapAvailability',done+' of '+total+' outputs available'+(errors?' · '+errors+' need review':'')+(pending?' · Refresh pending':''));
       if($('wsBlueprint')){
         $('wsBlueprint').setAttribute('aria-label',state?.pipelineDone?'Stored analysis modules':'Planned analysis modules');
         const classifier=$('wsBlueprint').querySelector('.pipe-stage:first-child .pipe-node-status');if(classifier)classifier.textContent=state?.pipelineDone?'INTAKE':'PLANNED';
       }
-      document.querySelectorAll('.pipe-node[data-module],.pipe-node[data-inspect-module]').forEach(node=>{if(!node.hasAttribute?.('tabindex')){const id=node.dataset.module||node.dataset.inspectModule;node.tabIndex=0;node.setAttribute('role','button');node.setAttribute('aria-label','Inspect '+(window.MODULES?.[id]?.name||id));}});
+      document.querySelectorAll('.pipe-node[data-module],.pipe-node[data-inspect-module]').forEach(node=>{const id=node.dataset.module||node.dataset.inspectModule,status=moduleStatus(id,liveNodes),label=({done:'Output available',warn:'Review required',error:'Analysis failed',running:'Analysis in progress',skipped:'Skipped',unavailable:'No stored output',planned:'Awaiting analysis'})[status]||status;node.tabIndex=0;node.setAttribute('role','button');node.setAttribute('aria-label','Inspect '+(window.MODULES?.[id]?.name||id)+' — '+label);node.setAttribute('title',(window.MODULES?.[id]?.name||id)+': '+label);});
       if(selectedModule&&selectedContext!==state?.activeSubmissionId)closeInspector();
       refreshInspector(liveNodes);
-      if(selectedModule)drawDependencies();
+      drawDependencies();
     }
     function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(sync);}}
     const watcher=new MutationObserver(schedule);
     watcher.observe(document.body,{attributes:true,attributeFilter:['class']});
     for(const id of ['view-queue','view-submission','view-admin']){const el=$(id);if(el)watcher.observe(el,{attributes:true,attributeFilter:['class']});}
     for(const id of ['sh-name','sh-meta','queueBody','heroInsuredName','fileList','pipelineFlow','summaryCards']){const el=$(id);if(el)watcher.observe(el,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class']});}
+    if($('pendingDock8747'))watcher.observe($('pendingDock8747'),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class','style']});
     document.addEventListener('change',schedule);window.addEventListener('hashchange',schedule);
     nav.addEventListener('click',()=>{const main=$('wsMain');if(main)main.scrollTop=0;},true);
     applyTheme(theme,false);sync();
