@@ -85,12 +85,12 @@
     overlay.style.cssText = 'position:fixed;inset:0;background:#0a0a0c;z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;';
     overlay.className = "ws-auth-overlay";
     overlay.innerHTML = `<div class="ws-auth-story">
-  <a class="ws-brand" href="/platform"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
-  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">BUILT AROUND THE UNDERWRITER</div><h1>From submission.<br>To decision.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
+  <a class="ws-brand" href="/"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
+  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>The art of<br><em>better decisions.</em></h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
   <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
   <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
  </div>
- <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">YOUR WORKSPACE AWAITS</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
+ <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">UNDERWRITING WORKSPACE</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
  <label for="stmAuthEmail">Work email</label><input id="stmAuthEmail" type="email" placeholder="you@company.com" autocomplete="email" inputmode="email" required aria-describedby="stmAuthError stmAuthSuccess">
  <button id="stmAuthSendBtn" type="button">Send sign-in link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
  <div id="stmAuthError" role="alert"></div><div id="stmAuthSuccess" role="status" aria-live="polite"></div>

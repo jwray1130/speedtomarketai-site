@@ -8,9 +8,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Speed to Market AI · Platform</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght,ital@14..32,100..900,0..1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -89,8 +89,8 @@
 <link rel="stylesheet" href="pipeline-documents-view.css?v=8.7.167-a3-attachment-cache-contract-2026-07-09">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.1">
-<script src="workspace-shell.js?v=2026.09.08.1" defer></script>
+<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.2">
+<script src="workspace-shell.js?v=2026.09.08.2"></script>
 </head>
 <body>
 
@@ -103,12 +103,12 @@
      navy so it's consistent with the Carbon dark mode in the app.
      ============ -->
 <div id="authOverlay" class="ws-auth-overlay"><div class="ws-auth-story">
-  <a class="ws-brand" href="/platform"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
-  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">BUILT AROUND THE UNDERWRITER</div><h1>From submission.<br>To decision.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
+  <a class="ws-brand" href="/"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
+  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>The art of<br><em>better decisions.</em></h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
   <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
   <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
  </div>
- <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">YOUR WORKSPACE AWAITS</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
+ <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">UNDERWRITING WORKSPACE</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
  <label for="authEmail">Work email</label><input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email" inputmode="email" required aria-describedby="authError authSuccess">
  <button id="authSendBtn" type="button">Send sign-in link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
  <div id="authError" role="alert"></div><div id="authSuccess" role="status" aria-live="polite"></div>
@@ -116,15 +116,8 @@
  </div><span class="ws-auth-form-footer">Speed to Market AI · Underwriting operations</span></div></div>
 
 <a class="ws-skip" href="#wsMain">Skip to workspace</a>
-<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation">
- <a class="ws-brand" href="/platform#queue" aria-label="Speed to Market AI — Queue"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
- <div class="ws-workspace"><span class="ws-workspace-mark">S</span><span>Commercial insurance<small>Underwriting operations</small></span></div>
- <div class="ws-nav-label">WORKSPACE</div>
- <nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item active" data-system-target="queue" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item" data-system-target="workbench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav>
- <div class="ws-context"><span class="ws-context-label">CURRENT SUBMISSION</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div>
- <div class="ws-rail-footer"><div id="wsBuildSlot"></div><div id="wsUserSlot"></div><div class="ws-footer-caption"><span></span>Speed to Market AI</div></div>
-</aside>
-<button class="ws-rail-dismiss" type="button" aria-label="Close workspace navigation" tabindex="-1"></button>
+<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item active" data-system-target="queue" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item" data-system-target="workbench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav><div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div></aside>
+
 <!-- ============ TOP BAR ============ -->
 <div class="topbar ws-topbar">
   <div style="display: flex; align-items: center; gap: 22px;">
@@ -188,8 +181,8 @@
 <section class="view active" id="view-queue">
   <div class="page-head">
     <div class="page-eyebrow">SUBMISSION OPERATIONS</div>
-    <h1 class="page-title">Submission queue</h1>
-    <p class="page-sub">Every account. Every next step. One place to keep work moving.</p>
+    <h1 class="page-title">Submission <em>queue.</em></h1>
+    <p class="page-sub">A clear view of every account, from first submission to final decision.</p>
     <div style="margin-top: 18px;">
       <button class="btn btn-primary" onclick="startNewSubmission()" style="padding: 9px 18px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600;">
         <span style="margin-right: 6px; font-size: 14px;">+</span> New Submission
@@ -198,30 +191,14 @@
   </div>
 
   <div class="kpi-strip">
-    <div class="kpi">
-      <div class="kpi-label">Submission activity</div>
-      <div class="kpi-value"><em id="kpiActive">—</em></div>
-      <div class="kpi-sub" id="kpiActiveSub">Click New Submission to begin</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Specialist modules</div>
-      <div class="kpi-value"><em id="wsModuleCount">24</em></div>
-      <div class="kpi-sub">Connected extraction & analysis</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Document Formats</div>
-      <div class="kpi-value"><em>10+</em></div>
-      <div class="kpi-sub">PDF · DOCX · XLSX · MSG · EML · RTF · HTML · CSV · TXT · MD</div>
-    </div>
-    <div class="kpi amber">
-      <div class="kpi-label">Workspace storage</div>
-      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud storage</div>
-      <div class="kpi-sub">Documents &amp; submissions</div>
-    </div>
+    <div class="kpi kpi-featured"><div class="kpi-label"><span class="ws-indicator"></span>Submission activity</div><div class="kpi-value"><em id="kpiActive">—</em><span class="kpi-unit">accounts</span></div><div class="kpi-sub" id="kpiActiveSub">Your active submission book</div><div class="ws-kpi-track" id="wsQueueDistribution" aria-hidden="true"></div></div>
+    <div class="kpi"><div class="kpi-label">Awaiting review<span class="ws-metric-index">01</span></div><div class="kpi-value"><em id="wsReviewCount">—</em></div><div class="kpi-sub">Ready for underwriting attention</div></div>
+    <div class="kpi"><div class="kpi-label">In progress<span class="ws-metric-index">02</span></div><div class="kpi-value"><em id="wsProgressCount">—</em></div><div class="kpi-sub">Accounts being prepared</div></div>
+    <div class="kpi amber"><div class="kpi-label">Bound accounts<span class="ws-metric-index">03</span></div><div class="kpi-value"><em id="wsBoundCount">—</em></div><div class="kpi-sub">Across your submission queue</div></div>
   </div>
 
   <div class="queue-table-wrap">
-    <div class="ws-table-heading"><div><h2>All submissions <span id="wsQueueCount">0</span></h2><p>Select an account to continue underwriting.</p></div><span class="ws-table-hint">Most recently updated first</span></div>
+    <div class="ws-table-heading"><div><h2>All submissions <span id="wsQueueCount">0</span></h2><p>Select an account to continue underwriting.</p></div><span class="ws-table-hint"><span class="ws-indicator"></span> Most recently updated first</span></div>
     <table class="queue">
       <thead><tr>
         <th>Account</th><th>Broker</th><th>Effective</th><th>Requested</th><th style="width: 90px;">Modules</th><th style="width: 90px;">Confidence</th><th style="width: 130px;">Missing</th><th style="width: 180px;">Status</th>
@@ -252,12 +229,12 @@
     </div>
   </div>
 
-  <div class="sub-layout">
+  <div class="ws-pipeline-overview"><div class="ws-pipeline-title"><span class="ws-overline">INTELLIGENCE PIPELINE</span><h1>From documents<br>to <em>understanding.</em></h1></div><div class="ws-pipeline-instrument" aria-label="Pipeline progress"><div class="ws-orbit" role="progressbar" aria-label="Analysis modules completed" aria-valuemin="0" aria-valuemax="24" aria-valuenow="0"><div><strong id="wsAnalysisCount">0</strong><span id="wsAnalysisTotal">/ 24</span></div></div><div><span class="ws-overline" id="wsPipelineState">AWAITING DOCUMENTS</span><strong class="ws-instrument-title" id="wsPipelineTitle">Your next decision starts here.</strong><p id="wsPipelineDetail">Classify. Extract. Synthesize. Analyze.</p></div></div></div><ol class="ws-stage-map" aria-label="Analysis stages"><li data-stage-source="stageClassifier"><span>01</span><div><strong>Classify</strong><small>Document routing</small></div><i></i></li><li data-stage-source="wave1"><span>02</span><div><strong>Extract</strong><small>Source intelligence</small></div><i></i></li><li data-stage-source="wave2"><span>03</span><div><strong>Synthesize</strong><small>Account context</small></div><i></i></li><li data-stage-source="wave3"><span>04</span><div><strong>Analyze</strong><small>Underwriting insight</small></div><i></i></li></ol><div class="sub-layout">
 
     <!-- LEFT: Files -->
     <aside class="pane">
       <div class="pane-head">
-        <h3>Document intake</h3>
+        <h3><span class="ws-section-number">01</span>Document intake</h3>
         <span id="fileCount" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3);">0 files</span>
       </div>
       <div class="pane-body">
@@ -266,7 +243,7 @@
           Pipeline already complete. Dropping new files here will classify them, route to the affected modules, and refresh only those (plus their downstream dependents). The existing run is preserved.
         </div>
         <div class="dropzone" id="dropzone">
-          <div class="dropzone-icon">+</div>
+          <div class="dropzone-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 14 8-8 8 8M4 20l8-8 8 8"/></svg></div>
           <div class="dropzone-text">Drop your documents here</div>
           <div class="dropzone-hint">PDF · DOCX · XLSX · MSG · EML · CSV · TXT · HTML · RTF</div>
           <input type="file" id="fileInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.eml,.msg,.html,.htm,.rtf">
@@ -336,7 +313,7 @@
     <!-- CENTER: Pipeline / Summary -->
     <div class="pane center-pane">
       <div class="pane-head">
-        <h3>Submission analysis</h3>
+        <h3><span class="ws-section-number">02</span>Analysis workspace</h3>
         <div class="stage-tabs">
           <button class="stage-tab active" id="stageTabPipe" onclick="showStage('pipe')">
             Pipeline
@@ -929,7 +906,7 @@
     <!-- RIGHT: Actions -->
     <aside class="pane actions-pane">
       <div class="pane-head">
-        <h3>Decision</h3>
+        <h3><span class="ws-section-number">03</span>Decision desk</h3>
       </div>
       <div class="pane-body">
 
@@ -998,7 +975,7 @@
 <section class="view" id="view-admin">
   <div class="page-head">
     <div class="page-eyebrow">WORKSPACE MANAGEMENT</div>
-    <h1 class="page-title">Administration</h1>
+    <h1 class="page-title">Workspace <em>administration.</em></h1>
     <p class="page-sub">Manage access, review feedback, and track activity across your workspace.</p>
   </div>
 
@@ -1295,5 +1272,5 @@
 <script src="pipeline-documents-view.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09"></script>
 
 
-</body>
+<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>UNDERWRITING OPERATIONS</span><div id="wsBuildSlot"></div></footer></body>
 </html>

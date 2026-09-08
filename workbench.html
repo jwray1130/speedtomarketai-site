@@ -8,9 +8,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Speed to Market AI — Underwriting Workbench</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+
 <link rel="stylesheet" href="workbench-style.css?v=8.7.167-a3-attachment-cache-contract-2026-07-09">
 <!-- PHASE7-2026-06-09: exact-pinned + SRI (sha384 computed from the npm tarball; jsDelivr /npm/ serves npm bytes verbatim). A floating tag meant any upstream publish changed our datepicker. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
@@ -47,20 +47,13 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
 <script src="workbench-rules.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
 <script src="workbench-rater.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
 <script src="workbench-app.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
-<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.1">
-<script src="workspace-shell.js?v=2026.09.08.1" defer></script>
+<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.2">
+<script src="workspace-shell.js?v=2026.09.08.2"></script>
 </head>
 <body>
 <a class="ws-skip" href="#wsMain">Skip to workspace</a>
-<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation">
- <a class="ws-brand" href="/platform#queue" aria-label="Speed to Market AI — Queue"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
- <div class="ws-workspace"><span class="ws-workspace-mark">S</span><span>Commercial insurance<small>Underwriting operations</small></span></div>
- <div class="ws-nav-label">WORKSPACE</div>
- <nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item" data-system-target="queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item active" data-system-target="workbench" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav>
- <div class="ws-context"><span class="ws-context-label">CURRENT SUBMISSION</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div>
- <div class="ws-rail-footer"><div id="wsBuildSlot"></div><div id="wsUserSlot"></div><div class="ws-footer-caption"><span></span>Speed to Market AI</div></div>
-</aside>
-<button class="ws-rail-dismiss" type="button" aria-label="Close workspace navigation" tabindex="-1"></button>
+<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item" data-system-target="queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item active" data-system-target="workbench" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav><div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div></aside>
+
 <a href="#pageContent" class="skip-to-main">Skip to main content</a>
 
 <!-- v8.7.47: Workbench uses the live Platform queue as the entry point. -->
@@ -1648,5 +1641,5 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             </menu>
         </form>
     </dialog>
-</body>
+<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>UNDERWRITING OPERATIONS</span><div id="wsBuildSlot"></div></footer></body>
 </html>
