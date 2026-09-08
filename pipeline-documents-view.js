@@ -4145,7 +4145,7 @@ window.initDocumentsView = function() {
       const onMove = (ev) => {
         const delta = ev.clientX - startX;
         const newW = isLeft ? (startW + delta) : (startW - delta);
-        const vw = wsEl.clientWidth || root.clientWidth || window.innerWidth;
+        const vw = window.innerWidth;
         const otherPanelW = isLeft
           ? parseFloat(getComputedStyle(root).getPropertyValue('--tags-panel-w')) || 280
           : parseFloat(getComputedStyle(root).getPropertyValue('--docs-panel-w')) || 300;
@@ -4187,7 +4187,7 @@ window.initDocumentsView = function() {
     if (root) {
       const dw = parseFloat(localStorage.getItem(CONFIG.storageKeys.docsPanelW));
       const tw = parseFloat(localStorage.getItem(CONFIG.storageKeys.tagsPanelW));
-      const vw = root.clientWidth || Math.max(320, window.innerWidth - 88) || 1280;
+      const vw = window.innerWidth || 1280;
       if (Number.isFinite(dw) && dw >= 220 && dw <= vw * 0.6) {
         root.style.setProperty('--docs-panel-w', dw + 'px');
       }
@@ -5138,21 +5138,19 @@ window.initDocumentsView = function() {
         console.warn('relabelDocsForFile: source file not found for id', fileId);
         return 0;
       }
-      const submissionId = window.STATE && window.STATE.activeSubmissionId;
-      if (!submissionId) return 0;
       const fname = f.name || '';
       const baseName = fname.replace(/\.[^.]+$/, '');
       // Match docs by source-file linkage. v8.6.84: PDF split docs are named
       // "BaseName — Page N" (without extension), so match both the full
       // source filename and the extensionless split prefix.
-      const matches = state.docs.filter(d => d.submissionId === submissionId && (
+      const matches = state.docs.filter(d =>
         d.workbookFileName === fname ||
         d.nativeFileName === fname ||
         d.name === fname ||
         d.name === baseName ||
         (d.name && d.name.startsWith(baseName + ' — Page ')) ||
         (d.name && d.name.startsWith(fname + ' — Page '))
-      ));
+      );
       if (matches.length === 0) return 0;
       // For combined-PDF page tagging: apply sectionClassifications when
       // supplied so existing cloud rows are upgraded from stale generic chips

@@ -83,19 +83,21 @@
     const overlay = document.createElement('div');
     overlay.id = 'stmAuthOverlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:#0a0a0c;z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;';
-    overlay.className = "ws-auth-overlay";
-    overlay.innerHTML = `<div class="ws-auth-story">
-  <a class="ws-brand" href="/"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
-  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>Clarity at the<br>speed of ambition.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
-  <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
-  <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
- </div>
- <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">UNDERWRITING WORKSPACE</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
- <label for="stmAuthEmail">Work email</label><input id="stmAuthEmail" type="email" placeholder="you@company.com" autocomplete="email" inputmode="email" required aria-describedby="stmAuthError stmAuthSuccess">
- <button id="stmAuthSendBtn" type="button">Send sign-in link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
- <div id="stmAuthError" role="alert"></div><div id="stmAuthSuccess" role="status" aria-live="polite"></div>
- <div class="ws-auth-note">No password needed. We’ll email you a link to sign in.</div>
- </div><span class="ws-auth-form-footer">Speed to Market AI · Underwriting operations</span></div>`;
+    overlay.innerHTML = `
+      <div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,rgba(158,196,255,.25),transparent 35%),radial-gradient(circle at 75% 60%,rgba(255,97,171,.18),transparent 34%),#0a0a0c;"></div>
+      <div style="position:absolute;top:24px;left:32px;z-index:2;display:flex;align-items:center;gap:10px;color:#fafafa;font-size:14px;font-weight:600;">
+        <span style="display:inline-flex;width:26px;height:26px;border-radius:6px;border:1.5px solid #9ec4ff;align-items:center;justify-content:center;color:#9ec4ff;">⌃</span>
+        Speed to Market <em style="font-style:italic;color:#9ec4ff;margin-left:2px;">AI</em>
+      </div>
+      <div style="position:relative;z-index:1;background:rgba(20,20,23,.70);backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%);padding:42px 38px 36px;border-radius:18px;width:420px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.10);text-align:left;">
+        <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.18em;color:#9ec4ff;text-transform:uppercase;margin-bottom:14px;display:inline-flex;align-items:center;gap:8px;"><span style="display:inline-block;width:14px;height:1px;background:#9ec4ff;"></span>Sign in</div>
+        <div style="font-size:30px;color:#fafafa;font-weight:650;letter-spacing:-.025em;line-height:1.1;margin-bottom:10px;">Open the <em style="font-style:italic;font-weight:500;background:linear-gradient(180deg,#FF61AB 0%,#C8A2FF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;">workbench</em>.</div>
+        <div style="font-size:13.5px;color:#a0a0a8;line-height:1.5;margin-bottom:24px;">Enter your work email. We’ll send a magic link — no password, no setup.</div>
+        <input id="stmAuthEmail" type="email" placeholder="you@company.com" autocomplete="email" style="width:100%;box-sizing:border-box;padding:13px 15px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(10,10,12,.55);color:#fafafa;font-size:14px;font-family:inherit;margin-bottom:12px;outline:none;" />
+        <button id="stmAuthSendBtn" type="button" style="width:100%;padding:13px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#c0d8ff 0%,#9ec4ff 100%);color:#0a0a0c;font-weight:700;font-size:13.5px;font-family:inherit;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 6px 18px -6px rgba(158,196,255,.5);">Send magic link →</button>
+        <div id="stmAuthError" style="color:#ff7a7a;font-size:11.5px;margin-top:14px;min-height:14px;font-family:'Geist Mono',ui-monospace,monospace;letter-spacing:.04em;"></div>
+        <div id="stmAuthSuccess" style="color:#9ec4ff;font-size:11.5px;margin-top:4px;min-height:14px;font-family:'Geist Mono',ui-monospace,monospace;letter-spacing:.04em;"></div>
+      </div>`;
     document.body.appendChild(overlay);
   }
 

@@ -9007,11 +9007,7 @@ async function runPipeline() {
   }
   // Auto-advance to Summary view — the pipeline DAG is done, user wants to see the output.
   // Also avoids leaving narrow containers (e.g. CodePen preview) stuck on a squished DAG.
-  const completedRun = STATE.pipelineRun;
-  const completedSubmission = STATE.activeSubmissionId;
-  setTimeout(() => {
-    if (STATE.pipelineDone && STATE.pipelineRun === completedRun && STATE.activeSubmissionId === completedSubmission && typeof showStage === 'function') showStage('sum');
-  }, 400);
+  setTimeout(() => { if (typeof showStage === 'function') showStage('sum'); }, 400);
   } catch (pipelineErr) {
     // Top-level failure (something that escaped the per-module catch).
     // Log it loudly so we have diagnostic data, then let finally clean up.
@@ -9108,15 +9104,9 @@ window.incrementalProcess = incrementalProcess;
 // incrementalProcess has internal try/catch for its module reruns.
 function queueIncrementalProcess(files) {
   if (!files || files.length === 0) return Promise.resolve();
-  const uploadToken = STATE._uploadToken || 0;
-  const submissionId = STATE.activeSubmissionId || null;
   STATE._incrementalChain = (STATE._incrementalChain || Promise.resolve())
     .catch(() => {})
-    .then(() => {
-      if (uploadToken !== (STATE._uploadToken || 0) || submissionId !== (STATE.activeSubmissionId || null)) return;
-      const currentFiles = files.filter(f => STATE.files.includes(f) && !f.cancelled);
-      if (currentFiles.length) return incrementalProcess(currentFiles);
-    });
+    .then(() => incrementalProcess(files));
   return STATE._incrementalChain;
 }
 window.queueIncrementalProcess = queueIncrementalProcess;
@@ -9152,25 +9142,3 @@ window.tagToRoute = tagToRoute;
 window.stmClassifyUmbrellaTowerPosition = stmClassifyUmbrellaTowerPosition;
 window.stmExtractScheduleOfUnderlyingText = stmExtractScheduleOfUnderlyingText;
 window.RECLASSIFY_PENDING = RECLASSIFY_PENDING;
-
-// Track complete operation lifetimes, including queued updates and final saves.
-// Classic-script function bindings and inline handlers share these window entries.
-[
-  'runPipeline', 'incrementalProcess', 'queueIncrementalProcess', 'rerunModules',
-  'rerunGuidelines', 'applyReclassifications', 'refreshSection8732',
-  'refreshAllStale8732', 'refreshAllPending8747'
-].forEach(function(name) {
-  const original = window[name];
-  if (typeof original !== 'function' || original.__submissionWorkTracked) return;
-  const tracked = async function() {
-    if (STATE._deletingSubmissionId) {
-      toast('Please wait for the account deletion to finish.', 'warn');
-      return;
-    }
-    STATE._submissionWorkCount = (STATE._submissionWorkCount || 0) + 1;
-    try { return await original.apply(this, arguments); }
-    finally { STATE._submissionWorkCount = Math.max(0, (STATE._submissionWorkCount || 1) - 1); }
-  };
-  tracked.__submissionWorkTracked = true;
-  window[name] = tracked;
-});
