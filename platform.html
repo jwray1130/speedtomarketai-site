@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-workspace="platform">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -89,6 +89,8 @@
 <link rel="stylesheet" href="pipeline-documents-view.css?v=8.7.167-a3-attachment-cache-contract-2026-07-09">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.1">
+<script src="workspace-shell.js?v=2026.09.08.1" defer></script>
 </head>
 <body>
 
@@ -100,169 +102,31 @@
      Card glass is Carbon-tinted (rgba(20,20,23,...)) instead of the old
      navy so it's consistent with the Carbon dark mode in the app.
      ============ -->
-<div id="authOverlay" style="position:fixed;inset:0;background:#0a0a0c;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:'Inter Variable','Inter',-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;">
-  <canvas id="authBackdropCanvas" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+<div id="authOverlay" class="ws-auth-overlay"><div class="ws-auth-story">
+  <a class="ws-brand" href="/platform"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
+  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">BUILT AROUND THE UNDERWRITER</div><h1>From submission.<br>To decision.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
+  <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
+  <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
+ </div>
+ <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">YOUR WORKSPACE AWAITS</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
+ <label for="authEmail">Work email</label><input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email" inputmode="email" required aria-describedby="authError authSuccess">
+ <button id="authSendBtn" type="button">Send sign-in link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
+ <div id="authError" role="alert"></div><div id="authSuccess" role="status" aria-live="polite"></div>
+ <div class="ws-auth-note">No password needed. We’ll email you a link to sign in.</div>
+ </div><span class="ws-auth-form-footer">Speed to Market AI · Underwriting operations</span></div></div>
 
-  <!-- Brand mark top-left so the screen reads as a continuation of
-       speedtomarketai.com, not a standalone "ugly login" page -->
-  <div style="position:absolute;top:24px;left:32px;z-index:2;display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;color:#fafafa;letter-spacing:-0.01em;">
-    <span style="display:inline-flex;width:26px;height:26px;border-radius:6px;border:1.5px solid #9ec4ff;align-items:center;justify-content:center;color:#9ec4ff;">
-      <svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;">
-        <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
-      </svg>
-    </span>
-    Speed to Market <em style="font-style:italic;color:#9ec4ff;margin-left:3px;">AI</em>
-  </div>
-
-  <!-- Card: Carbon-tinted glass (true neutral, no blue cast) -->
-  <div style="position:relative;z-index:1;background:rgba(20,20,23,0.62);backdrop-filter:blur(32px) saturate(150%);-webkit-backdrop-filter:blur(32px) saturate(150%);padding:42px 38px 36px;border-radius:18px;width:420px;max-width:90%;box-shadow:0 30px 80px -30px rgba(0,0,0,0.85),0 0 0 1px rgba(255,255,255,0.10),inset 0 1px 0 rgba(255,255,255,0.10);text-align:left;">
-    <div style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#9ec4ff;text-transform:uppercase;margin-bottom:14px;display:inline-flex;align-items:center;gap:8px;">
-      <span style="display:inline-block;width:14px;height:1px;background:#9ec4ff;"></span>
-      Sign in
-    </div>
-    <div style="font-family:'Inter Variable','Inter',sans-serif;font-size:30px;color:#fafafa;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin-bottom:10px;">
-      Open the <em style="font-style:italic;font-weight:500;background:linear-gradient(180deg,#FF61AB 0%,#C8A2FF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;">workbench</em>.
-    </div>
-    <div style="font-size:13.5px;color:#a0a0a8;line-height:1.5;margin-bottom:24px;">
-      Drop your work email below. We'll send a magic link — no password, no setup.
-    </div>
-    <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email"
-      style="width:100%;box-sizing:border-box;padding:13px 15px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(10,10,12,0.5);color:#fafafa;font-size:14px;font-family:inherit;margin-bottom:12px;outline:none;transition:border-color 0.18s,background 0.18s;" />
-    <button id="authSendBtn"
-      style="width:100%;padding:13px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#c0d8ff 0%,#9ec4ff 100%);color:#0a0a0c;font-weight:600;font-size:13.5px;font-family:inherit;cursor:pointer;letter-spacing:-0.005em;box-shadow:0 1px 0 rgba(255,255,255,0.25) inset, 0 6px 18px -6px rgba(158,196,255,0.5);transition:transform 0.15s,box-shadow 0.2s;">
-      Send magic link →
-    </button>
-    <div id="authError" style="color:#ff7a7a;font-size:11.5px;margin-top:14px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
-    <div id="authSuccess" style="color:#9ec4ff;font-size:11.5px;margin-top:4px;min-height:14px;font-family:'Geist Mono',monospace;letter-spacing:0.04em;"></div>
-  </div>
-
-  <!-- Footer credit so the screen feels finished, not stripped-down -->
-  <div style="position:absolute;bottom:24px;left:0;right:0;z-index:2;text-align:center;font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:0.18em;color:rgba(160,160,168,0.55);text-transform:uppercase;">
-    AI for Commercial Insurance Underwriting
-  </div>
-</div>
-
-<!-- ===== Three.js WebGL marbled flame behind the auth card =====
-     Same shader architecture as the marketing hero on speedtomarketai.com:
-     domain-warped FBM (3 cascaded fbm() samples) → painterly ribbon flow.
-     Palette: hot pink → peach/orange → light blue → lavender accent. ===== -->
-<script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
-</script>
-<script type="module">
-  import * as THREE from 'three';
-  const canvas = document.getElementById('authBackdropCanvas');
-  if (canvas && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: false, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const scene = new THREE.Scene();
-    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); cam.position.z = 1;
-    const geo = new THREE.PlaneGeometry(2, 2);
-
-    /* Marketing-hero palette — light + dark theme variants. Reads from
-       html[data-theme] so toggling theme on the auth screen re-tunes
-       the shader without rebuilding the WebGL context. */
-    const PALETTES = {
-      light: {
-        base:    '#FFFFFF',
-        flameA:  '#FF61AB',
-        flameB:  '#FFA75E',
-        flameC:  '#5BD2FF',
-        accent:  '#C8A2FF',
-      },
-      dark: {
-        base:    '#0a0a0c',
-        flameA:  '#E63B85',
-        flameB:  '#FF8E3C',
-        flameC:  '#3FB8E8',
-        accent:  '#9F7BFF',
-      },
-    };
-    function currentPalette() {
-      return document.documentElement.getAttribute('data-theme') === 'light' ? PALETTES.light : PALETTES.dark;
-    }
-    const p = currentPalette();
-    const u = {
-      u_time:   { value: 0 },
-      u_base:   { value: new THREE.Color(p.base) },
-      u_flameA: { value: new THREE.Color(p.flameA) },
-      u_flameB: { value: new THREE.Color(p.flameB) },
-      u_flameC: { value: new THREE.Color(p.flameC) },
-      u_accent: { value: new THREE.Color(p.accent) },
-    };
-    /* Re-tune palette on theme toggle without rebuilding the renderer */
-    new MutationObserver(() => {
-      const np = currentPalette();
-      u.u_base.value.set(np.base);
-      u.u_flameA.value.set(np.flameA);
-      u.u_flameB.value.set(np.flameB);
-      u.u_flameC.value.set(np.flameC);
-      u.u_accent.value.set(np.accent);
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
-    const vs = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
-
-    /* SIMPLEX 2D + FBM helpers — identical to marketing hero's
-       buildHeroFlame shader. 5 FBM octaves at decreasing amplitude. */
-    const fs = `
-      vec3 permute(vec3 x){return mod(((x*34.0)+1.0)*x,289.0);}
-      float snoise(vec2 v){
-        const vec4 C=vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
-        vec2 i=floor(v+dot(v,C.yy));
-        vec2 x0=v-i+dot(i,C.xx);
-        vec2 i1=(x0.x>x0.y)?vec2(1.0,0.0):vec2(0.0,1.0);
-        vec4 x12=x0.xyxy+C.xxzz; x12.xy-=i1;
-        i=mod(i,289.0);
-        vec3 p=permute(permute(i.y+vec3(0.0,i1.y,1.0))+i.x+vec3(0.0,i1.x,1.0));
-        vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0); m=m*m; m=m*m;
-        vec3 x=2.0*fract(p*C.www)-1.0; vec3 h=abs(x)-0.5; vec3 ox=floor(x+0.5); vec3 a0=x-ox;
-        m*=1.79284291400159-0.85373472095314*(a0*a0+h*h);
-        vec3 g; g.x=a0.x*x0.x+h.x*x0.y; g.yz=a0.yz*x12.xz+h.yz*x12.yw;
-        return 130.0*dot(m,g);
-      }
-      float fbm(vec2 p){
-        float v=0.0; float a=0.5; vec2 shift=vec2(100.0);
-        mat2 rot=mat2(cos(0.5),sin(0.5),-sin(0.5),cos(0.5));
-        for(int i=0;i<5;i++){ v+=a*snoise(p); p=rot*p*2.0+shift; a*=0.5; }
-        return v;
-      }
-      varying vec2 vUv;
-      uniform float u_time;
-      uniform vec3 u_base, u_flameA, u_flameB, u_flameC, u_accent;
-      void main(){
-        vec2 uv = vUv; uv.x *= 1.6;
-        float t = u_time * 0.08;
-        vec2 q = vec2(fbm(uv + t*0.5), fbm(uv + vec2(5.2,1.3) + t*0.4));
-        vec2 rv = vec2(fbm(uv + 4.0*q + vec2(1.7,9.2) + t*0.6), fbm(uv + 4.0*q + vec2(8.3,2.8) + t*0.5));
-        float f = fbm(uv + 3.5*rv + t*0.3);
-        vec3 color = u_base;
-        color = mix(color, u_flameA, clamp(length(q)*0.65, 0.0, 1.0));
-        color = mix(color, u_flameB, clamp(length(rv)*0.55, 0.0, 1.0));
-        color = mix(color, u_flameC, clamp(f*f*1.2 + 0.1, 0.0, 1.0));
-        color = mix(color, u_accent, clamp(pow(f, 4.0)*1.8, 0.0, 0.5));
-        float alpha = smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.94, vUv.y);
-        gl_FragColor = vec4(color, alpha * 0.95);
-      }
-    `;
-    const m = new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs, transparent: true, depthWrite: false });
-    scene.add(new THREE.Mesh(geo, m));
-    function fit(){ const w=canvas.clientWidth, h=canvas.clientHeight; if(w&&h) r.setSize(w,h,false); }
-    fit(); window.addEventListener('resize', fit);
-    let f = 0; const t0 = performance.now();
-    (function loop(){
-      requestAnimationFrame(loop);
-      const overlay = document.getElementById('authOverlay');
-      if (!overlay || overlay.style.display === 'none' || document.hidden) return;
-      f++; if (f % 2) return;
-      u.u_time.value = (performance.now() - t0) / 1000;
-      r.render(scene, cam);
-    })();
-  }
-</script>
-
+<a class="ws-skip" href="#wsMain">Skip to workspace</a>
+<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation">
+ <a class="ws-brand" href="/platform#queue" aria-label="Speed to Market AI — Queue"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
+ <div class="ws-workspace"><span class="ws-workspace-mark">S</span><span>Commercial insurance<small>Underwriting operations</small></span></div>
+ <div class="ws-nav-label">WORKSPACE</div>
+ <nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item active" data-system-target="queue" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item" data-system-target="workbench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav>
+ <div class="ws-context"><span class="ws-context-label">CURRENT SUBMISSION</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div>
+ <div class="ws-rail-footer"><div id="wsBuildSlot"></div><div id="wsUserSlot"></div><div class="ws-footer-caption"><span></span>Speed to Market AI</div></div>
+</aside>
+<button class="ws-rail-dismiss" type="button" aria-label="Close workspace navigation" tabindex="-1"></button>
 <!-- ============ TOP BAR ============ -->
-<div class="topbar">
+<div class="topbar ws-topbar">
   <div style="display: flex; align-items: center; gap: 22px;">
     <a href="/" id="platformBrandNav" class="brand" style="text-decoration: none; color: inherit;" title="Back to queue or marketing site">
       <span class="brand-mark">
@@ -319,13 +183,13 @@
   </div>
 </div>
 
-<main>
+<main id="wsMain" tabindex="-1">
 <!-- ============ QUEUE VIEW ============ -->
 <section class="view active" id="view-queue">
   <div class="page-head">
-    <div class="page-eyebrow">01 · Queue</div>
-    <h1 class="page-title">Submissions in flight</h1>
-    <p class="page-sub">Start a new submission to open the workbench. Drop broker documents, let the pipeline classify and route them, then review the extracted summary.</p>
+    <div class="page-eyebrow">SUBMISSION OPERATIONS</div>
+    <h1 class="page-title">Submission queue</h1>
+    <p class="page-sub">Every account. Every next step. One place to keep work moving.</p>
     <div style="margin-top: 18px;">
       <button class="btn btn-primary" onclick="startNewSubmission()" style="padding: 9px 18px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600;">
         <span style="margin-right: 6px; font-size: 14px;">+</span> New Submission
@@ -335,14 +199,14 @@
 
   <div class="kpi-strip">
     <div class="kpi">
-      <div class="kpi-label">Active Submission</div>
+      <div class="kpi-label">Submission activity</div>
       <div class="kpi-value"><em id="kpiActive">—</em></div>
       <div class="kpi-sub" id="kpiActiveSub">Click New Submission to begin</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Pipeline Modules</div>
-      <div class="kpi-value"><em>17</em></div>
-      <div class="kpi-sub">+ classifier + referral email</div>
+      <div class="kpi-label">Specialist modules</div>
+      <div class="kpi-value"><em id="wsModuleCount">24</em></div>
+      <div class="kpi-sub">Connected extraction & analysis</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Document Formats</div>
@@ -350,13 +214,14 @@
       <div class="kpi-sub">PDF · DOCX · XLSX · MSG · EML · RTF · HTML · CSV · TXT · MD</div>
     </div>
     <div class="kpi amber">
-      <div class="kpi-label">Backend</div>
-      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud-synced</div>
-      <div class="kpi-sub">single-tenant workspace</div>
+      <div class="kpi-label">Workspace storage</div>
+      <div class="kpi-value" style="font-size: 18px; font-style: normal;">Cloud storage</div>
+      <div class="kpi-sub">Documents &amp; submissions</div>
     </div>
   </div>
 
   <div class="queue-table-wrap">
+    <div class="ws-table-heading"><div><h2>All submissions <span id="wsQueueCount">0</span></h2><p>Select an account to continue underwriting.</p></div><span class="ws-table-hint">Most recently updated first</span></div>
     <table class="queue">
       <thead><tr>
         <th>Account</th><th>Broker</th><th>Effective</th><th>Requested</th><th style="width: 90px;">Modules</th><th style="width: 90px;">Confidence</th><th style="width: 130px;">Missing</th><th style="width: 180px;">Status</th>
@@ -379,7 +244,7 @@
   <div class="sub-header">
     <div class="sub-header-main">
       <div class="sub-header-name" id="sh-name">New submission</div>
-      <div class="sub-header-meta" id="sh-meta">Drop broker documents to begin · classifier identifies each file · pipeline fans out across 24 specialist modules</div>
+      <div class="sub-header-meta" id="sh-meta">Upload documents, review the analysis, and move the account forward.</div>
     </div>
     <div class="sub-header-pills" id="sh-pills">
       <span class="sub-pill handoff-pill" id="shHandoffPill" style="display: none;"></span>
@@ -392,7 +257,7 @@
     <!-- LEFT: Files -->
     <aside class="pane">
       <div class="pane-head">
-        <h3>Intake · Files</h3>
+        <h3>Document intake</h3>
         <span id="fileCount" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3);">0 files</span>
       </div>
       <div class="pane-body">
@@ -402,7 +267,7 @@
         </div>
         <div class="dropzone" id="dropzone">
           <div class="dropzone-icon">+</div>
-          <div class="dropzone-text">Drop submission docs</div>
+          <div class="dropzone-text">Drop your documents here</div>
           <div class="dropzone-hint">PDF · DOCX · XLSX · MSG · EML · CSV · TXT · HTML · RTF</div>
           <input type="file" id="fileInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.eml,.msg,.html,.htm,.rtf">
         </div>
@@ -413,8 +278,8 @@
              URL they want scraped. -->
         <div class="web-intake" id="webIntake">
           <div class="web-intake-head">
-            <span class="web-intake-eyebrow">Insured Website Scrape</span>
-            <span class="web-intake-sub">Auto-finds the insured's website by name, then crawls homepage + all nav/footer links 2 levels deep. Extracts services, markets, safety, projects.</span>
+            <span class="web-intake-eyebrow">Insured website</span>
+            <span class="web-intake-sub">Add the insured’s services, projects, markets, and safety information to this submission.</span>
           </div>
           <div class="web-intake-tabs">
             <button class="web-tab active" id="webTabFind" onclick="setWebTab('find')">Auto-Find</button>
@@ -431,7 +296,7 @@
               <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M12 12 L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
               Find & Crawl
             </button>
-            <div class="web-hint">Claude identifies the authoritative domain (filters out Yelp/BBB/LinkedIn) then scrapes it. Uses the authenticated LLM proxy. If no URL found, switches to Manual URL tab.</div>
+            <div class="web-hint">Find the insured’s website by business name and location. You can also enter a website address.</div>
           </div>
 
           <!-- Tab: Manual URL (fallback) -->
@@ -442,7 +307,7 @@
               <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><path d="M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M3 10 L17 10 M10 3 C6 6 6 14 10 17 C14 14 14 6 10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               Crawl Site
             </button>
-            <div class="web-hint">Use when auto-find can't locate the site, or when you have a specific URL to scrape. Browser-side BFS crawl with sitemap discovery + Jina fallback (~30-60s, up to 30 pages).</div>
+            <div class="web-hint">Enter the insured’s website address. Gathering the website may take about a minute.</div>
           </div>
 
           <!-- Progress / status display -->
@@ -471,7 +336,7 @@
     <!-- CENTER: Pipeline / Summary -->
     <div class="pane center-pane">
       <div class="pane-head">
-        <h3>Workbench</h3>
+        <h3>Submission analysis</h3>
         <div class="stage-tabs">
           <button class="stage-tab active" id="stageTabPipe" onclick="showStage('pipe')">
             Pipeline
@@ -495,10 +360,10 @@
                so the existing JS (id="pipelineEmptyHeading", id="pipelineEmptyBody")
                that updates the copy on file drop still works. -->
           <div class="spotlight-card signal centered">
-            <div class="pipeline-empty-icon">◢</div>
+            <div class="pipeline-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg></div>
             <div class="spotlight-label">Pipeline</div>
-            <h2 id="pipelineEmptyHeading" class="spotlight-value">Pipeline waiting</h2>
-            <p id="pipelineEmptyBody" class="spotlight-sub">Drop broker documents to begin. Files appear in the intake queue immediately, then the pipeline unlocks when parsing is complete.</p>
+            <h2 id="pipelineEmptyHeading" class="spotlight-value">Ready when you are</h2>
+            <p id="pipelineEmptyBody" class="spotlight-sub">Add the broker’s documents on the left. Once they’re parsed, run the pipeline to build your underwriting summary.</p>
           </div>
         </div>
 
@@ -517,25 +382,25 @@
 
           <!-- Wave 1 — Parallel extractors (A1-A5, A7, A11-A14) -->
           <div class="pipe-stage">
-            <div class="pipe-stage-label">Stage 1<em>Extract · 10 parallel</em></div>
+            <div class="pipe-stage-label">Stage 1<em>Extract · 17 modules</em></div>
             <div class="pipe-nodes" id="wave1"></div>
           </div>
 
           <!-- Wave 2 — Summary of Ops (depends on A1-A5) -->
           <div class="pipe-stage">
-            <div class="pipe-stage-label">Stage 2<em>Synthesize</em></div>
+            <div class="pipe-stage-label">Stage 2<em>Synthesize · 2 modules</em></div>
             <div class="pipe-nodes" id="wave2"></div>
           </div>
 
           <!-- Wave 3 — Guidelines, Exposure, Strengths (depend on A6) -->
           <div class="pipe-stage">
-            <div class="pipe-stage-label">Stage 3<em>Analyze · 3 parallel</em></div>
+            <div class="pipe-stage-label">Stage 3<em>Analyze · 5 modules</em></div>
             <div class="pipe-nodes" id="wave3"></div>
           </div>
 
           <!-- Wave 4 — Referral Email -->
           <div class="pipe-stage">
-            <div class="pipe-stage-label">Stage 4<em>Deliver</em></div>
+            <div class="pipe-stage-label">Delivery<em>Additional outputs</em></div>
             <div class="pipe-nodes" id="wave4"></div>
           </div>
 
@@ -544,7 +409,7 @@
               <div class="pipeline-done-icon">✓</div>
               <div class="pipeline-done-text">
                 <strong>Pipeline complete</strong>
-                <p>24/24 modules · all QC-verified · <span id="doneTiming">42.8s wall clock</span></p>
+                <p>Review module results · <span id="doneTiming">—</span></p>
               </div>
               <button class="btn-view-summary" onclick="showStage('sum')">
                 View Summary
@@ -1132,9 +997,9 @@
 <!-- ============ ADMIN VIEW ============ -->
 <section class="view" id="view-admin">
   <div class="page-head">
-    <div class="page-eyebrow">02 · Admin</div>
-    <h1 class="page-title">Carrier configuration</h1>
-    <p class="page-sub">Production controls for users, guidelines, appetite thresholds, prompt overrides, integrations, and audit export.</p>
+    <div class="page-eyebrow">WORKSPACE MANAGEMENT</div>
+    <h1 class="page-title">Administration</h1>
+    <p class="page-sub">Manage access, review feedback, and track activity across your workspace.</p>
   </div>
 
   <div class="admin-grid">
@@ -1143,54 +1008,54 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M4 20s2-6 8-6 8 6 8 6" stroke-linecap="round"/></svg>
       </div>
       <div class="admin-card-title">Users &amp; roles</div>
-      <div class="admin-card-desc">Active accounts on this Altitude tenant. Role and submission count per user. Sign-ups create profile rows automatically via Supabase Auth trigger.</div>
+      <div class="admin-card-desc">Review workspace members, their roles, and assigned submission counts.</div>
       <div class="admin-card-status" id="usersAdminStatus">— USERS · — ROLES</div>
       <div id="usersAdminList" style="display: none;"></div>
     </div>
 
-    <div class="admin-card" onclick="toast('Guidelines — upload, version, diff, publish')">
+    <div class="admin-card ws-admin-planned">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4 M8 13h8M8 17h6" stroke-linecap="round"/></svg>
       </div>
       <div class="admin-card-title">Guidelines</div>
-      <div class="admin-card-desc">Upload UW guide. Extract appetite rules, state restrictions, attachment minimums. Every published version dated and diffable.</div>
-      <div class="admin-card-status">V 2026.3 · PUBLISHED 1/1/26</div>
+      <div class="admin-card-desc">Guideline publishing is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
     </div>
 
-    <div class="admin-card" onclick="toast('Appetite thresholds — tunable confidence gates for STP vs QA')">
+    <div class="admin-card ws-admin-planned">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h5l3-6 3 12 3-6h2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="admin-card-title">Confidence thresholds</div>
-      <div class="admin-card-desc">Tune when fields pass straight through vs route to QA. Per-module sliders. Every change logged to audit.</div>
-      <div class="admin-card-status">STP GATE: 92% · QA GATE: 78%</div>
+      <div class="admin-card-desc">Threshold editing is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
     </div>
 
-    <div class="admin-card" onclick="toast('Prompt library — tune extraction prompts per carrier')">
+    <div class="admin-card ws-admin-planned">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4z M8 10h8M8 14h5" stroke-linecap="round"/></svg>
       </div>
       <div class="admin-card-title">Prompt overrides</div>
-      <div class="admin-card-desc">Tune extraction prompts for your book. Side-by-side evaluation on historical submissions before publishing.</div>
-      <div class="admin-card-status">17 MODULES · 3 OVERRIDDEN</div>
+      <div class="admin-card-desc">Prompt override management is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
     </div>
 
-    <div class="admin-card" onclick="toast('Integrations — O365 inbox, Guidewire write-back, SharePoint')">
+    <div class="admin-card ws-admin-planned">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a4 4 0 1 0 6 0l2-2a5 5 0 0 0-7-7l-1 1 M14 11a4 4 0 1 0-6 0l-2 2a5 5 0 0 0 7 7l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="admin-card-title">Integrations</div>
-      <div class="admin-card-desc">Microsoft Graph for broker-email intake. SharePoint / OneDrive / Box. Guidewire &amp; Duck Creek write-back.</div>
-      <div class="admin-card-status">O365 CONNECTED · GW PENDING</div>
+      <div class="admin-card-desc">No integration status is supplied by this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
     </div>
 
-    <div class="admin-card" onclick="toast('Audit export — CSV, JSON, SOC-2-ready PDF')">
+    <div class="admin-card ws-admin-planned">
       <div class="admin-card-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-0.5-8-4-8-9V7l8-4z" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="admin-card-title">Audit &amp; compliance</div>
-      <div class="admin-card-desc">Every field change, every prompt version, every reviewer sign-off. Export as CSV, JSON, or SOC-2-ready PDF.</div>
-      <div class="admin-card-status">18,324 EVENTS · LAST 30D</div>
+      <div class="admin-card-desc">Use the activity log below to export the available audit events.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
     </div>
 
     <div class="admin-card" id="feedbackAdminCard">
@@ -1198,7 +1063,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12c0 3.866-4.03 7-9 7-1.36 0-2.64-.237-3.79-.661L3 20l1.704-4.222C3.642 14.496 3 13.302 3 12c0-3.866 4.03-7 9-7s9 3.134 9 7z" stroke-linejoin="round"/></svg>
       </div>
       <div class="admin-card-title">Feedback loop</div>
-      <div class="admin-card-desc">Card-level 👍 / 👎 / 💬 from underwriters. Compiled monthly to improve prompts and model behavior. Every event attributed, every comment preserved.</div>
+      <div class="admin-card-desc">Review underwriter feedback on extracted results. Export comments and ratings for analysis.</div>
       <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
       <div id="feedbackAdminList" style="display: none;"></div>
       <div style="margin-top: 12px; display: flex; gap: 6px;">

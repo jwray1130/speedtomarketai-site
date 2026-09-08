@@ -749,6 +749,7 @@ async function scrapeWebsiteFromUrl() {
     setWebStatus('Enter a valid URL first (e.g. https://www.example.com)', 'error');
     return;
   }
+  const context = captureWebsiteContext();
   const btn = document.getElementById('btnScrapeUrl');
   btn.disabled = true;
   try {
@@ -760,14 +761,16 @@ async function scrapeWebsiteFromUrl() {
     const useClaude = false;
     const result = useClaude ? await scrapeUrlViaClaude(url) : await scrapeUrl(url);
     // Turn this into a pseudo-file entry that flows through the normal pipeline.
-    ingestScrapedWebsite(url, result.text, result.subPages, {
+    if (!websiteContextIsCurrent(context)) return;
+    await ingestScrapedWebsite(url, result.text, result.subPages, {
       foundVia: 'direct-url',
       method: result.method,
       totalPages: result.totalPages,
       failedPages: result.failedPages || 0,
       elapsedMs: result.elapsedMs
-    });
+    }, context);
   } catch (err) {
+    if (!websiteContextIsCurrent(context)) return;
     setWebStatus('<strong>Scrape failed</strong> — {{e}}', 'error', { e: err && err.message });
     logAudit('Classifier', 'Website scrape failed for ' + url + ': ' + err.message, 'error');
   } finally {
@@ -791,6 +794,7 @@ async function findAndScrapeWebsite() {
     switchToManualUrlTab('<strong>Auto-find requires sign-in.</strong> Sign in first, or enter the URL manually below.');
     return;
   }
+  const context = captureWebsiteContext();
   const btn = document.getElementById('btnFindAndScrape');
   btn.disabled = true;
   try {
@@ -798,6 +802,7 @@ async function findAndScrapeWebsite() {
     // the subs API ({{n}}/{{z}} replaced+escaped inside setWebStatus).
     setWebStatus('<strong>Searching</strong> for "{{n}}{{z}}"…', 'running', { n: name, z: zip ? ' · ' + zip : '' });
     const url = await findWebsiteViaClaude(name, zip);
+    if (!websiteContextIsCurrent(context)) return;
     if (!url) {
       // Claude ran but couldn't find an authoritative domain. Switch to Manual tab.
       switchToManualUrlTab('<strong>No authoritative website found</strong> for "' + escapeHtml(name) + '". Enter the URL manually below if you know it.');
@@ -807,14 +812,16 @@ async function findAndScrapeWebsite() {
     // Use the browser BFS crawler — same reasoning as the manual-URL path
     // (Claude-driven crawl can't operate through the Edge Function proxy).
     const result = await scrapeUrl(url);
-    ingestScrapedWebsite(url, result.text, result.subPages, {
+    if (!websiteContextIsCurrent(context)) return;
+    await ingestScrapedWebsite(url, result.text, result.subPages, {
       foundVia: 'claude-search',
       searchTerms: name + (zip ? ' · ' + zip : ''),
       method: result.method,
       totalPages: result.totalPages,
       failedPages: result.failedPages || 0
-    });
+    }, context);
   } catch (err) {
+    if (!websiteContextIsCurrent(context)) return;
     // Auto-find failed at some step (API error, network, etc). Switch to Manual tab.
     logAudit('Classifier', 'Find & scrape failed for ' + name + ': ' + err.message, 'error');
     switchToManualUrlTab('<strong>Auto-find failed</strong> — ' + escapeHtml(err.message) + '. Enter the URL manually below.');
@@ -872,7 +879,8 @@ Return exactly one of:
 }
 
 // Create a STATE.files entry from scraped website text and route it to the website module.
-function ingestScrapedWebsite(url, text, subPages, extra) {
+function ingestScrapedWebsite(url, text, subPages, extra, context) {
+  if (context && !websiteContextIsCurrent(context)) return;
   if (!text || text.length < 100) {
     setWebStatus('<strong>Scraped content too small</strong> ({{c}} chars). Site may be JS-only or bot-blocked. Paste HTML manually instead.', 'error', { c: (text ? text.length : 0) });
     return;
@@ -929,7 +937,7 @@ function ingestScrapedWebsite(url, text, subPages, extra) {
 
   // If pipeline was already done, run incremental flow so the A1 website module updates
   if (STATE.pipelineDone) {
-    incrementalProcess([entry]);
+    return queueIncrementalProcess([entry]);
   }
 }
 
@@ -957,3 +965,12 @@ window.findAndScrapeWebsite = findAndScrapeWebsite;
 window.switchToManualUrlTab = switchToManualUrlTab;
 window.findWebsiteViaClaude = findWebsiteViaClaude;
 window.ingestScrapedWebsite = ingestScrapedWebsite;
+
+// Bind fetched content to the originating account/draft. Navigation can discard it.
+function captureWebsiteContext() {
+  return { uploadToken: STATE._uploadToken || 0, submissionId: STATE.activeSubmissionId || null, draft: !!STATE.newSubmissionDraftMode };
+}
+function websiteContextIsCurrent(context) {
+  return !!context && context.uploadToken === (STATE._uploadToken || 0)
+    && (!context.submissionId || context.submissionId === (STATE.activeSubmissionId || null));
+}

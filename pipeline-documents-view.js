@@ -5138,19 +5138,21 @@ window.initDocumentsView = function() {
         console.warn('relabelDocsForFile: source file not found for id', fileId);
         return 0;
       }
+      const submissionId = window.STATE && window.STATE.activeSubmissionId;
+      if (!submissionId) return 0;
       const fname = f.name || '';
       const baseName = fname.replace(/\.[^.]+$/, '');
       // Match docs by source-file linkage. v8.6.84: PDF split docs are named
       // "BaseName — Page N" (without extension), so match both the full
       // source filename and the extensionless split prefix.
-      const matches = state.docs.filter(d =>
+      const matches = state.docs.filter(d => d.submissionId === submissionId && (
         d.workbookFileName === fname ||
         d.nativeFileName === fname ||
         d.name === fname ||
         d.name === baseName ||
         (d.name && d.name.startsWith(baseName + ' — Page ')) ||
         (d.name && d.name.startsWith(fname + ' — Page '))
-      );
+      ));
       if (matches.length === 0) return 0;
       // For combined-PDF page tagging: apply sectionClassifications when
       // supplied so existing cloud rows are upgraded from stale generic chips

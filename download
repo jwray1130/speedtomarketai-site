@@ -1,0 +1,8 @@
+# Repo-only assets — never serve from the public site
+tests/
+node_modules/
+package.json
+package-lock.json
+*.md
+supabase/
+.github/

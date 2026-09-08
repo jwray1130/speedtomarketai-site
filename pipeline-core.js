@@ -3730,12 +3730,23 @@ function displayAccount(rec) {
 // save the currently-active submission's state so the UW doesn't lose
 // anything when hopping between submissions.
 async function rehydrateSubmission(submissionId) {
+  // Capture the request BEFORE its first await; the newest account selection wins.
+  if (STATE.activeSubmissionId === submissionId && (STATE.pipelineDone || submissionWorkInProgress())) {
+    STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+    switchView('submission');
+    showStage(STATE.pipelineDone ? 'sum' : 'pipe');
+    return;
+  }
+  if (blockSubmissionContextChange()) return;
+  STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+  const myToken = STATE._rehydrateToken;
   const rec = STATE.submissions.find(s => s.id === submissionId);
   // v8.7.99: the queue list no longer ships snapshots (payload diet); fetch
   // this one row's snapshot on demand the first time it is opened.
   if (rec && !rec.snapshot && typeof sbFetchSubmissionSnapshot === 'function') {
     try { rec.snapshot = await sbFetchSubmissionSnapshot(submissionId); } catch (e) { console.warn('[rehydrate] on-demand snapshot fetch failed:', e && e.message); }
   }
+  if (myToken !== STATE._rehydrateToken || blockSubmissionContextChange()) return;
   if (!rec || !rec.snapshot) {
     toast('Could not load submission — snapshot missing', 'error');
     return;
@@ -3755,8 +3766,7 @@ async function rehydrateSubmission(submissionId) {
   // late and would otherwise overlay A's edits onto B's STATE. Also
   // catches the A → B → A case where simply checking activeSubmissionId
   // would let the first A fetch clobber the second A fetch's result.
-  STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
-  const myToken = STATE._rehydrateToken;
+
   // PHASE A FIX (per GPT external audit): also bump _uploadToken here so
   // any in-flight extractAndProcessFile from a prior submission detects the
   // context change and bails out. Without this, swapping to a different
@@ -3775,6 +3785,7 @@ async function rehydrateSubmission(submissionId) {
       // the stale cloud edit row on top of the fresh snapshot. Now uses
       // shared flushEditsNow() helper which awaits the chain.
       await flushEditsNow();
+      if (myToken !== STATE._rehydrateToken || blockSubmissionContextChange()) return;
       // Refresh snapshot with any edits the UW made to the active submission
       activeRec.snapshot = {
         files:          slimSnapshotFiles8799(),
@@ -3825,6 +3836,7 @@ async function rehydrateSubmission(submissionId) {
     }
     return;
   }
+  if (blockSubmissionContextChange()) return;
   // Load target snapshot
   const snap = rec.snapshot;
   STATE.files         = deepClone(snap.files || []);
@@ -4005,6 +4017,7 @@ async function rehydrateSubmission(submissionId) {
 
 // ---- Delete submission ---------------------------------------------------
 async function deleteSubmission(submissionId, confirmAlready) {
+  if (STATE.activeSubmissionId === submissionId && blockSubmissionContextChange()) return;
   const rec = STATE.submissions.find(s => s.id === submissionId);
   if (!rec) return;
   if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
@@ -4027,12 +4040,17 @@ async function deleteSubmission(submissionId, confirmAlready) {
   if (typeof logAudit === 'function') logAudit('Submissions', 'Delete requested · ' + submissionId + ' · ' + label, '—');
 
   try {
+    if (STATE.activeSubmissionId === submissionId) STATE._deletingSubmissionId = submissionId;
     await deleteFn(submissionId);
 
     if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
     STATE._deletedSubmissionIds.add(submissionId);
     STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
-    if (STATE.activeSubmissionId === submissionId) STATE.activeSubmissionId = null;
+    if (STATE.activeSubmissionId === submissionId) {
+      STATE._uploadToken = (STATE._uploadToken || 0) + 1;
+      STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+      STATE.activeSubmissionId = null;
+    }
     if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
       try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
     }
@@ -4047,6 +4065,8 @@ async function deleteSubmission(submissionId, confirmAlready) {
     if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg, 'error');
     if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 120), 'error');
     if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
+  } finally {
+    if (STATE._deletingSubmissionId === submissionId) STATE._deletingSubmissionId = null;
   }
 }
 
@@ -6654,6 +6674,7 @@ function getActiveSubmissionId8706() {
   } catch (e) { return ''; }
 }
 function openWorkbenchForActiveSubmission8706() {
+  if (blockSubmissionContextChange()) return;
   const sid = getActiveSubmissionId8706();
   window.location.href = sid ? '/workbench?submission=' + encodeURIComponent(sid) : '/workbench';
 }
@@ -6895,6 +6916,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
 async function startNewSubmission() {
+  if (blockSubmissionContextChange()) return;
   // v8.6.7 (per GPT external audit): invalidate any in-flight rehydrate
   // FIRST, before any awaited work. If a previous click started
   // rehydrateSubmission(B) and it's currently parked on saveSubmissionSnapshot
@@ -6902,6 +6924,7 @@ async function startNewSubmission() {
   // checks to bail. Without this bump, B's rehydrate could resume and
   // overwrite the wiped state we're about to set up.
   STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+  const myToken = STATE._rehydrateToken;
 
   // Phase 3 (#5): also bump the upload token. If the user is in the middle
   // of an upload (handleFiles still extracting some PDFs) and clicks New
@@ -6922,6 +6945,7 @@ async function startNewSubmission() {
       // flushEditsNow() awaits the async chain and swallows save errors
       // (snapshot path is the resilience layer).
       await flushEditsNow();
+      if (myToken !== STATE._rehydrateToken || blockSubmissionContextChange()) return;
       activeRec.snapshot = {
         files:          slimSnapshotFiles8799(),
         extractions:    deepClone(STATE.extractions),
@@ -6954,6 +6978,7 @@ async function startNewSubmission() {
       }
     }
   }
+  if (myToken !== STATE._rehydrateToken || blockSubmissionContextChange()) return;
   // Fresh start — reset any lingering state from a previous submission
   STATE.files = [];
   STATE.extractions = {};
@@ -7333,3 +7358,15 @@ try {
     if (!document.hidden) setTimeout(() => normalizePlatformShell8705('visibility'), 0);
   });
 } catch (e) {}
+
+// UI safety boundary: changing the active account must wait for processing/save.
+function submissionWorkInProgress() {
+  return !!(STATE.pipelineRunning || (STATE._submissionWorkCount || 0) > 0 || STATE._deletingSubmissionId);
+}
+function blockSubmissionContextChange() {
+  if (!submissionWorkInProgress()) return false;
+  toast('This account is still processing or saving. Please wait before changing submissions.', 'warn');
+  return true;
+}
+window.submissionWorkInProgress = submissionWorkInProgress;
+window.blockSubmissionContextChange = blockSubmissionContextChange;
