@@ -5849,6 +5849,9 @@ function renderCustomCard(cc) {
 // DOM-order based, mirroring the grid's auto-flow: a .full card ends a row;
 // otherwise cards pair two at a time.
 function stmCardRowGroups8770(container) {
+  if (document.documentElement.dataset.workspace) {
+    return Array.from(container.children).filter(el => el.classList && el.classList.contains('sc-card')).map(el => [el]);
+  }
   const groups = [];
   let current = null;
   Array.from(container.children).forEach(el => {
@@ -6618,6 +6621,8 @@ function renderSubmissionSidebar() {
 // submission header cannot disappear behind a stale overlay or blank spacer.
 function resetPlatformRootScroll8705() {
   try {
+    const workspace = document.getElementById('wsMain');
+    if (workspace) workspace.scrollTop = 0;
     const se = document.scrollingElement || document.documentElement;
     if (se) se.scrollTop = 0;
     document.documentElement.scrollTop = 0;
@@ -7196,6 +7201,7 @@ function toast() {
 }
 
 function toggleTheme() {
+  if (window.STMTheme) { window.STMTheme.toggle(); return; }
   const el = document.documentElement;
   const cur = el.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   const next = cur === 'dark' ? 'light' : 'dark';

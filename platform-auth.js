@@ -86,7 +86,7 @@
     overlay.className = "ws-auth-overlay";
     overlay.innerHTML = `<div class="ws-auth-story">
   <a class="ws-brand" href="/"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
-  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>The art of<br><em>better decisions.</em></h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
+  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>Clarity at the<br>speed of ambition.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
   <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
   <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
  </div>

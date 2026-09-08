@@ -4145,7 +4145,7 @@ window.initDocumentsView = function() {
       const onMove = (ev) => {
         const delta = ev.clientX - startX;
         const newW = isLeft ? (startW + delta) : (startW - delta);
-        const vw = window.innerWidth;
+        const vw = wsEl.clientWidth || root.clientWidth || window.innerWidth;
         const otherPanelW = isLeft
           ? parseFloat(getComputedStyle(root).getPropertyValue('--tags-panel-w')) || 280
           : parseFloat(getComputedStyle(root).getPropertyValue('--docs-panel-w')) || 300;
@@ -4187,7 +4187,7 @@ window.initDocumentsView = function() {
     if (root) {
       const dw = parseFloat(localStorage.getItem(CONFIG.storageKeys.docsPanelW));
       const tw = parseFloat(localStorage.getItem(CONFIG.storageKeys.tagsPanelW));
-      const vw = window.innerWidth || 1280;
+      const vw = root.clientWidth || Math.max(320, window.innerWidth - 88) || 1280;
       if (Number.isFinite(dw) && dw >= 220 && dw <= vw * 0.6) {
         root.style.setProperty('--docs-panel-w', dw + 'px');
       }

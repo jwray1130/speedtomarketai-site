@@ -47,12 +47,12 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
 <script src="workbench-rules.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
 <script src="workbench-rater.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
 <script src="workbench-app.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09" defer></script>
-<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.2">
-<script src="workspace-shell.js?v=2026.09.08.2"></script>
+<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.3">
+<script src="workspace-shell.js?v=2026.09.08.3"></script>
 </head>
 <body>
 <a class="ws-skip" href="#wsMain">Skip to workspace</a>
-<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item" data-system-target="queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item active" data-system-target="workbench" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav><div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div></aside>
+<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><a class="ws-rail-logo" href="/" aria-label="Speed to Market homepage"><svg viewbox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 18 14 5l9 13H5Zm3 5h12" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"></path></svg></a><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item" data-system-target="queue" title="Submission queue"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18M8 13h2m-2 3h5"></path></svg><span>Queue</span></button><button type="button" class="ws-nav-item" data-system-target="submission" title="Submission pipeline"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"></rect><rect x="16" y="2" width="6" height="8" rx="2"></rect><rect x="16" y="14" width="6" height="8" rx="2"></rect><path d="M8 12h4V6h4m-4 6v6h4"></path></svg><span>Pipeline</span></button><button type="button" class="ws-nav-item" data-system-target="documents" title="File Manager"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M3 11h18"></path></svg><span>Files</span></button><button type="button" class="ws-nav-item active" data-system-target="workbench" aria-current="page" title="Underwriting Workbench"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"></path><path d="m8 12 3 3 5-6"></path></svg><span>Workbench</span></button><button type="button" class="ws-nav-item" data-system-target="admin" title="Administration"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"></path><circle cx="12" cy="12" r="8"></circle><path d="M12 1v3m0 16v3M1 12h3m16 0h3"></path></svg><span>Admin</span></button></nav></aside>
 
 <a href="#pageContent" class="skip-to-main">Skip to main content</a>
 
@@ -61,34 +61,32 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
         <div class="topbar-left">
             <a href="/platform" class="brand" aria-label="Speed to Market AI" title="Back to platform dashboard">
                 <span class="brand-mark" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+                    <svg viewbox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                        <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"></path>
                     </svg>
                 </span>
                 <span class="brand-text">Speed to Market <em>AI</em></span>
             </a>
             <nav aria-label="Primary navigation">
                 <ul id="mainNav" role="tablist">
-                    <li data-page="deal" class="active" role="tab" tabindex="0" aria-selected="true">Deal Information</li>
-                    <li data-page="risk" role="tab" tabindex="-1" aria-selected="false">Risk &amp; Coverage</li>
-                    <li data-page="forms" role="tab" tabindex="-1" aria-selected="false">Forms &amp; Subjectivities</li>
+                    <li data-page="deal" class="active" role="tab" tabindex="0" aria-selected="true">Account details</li>
+                    <li data-page="risk" role="tab" tabindex="-1" aria-selected="false">Risk &amp; pricing</li>
+                    <li data-page="forms" role="tab" tabindex="-1" aria-selected="false">Forms &amp; terms</li>
                     <li data-page="underwriting" role="tab" tabindex="-1" aria-selected="false">Underwriting</li>
                     <li data-page="renewal" role="tab" tabindex="-1" aria-selected="false" style="display: none;">Renewal</li>
                     <li data-page="history" role="tab" tabindex="-1" aria-selected="false">History</li>
                 </ul>
             </nav>
         </div>
-        <div class="topbar-right">
+        <div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div><div class="topbar-right">
             <!-- FIX-PHASE-1-SUBMISSION-HANDOFF-2026-05-14
                  Active submission badge. Shown only when /workbench was
                  opened with a ?submission=<id> query param AND the matching
                  submission was successfully loaded from Supabase. Hidden
                  otherwise — direct /workbench visits see no change. Populated by loadSubmissionFromUrl()
                  in workbench-app.js. -->
-            <div id="workbenchSubmissionBadge"
-                 class="workbench-submission-badge"
-                 title="Loaded from the /platform queue">
+            <div id="workbenchSubmissionBadge" class="workbench-submission-badge" title="Loaded from the /platform queue">
                 <span class="submission-badge-label">FROM PLATFORM</span>
                 <span class="submission-badge-value">—</span>
             </div>
@@ -112,7 +110,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             <div class="action-dropdown">
                 <button id="actionsBtn" type="button" title="Change the status for this session. These actions do not issue policy documents." aria-haspopup="menu" aria-expanded="false" aria-controls="actionsMenu">
                     <span>Status</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                 </button>
@@ -141,10 +139,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                 <span class="topbar-pill-value">ACTIVE SESSION</span>
             </span>
             <button type="button" id="themeToggle" class="topbar-icon-btn" aria-label="Toggle theme" title="Toggle light/dark">
-                <svg class="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <svg class="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                 </svg>
-                <svg class="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <svg class="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="4"></circle>
                     <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
                 </svg>
@@ -159,27 +157,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
         </div>
     </header>
 
-    <div id="workbenchLoadStatus" class="workbench-load-status" role="status" aria-live="polite">
-        <div class="workbench-load-status-text">
-            <strong class="workbench-load-status-title"></strong>
-            <span class="workbench-load-status-message"></span>
-        </div>
-        <a class="workbench-load-status-link" href="/platform">Open Platform Queue</a>
-    </div>
-
-    <div class="container" id="wsMain" tabindex="-1">
-        <div id="pageContent" tabindex="-1">
-            <section id="page-deal" class="page-section active">
-                <header class="page-head">
-                    <span class="page-head-eyebrow">ACCOUNT OVERVIEW</span>
-                    <h1 class="page-head-title">Deal details</h1>
-                </header>
-
-                <!-- ═════════════════════════════════════════════════════════
-                     HERO — the deal itself: identity, status, key metrics
-                     Values are derived live from the form fields below.
-                     ═════════════════════════════════════════════════════════ -->
-                <section class="deal-hero">
+    <section class="deal-hero ws-deal-banner">
                     <div class="deal-hero-head">
                         <div class="deal-hero-identity">
                             <h2 class="deal-hero-name" id="heroInsuredName">Untitled deal</h2>
@@ -218,6 +196,26 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                     </div>
                 </section>
 
+                <div class="container" id="wsMain" tabindex="-1">
+        <div id="workbenchLoadStatus" class="workbench-load-status" role="status" aria-live="polite">
+        <div class="workbench-load-status-text">
+            <strong class="workbench-load-status-title"></strong>
+            <span class="workbench-load-status-message"></span>
+        </div>
+        <a class="workbench-load-status-link" href="/platform">Open Platform Queue</a>
+    </div>
+
+    <div id="pageContent" tabindex="-1">
+            <section id="page-deal" class="page-section active">
+                <header class="page-head">
+                    <span class="page-head-eyebrow">ACCOUNT OVERVIEW</span>
+                    <h1 class="page-head-title">Deal details</h1>
+                </header>
+
+                <!-- ═════════════════════════════════════════════════════════
+                     HERO — the deal itself: identity, status, key metrics
+                     Values are derived live from the form fields below.
+                     ═════════════════════════════════════════════════════════ -->
                 <!-- ═════════════════════════════════════════════════════════
                      TASK CARDS — 4 focused cards, 2-up grid.
                      ═════════════════════════════════════════════════════════ -->
@@ -444,7 +442,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                             <div class="top-actions-bar">
                                 <div class="add-coverage-wrapper" data-button-type="primary" data-target-list-id="primary-limits-list">
                                     <button type="button" class="add-limit-btn" data-category="primary">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <line x1="12" y1="5" x2="12" y2="19"></line>
                                             <line x1="5" y1="12" x2="19" y2="12"></line>
                                         </svg>Add Primary Coverage
@@ -453,7 +451,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="add-coverage-wrapper" data-button-type="foreign" data-target-list-id="foreign-limits-list">
                                     <button type="button" class="add-limit-btn" data-category="foreign">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <line x1="12" y1="5" x2="12" y2="19"></line>
                                             <line x1="5" y1="12" x2="19" y2="12"></line>
                                         </svg>Add Foreign Coverage
@@ -462,7 +460,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="add-coverage-wrapper" data-button-type="excess" data-target-list-id="excess-limits-list">
                                     <button type="button" class="add-limit-btn" data-category="excess">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <line x1="12" y1="5" x2="12" y2="19"></line>
                                             <line x1="5" y1="12" x2="19" y2="12"></line>
                                         </svg>Add Excess Coverage
@@ -481,10 +479,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-lead-specific"><span>Lead</span></label>
                                             <div class="limit-entry-actions">
                                                 <label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-specific"><span>Carrier Layer</span></label>
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -541,10 +539,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <div class="limit-entry-header">
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-gl"><span>General Liability</span></label>
                                             <div class="limit-entry-actions">
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -569,7 +567,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                                 <label>Products/Comp Ops Agg
                                                     <div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div>
                                                 </label>
-                                                <label>Personal & Adv Injury
+                                                <label>Personal &amp; Adv Injury
                                                     <div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div>
                                                 </label>
                                             </div>
@@ -584,10 +582,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <div class="limit-entry-header">
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-al"><span>Auto Liability</span></label>
                                             <div class="limit-entry-actions">
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -621,10 +619,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <div class="limit-entry-header">
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-fgl"><span>Foreign General Liability</span></label>
                                             <div class="limit-entry-actions">
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -656,10 +654,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <div class="limit-entry-header">
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-fal"><span>Foreign Auto Liability</span></label>
                                             <div class="limit-entry-actions">
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -694,10 +692,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                             <label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess" data-field="lead_excess_enabled"><span>Lead Excess</span></label>
                                             <div class="limit-entry-actions">
                                                 <label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess" data-field="lead_excess_selected"><span>Carrier Layer</span></label>
-                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
-                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polyline points="3 6 5 6 21 6"></polyline>
                                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
                                                     </path>
@@ -751,9 +749,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                             <div class="limit-templates" style="display: none;">
                                 <div class="limit-entry" data-template-key="gl">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-gl-clone"><span>General Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -762,15 +760,15 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                     </div>
                                     <div id="details-gl-clone" class="limit-details-panel">
                                         <div class="grid grid-3"><label>Carrier <input type="text" placeholder="Carrier Name"></label><label>Effective Date <input type="text" class="limit-date" placeholder="Select Date..."></label><label>Expiration Date <input type="text" class="limit-date" placeholder="Select Date..."></label></div>
-                                        <div class="grid grid-4"><label>Each Occurrence<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>General Aggregate<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>Products/Comp Ops Agg<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>Personal & Adv Injury<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label></div>
+                                        <div class="grid grid-4"><label>Each Occurrence<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>General Aggregate<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>Products/Comp Ops Agg<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label><label>Personal &amp; Adv Injury<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label></div>
                                         <div class="grid grid-4"><label>Premium<div class="currency-wrap"><input type="text" class="currency-input" placeholder="0"></div></label></div>
                                     </div>
                                 </div>
                                 <div class="limit-entry" data-template-key="al">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-al-clone"><span>Auto Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -784,9 +782,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="el">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-el-clone"><span>Employers Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -801,9 +799,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="aircraft">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-aircraft-clone"><span>Aircraft Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -817,9 +815,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="ebl">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-ebl-clone"><span>Employee Benefits Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -833,9 +831,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="garage">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-garage-clone"><span>Garage Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -849,9 +847,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="liquor">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-liquor-clone"><span>Liquor Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -866,9 +864,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="stop-gap">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-stop-gap-clone"><span>Stop Gap</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -882,9 +880,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="watercraft">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-watercraft-clone"><span>Watercraft Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -898,9 +896,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="other">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-other-clone"><span>Other</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -914,9 +912,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fgl">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fgl-clone"><span>Foreign General Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -930,9 +928,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fal">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fal-clone"><span>Foreign Auto Liability</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -946,9 +944,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fl-ebl">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-ebl-clone"><span>Foreign Liability – EBL</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -962,9 +960,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fl-el">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-el-clone"><span>Foreign Liability – EL</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -977,10 +975,10 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                     </div>
                                 </div>
                                 <div class="limit-entry" data-template-key="fl-products">
-                                    <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-products-clone"><span>Foreign Liability – Premises & Products</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-products-clone"><span>Foreign Liability – Premises &amp; Products</span></label>
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -994,9 +992,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fl-prem">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-prem-clone"><span>Foreign Liability – Premises Only</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -1010,9 +1008,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="fl-prodops">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-fl-prodops-clone"><span>Foreign Liability – Products/Ops Only</span></label>
-                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -1026,9 +1024,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="lead-excess" data-tower-role="excess_layer">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-lead-excess-clone" data-field="lead_excess_enabled"><span>Lead Excess</span></label>
-                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess-clone" data-field="lead_excess_selected"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="lead-excess-clone" data-field="lead_excess_selected"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -1052,9 +1050,9 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                 </div>
                                 <div class="limit-entry" data-template-key="excess">
                                     <div class="limit-entry-header"><label class="checkbox-label"><input type="checkbox" data-target="details-excess-clone"><span>Excess</span></label>
-                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="excess-clone"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <div class="limit-entry-actions"><label class="checkbox-label"><input type="checkbox" data-policy-layer="excess-clone"><span>Carrier Layer</span></label><svg class="collapse-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
-                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            </svg><svg class="delete-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
                                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                                 <line x1="10" y1="11" x2="10" y2="17"></line>
@@ -1362,7 +1360,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                     <label class="checkbox-label"><input type="checkbox" id="otherSubjectivityCheckbox">Other?</label>
                                     <div class="other-details-panel">
                                         <div class="other-input-group"><textarea rows="2" placeholder="Enter other subjectivity..."></textarea></div>
-                                        <button type="button" class="add-limit-btn add-other-btn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add Other</button>
+                                        <button type="button" class="add-limit-btn add-other-btn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add Other</button>
                                     </div>
                                 </div>
                             </div>
@@ -1468,7 +1466,7 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                             </div>
                             <div class="input-inline">
                                 <span>GL per</span>
-                                <input id="glPer" class="input-xs mono" value="1000" />
+                                <input id="glPer" class="input-xs mono" value="1000">
                             </div>
                         </header>
                         <div class="renewal-table-block renewal-table-block--erc">
@@ -1479,14 +1477,14 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
                                         <tr><th></th><th class="right">GL (and Other)</th><th class="right">AL</th><th class="right">Total / Notes</th></tr>
                                     </thead>
                                     <tbody>
-                                        <tr><td>Expiring Exposures</td><td class="right"><input data-erc="expGlExp" class="mono input-highlight" /></td><td class="right"><input data-erc="expAlExp" class="mono input-highlight" /></td><td class="right muted">GL per <span id="glPerEcho" class="mono">1,000</span></td></tr>
-                                        <tr><td>Expiring Premium</td><td class="right muted">$—</td><td class="right muted">$—</td><td class="right"><input data-erc="expPrem" class="mono input-highlight" placeholder="$" /></td></tr>
-                                        <tr><td>Applied Premium Split</td><td class="right"><input data-erc="splitGl" class="input-mini mono input-highlight" value="50%" /></td><td class="right"><input data-erc="splitAl" class="input-mini mono input-highlight" value="50%" /></td><td class="right muted">GL% + AL% = 100%</td></tr>
+                                        <tr><td>Expiring Exposures</td><td class="right"><input data-erc="expGlExp" class="mono input-highlight"></td><td class="right"><input data-erc="expAlExp" class="mono input-highlight"></td><td class="right muted">GL per <span id="glPerEcho" class="mono">1,000</span></td></tr>
+                                        <tr><td>Expiring Premium</td><td class="right muted">$—</td><td class="right muted">$—</td><td class="right"><input data-erc="expPrem" class="mono input-highlight" placeholder="$"></td></tr>
+                                        <tr><td>Applied Premium Split</td><td class="right"><input data-erc="splitGl" class="input-mini mono input-highlight" value="50%"></td><td class="right"><input data-erc="splitAl" class="input-mini mono input-highlight" value="50%"></td><td class="right muted">GL% + AL% = 100%</td></tr>
                                         <tr><td>Premium Split</td><td class="right mono" data-erc-out="premGl">$0</td><td class="right mono" data-erc-out="premAl">$0</td><td class="right mono" data-erc-out="premTotal">$0</td></tr>
                                         <tr><td>Expiring Rate</td><td class="right mono" data-erc-out="rateGl">$0.00</td><td class="right mono" data-erc-out="rateAl">$0.00</td><td class="right muted">Per base</td></tr>
-                                        <tr><td>Renewal Exposures</td><td class="right"><input data-erc="renGlExp" class="mono input-highlight" placeholder="(defaults to exp)" /></td><td class="right"><input data-erc="renAlExp" class="mono input-highlight" placeholder="(defaults to exp)" /></td><td class="right muted">Leave blank = same</td></tr>
+                                        <tr><td>Renewal Exposures</td><td class="right"><input data-erc="renGlExp" class="mono input-highlight" placeholder="(defaults to exp)"></td><td class="right"><input data-erc="renAlExp" class="mono input-highlight" placeholder="(defaults to exp)"></td><td class="right muted">Leave blank = same</td></tr>
                                         <tr><td>Flat Renewal</td><td class="right mono" data-erc-out="flatGl">$0</td><td class="right mono" data-erc-out="flatAl">$0</td><td class="right mono" data-erc-out="flatTotal">$0</td></tr>
-                                        <tr class="total-row"><td>Total Premium</td><td class="right mono" data-erc-out="renGl">$0</td><td class="right mono" data-erc-out="renAl">$0</td><td class="right"><input data-erc="renPrem" class="mono input-highlight" placeholder="Enter renewal premium…" /></td></tr>
+                                        <tr class="total-row"><td>Total Premium</td><td class="right mono" data-erc-out="renGl">$0</td><td class="right mono" data-erc-out="renAl">$0</td><td class="right"><input data-erc="renPrem" class="mono input-highlight" placeholder="Enter renewal premium…"></td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -1641,5 +1639,5 @@ html.stm-auth-pending body > *:not(#stmAuthOverlay) { visibility: hidden !import
             </menu>
         </form>
     </dialog>
-<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>UNDERWRITING OPERATIONS</span><div id="wsBuildSlot"></div></footer></body>
+<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>WORKSPACE</span><div id="wsBuildSlot"></div></footer></body>
 </html>

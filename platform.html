@@ -89,8 +89,8 @@
 <link rel="stylesheet" href="pipeline-documents-view.css?v=8.7.167-a3-attachment-cache-contract-2026-07-09">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.2">
-<script src="workspace-shell.js?v=2026.09.08.2"></script>
+<link rel="stylesheet" href="workspace-design.css?v=2026.09.08.3">
+<script src="workspace-shell.js?v=2026.09.08.3"></script>
 </head>
 <body>
 
@@ -103,29 +103,29 @@
      navy so it's consistent with the Carbon dark mode in the app.
      ============ -->
 <div id="authOverlay" class="ws-auth-overlay"><div class="ws-auth-story">
-  <a class="ws-brand" href="/"><span class="ws-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"/></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
-  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>The art of<br><em>better decisions.</em></h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
+  <a class="ws-brand" href="/"><span class="ws-mark"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 7-7 7 7M5 19l7-7 7 7"></path></svg></span><span>Speed to Market<span class="ws-brand-ai">AI WORKSPACE</span></span></a>
+  <div class="ws-auth-story-main"><div class="ws-auth-eyebrow">SPEED TO MARKET AI</div><h1>Clarity at the<br>speed of ambition.</h1><p>One connected workspace for your documents, analysis, and underwriting decisions.</p>
   <ol class="ws-auth-flow"><li><span>01</span><div><strong>Bring the account into focus</strong><small>Collect, classify, and organize every document.</small></div></li><li><span>02</span><div><strong>Turn information into insight</strong><small>Review extracted facts alongside their sources.</small></div></li><li><span>03</span><div><strong>Move forward with context</strong><small>Carry the submission into your underwriting workbench.</small></div></li></ol></div>
   <div class="ws-auth-footer">COMMERCIAL INSURANCE <span>ONE CONNECTED WORKSPACE</span></div>
  </div>
  <div class="ws-auth-form-side"><div class="ws-auth-card"><span class="ws-auth-kicker">UNDERWRITING WORKSPACE</span><h2>Welcome back.</h2><p>Sign in to your underwriting workspace with your registered work email.</p>
  <label for="authEmail">Work email</label><input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email" inputmode="email" required aria-describedby="authError authSuccess">
- <button id="authSendBtn" type="button">Send sign-in link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
+ <button id="authSendBtn" type="button">Send sign-in link <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"></path></svg></button>
  <div id="authError" role="alert"></div><div id="authSuccess" role="status" aria-live="polite"></div>
  <div class="ws-auth-note">No password needed. We’ll email you a link to sign in.</div>
  </div><span class="ws-auth-form-footer">Speed to Market AI · Underwriting operations</span></div></div>
 
 <a class="ws-skip" href="#wsMain">Skip to workspace</a>
-<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item active" data-system-target="queue" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h5"/></svg><span>Queue</span><span class="ws-nav-index">01</span></button><button type="button" class="ws-nav-item" data-system-target="submission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg><span>Submission Pipeline</span><span class="ws-nav-index">02</span></button><button type="button" class="ws-nav-item" data-system-target="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 11h18"/></svg><span>File Manager</span><span class="ws-nav-index">03</span></button><button type="button" class="ws-nav-item" data-system-target="workbench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>Underwriting Workbench</span><span class="ws-nav-index">04</span></button><button type="button" class="ws-nav-item" data-system-target="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3"/></svg><span>Admin</span><span class="ws-nav-index">05</span></button></nav><div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div></aside>
+<aside class="ws-rail" id="workspaceRail" aria-label="Workspace navigation"><a class="ws-rail-logo" href="/" aria-label="Speed to Market homepage"><svg viewbox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 18 14 5l9 13H5Zm3 5h12" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"></path></svg></a><div class="ws-systems-label">SYSTEMS</div><nav class="ws-navigation" data-system-nav aria-label="Systems"><button type="button" class="ws-nav-item active" data-system-target="queue" aria-current="page" title="Submission queue"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18M8 13h2m-2 3h5"></path></svg><span>Queue</span></button><button type="button" class="ws-nav-item" data-system-target="submission" title="Submission pipeline"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"></rect><rect x="16" y="2" width="6" height="8" rx="2"></rect><rect x="16" y="14" width="6" height="8" rx="2"></rect><path d="M8 12h4V6h4m-4 6v6h4"></path></svg><span>Pipeline</span></button><button type="button" class="ws-nav-item" data-system-target="documents" title="File Manager"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M3 11h18"></path></svg><span>Files</span></button><button type="button" class="ws-nav-item" data-system-target="workbench" title="Underwriting Workbench"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7Z"></path><path d="m8 12 3 3 5-6"></path></svg><span>Workbench</span></button><button type="button" class="ws-nav-item" data-system-target="admin" title="Administration"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"></path><circle cx="12" cy="12" r="8"></circle><path d="M12 1v3m0 16v3M1 12h3m16 0h3"></path></svg><span>Admin</span></button></nav></aside>
 
 <!-- ============ TOP BAR ============ -->
 <div class="topbar ws-topbar">
   <div style="display: flex; align-items: center; gap: 22px;">
     <a href="/" id="platformBrandNav" class="brand" style="text-decoration: none; color: inherit;" title="Back to queue or marketing site">
       <span class="brand-mark">
-        <svg viewBox="0 0 20 20" fill="none">
-          <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+        <svg viewbox="0 0 20 20" fill="none">
+          <path d="M4 11 L10 5 L16 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="M4 15 L10 9 L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"></path>
         </svg>
       </span>
       <span>Speed to Market <em>AI</em></span>
@@ -136,7 +136,7 @@
       <button class="tab" data-view="admin">Admin</button>
     </div>
   </div>
-  <div class="topbar-right">
+  <div class="ws-context"><span class="ws-context-label">ACTIVE ACCOUNT</span><strong id="wsContextName">No submission selected</strong><span id="wsContextDetail">Open an account from your queue</span></div><div class="topbar-right">
     <!-- v8.7.08 UNIVERSAL SYSTEM SWITCHER — one navigation control across Queue, Submission, Documents, Workbench, and Admin. -->
     <div class="stm-system-nav" data-system-nav>
       <button type="button" class="stm-system-nav-btn" data-system-nav-toggle aria-haspopup="menu" aria-expanded="false" title="Switch Speed to Market AI system">
@@ -166,8 +166,8 @@
       <span id="apiPillText">SIGN IN REQUIRED</span>
     </button>
     <button class="btn-icon theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-      <svg class="tt-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-      <svg class="tt-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="tt-sun" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+      <svg class="tt-moon" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
     </button>
     <div class="avatar">
       <div class="avatar-circle">—</div>
@@ -180,9 +180,9 @@
 <!-- ============ QUEUE VIEW ============ -->
 <section class="view active" id="view-queue">
   <div class="page-head">
-    <div class="page-eyebrow">SUBMISSION OPERATIONS</div>
-    <h1 class="page-title">Submission <em>queue.</em></h1>
-    <p class="page-sub">A clear view of every account, from first submission to final decision.</p>
+    <div class="page-eyebrow">OPERATIONS / QUEUE</div>
+    <h1 class="page-title">Your submission book</h1>
+    <p class="page-sub">Every account. A clear next move.</p>
     <div style="margin-top: 18px;">
       <button class="btn btn-primary" onclick="startNewSubmission()" style="padding: 9px 18px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600;">
         <span style="margin-right: 6px; font-size: 14px;">+</span> New Submission
@@ -199,7 +199,7 @@
 
   <div class="queue-table-wrap">
     <div class="ws-table-heading"><div><h2>All submissions <span id="wsQueueCount">0</span></h2><p>Select an account to continue underwriting.</p></div><span class="ws-table-hint"><span class="ws-indicator"></span> Most recently updated first</span></div>
-    <table class="queue">
+    <div class="ws-queue-controls"><label class="ws-search"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10" cy="10" r="6"></circle><path d="m15 15 5 5"></path></svg><input type="search" id="wsQueueSearch" placeholder="Find an account or broker" aria-label="Search submissions"></label><div class="ws-queue-filters" role="group" aria-label="Filter submissions"><button type="button" data-queue-filter="all" aria-pressed="true">All accounts</button><button type="button" data-queue-filter="review" aria-pressed="false">Needs review</button><button type="button" data-queue-filter="progress" aria-pressed="false">In progress</button><button type="button" data-queue-filter="bound" aria-pressed="false">Bound</button></div><span id="wsQueueMatches" role="status"></span></div><table class="queue">
       <thead><tr>
         <th>Account</th><th>Broker</th><th>Effective</th><th>Requested</th><th style="width: 90px;">Modules</th><th style="width: 90px;">Confidence</th><th style="width: 130px;">Missing</th><th style="width: 180px;">Status</th>
       </tr></thead>
@@ -212,7 +212,7 @@
         </tr>
       </tbody>
     </table>
-  </div>
+  <p id="wsQueueNoMatches" hidden>No accounts match these filters.</p></div>
 </section>
 
 <!-- ============ SUBMISSION VIEW ============ -->
@@ -229,12 +229,12 @@
     </div>
   </div>
 
-  <div class="ws-pipeline-overview"><div class="ws-pipeline-title"><span class="ws-overline">INTELLIGENCE PIPELINE</span><h1>From documents<br>to <em>understanding.</em></h1></div><div class="ws-pipeline-instrument" aria-label="Pipeline progress"><div class="ws-orbit" role="progressbar" aria-label="Analysis modules completed" aria-valuemin="0" aria-valuemax="24" aria-valuenow="0"><div><strong id="wsAnalysisCount">0</strong><span id="wsAnalysisTotal">/ 24</span></div></div><div><span class="ws-overline" id="wsPipelineState">AWAITING DOCUMENTS</span><strong class="ws-instrument-title" id="wsPipelineTitle">Your next decision starts here.</strong><p id="wsPipelineDetail">Classify. Extract. Synthesize. Analyze.</p></div></div></div><ol class="ws-stage-map" aria-label="Analysis stages"><li data-stage-source="stageClassifier"><span>01</span><div><strong>Classify</strong><small>Document routing</small></div><i></i></li><li data-stage-source="wave1"><span>02</span><div><strong>Extract</strong><small>Source intelligence</small></div><i></i></li><li data-stage-source="wave2"><span>03</span><div><strong>Synthesize</strong><small>Account context</small></div><i></i></li><li data-stage-source="wave3"><span>04</span><div><strong>Analyze</strong><small>Underwriting insight</small></div><i></i></li></ol><div class="sub-layout">
+  <div class="ws-command-strip"><div class="ws-run-state"><span class="ws-indicator"></span><span id="wsPipelineState">AWAITING DOCUMENTS</span><span class="ws-command-detail" id="wsPipelineDetail">Add documents to start analysis.</span></div><div class="ws-completion"><strong id="wsAnalysisCount">0</strong><span id="wsAnalysisTotal">/ 24</span><span>outputs</span><span id="wsReviewFlags"></span></div><button type="button" id="wsSourcesToggle" aria-expanded="true">Sources</button><button type="button" id="wsInspectorToggle" aria-expanded="false">Inspector</button></div><div class="sub-layout">
 
     <!-- LEFT: Files -->
-    <aside class="pane">
+    <aside class="pane ws-source-pane">
       <div class="pane-head">
-        <h3><span class="ws-section-number">01</span>Document intake</h3>
+        <h3>Source intake</h3>
         <span id="fileCount" style="font-family: var(--font-mono); font-size: 10px; color: var(--text-3);">0 files</span>
       </div>
       <div class="pane-body">
@@ -243,7 +243,7 @@
           Pipeline already complete. Dropping new files here will classify them, route to the affected modules, and refresh only those (plus their downstream dependents). The existing run is preserved.
         </div>
         <div class="dropzone" id="dropzone">
-          <div class="dropzone-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 14 8-8 8 8M4 20l8-8 8 8"/></svg></div>
+          <div class="dropzone-icon"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 14 8-8 8 8M4 20l8-8 8 8"></path></svg></div>
           <div class="dropzone-text">Drop your documents here</div>
           <div class="dropzone-hint">PDF · DOCX · XLSX · MSG · EML · CSV · TXT · HTML · RTF</div>
           <input type="file" id="fileInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.eml,.msg,.html,.htm,.rtf">
@@ -265,23 +265,20 @@
 
           <!-- Tab: Find by Name + Zip (default/primary) -->
           <div class="web-tab-body" id="webBodyFind">
-            <input type="text" class="web-input" id="webNameInput" placeholder="Named Insured"
-                   onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
-            <input type="text" class="web-input" id="webZipInput" placeholder="ZIP or City (helps disambiguation)" maxlength="20"
-                   onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
+            <input type="text" class="web-input" id="webNameInput" placeholder="Named Insured" onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
+            <input type="text" class="web-input" id="webZipInput" placeholder="ZIP or City (helps disambiguation)" maxlength="20" onkeypress="if(event.key==='Enter'){event.preventDefault();findAndScrapeWebsite();}">
             <button class="btn web-action-btn" id="btnFindAndScrape" onclick="findAndScrapeWebsite()">
-              <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M12 12 L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              Find & Crawl
+              <svg viewbox="0 0 20 20" fill="none" width="14" height="14"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.6"></circle><path d="M12 12 L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+              Find &amp; Crawl
             </button>
             <div class="web-hint">Find the insured’s website by business name and location. You can also enter a website address.</div>
           </div>
 
           <!-- Tab: Manual URL (fallback) -->
           <div class="web-tab-body" id="webBodyUrl" style="display: none;">
-            <input type="url" class="web-input" id="webUrlInput" placeholder="https://www.acmecontractors.com"
-                   onkeypress="if(event.key==='Enter'){event.preventDefault();scrapeWebsiteFromUrl();}">
+            <input type="url" class="web-input" id="webUrlInput" placeholder="https://www.acmecontractors.com" onkeypress="if(event.key==='Enter'){event.preventDefault();scrapeWebsiteFromUrl();}">
             <button class="btn web-action-btn" id="btnScrapeUrl" onclick="scrapeWebsiteFromUrl()">
-              <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><path d="M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M3 10 L17 10 M10 3 C6 6 6 14 10 17 C14 14 14 6 10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <svg viewbox="0 0 20 20" fill="none" width="14" height="14"><path d="M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M3 10 L17 10 M10 3 C6 6 6 14 10 17 C14 14 14 6 10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
               Crawl Site
             </button>
             <div class="web-hint">Enter the insured’s website address. Gathering the website may take about a minute.</div>
@@ -299,7 +296,7 @@
         </div>
 
         <button class="btn-run" id="btnRun" onclick="runPipeline()" disabled>
-          <svg viewBox="0 0 20 20" fill="none"><path d="M5 4 L15 10 L5 16 Z" fill="currentColor"/></svg>
+          <svg viewbox="0 0 20 20" fill="none"><path d="M5 4 L15 10 L5 16 Z" fill="currentColor"></path></svg>
           <span id="btnRunLabel">Drop files to begin</span>
         </button>
         <!-- v8.7.147: docked pending-work panel. Replaces the floating
@@ -313,7 +310,7 @@
     <!-- CENTER: Pipeline / Summary -->
     <div class="pane center-pane">
       <div class="pane-head">
-        <h3><span class="ws-section-number">02</span>Analysis workspace</h3>
+        <h3>Analysis network</h3>
         <div class="stage-tabs">
           <button class="stage-tab active" id="stageTabPipe" onclick="showStage('pipe')">
             Pipeline
@@ -330,19 +327,7 @@
       <!-- PIPELINE STAGE -->
       <div id="pipelineStage">
 
-        <div class="pipeline-empty" id="pipelineEmpty">
-          <!-- v8.6.48: wrapped in spotlight-card.signal.centered so the
-               awaiting state reads as an intentional AI pause moment
-               instead of a generic empty state. Inner DOM unchanged
-               so the existing JS (id="pipelineEmptyHeading", id="pipelineEmptyBody")
-               that updates the copy on file drop still works. -->
-          <div class="spotlight-card signal centered">
-            <div class="pipeline-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="8" width="6" height="8" rx="2"/><rect x="16" y="2" width="6" height="8" rx="2"/><rect x="16" y="14" width="6" height="8" rx="2"/><path d="M8 12h4V6h4m-4 6v6h4"/></svg></div>
-            <div class="spotlight-label">Pipeline</div>
-            <h2 id="pipelineEmptyHeading" class="spotlight-value">Ready when you are</h2>
-            <p id="pipelineEmptyBody" class="spotlight-sub">Add the broker’s documents on the left. Once they’re parsed, run the pipeline to build your underwriting summary.</p>
-          </div>
-        </div>
+        <div id="pipelineEmpty" class="pipeline-empty ws-awaiting"><div class="ws-awaiting-copy"><span class="ws-overline">READY TO ORCHESTRATE</span><h2 id="pipelineEmptyHeading">A connected view of the risk.</h2><p id="pipelineEmptyBody">Add the submission documents, then run analysis. Each module below represents part of your underwriting workflow.</p></div><div id="wsBlueprint" class="ws-blueprint" aria-label="Planned analysis modules"></div></div>
 
         <div class="pipeline-flow" id="pipelineFlow" style="display: none;">
           <div class="pipeline-meta">
@@ -390,7 +375,7 @@
               </div>
               <button class="btn-view-summary" onclick="showStage('sum')">
                 View Summary
-                <svg viewBox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg viewbox="0 0 20 20" fill="none"><path d="M5 10 L14 10 M10 5 L15 10 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
               </button>
             </div>
           </div>
@@ -399,7 +384,7 @@
 
       <!-- SUMMARY STAGE -->
       <div class="summary-view" id="summaryStage">
-        <div class="summary-meta">
+        <nav id="wsSummaryIndex" class="ws-summary-index" aria-label="Summary contents"></nav><div class="summary-meta">
           <div class="summary-meta-text">
             <strong>0/24 modules</strong> · extraction time <strong>—</strong> · avg confidence <strong>—</strong>
           </div>
@@ -415,7 +400,7 @@
           </div>
           <div style="display: flex; gap: 8px;">
             <button class="add-docs-btn" onclick="triggerAddDocuments()" title="Add follow-up documents (broker email, updated loss run, etc.) — re-runs only affected modules">
-              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <svg width="12" height="12" viewbox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
               Add Documents
             </button>
             <button onclick="toggleAllCards(false)" style="font-family: var(--font-mono); font-size: 10px; padding: 4px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer; text-transform: uppercase; font-weight: 600;">Expand all</button>
@@ -434,8 +419,8 @@
           <div class="ncf-header">
             <div class="ncf-header-left">
               <span class="ncf-folder-icon" aria-hidden="true">
-                <svg width="20" height="15" viewBox="0 0 20 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M1 3.5C1 2.67 1.67 2 2.5 2H7.5L9 4H17.5C18.33 4 19 4.67 19 5.5V12.5C19 13.33 18.33 14 17.5 14H2.5C1.67 14 1 13.33 1 12.5V3.5Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                <svg width="20" height="15" viewbox="0 0 20 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 3.5C1 2.67 1.67 2 2.5 2H7.5L9 4H17.5C18.33 4 19 4.67 19 5.5V12.5C19 13.33 18.33 14 17.5 14H2.5C1.67 14 1 13.33 1 12.5V3.5Z" stroke="currentColor" stroke-width="1.5" fill="none"></path>
                 </svg>
               </span>
               <div class="ncf-title-stack">
@@ -491,7 +476,189 @@
            Module entry: /documents-view.js exposes initDocumentsView() which
            is called once at app boot.
            ═══════════════════════════════════════════════════════════════ -->
-      <div id="docs-view-root">
+      </div>
+
+    <!-- RIGHT: Actions -->
+    <aside class="pane actions-pane ws-inspector" id="wsInspector">
+      <section class="ws-module-inspector" id="wsModuleInspector" hidden><header><span class="ws-overline">MODULE INSPECTOR</span><button type="button" id="wsInspectorClose" aria-label="Close module inspector">×</button></header><span class="ws-module-code" id="wsModuleCode"></span><h2 id="wsModuleName"></h2><span id="wsModuleState" class="ws-module-state"></span><h3>Input dependencies</h3><div id="wsModuleDependencies"></div><h3>Output preview</h3><div id="wsModulePreview"></div><button type="button" id="wsReviewModule" class="btn btn-primary">Review full result ↗</button><p class="ws-inspector-footnote">Review the original sources before making an underwriting decision.</p></section><div class="pane-head">
+        <h3>Account actions</h3>
+      </div>
+      <div class="pane-body">
+
+        <div class="verdict-card" id="verdictCard">
+          <div class="verdict-label">Recommendation</div>
+          <div class="verdict-value">Awaiting pipeline</div>
+          <div class="verdict-sub">Run the pipeline to see recommendation.</div>
+        </div>
+
+        <div class="action-btns">
+          <button class="act-btn primary" id="btnExcel" onclick="exportExcel()" disabled>
+            <svg viewbox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M4 8h12 M4 12h12 M8 4v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg>
+            Export Excel Pack
+          </button>
+          <button class="act-btn" id="btnMd" onclick="exportMarkdown()" disabled>
+            <svg viewbox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z" stroke="currentColor" stroke-width="1.6"></path><path d="M7 12 L7 8 L9 10 L11 8 L11 12 M13 8 L13 12 L15 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            Download Markdown
+          </button>
+          <button class="act-btn" id="btnAuditExport" onclick="exportAudit()">
+            <svg viewbox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M7 9h6 M7 12h6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path></svg>
+            Export Audit JSON
+          </button>
+          <button class="act-btn" id="btnRerunGuidelines" onclick="rerunGuidelines()" disabled title="Re-run the guidelines cross-reference (useful when guidelines have been updated or account has cleared 90-120 days out)">
+            <svg viewbox="0 0 20 20" fill="none"><path d="M4 10 A6 6 0 0 1 16 10 M16 10 L18 8 M16 10 L14 8 M16 10 A6 6 0 0 1 4 10 M4 10 L2 12 M4 10 L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            Re-run Guidelines
+          </button>
+          <div class="handoff-divider" id="handoffDivider"></div>
+          <button class="act-btn handoff-btn" id="btnSendToAssistant" onclick="openSendToAssistantModal()" disabled title="Send this submission to an assistant for review / QC">
+            <svg viewbox="0 0 20 20" fill="none"><path d="M3 10 L17 10 M12 5 L17 10 L12 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="3" cy="10" r="1.5" fill="currentColor"></circle></svg>
+            Send to Assistant
+          </button>
+          <button class="act-btn handoff-btn" id="btnReturnToUw" onclick="openReturnToUwModal()" style="display: none;" title="Return this submission to the underwriter with your notes">
+            <svg viewbox="0 0 20 20" fill="none"><path d="M17 10 L3 10 M8 5 L3 10 L8 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="17" cy="10" r="1.5" fill="currentColor"></circle></svg>
+            Return to UW
+          </button>
+          <button class="act-btn handoff-btn ghost" id="btnToggleAssistantView" onclick="toggleAssistantView()" style="display: none;" title="Switch between UW and Assistant perspectives">
+            <svg viewbox="0 0 20 20" fill="none"><circle cx="7" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"></circle><circle cx="13" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"></circle><path d="M3 16 C3 13 5 12 7 12 C9 12 11 13 11 16 M9 16 C9 13 11 12 13 12 C15 12 17 13 17 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+            <span id="toggleViewLabel">View as Assistant</span>
+          </button>
+        </div>
+
+        <div class="meta-block">
+          <h4>Submission</h4>
+          <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">Not run</span></div>
+          <div class="meta-row" id="sidebarCostRow"><span class="meta-row-label">Run cost</span><span class="meta-row-value" id="sidebarRunCost">$0.00</span></div>
+        </div>
+
+        <div class="meta-block">
+          <h4>Audit</h4>
+          <div class="meta-row"><span class="meta-row-label">Pipeline run</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value">—</span></div>
+          <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
+          <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">0</span></div>
+          <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">—</span></div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+</section>
+
+<!-- ============ ADMIN VIEW ============ -->
+<section class="view" id="view-admin">
+  <div class="page-head">
+    <div class="page-eyebrow">WORKSPACE MANAGEMENT</div>
+    <h1 class="page-title">Workspace <em>administration.</em></h1>
+    <p class="page-sub">Manage access, review feedback, and track activity across your workspace.</p>
+  </div>
+
+  <div class="admin-grid">
+    <div class="admin-card" id="usersAdminCard">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"></circle><path d="M4 20s2-6 8-6 8 6 8 6" stroke-linecap="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Users &amp; roles</div>
+      <div class="admin-card-desc">Review workspace members, their roles, and assigned submission counts.</div>
+      <div class="admin-card-status" id="usersAdminStatus">— USERS · — ROLES</div>
+      <div id="usersAdminList" style="display: none;"></div>
+    </div>
+
+    <div class="admin-card" id="feedbackAdminCard">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12c0 3.866-4.03 7-9 7-1.36 0-2.64-.237-3.79-.661L3 20l1.704-4.222C3.642 14.496 3 13.302 3 12c0-3.866 4.03-7 9-7s9 3.134 9 7z" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Feedback loop</div>
+      <div class="admin-card-desc">Review underwriter feedback on extracted results. Export comments and ratings for analysis.</div>
+      <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
+      <div id="feedbackAdminList" style="display: none;"></div>
+      <div style="margin-top: 12px; display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
+        <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Phase 6 step 6: LLM spend card. Links out to Anthropic Console because
+         per-call telemetry isn't persisted in Supabase yet (planned follow-up).
+         What's real and local: rate limits enforced by the llm-proxy Edge Function. -->
+    <div class="admin-card" id="llmSpendAdminCard">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 7v10 M9 10h4.5a1.5 1.5 0 0 1 0 3H9h5a1.5 1.5 0 0 1 0 3H9" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <div class="admin-card-title">LLM spend</div>
+      <div class="admin-card-desc">View model usage and spend in the connected usage console.</div>
+      <div class="admin-card-status" id="llmSpendStatus">LIMITS: 120/HR · 1000/DAY · 3 MODELS</div>
+      <div style="margin-top: 12px; display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="audit-log collapsed" id="auditLogContainer">
+    <h3 class="audit-header-toggle" onclick="toggleAuditLog()" style="display:flex; justify-content: space-between; align-items: center;">
+      <span><span class="audit-chevron">▾</span>Live Audit Log<span class="audit-count" id="auditCount"></span></span>
+      <span style="display: flex; gap: 6px;">
+        <button onclick="event.stopPropagation(); exportAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Export JSON</button>
+        <button onclick="event.stopPropagation(); refreshAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Refresh</button>
+      </span>
+    </h3>
+    <div id="auditEntries"><div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">No events yet. Upload files and run the pipeline to populate the audit log.</div></div>
+  </div>
+
+<details class="ws-planned-settings"><summary>Additional configuration</summary><div><div class="admin-card ws-admin-planned">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4 M8 13h8M8 17h6" stroke-linecap="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Guidelines</div>
+      <div class="admin-card-desc">Guideline publishing is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
+    </div>
+
+    <div class="admin-card ws-admin-planned">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h5l3-6 3 12 3-6h2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Confidence thresholds</div>
+      <div class="admin-card-desc">Threshold editing is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
+    </div>
+
+    <div class="admin-card ws-admin-planned">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4z M8 10h8M8 14h5" stroke-linecap="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Prompt overrides</div>
+      <div class="admin-card-desc">Prompt override management is not configured in this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
+    </div>
+
+    <div class="admin-card ws-admin-planned">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a4 4 0 1 0 6 0l2-2a5 5 0 0 0-7-7l-1 1 M14 11a4 4 0 1 0-6 0l-2 2a5 5 0 0 0 7 7l1-1" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Integrations</div>
+      <div class="admin-card-desc">No integration status is supplied by this application.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
+    </div>
+
+    <div class="admin-card ws-admin-planned">
+      <div class="admin-card-icon">
+        <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-0.5-8-4-8-9V7l8-4z" stroke-linejoin="round"></path><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="admin-card-title">Audit &amp; compliance</div>
+      <div class="admin-card-desc">Use the activity log below to export the available audit events.</div>
+      <div class="admin-card-status">NOT CONFIGURED</div>
+    </div>
+
+    </div></details></section>
+
+</main>
+
+<div id="docs-view-root" aria-label="File Manager" role="region">
       <div class="app">
 
         <!-- ══════ TOPBAR ══════ -->
@@ -511,52 +678,52 @@
                  opened from a submission context. Click × to clear filter
                  and show all docs across submissions. -->
             <div class="submission-chip" id="submissionChip" style="display:none;" title="Viewing only this submission's documents. Click × to show all.">
-              <svg class="submission-chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
+              <svg class="submission-chip-icon" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
               </svg>
               <span class="submission-chip-label" id="submissionChipLabel">Submission</span>
               <button class="submission-chip-clear" id="submissionChipClear" title="Show all submissions">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             </div>
 
             <button class="tools-btn" id="toolsBtn" title="Open annotation tools">
-              <svg class="tools-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 7h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-                <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                <line x1="3" y1="12" x2="21" y2="12"/>
-                <rect x="10" y="10" width="4" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+              <svg class="tools-btn-icon" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+                <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <rect x="10" y="10" width="4" height="4" rx="0.5" fill="currentColor" stroke="none"></rect>
               </svg>
               <span class="tools-btn-label">TOOLS</span>
               <span class="tools-btn-active" id="toolsBtnActive"></span>
-              <svg class="tools-btn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"/>
+              <svg class="tools-btn-chevron" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
             </button>
 
             <!-- Topbar search (moved from docs panel) -->
             <div class="topbar-search">
-              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <svg class="search-icon" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input type="text" class="search-input" id="searchInput" placeholder="Search documents…">
               <span class="search-counter" id="searchCounter"></span>
               <button class="search-nav-btn" id="searchPrev" title="Previous match (Shift+Enter)" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
               </button>
               <button class="search-nav-btn" id="searchNext" title="Next match (Enter)" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
-              <button class="search-clear" id="searchClear" title="Clear search (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+              <button class="search-clear" id="searchClear" title="Clear search (Esc)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
             </div>
 
             <!-- Topbar utility icons (view toggle + sort) -->
             <div class="topbar-utils">
               <div class="view-toggle">
-                <button class="active" data-view="thumbnail" title="Thumbnail view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
-                <button data-view="list" title="List view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+                <button class="active" data-view="thumbnail" title="Thumbnail view"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg></button>
+                <button data-view="list" title="List view"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></button>
               </div>
               <div class="sort-wrap">
-                <button class="sort-btn" id="sortBtn" title="Sort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg></button>
+                <button class="sort-btn" id="sortBtn" title="Sort"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"></path></svg></button>
                 <div class="sort-menu" id="sortMenu">
                   <button class="sort-option active" data-sort="newest">Newest First</button>
                   <button class="sort-option" data-sort="oldest">Oldest First</button>
@@ -565,7 +732,7 @@
                   <button class="sort-option" data-sort="type">By Type</button>
                 </div>
               </div>
-              <button class="btn-icon" id="clearAllBtn" title="Clear all documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+              <button class="btn-icon" id="clearAllBtn" title="Clear all documents"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path></svg></button>
             </div>
 
             <span class="topbar-category" id="activeCategoryLabel">All Documents</span>
@@ -593,18 +760,18 @@
                  Tap for details. Defaults to hidden; documents-view.js
                  toggles visibility based on the cloudSync state machine. -->
             <button class="cloud-sync-badge" id="cloudSyncBadge" style="display:none;" title="Cloud sync paused — your changes are saved locally only. Click for details.">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-                <line x1="12" y1="8" x2="12" y2="12"/>
-                <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+              <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <circle cx="12" cy="16" r="0.5" fill="currentColor"></circle>
               </svg>
               <span class="cloud-sync-label">Sync paused</span>
             </button>
             <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+              <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
             </button>
             <button class="btn btn-primary" id="uploadBtn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
               Upload Documents
             </button>
             <input type="file" id="dvFileInput" multiple accept=".pdf,.xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm,.doc,.docx,.rtf,.jpg,.jpeg,.png,.tiff,.tif,.gif,.webp,.bmp,.eml,.msg,.oft,.pptx,.ppt,.ppsx,.potx,.potm,.pptm,.csv,.tsv,.txt,.log,.md,.zip,.rar,.7z,.tar,.gz" style="display:none">
@@ -615,13 +782,13 @@
         <main class="workspace">
 
           <!-- LEFT: Documents panel -->
-          <aside class="docs-panel">
+          <aside class="docs-panel"><div class="ws-docs-heading"><strong>Source documents</strong><span>Original account evidence</span></div>
 
             <!-- Bulk bar -->
             <div class="bulk-bar" id="bulkBar">
               <div class="bulk-count"><b id="bulkCount">0</b> selected</div>
               <div class="bulk-actions">
-                <button class="bulk-btn" data-bulk="tag" title="Tag all"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
+                <button class="bulk-btn" data-bulk="tag" title="Tag all"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></button>
                 <button class="bulk-btn" data-bulk="color-red" title="Loss History"><span class="mini-dot red"></span></button>
                 <button class="bulk-btn" data-bulk="color-maroon" title="Cancellations"><span class="mini-dot maroon"></span></button>
                 <button class="bulk-btn" data-bulk="color-blue" title="Policy"><span class="mini-dot blue"></span></button>
@@ -631,17 +798,17 @@
                 <button class="bulk-btn" data-bulk="color-orange" title="Subjectivity"><span class="mini-dot orange"></span></button>
                 <button class="bulk-btn" data-bulk="color-pink" title="Quote / Indication"><span class="mini-dot pink"></span></button>
                 <button class="bulk-btn" data-bulk="color-black" title="Underwriting"><span class="mini-dot black"></span></button>
-                <button class="bulk-btn" data-bulk="move" title="Move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
-                <button class="bulk-btn" data-bulk="download" title="Download as ZIP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-                <button class="bulk-btn danger" data-bulk="delete" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
-                <button class="bulk-btn" id="bulkClose" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="bulk-btn" data-bulk="move" title="Move"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path></svg></button>
+                <button class="bulk-btn" data-bulk="download" title="Download as ZIP"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+                <button class="bulk-btn danger" data-bulk="delete" title="Delete"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path></svg></button>
+                <button class="bulk-btn" id="bulkClose" title="Cancel"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
               </div>
             </div>
 
             <!-- Docs list -->
             <div class="docs-list" id="docsList" data-view="thumbnail">
               <div class="docs-empty" id="docsEmpty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 <div class="docs-empty-title">No documents yet</div>
                 <div class="docs-empty-sub">Drop files here or click Upload Documents</div>
               </div>
@@ -655,7 +822,7 @@
             <div class="cat-header">
               <div>
                 <div class="cat-header-label">Categories</div>
-                <h1 class="cat-header-title">Document Library</h1>
+                <h1 class="cat-header-title">Classification folders</h1>
               </div>
               <div class="cat-stats">
                 <span class="cat-stat-pill"><b id="totalDocs">0</b> Total</span>
@@ -680,7 +847,7 @@
                   <span class="color-dot all"></span>
                   <span id="colorFilterLabel">All Colors</span>
                 </span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
               <div class="color-filter-menu" id="colorFilterMenu">
                 <button class="color-option active" data-filter="all"><span class="color-dot all"></span>All Colors</button>
@@ -703,7 +870,7 @@
 
             <div class="tags-list" id="tagsList">
               <div class="tags-empty" id="tagsEmpty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
                 <div class="tags-empty-title">No tagged pages</div>
                 <div class="tags-empty-sub">Tag pages to organize</div>
               </div>
@@ -711,7 +878,7 @@
 
             <div class="tags-footer">
               <button class="btn" id="exportTaggedBtn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="svg-xs"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 Export PDF
               </button>
               <button class="btn" id="clearTaggedBtn">Clear Tags</button>
@@ -726,25 +893,25 @@
           <div class="anno-toolbox-grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
           <span class="anno-toolbox-title">Annotate</span>
           <button class="anno-toolbox-btn" id="annoToolboxMin" title="Collapse">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </button>
         </div>
         <div class="anno-toolbox-body">
           <div class="anno-tools-row">
-            <button class="anno-btn active" data-tool="pointer" title="Select (V)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 10-7 2-3 7L4 2z"/></svg></button>
+            <button class="anno-btn active" data-tool="pointer" title="Select (V)"><svg viewbox="0 0 24 24" fill="currentColor"><path d="M4 2l16 10-7 2-3 7L4 2z"></path></svg></button>
             <div class="anno-divider"></div>
-            <button class="anno-btn" data-tool="pen" title="Pen (P)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
-            <button class="anno-btn" data-tool="highlighter" title="Highlighter (H)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h3l6-6"/><path d="M14 4l6 6-9 9-6-6z"/></svg></button>
+            <button class="anno-btn" data-tool="pen" title="Pen (P)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg></button>
+            <button class="anno-btn" data-tool="highlighter" title="Highlighter (H)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h3l6-6"></path><path d="M14 4l6 6-9 9-6-6z"></path></svg></button>
             <div class="anno-divider"></div>
-            <button class="anno-btn" data-tool="rectangle" title="Rectangle (U)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg></button>
-            <button class="anno-btn" data-tool="ellipse" title="Ellipse (O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button>
-            <button class="anno-btn" data-tool="arrow" title="Arrow (A)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg></button>
-            <button class="anno-btn" data-tool="line" title="Line (L)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+            <button class="anno-btn" data-tool="rectangle" title="Rectangle (U)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"></rect></svg></button>
+            <button class="anno-btn" data-tool="ellipse" title="Ellipse (O)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="7"></ellipse></svg></button>
+            <button class="anno-btn" data-tool="arrow" title="Arrow (A)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="13 6 19 12 13 18"></polyline></svg></button>
+            <button class="anno-btn" data-tool="line" title="Line (L)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"></line></svg></button>
             <div class="anno-divider"></div>
-            <button class="anno-btn" data-tool="text" title="Text (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
-            <button class="anno-btn" data-tool="sticky" title="Sticky Note (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+            <button class="anno-btn" data-tool="text" title="Text (T)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg></button>
+            <button class="anno-btn" data-tool="sticky" title="Sticky Note (N)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></button>
             <div class="anno-divider"></div>
-            <button class="anno-btn" data-tool="eraser" title="Eraser (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-7-7 9-9 10 10-4 6z"/><line x1="22" y1="22" x2="16" y2="16"/></svg></button>
+            <button class="anno-btn" data-tool="eraser" title="Eraser (E)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-7-7 9-9 10 10-4 6z"></path><line x1="22" y1="22" x2="16" y2="16"></line></svg></button>
           </div>
 
           <div class="anno-options-row">
@@ -789,19 +956,19 @@
               <div class="anno-divider"></div>
               <span class="anno-label">Fill</span>
               <button class="anno-fill-toggle" id="fillToggle" title="Toggle fill">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4L4 18h16L12 4z"/></svg>
+                <svg viewbox="0 0 24 24" fill="currentColor"><path d="M12 4L4 18h16L12 4z"></path></svg>
               </button>
             </div>
 
             <div class="anno-action-group">
               <button class="btn btn-primary anno-preview-btn" id="fullscreenBtn" title="Preview">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
                 Preview
               </button>
               <div class="anno-divider" style="margin:0 4px"></div>
-              <button class="anno-action-btn" id="undoBtn" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>
-              <button class="anno-action-btn" id="redoBtn" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
-              <button class="anno-action-btn danger" id="clearAnnoBtn" title="Clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+              <button class="anno-action-btn" id="undoBtn" title="Undo (Ctrl+Z)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 102.13-9.36L1 10"></path></svg></button>
+              <button class="anno-action-btn" id="redoBtn" title="Redo (Ctrl+Y)"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path></svg></button>
+              <button class="anno-action-btn danger" id="clearAnnoBtn" title="Clear"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path></svg></button>
             </div>
           </div>
         </div>
@@ -811,7 +978,7 @@
 
       <div class="drop-overlay" id="dropOverlay" role="status" aria-live="polite" aria-hidden="true">
         <div class="drop-content">
-          <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <div class="drop-icon"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div>
           <div class="drop-title">Drop files to upload</div>
           <div class="drop-sub">PDF · Excel · Word · Images</div>
         </div>
@@ -827,7 +994,7 @@
           <div class="modal-footer">
             <button class="btn" id="modalCancel">Cancel</button>
             <button class="btn btn-primary" id="modalConfirm">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-xs"><polyline points="20 6 9 17 4 12"></polyline></svg>
               <span id="modalConfirmLabel">Upload</span>
             </button>
           </div>
@@ -835,8 +1002,8 @@
       </div>
 
       <div class="context-menu" id="contextMenu" role="menu">
-        <button class="ctx-item" data-act="preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Preview<kbd>Space</kbd></button>
-        <button class="ctx-item" data-act="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Toggle Tag<kbd>T</kbd></button>
+        <button class="ctx-item" data-act="preview"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>Preview<kbd>Space</kbd></button>
+        <button class="ctx-item" data-act="tag"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>Toggle Tag<kbd>T</kbd></button>
         <div class="ctx-sep"></div>
         <button class="ctx-item" data-act="color-red"><span class="mini-dot red"></span>Loss History</button>
         <button class="ctx-item" data-act="color-maroon"><span class="mini-dot maroon"></span>Cancellations</button>
@@ -847,42 +1014,42 @@
         <button class="ctx-item" data-act="color-orange"><span class="mini-dot orange"></span>Subjectivity</button>
         <button class="ctx-item" data-act="color-pink"><span class="mini-dot pink"></span>Quote / Indication</button>
         <button class="ctx-item" data-act="color-black"><span class="mini-dot black"></span>Underwriting</button>
-        <button class="ctx-item" data-act="color-clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Clear Color</button>
+        <button class="ctx-item" data-act="color-clear"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>Clear Color</button>
         <div class="ctx-sep"></div>
-        <button class="ctx-item" data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>Rename</button>
-        <button class="ctx-item" data-act="move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>Move to Folder</button>
-        <button class="ctx-item" data-act="download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+        <button class="ctx-item" data-act="rename"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg>Rename</button>
+        <button class="ctx-item" data-act="move"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path></svg>Move to Folder</button>
+        <button class="ctx-item" data-act="download"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Download</button>
         <div class="ctx-sep"></div>
-        <button class="ctx-item danger" data-act="delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>Delete<kbd>Del</kbd></button>
+        <button class="ctx-item danger" data-act="delete"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path></svg>Delete<kbd>Del</kbd></button>
       </div>
 
       <div class="preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="Document preview">
         <div class="preview-header">
           <div class="preview-title-wrap">
             <input type="text" class="preview-title" id="previewTitle" readonly>
-            <button class="btn-icon" id="previewTitleEdit" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+            <button class="btn-icon" id="previewTitleEdit" title="Rename"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg></button>
           </div>
           <div class="preview-actions">
             <div class="preview-nav">
-              <button class="preview-nav-btn" id="previewPrev" title="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <button class="preview-nav-btn" id="previewPrev" title="Previous"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
               <div class="preview-counter" id="previewCounter">1 / 1</div>
-              <button class="preview-nav-btn" id="previewNext" title="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              <button class="preview-nav-btn" id="previewNext" title="Next"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
             </div>
-            <button class="preview-btn preview-btn-primary" id="previewOCR" title="Run OCR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg><span id="ocrLabel">OCR</span></button>
-            <button class="preview-btn" id="previewCopy" title="Copy text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+            <button class="preview-btn preview-btn-primary" id="previewOCR" title="Run OCR"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path></svg><span id="ocrLabel">OCR</span></button>
+            <button class="preview-btn" id="previewCopy" title="Copy text"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path></svg></button>
             <div class="preview-color-wrap">
-              <button class="preview-btn" id="previewColorBtn" title="Color tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg></button>
+              <button class="preview-btn" id="previewColorBtn" title="Color tag"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg></button>
               <div class="color-picker-menu preview-dropdown" id="previewColorMenu">
                 <div class="color-grid" id="previewColorGrid"></div>
                 <button class="color-clear-btn" id="previewColorClear">Clear</button>
               </div>
             </div>
-            <button class="preview-btn" id="previewTag" title="Toggle tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></button>
-            <button class="preview-btn" id="previewZoomOut" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-            <button class="preview-btn" id="previewZoomIn" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-            <button class="preview-btn" id="previewRotate" title="Rotate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
-            <button class="preview-btn" id="previewDownload" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-            <button class="preview-btn" id="previewClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            <button class="preview-btn" id="previewTag" title="Toggle tag"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></button>
+            <button class="preview-btn" id="previewZoomOut" title="Zoom out"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+            <button class="preview-btn" id="previewZoomIn" title="Zoom in"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+            <button class="preview-btn" id="previewRotate" title="Rotate"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path></svg></button>
+            <button class="preview-btn" id="previewDownload" title="Download"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+            <button class="preview-btn" id="previewClose" title="Close"><svg viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
           </div>
         </div>
         <div class="preview-body" id="previewBody"></div>
@@ -901,189 +1068,7 @@
       <div class="toast-stack" id="toastStack" role="status" aria-live="polite" aria-atomic="false"></div>
       </div>
 
-    </div>
-
-    <!-- RIGHT: Actions -->
-    <aside class="pane actions-pane">
-      <div class="pane-head">
-        <h3><span class="ws-section-number">03</span>Decision desk</h3>
-      </div>
-      <div class="pane-body">
-
-        <div class="verdict-card" id="verdictCard">
-          <div class="verdict-label">Recommendation</div>
-          <div class="verdict-value">Awaiting pipeline</div>
-          <div class="verdict-sub">Run the pipeline to see recommendation.</div>
-        </div>
-
-        <div class="action-btns">
-          <button class="act-btn primary" id="btnExcel" onclick="exportExcel()" disabled>
-            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M4 8h12 M4 12h12 M8 4v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-            Export Excel Pack
-          </button>
-          <button class="act-btn" id="btnMd" onclick="exportMarkdown()" disabled>
-            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 12 L7 8 L9 10 L11 8 L11 12 M13 8 L13 12 L15 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Download Markdown
-          </button>
-          <button class="act-btn" id="btnAuditExport" onclick="exportAudit()">
-            <svg viewBox="0 0 20 20" fill="none"><path d="M4 4h12v12H4z M7 9h6 M7 12h6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-            Export Audit JSON
-          </button>
-          <button class="act-btn" id="btnRerunGuidelines" onclick="rerunGuidelines()" disabled title="Re-run the guidelines cross-reference (useful when guidelines have been updated or account has cleared 90-120 days out)">
-            <svg viewBox="0 0 20 20" fill="none"><path d="M4 10 A6 6 0 0 1 16 10 M16 10 L18 8 M16 10 L14 8 M16 10 A6 6 0 0 1 4 10 M4 10 L2 12 M4 10 L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Re-run Guidelines
-          </button>
-          <div class="handoff-divider" id="handoffDivider"></div>
-          <button class="act-btn handoff-btn" id="btnSendToAssistant" onclick="openSendToAssistantModal()" disabled title="Send this submission to an assistant for review / QC">
-            <svg viewBox="0 0 20 20" fill="none"><path d="M3 10 L17 10 M12 5 L17 10 L12 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="3" cy="10" r="1.5" fill="currentColor"/></svg>
-            Send to Assistant
-          </button>
-          <button class="act-btn handoff-btn" id="btnReturnToUw" onclick="openReturnToUwModal()" style="display: none;" title="Return this submission to the underwriter with your notes">
-            <svg viewBox="0 0 20 20" fill="none"><path d="M17 10 L3 10 M8 5 L3 10 L8 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="10" r="1.5" fill="currentColor"/></svg>
-            Return to UW
-          </button>
-          <button class="act-btn handoff-btn ghost" id="btnToggleAssistantView" onclick="toggleAssistantView()" style="display: none;" title="Switch between UW and Assistant perspectives">
-            <svg viewBox="0 0 20 20" fill="none"><circle cx="7" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 16 C3 13 5 12 7 12 C9 12 11 13 11 16 M9 16 C9 13 11 12 13 12 C15 12 17 13 17 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <span id="toggleViewLabel">View as Assistant</span>
-          </button>
-        </div>
-
-        <div class="meta-block">
-          <h4>Submission</h4>
-          <div class="meta-row"><span class="meta-row-label">Files</span><span class="meta-row-value">—</span></div>
-          <div class="meta-row"><span class="meta-row-label">Modules run</span><span class="meta-row-value">—</span></div>
-          <div class="meta-row"><span class="meta-row-label">Mode</span><span class="meta-row-value">Not run</span></div>
-          <div class="meta-row" id="sidebarCostRow"><span class="meta-row-label">Run cost</span><span class="meta-row-value" id="sidebarRunCost">$0.00</span></div>
-        </div>
-
-        <div class="meta-block">
-          <h4>Audit</h4>
-          <div class="meta-row"><span class="meta-row-label">Pipeline run</span><span class="meta-row-value">—</span></div>
-          <div class="meta-row"><span class="meta-row-label">Model</span><span class="meta-row-value">—</span></div>
-          <div class="meta-row"><span class="meta-row-label">Prompts</span><span class="meta-row-value">v2.4</span></div>
-          <div class="meta-row"><span class="meta-row-label">Events logged</span><span class="meta-row-value">0</span></div>
-          <div class="meta-row"><span class="meta-row-label">Reviewer</span><span class="meta-row-value">—</span></div>
-        </div>
-
-      </div>
-    </aside>
-
-  </div>
-</section>
-
-<!-- ============ ADMIN VIEW ============ -->
-<section class="view" id="view-admin">
-  <div class="page-head">
-    <div class="page-eyebrow">WORKSPACE MANAGEMENT</div>
-    <h1 class="page-title">Workspace <em>administration.</em></h1>
-    <p class="page-sub">Manage access, review feedback, and track activity across your workspace.</p>
-  </div>
-
-  <div class="admin-grid">
-    <div class="admin-card" id="usersAdminCard">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M4 20s2-6 8-6 8 6 8 6" stroke-linecap="round"/></svg>
-      </div>
-      <div class="admin-card-title">Users &amp; roles</div>
-      <div class="admin-card-desc">Review workspace members, their roles, and assigned submission counts.</div>
-      <div class="admin-card-status" id="usersAdminStatus">— USERS · — ROLES</div>
-      <div id="usersAdminList" style="display: none;"></div>
-    </div>
-
-    <div class="admin-card ws-admin-planned">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4 M8 13h8M8 17h6" stroke-linecap="round"/></svg>
-      </div>
-      <div class="admin-card-title">Guidelines</div>
-      <div class="admin-card-desc">Guideline publishing is not configured in this application.</div>
-      <div class="admin-card-status">NOT CONFIGURED</div>
-    </div>
-
-    <div class="admin-card ws-admin-planned">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h5l3-6 3 12 3-6h2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="admin-card-title">Confidence thresholds</div>
-      <div class="admin-card-desc">Threshold editing is not configured in this application.</div>
-      <div class="admin-card-status">NOT CONFIGURED</div>
-    </div>
-
-    <div class="admin-card ws-admin-planned">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4z M8 10h8M8 14h5" stroke-linecap="round"/></svg>
-      </div>
-      <div class="admin-card-title">Prompt overrides</div>
-      <div class="admin-card-desc">Prompt override management is not configured in this application.</div>
-      <div class="admin-card-status">NOT CONFIGURED</div>
-    </div>
-
-    <div class="admin-card ws-admin-planned">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a4 4 0 1 0 6 0l2-2a5 5 0 0 0-7-7l-1 1 M14 11a4 4 0 1 0-6 0l-2 2a5 5 0 0 0 7 7l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="admin-card-title">Integrations</div>
-      <div class="admin-card-desc">No integration status is supplied by this application.</div>
-      <div class="admin-card-status">NOT CONFIGURED</div>
-    </div>
-
-    <div class="admin-card ws-admin-planned">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-0.5-8-4-8-9V7l8-4z" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="admin-card-title">Audit &amp; compliance</div>
-      <div class="admin-card-desc">Use the activity log below to export the available audit events.</div>
-      <div class="admin-card-status">NOT CONFIGURED</div>
-    </div>
-
-    <div class="admin-card" id="feedbackAdminCard">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12c0 3.866-4.03 7-9 7-1.36 0-2.64-.237-3.79-.661L3 20l1.704-4.222C3.642 14.496 3 13.302 3 12c0-3.866 4.03-7 9-7s9 3.134 9 7z" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="admin-card-title">Feedback loop</div>
-      <div class="admin-card-desc">Review underwriter feedback on extracted results. Export comments and ratings for analysis.</div>
-      <div class="admin-card-status" id="feedbackStatus">NO EVENTS YET</div>
-      <div id="feedbackAdminList" style="display: none;"></div>
-      <div style="margin-top: 12px; display: flex; gap: 6px;">
-        <button onclick="event.stopPropagation(); exportFeedback()" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Export XLSX</button>
-        <button onclick="event.stopPropagation(); refreshFeedbackCard()" style="padding: 7px 12px; background: transparent; color: var(--text-2); border: 1px solid var(--line-warm); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Refresh</button>
-      </div>
-    </div>
-
-    <!-- Phase 6 step 6: LLM spend card. Links out to Anthropic Console because
-         per-call telemetry isn't persisted in Supabase yet (planned follow-up).
-         What's real and local: rate limits enforced by the llm-proxy Edge Function. -->
-    <div class="admin-card" id="llmSpendAdminCard">
-      <div class="admin-card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <circle cx="12" cy="12" r="8"/>
-          <path d="M12 7v10 M9 10h4.5a1.5 1.5 0 0 1 0 3H9h5a1.5 1.5 0 0 1 0 3H9" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="admin-card-title">LLM spend</div>
-      <div class="admin-card-desc">Token usage and cost across every Claude call from Altitude. Hourly and daily rate limits are enforced server-side at the Edge Function. Aggregate spend and per-model breakdown live in the Anthropic Console — per-call persistence in Supabase is a planned follow-up.</div>
-      <div class="admin-card-status" id="llmSpendStatus">LIMITS: 120/HR · 1000/DAY · 3 MODELS</div>
-      <div style="margin-top: 12px; display: flex; gap: 6px;">
-        <button onclick="event.stopPropagation(); window.open('https://console.anthropic.com/settings/usage', '_blank', 'noopener,noreferrer'); if (typeof logAudit === 'function') logAudit('Admin', 'Opened Anthropic usage console', 'user')" style="flex: 1; padding: 7px 12px; background: var(--signal); color: #FFFFFF; border: 1px solid var(--signal); border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; cursor: pointer;">Open usage dashboard ↗</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="audit-log collapsed" id="auditLogContainer">
-    <h3 class="audit-header-toggle" onclick="toggleAuditLog()" style="display:flex; justify-content: space-between; align-items: center;">
-      <span><span class="audit-chevron">▾</span>Live Audit Log<span class="audit-count" id="auditCount"></span></span>
-      <span style="display: flex; gap: 6px;">
-        <button onclick="event.stopPropagation(); exportAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Export JSON</button>
-        <button onclick="event.stopPropagation(); refreshAudit()" style="font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--text-2); letter-spacing: 0.04em; background: transparent; cursor: pointer;">Refresh</button>
-      </span>
-    </h3>
-    <div id="auditEntries"><div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">No events yet. Upload files and run the pipeline to populate the audit log.</div></div>
-  </div>
-
-</section>
-
-</main>
-
-<!-- SETTINGS MODAL -->
+    <!-- SETTINGS MODAL -->
 <div class="modal-backdrop" id="settingsModal" onclick="if(event.target===this) closeSettings()">
   <div class="modal">
     <div class="modal-header">
@@ -1132,11 +1117,7 @@
         <p style="font-size: 12.5px; color: var(--text-2); margin: 0 0 14px;">Drop a PDF or Word doc, or paste the full guideline below. The classifier + guideline cross-reference module will use this instead of the default Zurich E&amp;S Excess Casualty excerpt. Stored in your account settings — syncs across devices.</p>
 
         <!-- Guideline drop zone (Round 5 Fix #3) -->
-        <div id="guidelineDropZone" style="border: 2px dashed var(--line-warm); border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.18s; background: var(--surface-2); margin-bottom: 14px;"
-             ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='rgba(127,168,32,0.05)';"
-             ondragleave="event.preventDefault(); this.style.borderColor=''; this.style.background='';"
-             ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; handleGuidelineDrop(event);"
-             onclick="document.getElementById('guidelineFileInput').click()">
+        <div id="guidelineDropZone" style="border: 2px dashed var(--line-warm); border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.18s; background: var(--surface-2); margin-bottom: 14px;" ondragover="event.preventDefault(); this.style.borderColor='var(--signal)'; this.style.background='rgba(127,168,32,0.05)';" ondragleave="event.preventDefault(); this.style.borderColor=''; this.style.background='';" ondrop="event.preventDefault(); this.style.borderColor=''; this.style.background=''; handleGuidelineDrop(event);" onclick="document.getElementById('guidelineFileInput').click()">
           <div style="font-size: 13px; color: var(--text); margin-bottom: 4px;">📄  Drop a guideline PDF, DOCX, or TXT here</div>
           <div style="font-size: 11px; color: var(--text-3);">or click to browse · max 10MB · text extracted client-side</div>
           <input type="file" id="guidelineFileInput" accept=".pdf,.docx,.doc,.txt,.md" style="display: none;" onchange="handleGuidelineFileInput(event)">
@@ -1188,7 +1169,16 @@
       </div>
       <div class="form-group">
         <label>Note to assistant</label>
-        <textarea id="handoffUwNote" rows="6" placeholder="Please QC the following before I submit to senior UW:&#10;&#10;1. Verify primary carrier AM Best ratings (Starr A XV, Great American A+ XV)&#10;2. Confirm Employers Liability $500K minimum on primary AL&#10;3. Double-check NY Albany warehouse — is it pure storage or any construction ops?&#10;4. Loss runs: pull latest reserve values and confirm no late-reported claims&#10;&#10;Effective is 5/1 so not urgent but please circle back by 4/24.&#10;&#10;Thanks" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+        <textarea id="handoffUwNote" rows="6" placeholder="Please QC the following before I submit to senior UW:
+
+1. Verify primary carrier AM Best ratings (Starr A XV, Great American A+ XV)
+2. Confirm Employers Liability $500K minimum on primary AL
+3. Double-check NY Albany warehouse — is it pure storage or any construction ops?
+4. Loss runs: pull latest reserve values and confirm no late-reported claims
+
+Effective is 5/1 so not urgent but please circle back by 4/24.
+
+Thanks" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
         <div class="form-hint">Note will be pinned at the top of the summary when the assistant opens the submission. Plain text — keep it actionable.</div>
       </div>
     </div>
@@ -1213,7 +1203,16 @@
       </p>
       <div class="form-group">
         <label>Review notes to underwriter</label>
-        <textarea id="handoffAssistantNote" rows="7" placeholder="Review complete. Changes made:&#10;&#10;1. Verified AM Best — Starr A XV ✓, Great American A+ XV ✓&#10;2. Updated Primary AL card — confirmed Employers Liability $1M (exceeds $500K min)&#10;3. Added note on Albany: CONFIRMED pure storage per broker call with Rachel 4/23; no construction ops&#10;4. Loss runs: latest reserves pulled 4/23, 3 open GL claims total $22,300 (unchanged)&#10;&#10;Ready for senior UW. Referral triggers still in play — Tiffany Fann review required.&#10;&#10;Tracy" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
+        <textarea id="handoffAssistantNote" rows="7" placeholder="Review complete. Changes made:
+
+1. Verified AM Best — Starr A XV ✓, Great American A+ XV ✓
+2. Updated Primary AL card — confirmed Employers Liability $1M (exceeds $500K min)
+3. Added note on Albany: CONFIRMED pure storage per broker call with Rachel 4/23; no construction ops
+4. Loss runs: latest reserves pulled 4/23, 3 open GL claims total $22,300 (unchanged)
+
+Ready for senior UW. Referral triggers still in play — Tiffany Fann review required.
+
+Tracy" style="width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-2); color: var(--text); border: 1px solid var(--line-warm); border-radius: 4px; resize: vertical;"></textarea>
       </div>
     </div>
     <div class="modal-footer">
@@ -1272,5 +1271,5 @@
 <script src="pipeline-documents-view.js?v=8.7.167-a3-attachment-cache-contract-2026-07-09"></script>
 
 
-<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>UNDERWRITING OPERATIONS</span><div id="wsBuildSlot"></div></footer></body>
+<footer class="ws-app-footer"><a href="/">Speed to Market AI <span>↗</span></a><span>WORKSPACE</span><div id="wsBuildSlot"></div></footer></body>
 </html>
