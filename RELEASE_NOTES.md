@@ -8,7 +8,9 @@ The original July prompts and rating engine remain byte-identical. The processin
 
 Validation before repository integration: 308 earlier regression groups, 14 PDF/security groups, 19 complete-workflow groups, and six delayed-source comparison groups, all passing. Separate migration, administration and PDF-compatibility logic checks passed. These use simulated service responses and do not prove live database isolation or provider behavior.
 
-Repository integration preserves 289 exact tested application files and the exact existing homepage Git blob. The standalone root redirect is omitted. Security headers are scoped so the application and vendor workers receive the tested enforcing policy while the homepage keeps its existing report-only behavior. Vendor license files remain included.
+Initial repository integration preserved 289 exact tested application files and the exact existing homepage Git blob. The standalone root redirect is omitted. Security headers are scoped so the application and vendor workers receive the tested enforcing policy while the homepage keeps its existing report-only behavior. Vendor license files remain included.
+
+A follow-up fixes Workbench email sign-in so the selected submission survives the return link. Both shared sign-in entry points retain the current origin and selected submission, omit unrelated query values and authentication fragments, and preserve existing route aliases. All 48 focused callback checks passed against the updated source; these are isolated logic checks and are separate from the earlier browser totals.
 
 The local integrated homepage displays its existing access-code gate. Platform and Workbench display real sign-in requirements with no browser errors observed. No access code was bypassed, no magic link was sent, and no customer submission was modified.
 

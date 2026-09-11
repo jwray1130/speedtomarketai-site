@@ -26,6 +26,14 @@
     }[c]));
   }
 
+  function magicLinkRedirectUrl() {
+    const current = new URL(window.location.href);
+    const callback = new URL(current.origin + current.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2'));
+    // Match Workbench loading precedence, preserving only its selected submission.
+    const submissionId = current.searchParams.get('submission') || current.searchParams.get('submissionId');
+    if (submissionId) callback.searchParams.set('submissionId', submissionId);
+    return callback.href;
+  }
   function ensureClient() {
     if (!window.supabase || !window.supabase.createClient) return null;
     if (!window.stmAuthClient) {
@@ -55,7 +63,7 @@
       if (!client) return { error: new Error('Supabase library failed to load.') };
       return client.auth.signInWithOtp({
         email: String(email || '').trim(),
-        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2') }
+        options: { shouldCreateUser: false, emailRedirectTo: magicLinkRedirectUrl() }
       });
     },
     signOut() { return signOut(); }
@@ -150,7 +158,7 @@
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2')
+        emailRedirectTo: magicLinkRedirectUrl()
       }
     });
     if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
