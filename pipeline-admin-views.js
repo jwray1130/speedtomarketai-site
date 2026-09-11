@@ -211,7 +211,7 @@ async function renderAdminAuditLog(opts) {
     const controls = `
       <div style="display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line-warm); background: var(--surface-2); font-family: var(--font-mono); font-size: 11px;">
         <span style="color: var(--text-3); letter-spacing: 0.04em;">FILTER:</span>
-        <select id="auditCategorySelect" onchange="onAuditCategoryChange(this.value)" style="background: var(--surface); color: var(--text); border: 1px solid var(--line-warm); border-radius: 3px; padding: 4px 8px; font-family: var(--font-mono); font-size: 11px; cursor: pointer;">
+        <select id="auditCategorySelect" data-stm-action="audit-category" style="background: var(--surface); color: var(--text); border: 1px solid var(--line-warm); border-radius: 3px; padding: 4px 8px; font-family: var(--font-mono); font-size: 11px; cursor: pointer;">
           ${categoryOptions}
         </select>
         <span style="color: var(--text-3); margin-left: auto; letter-spacing: 0.04em;">CLOUD · ALL USERS · NEWEST FIRST</span>
@@ -248,10 +248,11 @@ async function renderAdminAuditLog(opts) {
     }).join('');
 
     const loadMore = state.hasMore
-      ? `<div style="padding: 14px 18px; text-align: center; border-top: 1px solid var(--line-warm);"><button onclick="onAuditLoadOlder()" style="background: transparent; color: var(--signal-ink); border: 1px solid var(--signal); border-radius: 999px; padding: 6px 18px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase; cursor: pointer;">Load older ↓</button></div>`
+      ? `<div style="padding: 14px 18px; text-align: center; border-top: 1px solid var(--line-warm);"><button data-stm-action="audit-older" style="background: transparent; color: var(--signal-ink); border: 1px solid var(--signal); border-radius: 999px; padding: 6px 18px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase; cursor: pointer;">Load older ↓</button></div>`
       : `<div style="padding: 14px 18px; text-align: center; color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em;">End of log</div>`;
 
     el.innerHTML = controls + entriesHtml + loadMore;
+    window.STMNativeEvents.bind(el);
   } catch (e) {
     console.warn('[admin] audit log load failed:', e.message || e);
     el.innerHTML = '<div style="padding: 30px 18px; text-align: center; color: var(--text-3); font-size: 12px;">Failed to load cloud audit log: ' + escapeHtml(e.message || String(e)) + '</div>';

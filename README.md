@@ -1,41 +1,28 @@
-# Speed to Market AI Unified Workbench Prototype — Phase 01
+# Speed to Market AI
 
-This is a GitHub-ready static prototype showing the unified product vision:
+This repository serves the existing public homepage and the native Phase 7 application.
 
-1. New Submission opens inside the underwriting workbench.
-2. The user sees a Submission Intake + AI Pipeline card.
-3. Process Submission simulates the pipeline stages.
-4. The system creates a reviewable draft packet.
-5. Apply Draft to Workbench fills Deal Info, addresses, broker, losses, limits, risk profile, and underwriting narrative fields.
+- `/` retains the current marketing homepage.
+- `/platform` opens Queue, Pipeline, Summary, Documents and Administration.
+- `/workbench?submission=<id>` opens the underwriting workbench for an authorized submission.
 
-## Files
+The application runs directly in the selected design. There is no hidden old application frame or runtime bridge. The application uses the existing Supabase project and deployed services; the shipped runtime contains no test sign-in, mocked cloud transport, or simulated AI provider.
 
-- `index.html` — workbench shell with unified intake bridge loaded.
-- `style.css` — existing workbench design system.
-- `app.js` — existing workbench logic.
-- `pipeline-bridge.css` — Phase 01 unified intake/review/pipeline UI.
-- `pipeline-bridge.js` — deterministic prototype bridge and mock draft packet.
-- `vercel.json` — clean URL config.
+## Preview and release status
 
-## How to run locally
+The source application release passed 347 browser check groups with simulated cloud/authentication/AI transport and real controls, parsers, OCR and exports. The extracted release rebuilt byte-for-byte. This repository preserves 289 application files exactly from that tested release, including the vendor manifest and its 236 assets.
 
-Open `index.html` in a browser, or run a static server:
+Three deployment files differ from the standalone application package: the existing homepage replaces its root redirect; `vercel.json` scopes the application's enforcing Content Security Policy separately from the existing homepage policy; `.vercelignore` excludes repository material while retaining bundled vendor licenses. `.gitattributes` prevents newline conversion from changing tested file hashes.
 
-```bash
-python3 -m http.server 8000
-```
+The homepage retains its existing report-only CSP. Platform, Workbench and vendor assets receive the candidate's exact enforcing CSP. Other common security headers remain site-wide. Browser tests of the standalone application do not certify a Vercel deployment or live backend security.
 
-Then open `http://localhost:8000`.
+Use a separate preview deployment for the remaining live sign-in, save/reopen, database/storage permission and AI-service checks. Do not treat this branch as production certification. The production homepage and customer submission data have not been changed by preparing this branch.
 
-## What is intentionally mocked
+## Deployment
 
-This phase does not call the live LLM/Supabase pipeline. `pipeline-bridge.js` uses a deterministic sample `SAMPLE_PACKET` so the product flow can be reviewed safely and quickly.
+This is a static site: deploy the repository root with its `vercel.json`, using the existing GitHub/Vercel project settings. No application build or npm install is required. Preserve the existing production-branch assignment. Verify preview headers, asset hashes, authentication redirects and representative workflows before promotion.
 
-## Intended next phase
+Source release archive: `STM_v10_Phase7_Release_Candidate.zip`.
+SHA-256: `4b3dde34a6c41e177f3a83052db841d0f2b09529c632fea1c275e68938937f9f`.
 
-Replace the mock packet with the live pipeline output and add a resolver module:
-
-- `buildSubmissionDraftPacket(extractions)`
-- `resolveSourcePriority(packet)`
-- `resolveTowerRules(packet)`
-- `applySubmissionDraftToWorkbench(resolvedPacket)`
+See `RELEASE_NOTES.md` for the change and validation boundary.

@@ -300,7 +300,7 @@ window.initDocumentsView = function() {
     grid.innerHTML = '';
     // Respect the submission scope when computing category counts so the
     // sidebar reflects what the user can actually see.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     CONFIG.categories.forEach(cat => {
@@ -375,7 +375,8 @@ window.initDocumentsView = function() {
     let docs = [...state.docs];
     // Submission scope filter applied first so all subsequent counters
     // (search hit totals, category counts) reflect the scoped set.
-    if (state.submissionFilter && state.submissionFilter !== 'all') {
+    if (state.draftSubmissionMode && window.docsView?.design) { docs=docs.filter(inDesignScope); }
+    else if (state.submissionFilter && state.submissionFilter !== 'all') {
       docs = docs.filter(d => d.submissionId === state.submissionFilter);
     }
     if (state.currentCategory !== 'all') {
@@ -460,10 +461,9 @@ window.initDocumentsView = function() {
   function findNativeWorkbookDoc(doc) {
     if (doc.nativeDataUrl || doc.storagePath) return doc;
     if (!doc.workbookFileName) return null;
-    return state.docs.find(d =>
-      d.workbookFileName === doc.workbookFileName &&
-      (d.nativeDataUrl || d.storagePath)
-    );
+    const matches=state.docs.filter(d => d.workbookFileName===doc.workbookFileName && (d.nativeDataUrl||d.storagePath) && (d.submissionId||null)===(doc.submissionId||null) && (!doc.sourceFileId||d.sourceFileId===doc.sourceFileId));
+    const identities=new Set(matches.map(d=>d.storagePath||d.sourceFileId||d.id));
+    return identities.size===1?matches[0]:null;
   }
 
   async function openNativeFile(doc) {
@@ -633,116 +633,7 @@ window.initDocumentsView = function() {
     return result;
   }
 
-  function renderDocsList() {
-    const list = $id('docsList');
-    const empty = $id('docsEmpty');
-    const docs = filterDocs();
-
-    Array.from(list.children).forEach(c => { if (c !== empty) c.remove(); });
-
-    if (docs.length === 0) {
-      empty.style.display = '';
-      // Make the empty state message scope-aware so users don't think
-      // they have no docs at all when really they're just looking at an
-      // empty submission scope. Also handle the FIRST-PAINT RACE: if
-      // hydration from cloud is still in progress, the docs view's
-      // local state may be empty even though the cloud has rows. Show
-      // a loading state instead of "No documents yet" — the inner panel
-      // will re-render when hydration completes (hydrateFromCloud calls
-      // renderDocsList at the end). This stops users from seeing a
-      // "0 Total / No documents yet" flash before docs populate.
-      const titleEl = empty.querySelector('.docs-empty-title');
-      const subEl   = empty.querySelector('.docs-empty-sub');
-      if (titleEl && subEl) {
-        // v8.5: gate "No documents yet" on _hydratedOnce so the user never
-        // sees a false-empty render during boot. Without this, the
-        // destructive feedback loop kicks in: user sees empty UI, deletes
-        // "broken" submission, re-uploads, refreshes, sees empty again.
-        //
-        // v8.5.1: when a fetch failed (lastError set), show explicit error
-        // with retry guidance — not a generic empty state. The fetch
-        // failure path used to silently return [] which made hydrate look
-        // successful, so the user saw "No documents yet" with no recourse.
-        if (state.draftSubmissionMode) {
-          titleEl.textContent = 'No documents yet for this new submission';
-          subEl.textContent   = 'Upload documents from the Submission intake to begin. Existing File Manager documents are hidden until this submission is created.';
-        } else if (state._lastHydrateError && !state._hydratedOnce) {
-          titleEl.textContent = 'Sync paused — could not load documents';
-          // v8.5.2: structured error. Show message + code prominently
-          // so the failure mode is visible (e.g., 57014 = statement
-          // timeout), not just a wall of text.
-          const errObj = state._lastHydrateError;
-          const errMsg = typeof errObj === 'string'
-            ? errObj
-            : (errObj.message || 'Unknown error');
-          const errCode = (typeof errObj === 'object' && errObj.code) ? ' (code ' + errObj.code + ')' : '';
-          const trimmed = errMsg.length > 140 ? errMsg.slice(0, 140) + '…' : errMsg;
-          subEl.textContent = trimmed + errCode +
-            '  ·  Try refreshing the page, or run window.docsView.refreshFromCloud() in the console.';
-        } else if (state._hydrating || !state._hydratedOnce) {
-          titleEl.textContent = 'Loading documents…';
-          subEl.textContent   = 'Fetching from cloud, hold on a moment.';
-        } else if (state.submissionFilter !== 'all' && state.docs.length > 0) {
-          titleEl.textContent = 'No documents in this submission yet';
-          subEl.textContent   = 'Drop files here or click Upload Documents · or × the chip to see all';
-        } else if (state.searchQuery && state.docs.length > 0) {
-          titleEl.textContent = 'No matches';
-          // v8.6: if enrichment is still in progress, the user might be
-          // searching against incomplete data — extracted_text is loaded
-          // lazily after hydrate. Tell them so they can wait + retry
-          // instead of assuming the doc isn't there.
-          const enriching = !!_enrichmentInFlight;
-          subEl.textContent = 'No documents match "' + state.searchQuery + '"' +
-            (enriching ? ' · (still loading full text — try again in a few seconds)' : '');
-        } else {
-          titleEl.textContent = 'No documents yet';
-          subEl.textContent   = 'Drop files here or click Upload Documents';
-        }
-      }
-    } else {
-      empty.style.display = 'none';
-      // FIX-PHASE-13.3-FILEMANAGER-TOWER-LABELS-2026-05-14
-      // Compute tower annotations once per render. Fully guarded: if the
-      // active submission snapshot, WorkbenchRules, or the excess module
-      // is absent this is a silent no-op and the File Manager renders
-      // exactly as before. Annotations map docId → {towerLabel, color,
-      // isUncertain}; applied per-row in buildDocItem.
-      state._towerAnnotations = {};
-      try {
-        const WR = window.WorkbenchRules;
-        const sub = window.workbenchActiveSubmission || null;
-        if (WR && typeof WR.buildTowerView === 'function' && sub) {
-          const inScope = (state.submissionFilter && state.submissionFilter !== 'all')
-            ? state.docs.filter(d => d.submissionId === state.submissionFilter)
-            : state.docs;
-          const view = WR.buildTowerView(sub, inScope);
-          if (view && view.docAnnotations) {
-            state._towerAnnotations = view.docAnnotations;
-            state._towerView = view;   // summary panel (13.3 UI) can read this
-          }
-        }
-      } catch (e) {
-        // Never let tower annotation break the doc list.
-        console.warn('[docs-view] tower annotation skipped:', e && e.message);
-      }
-      docs.forEach(doc => list.appendChild(buildDocItem(doc)));
-    }
-
-    const visibleTotal = (state.submissionFilter && state.submissionFilter !== 'all')
-      ? state.docs.filter(d => d.submissionId === state.submissionFilter).length
-      : state.docs.length;
-    $id('dvDocsCount').textContent = docs.length;
-    $id('totalDocs').textContent = visibleTotal;
-    updateTagsCount();
-    renderCategoryGrid();
-    // Notify Altitude's workbench so its Documents-tab count badge stays
-    // in sync with whatever is in the docs view. Fire-and-forget — the
-    // hook is exposed from app.js and may not exist (e.g. if the docs
-    // view loads before app.js's exports execute).
-    if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
-      try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
-    }
-  }
+  function renderDocsList(){if(!window.__STM_DOCUMENTS_UI)window.__STM_DOCUMENTS_UI=window.STMNativeDocumentsUI({state,config:CONFIG,filterDocs,buildDocItem,inScope:inDesignScope,requireDoc:requireDesignDoc,renderCategories:renderCategoryGrid,updateTagsCount,updateBulkBar});window.__STM_DOCUMENTS_UI.render();}
 
   function buildDocItem(doc) {
     const item = document.createElement('div');
@@ -908,9 +799,9 @@ window.initDocumentsView = function() {
           if (item.isConnected) observer.observe(item);
         });
       }
-    } else if (doc.type === 'excel' || doc.type === 'archive' || doc.type === 'native' || doc.type === 'csv' ||
+    } else if (!doc.htmlContent && (doc.type === 'excel' || doc.type === 'archive' || doc.type === 'native' || doc.type === 'csv' ||
                (doc.type === 'email' && doc.emailMeta?.format === 'msg') ||
-               (doc.type === 'powerpoint' && !doc.htmlContent)) {
+               (doc.type === 'powerpoint' && !doc.htmlContent))) {
       const card = document.createElement('div');
       const accent = nativeAccentForType(doc);
       card.className = 'doc-thumb-native doc-thumb-native-' + accent.cls;
@@ -959,22 +850,8 @@ window.initDocumentsView = function() {
       pageWrap.appendChild(page);
       thumb.appendChild(pageWrap);
 
-      const applyScale = () => {
-        const w = pageWrap.clientWidth;
-        if (w > 0) {
-          const scale = w / 816;
-          page.style.transform = 'scale(' + scale + ')';
-        }
-      };
-      applyScale();
-      requestAnimationFrame(applyScale);
-      setTimeout(applyScale, 50);
-
-      if (typeof ResizeObserver !== 'undefined') {
-        const ro = new ResizeObserver(applyScale);
-        ro.observe(pageWrap);
-      }
-    } else if ((doc.type === 'email' || doc.type === 'powerpoint' || doc.type === 'text') && doc.htmlContent) {
+      window.STMDocumentExportLayout.bindHtmlPaper(page,()=>window.__docsAnno?.ensureCanvas?.(thumb,doc.id),e=>toast('Page layout',e.message,'warning'));
+    } else if (doc.htmlContent) {
       const pageWrap = document.createElement('div');
       pageWrap.className = 'doc-thumb-word';
       const page = document.createElement('div');
@@ -985,21 +862,7 @@ window.initDocumentsView = function() {
       pageWrap.appendChild(page);
       thumb.appendChild(pageWrap);
 
-      const applyScale = () => {
-        const w = pageWrap.clientWidth;
-        if (w > 0) {
-          const scale = w / 816;
-          page.style.transform = 'scale(' + scale + ')';
-        }
-      };
-      applyScale();
-      requestAnimationFrame(applyScale);
-      setTimeout(applyScale, 50);
-
-      if (typeof ResizeObserver !== 'undefined') {
-        const ro = new ResizeObserver(applyScale);
-        ro.observe(pageWrap);
-      }
+      window.STMDocumentExportLayout.bindHtmlPaper(page,()=>window.__docsAnno?.ensureCanvas?.(thumb,doc.id),e=>toast('Page layout',e.message,'warning'));
     } else if (doc.htmlContent) {
       const content = document.createElement('div');
       content.className = 'doc-thumb-content';
@@ -1067,7 +930,7 @@ window.initDocumentsView = function() {
       (d.type === 'powerpoint' && !d.htmlContent)
     );
 
-    thumb.onclick = (e) => {
+    thumb.onclick = (e) => { if(doc.htmlContent||doc.thumbnailData||doc.highResData)return;
       e.stopPropagation();
       if (state.annotations.tool !== 'pointer') return;
       if (state.annotations.previewBlocked) return;
@@ -1092,7 +955,7 @@ window.initDocumentsView = function() {
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); toggleSelectDoc(doc.id); return; }
       if (e.shiftKey && state.selectedIds.size > 0) { e.preventDefault(); rangeSelectDoc(doc.id); return; }
       if (isNativeTileType(doc)) { openNativeFile(doc); return; }
-      openPreview(doc.id);
+      window.__STM_DOCUMENTS_UI.open(doc.id);
     };
     item.oncontextmenu = (e) => {
       e.preventDefault();
@@ -1180,64 +1043,7 @@ window.initDocumentsView = function() {
     state.pendingUpload = null;
   }
 
-  async function confirmUpload() {
-    if (!state.pendingUpload) return;
-
-    if (state.pendingUpload.bulkMoveIds) {
-      const ids = state.pendingUpload.bulkMoveIds;
-      const cat = state.pendingUpload.category;
-      ids.forEach(id => {
-        const d = state.docs.find(x => x.id === id);
-        if (d) {
-          d.category = cat;
-          if (typeof window.sbUpdateDocumentPage === 'function') {
-            window.sbUpdateDocumentPage(id, { category: cat }).catch(() => {});
-          }
-        }
-      });
-      closeCategoryModal();
-      clearSelection();
-      renderDocsList();
-      toast('Moved', ids.length + ' documents → ' + cat, 'success');
-      return;
-    }
-    if (state.pendingUpload.singleMoveId) {
-      const id = state.pendingUpload.singleMoveId;
-      const cat = state.pendingUpload.category;
-      const doc = state.docs.find(d => d.id === id);
-      if (doc) {
-        doc.category = cat;
-        if (typeof window.sbUpdateDocumentPage === 'function') {
-          window.sbUpdateDocumentPage(id, { category: cat }).catch(() => {});
-        }
-        toast('Moved', doc.displayName + ' → ' + cat, 'success');
-      }
-      closeCategoryModal();
-      renderDocsList();
-      return;
-    }
-
-    const { files, category } = state.pendingUpload;
-    closeCategoryModal();
-
-    // Concurrency lock — chain every batch behind any in-flight one so they
-    // run strictly serially. Without serialization, two batches share
-    // state._uploadCtx and storage_paths get cross-assigned to the wrong
-    // docs.
-    //
-    // UNIFIED CHAIN: We use state._processFileChain (NOT _uploadChain) so
-    // manual batches AND pipeline-driven ingestion (processFileFromPipeline)
-    // share the same lock. Both paths set state._uploadCtx and state._pipelineCtx
-    // during processFile dispatch — if a manual batch starts while a pipeline
-    // ingestion is mid-flight (or vice versa), they'd cross-contaminate. The
-    // single chain prevents that. .catch swallowed so a failed earlier batch
-    // doesn't poison later ones.
-    const prev = state._processFileChain || Promise.resolve();
-    state._processFileChain = prev
-      .catch(() => {})
-      .then(() => _runUploadBatch(files, category));
-    return state._processFileChain;
-  }
+  async function confirmUpload(){if(!state.pendingUpload)return;const pending=state.pendingUpload;try{await nativeDocumentIO.ensureSubmission();if(pending.bulkMoveIds||pending.singleMoveId){const ids=pending.bulkMoveIds||[pending.singleMoveId];for(const id of ids)await designPatch(id,{category:pending.category});closeCategoryModal();clearSelection();renderDocsList();return;}closeCategoryModal();return await nativeDocumentIO.mutate(async()=>{const previous=state._processFileChain||Promise.resolve();const task=previous.catch(()=>{}).then(()=>_runUploadBatch(pending.files,pending.category));state._processFileChain=task;await task;await nativeDocumentIO.flush();renderDocsList();});}catch(e){toast('Documents not saved',e.message,'warning');throw e;}}
 
   async function _runUploadBatch(files, category) {
     showLoading('Processing documents');
@@ -1344,10 +1150,11 @@ window.initDocumentsView = function() {
   //
   // Fire-and-forget by design — orphan binaries are cosmetic residue, not
   // a correctness issue. The protect_delete trigger blocks accidents.
-  async function cleanupOrphanStoragePaths(storagePaths) {
+  async function cleanupOrphanStoragePaths(storagePaths) {if(state._nativeParseToken)nativeDocumentIO.assert(state._nativeParseToken);
     if (!Array.isArray(storagePaths) || storagePaths.length === 0) return;
     if (!window.sb) return;
     for (const sp of storagePaths) {
+      if(window.__STM_DOC_JOURNAL?.entries().some(e=>e.kind==='insert'&&e.args?.[0]?.storagePath===sp))continue;
       try {
         const { count, error: chkErr } = await window.sb
           .from('document_pages')
@@ -1449,7 +1256,7 @@ window.initDocumentsView = function() {
       try {
         const url = await window.sbGetDocumentSignedUrl(doc.storagePath, 600);
         if (!url) return false;
-        const resp = await fetch(url);
+        const resp = await nativeDocumentIO.fetch(url);
         if (!resp.ok) {
           console.warn('Storage fetch returned ' + resp.status);
           return false;
@@ -1476,7 +1283,8 @@ window.initDocumentsView = function() {
     return doc._binaryFetchPromise;
   }
 
-  async function processFile(file, category) {
+  async function processFile(file,category){const previous=state._nativeParseToken;state._nativeParseToken=nativeDocumentIO.capture();try{return await processOwnedFile(file,category);}finally{state._nativeParseToken=previous;}}
+  async function processOwnedFile(file, category) {
     // Size sanity check applies to every type uniformly.
     if (file.size > MAX_FILE_BYTES) {
       throw new Error(
@@ -1503,6 +1311,7 @@ window.initDocumentsView = function() {
     // failure so we can surface it in the post-batch toast. Doc still gets
     // added to local state so the user can keep working — but they'll see
     // a warning that the binary isn't recoverable across devices/refreshes.
+    if (!storagePath)throw new Error('The original source file was not saved. Retry the upload.');
     if (!storagePath && typeof window.sbUploadDocumentFile === 'function') {
       // Only count as failure if a signed-in user exists; otherwise it's
       // expected (offline / signed-out → local-only mode).
@@ -1520,6 +1329,7 @@ window.initDocumentsView = function() {
     };
     try {
       const name = file.name.toLowerCase();
+      if (/\.(html|htm)$/.test(name))return await processHtml(file,category);
       if (name.endsWith('.pdf')) return await processPDF(file, category);
       if (/\.(xlsx|xlsm|xls|xltx|xltm|xlsb)$/.test(name)) return await processExcel(file, category);
       if (/\.(docx|doc)$/.test(name)) return await processWord(file, category);
@@ -1621,6 +1431,7 @@ window.initDocumentsView = function() {
     }
   }
 
+  async function processHtml(file,category){const html=sanitizeHtml(await file.text()),pages=paginateWordHtml(html),nativeDataUrl=await cacheNativeFile(file);pages.forEach((content,i)=>addDoc({name:stripExt(file.name)+(pages.length>1?' — Page '+(i+1):''),type:'text',category,htmlContent:content,textContent:docParsers.docHtmlText(content),pageNumber:i+1,totalPages:pages.length,nativeDataUrl:i===0?nativeDataUrl:null,nativeFileName:file.name,workbookFileName:file.name,nativeMimeType:file.type||'text/html',fileSize:file.size,nativeExt:'html'}));}
   async function processNativeOnly(file, category) {
     const nativeDataUrl = await cacheNativeFile(file);
     const ext = (file.name.match(/\.([^.]+)$/) || [,'file'])[1].toLowerCase();
@@ -1732,91 +1543,9 @@ window.initDocumentsView = function() {
     }
   }
 
-  async function processEmail(file, category) {
-    const lowerName = file.name.toLowerCase();
-    const nativeDataUrl = await cacheNativeFile(file);
-    const baseName = stripExt(file.name);
-
-    if (lowerName.endsWith('.msg') || lowerName.endsWith('.oft')) {
-      addDoc({
-        name: baseName,
-        type: 'email',
-        category,
-        nativeDataUrl,
-        nativeFileName: file.name,
-        nativeMimeType: file.type || 'application/vnd.ms-outlook',
-        workbookFileName: file.name,
-        fileSize: file.size,
-        nativeExt: lowerName.endsWith('.oft') ? 'oft' : 'msg',
-        textContent: '',
-        emailMeta: { format: 'msg' },
-      });
-      return;
-    }
-
-    let raw = '';
-    try {
-      raw = await file.text();
-    } catch (e) {
-      throw new Error('Could not read email file: ' + e.message);
-    }
-
-    const parsed = parseEml(raw);
-    const bodyText = parsed.bodyText || '';
-    const bodyHtml = parsed.bodyHtml || '';
-
-    const headerHtml = buildEmailHeaderHtml(parsed.headers);
-    const fullHtml = headerHtml + (bodyHtml || '<pre>' + escapeHtml(bodyText) + '</pre>');
-
-    let pages;
-    try {
-      pages = paginateWordHtml(fullHtml);
-    } catch (e) {
-      pages = [fullHtml];
-    }
-
-    const totalPages = pages.length;
-    const fromText = parsed.headers.from || '';
-    const subjectText = parsed.headers.subject || baseName;
-
-    for (let i = 0; i < totalPages; i++) {
-      addDoc({
-        name: totalPages > 1 ? `${baseName} — Page ${i + 1}` : baseName,
-        type: 'email',
-        category,
-        htmlContent: pages[i],
-        textContent: (parsed.headers.subject || '') + '\n' +
-                     (parsed.headers.from || '') + '\n' +
-                     (parsed.headers.to || '') + '\n\n' +
-                     bodyText,
-        pageNumber: i + 1,
-        totalPages,
-        nativeDataUrl: i === 0 ? nativeDataUrl : null,
-        nativeFileName: file.name,
-        nativeMimeType: file.type || 'message/rfc822',
-        workbookFileName: file.name,
-        fileSize: file.size,
-        nativeExt: 'eml',
-        emailMeta: {
-          format: 'eml',
-          from: fromText,
-          subject: subjectText,
-          date: parsed.headers.date,
-          attachmentCount: parsed.attachments.length,
-        },
-      });
-      if (i < totalPages - 1 && i % 10 === 9) await delay(5);
-    }
-
-    for (const att of parsed.attachments) {
-      try {
-        const attFile = new File([att.bytes], att.filename, { type: att.contentType || 'application/octet-stream' });
-        await processFile(attFile, category);
-      } catch (err) {
-        console.warn('Could not process attachment', att.filename, err);
-      }
-    }
-  }
+  async function processEmail(file,category){const token=nativeDocumentIO.capture(),bytes=await file.arrayBuffer();nativeDocumentIO.assert(token);await Promise.allSettled([window.MsgReaderReady,window.PostalMimeReady]);nativeDocumentIO.assert(token);const ext=file.name.split('.').pop().toLowerCase(),parsed=ext==='msg'||ext==='oft'?await docParsers.parseMsg(bytes,ext):await docParsers.parseEml(bytes),prepared=docParsers.prepareEmailPages(parsed),nativeDataUrl=await cacheNativeFile(file);nativeDocumentIO.assert(token);for(const page of prepared.pages)addDoc({...page,name:stripExt(file.name)+(prepared.pages.length>1?' — Page '+page.pageNumber:''),type:'email',category,nativeDataUrl:page.pageNumber===1?nativeDataUrl:null,nativeFileName:file.name,nativeMimeType:file.type||'message/rfc822',workbookFileName:file.name,fileSize:file.size,nativeExt:ext,emailMeta:prepared.emailMeta});
+  // Pipeline intake already owns its child attachments. Manual Documents uploads own them here.
+  if(!state._pipelineCtx){for(const att of prepared.attachments){const parent=state._uploadCtx;try{await processFile(new File([att.bytes],att.filename,{type:att.contentType}),category);}finally{state._uploadCtx=parent;}}}}
 
   function parseEml(raw) {
     const result = { headers: {}, bodyText: '', bodyHtml: '', attachments: [] };
@@ -2201,85 +1930,7 @@ window.initDocumentsView = function() {
     return canvas.toDataURL('image/png');
   }
 
-  async function processExcel(file, category) {
-    const base = stripExt(file.name);
-    const originalFileName = file.name;
-    const lowerName = file.name.toLowerCase();
-    const mimeType = file.type || (
-      lowerName.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
-      lowerName.endsWith('.xlsm') ? 'application/vnd.ms-excel.sheet.macroEnabled.12' :
-      lowerName.endsWith('.xlsb') ? 'application/vnd.ms-excel.sheet.binary.macroEnabled.12' :
-      lowerName.endsWith('.xltx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.template' :
-      lowerName.endsWith('.xltm') ? 'application/vnd.ms-excel.template.macroEnabled.12' :
-      'application/vnd.ms-excel'
-    );
-
-    let buf;
-    try {
-      buf = await file.arrayBuffer();
-    } catch (err) {
-      throw new Error('Could not read file bytes: ' + err.message);
-    }
-
-    let sheetNames = [];
-    let totalRows = 0;
-    let totalCols = 0;
-    let searchText = '';
-    try {
-      const wb = XLSX.read(buf, { type: 'array', cellStyles: false });
-      sheetNames = wb.SheetNames || [];
-      if (sheetNames.length > 0) {
-        const ws = wb.Sheets[sheetNames[0]];
-        try {
-          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-          totalRows = range.e.r - range.s.r + 1;
-          totalCols = range.e.c - range.s.c + 1;
-        } catch (e) { /* keep zeros */ }
-        try {
-          searchText = sheetNames.map(name => {
-            try { return XLSX.utils.sheet_to_txt(wb.Sheets[name]); } catch (e) { return ''; }
-          }).join('\n\n');
-        } catch (e) { /* empty text is fine */ }
-      }
-    } catch (err) {
-      throw new Error('Not a valid Excel file: ' + err.message);
-    }
-
-    let nativeDataUrl = null;
-    const MAX_NATIVE_BYTES = 40 * 1024 * 1024;
-    if (file.size <= MAX_NATIVE_BYTES) {
-      try {
-        nativeDataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
-          reader.readAsDataURL(file);
-        });
-      } catch (err) {
-        console.warn('Could not cache native Excel bytes:', err);
-        nativeDataUrl = null;
-      }
-    } else {
-      console.warn('Excel file ' + (file.size / 1024 / 1024).toFixed(1) + ' MB — skipping native cache');
-    }
-
-    addDoc({
-      name: base,
-      type: 'excel',
-      category,
-      htmlContent: null,
-      textContent: searchText,
-      sheetName: null,
-      nativeDataUrl,
-      nativeFileName: originalFileName,
-      nativeMimeType: mimeType,
-      workbookFileName: originalFileName,
-      sheetCount: sheetNames.length,
-      sheetNames: sheetNames,
-      dimensions: totalRows > 0 ? (totalRows + ' rows × ' + totalCols + ' cols') : null,
-      fileSize: file.size,
-    });
-  }
+  async function processExcel(file,category){const buf=await file.arrayBuffer();nativeDocumentIO.assert(state._nativeParseToken);const workbook=XLSX.read(buf,{type:'array',cellStyles:false,cellDates:true}),pages=docParsers.prepareWorkbookPages(workbook,XLSX,{rowsPerPage:35}),nativeDataUrl=await cacheNativeFile(file);for(const page of pages)addDoc({...page,name:stripExt(file.name)+' — '+page.sheetName+(page.sheetPages>1?' — Page '+page.sheetPage:''),type:'excel',category,nativeDataUrl:page.pageNumber===1?nativeDataUrl:null,nativeFileName:file.name,nativeMimeType:file.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',workbookFileName:file.name,sheetCount:workbook.SheetNames.length,sheetNames:workbook.SheetNames,fileSize:file.size,nativeExt:file.name.split('.').pop().toLowerCase()});}
 
   async function processWord(file, category) {
     const buf = await file.arrayBuffer();
@@ -2419,6 +2070,7 @@ window.initDocumentsView = function() {
   }
 
   function paginateWordHtml(html) {
+    html=sanitizeHtml(html);
     const PAGE_WIDTH_PX = 816;
     const PAGE_HEIGHT_PX = 1056;
     const PAGE_PADDING_PX = 72;
@@ -2643,8 +2295,7 @@ window.initDocumentsView = function() {
             // safe http(s)/relative URLs. javascript:/vbscript: blocked.
             if (tag === 'img' && name === 'src') {
               const v = (attr.value || '').trim().toLowerCase();
-              const safe = v.startsWith('data:image/') || v.startsWith('http://') ||
-                           v.startsWith('https://') || v.startsWith('/');
+              const safe = /^data:image\/(png|jpeg|gif|webp|bmp);base64,/i.test(v);if(!safe){const label=document.createElement('span');label.textContent=child.getAttribute('alt')||'[External image omitted]';child.replaceWith(label);break;}
               if (!safe) { child.removeAttribute(attr.name); continue; }
               continue;
             }
@@ -2721,7 +2372,7 @@ window.initDocumentsView = function() {
     return null;
   }
 
-  function addDoc(opts) {
+  function addDoc(opts) {if(state._nativeParseToken)nativeDocumentIO.assert(state._nativeParseToken);if(!window.currentUser)throw new Error('Sign in before adding documents.');if(opts.htmlContent){opts.htmlContent=sanitizeHtml(opts.htmlContent);if(['word','email','powerpoint','text'].includes(opts.type))opts.textContent=docParsers.docHtmlText(opts.htmlContent);}
     const now = Date.now();
     // Pull upload context (storage_path, file_size, etc.) set by processFile
     // earlier in the dispatch. All addDoc calls within one processFile run
@@ -2747,10 +2398,12 @@ window.initDocumentsView = function() {
     const rawName = (typeof opts.name === 'string') ? opts.name : '';
     const safeName = rawName.length > 250 ? rawName.slice(0, 247) + '…' : rawName;
     const doc = {
+      _nativeFullLoaded:true,
       id: 'doc-' + (state.nextId++) + '-' + now,
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
+      sourceFileId:opts.sourceFileId||pctx.fileId||pctx.sourceFileId||null,
       category: opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
@@ -2893,7 +2546,7 @@ window.initDocumentsView = function() {
 
   function updateTagsCount() {
     // Respect submission scope so the count reflects what's visible.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -2901,32 +2554,7 @@ window.initDocumentsView = function() {
     $id('totalTagged').textContent = tagged.length;
   }
 
-  function renderTagsList() {
-    const list = $id('tagsList');
-    const empty = $id('tagsEmpty');
-    // Apply submission scope first so out-of-scope tagged docs don't
-    // appear in the sidebar when the user is viewing a single submission.
-    const inScope = state.submissionFilter === 'all'
-      ? state.docs
-      : state.docs.filter(d => d.submissionId === state.submissionFilter);
-    const tagged = inScope.filter(d => d.tagged);
-    const filtered = state.currentColorFilter === 'all'
-      ? tagged
-      : tagged.filter(d => d.color === state.currentColorFilter);
-
-    Array.from(list.children).forEach(c => { if (c !== empty) c.remove(); });
-
-    if (filtered.length === 0) {
-      empty.style.display = '';
-    } else {
-      empty.style.display = 'none';
-      const colorOrder = [...CONFIG.tagColors, null];
-      const sorted = [];
-      colorOrder.forEach(c => filtered.forEach(d => { if ((d.color || null) === c) sorted.push(d); }));
-      sorted.forEach(doc => list.appendChild(buildTaggedItem(doc)));
-    }
-    updateTagsCount();
-  }
+  function renderTagsList(){window.__STM_DOCUMENTS_UI?.renderTags();}
 
   function isDefaultGeneratedDocName8753(doc) {
     const name = String((doc && doc.displayName) || '').trim();
@@ -3049,7 +2677,7 @@ window.initDocumentsView = function() {
         doc.relabeledByUser = true;
         _persist(docId, { display_name: v, relabeled_by_user: true });
       }
-      renderDocsList(); renderTagsList();
+      input.onblur=null;nameEl.textContent=doc.displayName;input.replaceWith(nameEl);renderDocsList(); renderTagsList();
     };
     input.onblur = () => finish(true);
     input.onkeydown = (e) => {
@@ -3191,109 +2819,7 @@ window.initDocumentsView = function() {
   // For docs with no source binary (text-only entries hydrated long ago,
   // or pre-storage uploads), we synthesize a .txt or .pdf from the cached
   // text/thumbnail so nothing is silently dropped.
-  async function bulkDownloadZip(ids) {
-    if (typeof JSZip === 'undefined') {
-      toast('Download failed', 'JSZip library is not loaded', 'error');
-      return;
-    }
-    showLoading('Building ZIP archive');
-    try {
-      const zip = new JSZip();
-      const docs = state.docs.filter(d => ids.includes(d.id));
-      // Group by storage_path so we only fetch each binary once.
-      const seenPaths = new Set();
-      const filenameCounts = {};
-      let added = 0;
-
-      for (let i = 0; i < docs.length; i++) {
-        const doc = docs[i];
-        updateLoading(Math.round(((i + 1) / docs.length) * 100), doc.displayName);
-
-        // Each unique storage_path contributes one file. Pages 2+ of a
-        // multi-page PDF reference the same path and skip.
-        if (doc.storagePath && seenPaths.has(doc.storagePath)) continue;
-
-        let blob = null;
-        let filename = doc.workbookFileName || doc.nativeFileName ||
-                       (doc.displayName + (doc.nativeExt ? '.' + doc.nativeExt : ''));
-
-        if (doc.storagePath) {
-          // Try to fetch the original binary.
-          if (typeof window.sbGetDocumentSignedUrl === 'function') {
-            try {
-              const url = await window.sbGetDocumentSignedUrl(doc.storagePath, 600);
-              if (url) {
-                const resp = await fetch(url);
-                if (resp.ok) blob = await resp.blob();
-              }
-            } catch (err) { console.warn('Storage fetch failed for ' + doc.id + ':', err); }
-          }
-          seenPaths.add(doc.storagePath);
-        }
-
-        // Fallback: if we couldn't get the original, synthesize from cached data.
-        if (!blob && doc.nativeDataUrl) {
-          blob = await (await fetch(doc.nativeDataUrl)).blob();
-        }
-        if (!blob && doc.thumbnailData && (doc.type === 'pdf' || doc.type === 'image')) {
-          // PNG fallback for image-like docs hydrated without a source.
-          blob = await (await fetch(doc.thumbnailData)).blob();
-          if (!filename.match(/\.png$/i)) filename = doc.displayName + '.png';
-        }
-        if (!blob && doc.textContent) {
-          blob = new Blob([doc.textContent], { type: 'text/plain' });
-          if (!filename.match(/\.(txt|md|csv|tsv|log)$/i)) filename = doc.displayName + '.txt';
-        }
-        if (!blob) {
-          console.warn('Skipped doc ' + doc.id + ' (no recoverable binary)');
-          continue;
-        }
-
-        // Resolve duplicate filenames across selected docs by suffixing.
-        let safeName = filename;
-        if (filenameCounts[filename]) {
-          filenameCounts[filename]++;
-          const dot = filename.lastIndexOf('.');
-          const stem = dot > 0 ? filename.slice(0, dot) : filename;
-          const ext  = dot > 0 ? filename.slice(dot) : '';
-          safeName = stem + ' (' + filenameCounts[filename] + ')' + ext;
-        } else {
-          filenameCounts[filename] = 1;
-        }
-        zip.file(safeName, blob);
-        added++;
-      }
-
-      if (added === 0) {
-        toast('Nothing to download', 'No source files were available', 'warning');
-        return;
-      }
-
-      const zipBlob = await zip.generateAsync(
-        { type: 'blob' },
-        (meta) => updateLoading(Math.round(meta.percent), 'Compressing…')
-      );
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      const ts = new Date().toISOString().slice(0, 10);
-      a.download = 'documents-' + ts + '.zip';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-
-      toast('Downloaded', added + ' file' + (added !== 1 ? 's' : '') + ' as ZIP', 'success');
-      clearSelection();
-      renderDocsList();
-      renderTagsList();
-    } catch (err) {
-      console.error('bulkDownloadZip error:', err);
-      toast('Download failed', err.message || 'Unknown error', 'error');
-    } finally {
-      hideLoading();
-    }
-  }
+  async function bulkDownloadZip(ids){try{return await nativeDocumentIO.download(ids);}catch(e){toast('Download failed',e.message,'warning');return null;}}
 
   // ══════ CONTEXT MENU ══════
   function showContextMenu(x, y) {
@@ -3585,7 +3111,7 @@ window.initDocumentsView = function() {
       <div class="ocr-split">
         <div class="ocr-image"><img src="${doc.highResData || doc.thumbnailData}" alt="${escapeHtml(doc.displayName)}"></div>
         <div class="ocr-text">
-          <div class="ocr-text-header"><h3>Extracted Text</h3><div class="ocr-confidence ${confCls}">${conf}% confidence</div></div>
+          <div class="ocr-text-header"><h3>Extracted Text</h3><div class="ocr-confidence ${confCls}">${Number.isFinite(doc.ocrConfidence)?conf+'% confidence':'Saved text'}</div></div>
           <pre class="ocr-content">${escapeHtml(doc.ocrText || 'No text extracted')}</pre>
         </div>
       </div>
@@ -3626,96 +3152,14 @@ window.initDocumentsView = function() {
   }
 
   // ══════ OCR ══════
-  async function runOCR() {
-    const doc = currentPreviewDoc();
-    if (!doc) return;
-    if (doc.type !== 'pdf' && doc.type !== 'image') {
-      toast('OCR unavailable', 'OCR works on images and PDFs only', 'warning');
-      return;
-    }
-    $id('previewOCR').classList.add('active');
-    $id('ocrLabel').textContent = '…';
-    try {
-      // Lazy-fetch the PDF binary if hydrated without it (Phase 3 docs come
-      // back with pdfData=null since we don't store buffers in Postgres).
-      if (doc.type === 'pdf' && !doc.pdfData) {
-        $id('ocrLabel').textContent = '↓';
-        const ok = await ensureBinary(doc);
-        if (!ok) {
-          toast('OCR unavailable', 'Could not load source file from storage', 'error');
-          return;
-        }
-      }
-      if (doc.type === 'pdf' && doc.pdfData && doc.textContent && doc.textContent.trim().length > 30) {
-        doc.ocrText = doc.textContent;
-        doc.ocrConfidence = 99;
-        renderPreview();
-        toast('Text extracted', '99% confidence (embedded text layer)', 'success');
-        return;
-      }
-      if (!state.ocrLoaded) await loadTesseract();
-      if (typeof Tesseract === 'undefined') { toast('OCR failed', 'Could not load OCR engine', 'error'); return; }
-      let imgSrc = doc.highResData || doc.thumbnailData;
-      if (doc.type === 'pdf') {
-        // PHASE 8 FIX (per GPT external audit round 5): same try/finally
-        // + buffer-cloning pattern as lazy preview. Previously cleanup
-        // was inline AFTER the render; an exception from getPage() or
-        // renderPdfPage() left PDF.js caches resident. Also: cloning
-        // doc.pdfData prevents any chance of detachment leaving the
-        // source unusable for subsequent OCR / preview / export calls.
-        let pdf = null;
-        let page = null;
-        try {
-          if (!hasUsablePdfData(doc)) {
-            const ok = await ensureBinary(doc);
-            if (!ok) {
-              toast('OCR unavailable', 'Could not load source file', 'error');
-              return;
-            }
-          }
-          const safeData = clonePdfDataForPdfJs(doc);
-          if (!safeData) {
-            toast('OCR unavailable', 'PDF source is not available', 'error');
-            return;
-          }
-          pdf = await pdfjsLib.getDocument({ data: safeData }).promise;
-          page = await pdf.getPage(doc.pageNumber);
-          imgSrc = await renderPdfPage(page, CONFIG.pdf.ocrScale);
-        } finally {
-          if (page) { try { page.cleanup(); } catch(e) {} }
-          if (pdf) {
-            try { await pdf.cleanup(); } catch(e) {}
-            try { await pdf.destroy(); } catch(e) {}
-          }
-        }
-      }
-      imgSrc = await preprocessForOCR(imgSrc);
-      const result = await Tesseract.recognize(imgSrc, 'eng', {
-        logger: (info) => {
-          if (info.status === 'recognizing text') {
-            $id('ocrLabel').textContent = Math.round(info.progress * 100) + '%';
-          }
-        },
-      });
-      doc.ocrText = result.data.text;
-      doc.ocrConfidence = Math.round(result.data.confidence);
-      renderPreview();
-      toast('OCR complete', doc.ocrConfidence + '% confidence', 'success');
-    } catch (err) {
-      console.error('OCR error:', err);
-      toast('OCR failed', err.message || 'Unknown error', 'error');
-    } finally {
-      $id('previewOCR').classList.remove('active');
-      $id('ocrLabel').textContent = 'OCR';
-    }
-  }
+  async function runOCR(){const selected=currentPreviewDoc();if(!selected||!['pdf','image'].includes(selected.type))return;const button=$id('previewOCR');if(button.disabled)return;button.disabled=true;button.classList.add('active');$id('ocrLabel').textContent='…';try{await nativeDocumentIO.track(async token=>{const doc=requireDesignDoc(selected.id);let text=doc.textContent||'',confidence=null;if(!(doc.type==='pdf'&&text.trim().length>30)){if(doc.type==='pdf')await ensurePdfHighRes(doc);nativeDocumentIO.assert(token);await loadTesseract();nativeDocumentIO.assert(token);const image=doc.highResData||doc.thumbnailData;if(!image)throw new Error('The source image is unavailable.');const worker=await Tesseract.createWorker('eng',1,{workerPath:new URL('vendor/tesseract/worker.min.js',location.href).href,corePath:new URL('vendor/tesseract/core/',location.href).href,langPath:new URL('vendor/tesseract/lang/',location.href).href,workerBlobURL:false,logger:info=>{try{nativeDocumentIO.assert(token);if(info.status==='recognizing text')$id('ocrLabel').textContent=Math.round(info.progress*100)+'%';}catch(_){}}});window.__STM_DOC_OCR_WORKERS||=new Set();window.__STM_DOC_OCR_WORKERS.add(worker);try{nativeDocumentIO.assert(token);const result=await worker.recognize(await preprocessForOCR(image));nativeDocumentIO.assert(token);text=result.data.text;confidence=Math.round(result.data.confidence);}finally{window.__STM_DOC_OCR_WORKERS.delete(worker);await worker.terminate();}}nativeDocumentIO.assert(token);doc.ocrText=text;doc.ocrConfidence=confidence;doc.textContent=text;await window.sbUpdateDocumentPage(doc.id,{extracted_text:text});nativeDocumentIO.assert(token);renderPreview();toast(confidence===null?'Text ready':'OCR complete',confidence===null?'Embedded PDF text retained':confidence+'% confidence','success');});}catch(e){toast('OCR failed',e.message,'error');}finally{button.disabled=false;button.classList.remove('active');$id('ocrLabel').textContent='OCR';}}
 
   async function loadTesseract() {
     return new Promise((resolve, reject) => {
       if (typeof Tesseract !== 'undefined') { state.ocrLoaded = true; resolve(); return; }
       toast('Loading OCR', 'Downloading OCR engine…', 'info');
       const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      s.src = 'vendor/tesseract/tesseract.min.js';
       s.onload = () => { state.ocrLoaded = true; resolve(); };
       s.onerror = () => reject(new Error('Failed to load OCR engine'));
       document.head.appendChild(s);
@@ -3927,157 +3371,13 @@ window.initDocumentsView = function() {
     }));
   }
 
-  async function downloadPreview() {
-    const doc = currentPreviewDoc();
-    if (!doc) return;
-    if (doc.type === 'excel') {
-      openNativeFile(doc);
-      return;
-    }
-    try {
-      // PHASE 9 FIX: ensure high-res for PDFs before export. Without
-      // this, exporting from a freshly-opened modal (before the lazy
-      // render completes) embeds the small JPEG thumbnail.
-      if (doc.type === 'pdf') {
-        await ensurePdfHighRes(doc);
-      }
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const m = 10;
-      if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
-        const src = doc.highResData || doc.thumbnailData;
-        pdf.addImage(src, imageFormatForDataUrl(src), m, m, pw - 2*m, ph - 2*m);
-      } else if (doc.textContent) {
-        pdf.setFontSize(11);
-        const lines = pdf.splitTextToSize(doc.textContent, pw - 2*m);
-        let y = m + 5;
-        for (const line of lines) {
-          if (y > ph - m) { pdf.addPage(); y = m + 5; }
-          pdf.text(line, m, y); y += 5;
-        }
-      }
-      pdf.save((doc.displayName || 'document') + '.pdf');
-      toast('Downloaded', doc.displayName + '.pdf', 'success');
-    } catch(err) {
-      console.error(err); toast('Download failed', err.message, 'error');
-    }
-  }
+  async function downloadPreview(){const doc=currentPreviewDoc();if(doc)return nativeDocumentIO.exportPages([doc.id]);}
 
-  async function exportTagged() {
-    // Respect submission scope — exporting tagged pages while viewing a
-    // single submission should only include that submission's tagged docs.
-    const inScope = state.submissionFilter === 'all'
-      ? state.docs
-      : state.docs.filter(d => d.submissionId === state.submissionFilter);
-    const tagged = inScope.filter(d => d.tagged);
-    if (tagged.length === 0) { toast('No tagged pages', 'Tag pages before exporting', 'warning'); return; }
-    try {
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const m = 10;
-      let first = true;
-      // PHASE 9 FIX: for...of (not forEach) so we can await
-      // ensurePdfHighRes per doc. Without this, tagged PDFs that were
-      // never previewed export at thumbnail resolution.
-      for (const doc of tagged) {
-        if (!first) pdf.addPage();
-        first = false;
-        if (doc.type === 'pdf') {
-          await ensurePdfHighRes(doc);
-        }
-        if ((doc.type === 'pdf' || doc.type === 'image') && (doc.highResData || doc.thumbnailData)) {
-          const src = doc.highResData || doc.thumbnailData;
-          pdf.addImage(src, imageFormatForDataUrl(src), m, m, pw - 2*m, ph - 2*m);
-        } else if (doc.textContent) {
-          pdf.setFontSize(13); pdf.setFont(undefined, 'bold');
-          pdf.text(doc.displayName, m, m + 5);
-          pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
-          const lines = pdf.splitTextToSize(doc.textContent, pw - 2*m);
-          let y = m + 15;
-          for (const line of lines) {
-            if (y > ph - m) { pdf.addPage(); y = m; }
-            pdf.text(line, m, y); y += 4.5;
-          }
-        }
-      }
-      const ts = new Date().toISOString().slice(0,10);
-      pdf.save('Tagged-Export-' + ts + '.pdf');
-      toast('Exported', tagged.length + ' pages', 'success');
-    } catch(err) {
-      console.error(err); toast('Export failed', err.message, 'error');
-    }
-  }
+  async function exportTagged(){const ids=sortDocs(state.docs.filter(d=>inDesignScope(d)&&d.tagged)).map(d=>d.id);return nativeDocumentIO.exportPages(ids);}
 
-  function clearAllDocs() {
-    // Respect submission scope. "Clear All" while viewing a single
-    // submission only clears that submission's docs — never wipes
-    // cross-submission state, which would be catastrophic and surprising.
-    const scoped = state.submissionFilter === 'all';
-    const targets = scoped
-      ? state.docs.slice()
-      : state.docs.filter(d => d.submissionId === state.submissionFilter);
-    if (targets.length === 0) { toast('Nothing to clear', '', 'info'); return; }
-    const scopeLabel = scoped
-      ? 'ALL ' + targets.length + ' documents'
-      : targets.length + ' document' + (targets.length !== 1 ? 's' : '') +
-        ' from "' + (state.activeSubmissionTitle || 'this submission') + '"';
-    if (!confirm('Delete ' + scopeLabel + '?')) return;
-    revokeDocBlobUrls(targets);
-    if (scoped) {
-      state.docs = [];
-      state.annotations.store = {};
-    } else {
-      const targetIds = new Set(targets.map(d => d.id));
-      state.docs = state.docs.filter(d => !targetIds.has(d.id));
-      // Annotation store entries for dropped docs were already cleared
-      // by revokeDocBlobUrls. Belt-and-suspenders sweep:
-      Object.keys(state.annotations.store).forEach(id => {
-        if (targetIds.has(id)) delete state.annotations.store[id];
-      });
-    }
-    state.selectedIds.clear();
-    renderCategoryGrid(); renderDocsList(); renderTagsList(); updateBulkBar();
-    // Cloud cleanup. For scoped clears we delete row-by-row (and storage
-    // along with each); for global clears we use the bulk helper which
-    // does select-then-storage-cleanup-then-row-delete in one round-trip.
-    if (scoped && typeof window.sbDeleteAllDocumentPages === 'function') {
-      window.sbDeleteAllDocumentPages().catch(err => {
-        console.warn('Bulk clear failed:', err);
-      });
-    } else if (typeof window.sbDeleteDocumentPage === 'function') {
-      targets.forEach(d => {
-        const pending = state._pendingInserts && state._pendingInserts.get(d.id);
-        const issue = () => window.sbDeleteDocumentPage(d.id, d.storagePath).catch(err => {
-          console.warn('Scoped clear failed for ' + d.id + ':', err);
-        });
-        if (pending) pending.then(issue, issue);
-        else issue();
-      });
-    }
-    toast('Cleared', targets.length + ' documents removed', 'success');
-  }
+  function clearAllDocs(){const ids=state.docs.filter(inDesignScope).map(d=>d.id);if(ids.length&&confirm('Delete all '+ids.length+' document pages in this submission?'))nativeDocumentIO.remove(ids).catch(e=>toast('Delete failed',e.message,'warning'));}
 
-  function clearTagged() {
-    // Respect submission scope. "Clear Tagged" while scoped to one
-    // submission only un-tags within that submission, leaving other
-    // submissions' tagged docs untouched.
-    const inScope = state.submissionFilter === 'all'
-      ? state.docs
-      : state.docs.filter(d => d.submissionId === state.submissionFilter);
-    const tagged = inScope.filter(d => d.tagged);
-    if (tagged.length === 0) { toast('No tags', '', 'info'); return; }
-    if (!confirm('Remove tags from ' + tagged.length + ' document' + (tagged.length !== 1 ? 's' : '') + '?')) return;
-    tagged.forEach(d => {
-      d.tagged = false; d.color = null;
-      _persist(d.id, { tagged: false, color: null });
-    });
-    renderDocsList(); renderTagsList();
-    toast('Tags cleared', tagged.length + ' documents', 'success');
-  }
+  function clearTagged(){window.docsView.design.clearTags().catch(e=>toast('Tags not saved',e.message,'warning'));}
 
   // ══════ COLOR FILTER (tags sidebar) ══════
   function selectColorFilter(filter) {
@@ -4222,7 +3522,7 @@ window.initDocumentsView = function() {
     $id('themeToggle').onclick = toggleTheme;
     $id('clearAllBtn').onclick = clearAllDocs;
     $id('clearTaggedBtn').onclick = clearTagged;
-    $id('exportTaggedBtn').onclick = exportTagged;
+    $id('exportTaggedBtn').onclick = () => exportTagged().catch(e=>toast('Export failed',e.message,'warning'));
 
     $$('.view-toggle button').forEach(b => {
       b.onclick = () => setViewMode(b.dataset.view);
@@ -4305,7 +3605,7 @@ window.initDocumentsView = function() {
     });
 
     $id('modalCancel').onclick = closeCategoryModal;
-    $id('modalConfirm').onclick = confirmUpload;
+    $id('modalConfirm').onclick = () => confirmUpload().catch(()=>{});
 
     $id('previewClose').onclick = closePreview;
     $id('previewPrev').onclick = previewPrev;
@@ -4315,7 +3615,7 @@ window.initDocumentsView = function() {
     $id('previewRotate').onclick = previewRotate;
     $id('previewOCR').onclick = runOCR;
     $id('previewCopy').onclick = copyPreviewText;
-    $id('previewDownload').onclick = downloadPreview;
+    $id('previewDownload').onclick = () => downloadPreview().catch(e=>toast('Export failed',e.message,'warning'));
     $id('previewTag').onclick = () => {
       const doc = currentPreviewDoc();
       if (doc) toggleTag(doc.id);
@@ -4434,212 +3734,7 @@ window.initDocumentsView = function() {
   function dlog(...args) { if (_verbose) console.log(...args); }
 
   let _hydrateInFlight = null;
-  async function hydrateFromCloud(opts) {
-    opts = opts || {};
-    const reason = opts.reason || 'unspecified';
-    const submissionId = opts.submissionId || state.activeSubmissionId || null;
-
-    // Concurrent-fetch guard. If a hydrate is already running, return
-    // its promise so callers all wait on the same fetch.
-    if (_hydrateInFlight) return _hydrateInFlight;
-
-    if (typeof window.sbFetchDocumentPages !== 'function') {
-      console.warn('[docs] hydrate skipped — sbFetchDocumentPages unavailable', { reason });
-      return;
-    }
-
-    _hydrateInFlight = (async () => {
-      state._hydrating = true;
-
-      // Wait for auth. The Supabase JS SDK takes 50-300ms to restore the
-      // persisted session from localStorage on page load. If we fetch
-      // before that completes, RLS filters out every row and we get [].
-      // Poll auth.getUser() until non-null OR timeout.
-      const authReady = await waitForAuth(5000);
-      dlog('[docs] hydrate start', {
-        reason,
-        authReady,
-        activeSubmissionId: state.activeSubmissionId,
-        submissionFilter: state.submissionFilter,
-        targetSubmissionId: submissionId,
-      });
-
-      if (!authReady) {
-        // Auth never resolved. Don't mark _hydratedOnce — keep the UI in
-        // "Loading…" state so the user doesn't see "No documents yet"
-        // and conclude the submission is broken. Schedule a retry on
-        // the next auth state change.
-        state._lastHydrateError = 'auth not ready after 5s';
-        state._hydrating = false;
-        console.warn('[docs] hydrate aborted — auth not ready, listening for sign-in');
-        listenForAuthAndRetry();
-        return;
-      }
-
-      let rows = [];
-      let fetchFailed = false;
-      try {
-        // v8.5.1: pass submissionId so the fetch is scoped server-side
-        // when we know the user is looking at a specific submission.
-        // Reduces row count from "all docs for user" (could be thousands
-        // long-term) to just the active submission (typically 200-500).
-        rows = await window.sbFetchDocumentPages(
-          submissionId ? { submissionId } : {}
-        );
-      } catch (err) {
-        // v8.5.1: explicitly handle a thrown error from the fetch (was
-        // silently returning [] before, which downstream code couldn't
-        // distinguish from "no rows" — leading to false-success render).
-        // v8.5.2: store structured error so debugReloadDocs and the UI
-        // can surface the Postgres code/hint/details, not just a string.
-        fetchFailed = true;
-        console.warn('[docs] hydrate fetch failed:', err);
-        state._lastHydrateError = {
-          message: (err && err.message) || String(err),
-          code: (err && err.supabaseCode) || null,
-          details: (err && err.supabaseDetails) || null,
-          hint: (err && err.supabaseHint) || null,
-        };
-        state._hydrating = false;
-        // Do NOT set _hydratedOnce. The UI must keep showing "Loading…"
-        // (or now "Sync paused" — see UI render below) so the user
-        // doesn't see a false-empty state.
-        // Fire the sync-paused indicator so it's visible the fetch is broken.
-        if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
-          try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
-        }
-        // Trigger a re-render so the empty-state shows the new "sync paused"
-        // message instead of staying on whatever render preceded the fetch.
-        renderDocsList();
-        return;
-      }
-
-      dlog('[docs] hydrate rows received', {
-        total: rows.length,
-        forActiveSubmission: submissionId
-          ? rows.filter(r => r.submission_id === submissionId).length
-          : null,
-        scoped: !!submissionId,
-      });
-
-      // Merge-by-id instead of wiping. If the user uploaded a doc while
-      // the hydrate request was in flight, that doc is in state.docs
-      // already — we don't want to drop it. We also don't want to
-      // overwrite it with a stale cloud row (the one currently uploading).
-      //   - Keep existing docs that aren't represented in `rows` (fresh uploads).
-      //   - For rows that ARE represented, the local copy wins (uploaded mid-
-      //     hydrate, so cloud might not have all fields yet).
-      //   - For rows NOT represented locally, push from cloud.
-      const localById = new Map(state.docs.map(d => [d.id, d]));
-
-      rows.forEach(row => {
-        if (localById.has(row.id)) return;  // local copy wins
-        // Build a doc shape from the cloud row. Lazy fields are nulled —
-        // they re-fetch from storage on demand for OCR/preview/download.
-        const doc = {
-          id:                row.id,
-          name:              row.display_name,
-          displayName:       row.display_name,
-          type:              detectTypeFromRow(row),
-          category:          row.category || 'all',
-          thumbnailData:     row.thumbnail_data_url || null,
-          highResData:       null,                        // re-rendered on demand
-          htmlContent:       sanitizeHtml(row.html_content) || null,
-          textContent:       row.extracted_text || '',
-          pageNumber:        row.page_number || 1,
-          totalPages:        row.total_pages || 1,
-          pdfData:           null,                        // refetched from storage on OCR
-          sheetName:         null,
-          nativeDataUrl:     null,                        // refetched from storage on download
-          nativeFileName:    row.file_name,
-          nativeMimeType:    row.file_mime_type,
-          workbookFileName:  row.file_name,
-          sheetCount:        1,
-          sheetNames:        null,
-          dimensions:        null,
-          fileSize:          row.file_size,
-          nativeExt:         (row.file_name || '').split('.').pop()?.toLowerCase() || null,
-          emailMeta:         null,
-          storagePath:       row.storage_path || null,
-          submissionId:      row.submission_id || null,
-          pipelineClassification: row.pipeline_classification || null,
-          pipelineRoutedTo:  row.pipeline_routed_to || null,
-          // v8.4 fields (safe-default to null if columns don't exist yet)
-          pipelineTag:       row.pipeline_tag || null,
-          primaryBucket:     row.primary_bucket || null,
-          relabeledByUser:   !!row.relabeled_by_user,
-          color:             row.color || null,
-          tagged:            !!row.tagged,
-          uploadDate:        formatDate(new Date(row.created_at)),
-          addedAt:           new Date(row.created_at).getTime(),
-          ocrText:           null,
-          ocrConfidence:     null,
-        };
-        state.docs.push(doc);
-
-        // Restore annotations layer store. The DOM `el` refs were stripped
-        // before save and will be recreated by the annotation engine when
-        // ensureCanvas runs against each thumbnail.
-        if (row.annotations && (row.annotations.layers || row.annotations.undone)) {
-          state.annotations.store[doc.id] = {
-            layers: Array.isArray(row.annotations.layers) ? row.annotations.layers : [],
-            undone: Array.isArray(row.annotations.undone) ? row.annotations.undone : [],
-          };
-        }
-      });
-
-      // Bump nextId past the highest hydrated id digits so new docs don't collide.
-      let maxN = 0;
-      state.docs.forEach(d => {
-        const m = String(d.id).match(/^doc-(\d+)-/);
-        if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; }
-      });
-      state.nextId = Math.max(state.nextId, maxN + 1);
-
-      // Mark hydrate complete BEFORE rendering so the empty-state path
-      // shows the right message. Setting _hydratedOnce before the render
-      // means a hydrate that returned 0 rows will correctly show "No
-      // documents yet" instead of staying stuck on "Loading…".
-      state._hydratedOnce = true;
-      state._lastHydratedAt = Date.now();
-      state._lastHydrateError = null;
-      state._hydrating = false;
-
-      renderCategoryGrid();
-      renderDocsList();
-      renderTagsList();
-      if (typeof updateSubmissionChip === 'function') updateSubmissionChip();
-      if (typeof window.refreshActiveSubmissionDocsCount === 'function') {
-        try { window.refreshActiveSubmissionDocsCount(); } catch(e) {}
-      }
-
-      dlog('[docs] hydrate complete', {
-        reason,
-        rowsFetched: rows.length,
-        stateDocsTotal: state.docs.length,
-        visible: typeof filterDocs === 'function' ? filterDocs().length : null,
-      });
-
-      // v8.5.1: deferred lazy enrichment. The slim hydrate doesn't fetch
-      // extracted_text or html_content (those columns are too heavy to
-      // ship with every row at boot — see DOC_HYDRATE_COLUMNS). Without
-      // them, content-search and HTML-preview are degraded. Background
-      // enrichment fixes that without blocking the initial render: kick
-      // off after a 1500ms delay (so the UI is interactive first), then
-      // fetch in chunks of 25 docs at a time with a small delay between
-      // batches so we don't saturate the network.
-      //
-      // If a chunk fails, log + abort gracefully — the UI still works,
-      // just with degraded search.
-      scheduleLazyEnrichment(submissionId);
-    })();
-
-    try {
-      await _hydrateInFlight;
-    } finally {
-      _hydrateInFlight = null;
-    }
-  }
+  async function hydrateFromCloud(){return window.__STM_DOCUMENT_IO?.hydrate();}
 
   // Wait for Supabase auth to be ready. Polls auth.getUser() at 100ms
   // intervals until it returns a non-null user OR maxMs elapses. Returns
@@ -4663,27 +3758,7 @@ window.initDocumentsView = function() {
   // Listen for auth state changes and retry hydrate when sign-in or
   // token-refresh occurs. Idempotent — only registers the listener once.
   let _authListenerRegistered = false;
-  function listenForAuthAndRetry() {
-    if (_authListenerRegistered) return;
-    if (!window.sb || !window.sb.auth || typeof window.sb.auth.onAuthStateChange !== 'function') return;
-    _authListenerRegistered = true;
-    window.sb.auth.onAuthStateChange((event, session) => {
-      dlog('[docs] auth state change:', event, session ? '(have session)' : '(no session)');
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session) {
-        // Reset _hydratedOnce so the next hydrate is treated as the
-        // first successful one. Without this, a hydrate that earlier
-        // failed with auth-not-ready could leave _hydratedOnce false
-        // permanently, and we'd never trust the UI state.
-        hydrateFromCloud({ reason: 'auth_state_change_' + event }).catch(err => {
-          console.warn('[docs] post-auth hydrate failed:', err);
-        });
-      } else if (event === 'SIGNED_OUT') {
-        state.docs = [];
-        state._hydratedOnce = false;
-        if (typeof renderDocsList === 'function') renderDocsList();
-      }
-    });
-  }
+  function listenForAuthAndRetry(){ /* The native platform owns authentication and retirement. */ }
 
   // ══════════════════════════════════════════════════════════════════
   // v8.6.12 — SAFE THUMBNAIL-ONLY ENRICHMENT
@@ -4712,173 +3787,7 @@ window.initDocumentsView = function() {
   // we only need to enrich C when A finishes (B was superseded).
   let _pendingEnrichmentSubmissionId = null;
 
-  function scheduleLazyEnrichment(submissionId) {
-    if (_enrichmentInFlight) {
-      // v8.6.35: record the latest requested deal instead of dropping it.
-      // The .finally() block at the bottom of this function will pick it up.
-      _pendingEnrichmentSubmissionId = submissionId || null;
-      dlog('[docs] thumbnail enrichment queued — already running', {
-        runningFor: 'previous',
-        pending: _pendingEnrichmentSubmissionId,
-      });
-      return;
-    }
-    if (typeof window.sbFetchDocumentPageThumbnail !== 'function' &&
-        typeof window.sbFetchDocumentPageThumbnails !== 'function') {
-      dlog('[docs] thumbnail enrichment skipped — thumbnail fetch helper unavailable');
-      return;
-    }
-
-    _enrichmentInFlight = (async () => {
-      await new Promise(r => setTimeout(r, 1200));
-
-      // v8.6.25: do not run the old-doc thumbnail backfill while the user is
-      // on the Submission intake screen or while files are still parsing.
-      // The forensic upload audit showed this timer firing immediately after
-      // the CPU-heavy extraction dead zone, issuing 60 sequential old-doc
-      // thumbnail GETs. That work is useful only when the Documents grid is
-      // visible, so defer it until docsViewActivated() below.
-      if (!_docsActive()) {
-        dlog('[docs] thumbnail enrichment deferred — docs view hidden', { submissionId });
-        return;
-      }
-      if (window.STATE && Array.isArray(window.STATE.files) &&
-          window.STATE.files.some(f => f && f.state === 'parsing')) {
-        dlog('[docs] thumbnail enrichment deferred — submission parsing in progress', { submissionId });
-        return;
-      }
-
-      const candidates = state.docs.filter(d => {
-        if (submissionId && d.submissionId !== submissionId) return false;
-        if (d.thumbnailData) return false;
-        return d.type === 'pdf' || d.type === 'image' || d.type === 'word' ||
-               d.type === 'email' || d.type === 'powerpoint' || d.type === 'text';
-      });
-
-      if (candidates.length === 0) {
-        dlog('[docs] thumbnail enrichment: nothing to enrich', { submissionId });
-        return;
-      }
-
-      dlog('[docs] thumbnail enrichment start', {
-        candidateCount: candidates.length,
-        submissionId: submissionId || 'all',
-      });
-
-      // v8.6.34: cap removed. Previously MAX_TO_FETCH=60 silently dropped
-      // thumbs for deals with >60 docs. With per-batch render + 75ms delay
-      // between batches the user sees thumbs stream in progressively and
-      // the network load stays modest. Keep BATCH_SIZE small (20) so each
-      // round-trip is small and Postgres TOAST reads stay cheap.
-      const BATCH_SIZE = 20;
-      const DELAY_MS = 75;
-      let enriched = 0;
-      let failed = 0;
-      const limited = candidates;  // no cap
-
-      if (typeof window.sbFetchDocumentPageThumbnails === 'function') {
-        for (let i = 0; i < limited.length; i += BATCH_SIZE) {
-          const chunk = limited.slice(i, i + BATCH_SIZE);
-          const ids = chunk.map(d => d.id);
-          try {
-            const rows = await window.sbFetchDocumentPageThumbnails(ids);
-            const byId = new Map((rows || []).map(r => [String(r.id), r]));
-            let batchEnriched = 0;
-            for (const d of chunk) {
-              const doc = state.docs.find(x => x.id === d.id);
-              const row = byId.get(String(d.id));
-              if (doc && row && row.thumbnail_data_url && !doc.thumbnailData) {
-                doc.thumbnailData = row.thumbnail_data_url;
-                enriched++;
-                batchEnriched++;
-              }
-            }
-            // v8.6.34: render after each batch so thumbs appear progressively
-            // instead of waiting until every doc in the deal is loaded.
-            // v8.6.35 (per GPT external review): stale-run guard. Only
-            // re-render if the user is still on the deal we're enriching.
-            // If they jumped to another deal mid-batch, the thumbs are still
-            // attached to in-memory docs for next time, but we skip the
-            // visible re-render to avoid flicker on the deal they're now in.
-            const stillSameSubmission =
-              !submissionId ||
-              state.activeSubmissionId === submissionId ||
-              state.submissionFilter === submissionId;
-            if (batchEnriched && stillSameSubmission && typeof renderDocsList === 'function') {
-              try { renderDocsList(); } catch(e) {}
-            }
-          } catch (err) {
-            failed += chunk.length;
-            console.warn('[docs] thumbnail enrichment batch failed for ' + ids.length + ' ids:', err);
-          }
-          await new Promise(r => setTimeout(r, DELAY_MS));
-        }
-      } else {
-        // Compatibility fallback for older supabase-data.js builds.
-        let sinceLastRender = 0;
-        for (const d of limited) {
-          const doc = state.docs.find(x => x.id === d.id);
-          if (!doc || doc.thumbnailData) continue;
-          try {
-            const row = await window.sbFetchDocumentPageThumbnail(doc.id);
-            if (row && row.thumbnail_data_url && !doc.thumbnailData) {
-              doc.thumbnailData = row.thumbnail_data_url;
-              enriched++;
-              sinceLastRender++;
-              // v8.6.34: per-batch render in the fallback path too
-              // v8.6.35: stale-run guard applies here too.
-              const stillSameSubmission =
-                !submissionId ||
-                state.activeSubmissionId === submissionId ||
-                state.submissionFilter === submissionId;
-              if (sinceLastRender >= BATCH_SIZE && stillSameSubmission && typeof renderDocsList === 'function') {
-                try { renderDocsList(); } catch(e) {}
-                sinceLastRender = 0;
-              }
-            }
-          } catch (err) {
-            failed++;
-            console.warn('[docs] thumbnail enrichment failed for ' + d.id + ':', err);
-          }
-          await new Promise(r => setTimeout(r, DELAY_MS));
-        }
-      }
-
-      dlog('[docs] thumbnail enrichment complete', {
-        enriched,
-        failed,
-        candidateCount: candidates.length,
-        batchSize: typeof window.sbFetchDocumentPageThumbnails === 'function' ? BATCH_SIZE : 1,
-      });
-
-      // v8.6.35: final render also guarded by stale-run check.
-      // Thumbs remain in memory for next time; we just skip the visible
-      // refresh if the user has moved to a different deal.
-      const stillSameSubmissionFinal =
-        !submissionId ||
-        state.activeSubmissionId === submissionId ||
-        state.submissionFilter === submissionId;
-      if (enriched && stillSameSubmissionFinal && typeof renderDocsList === 'function') {
-        try { renderDocsList(); } catch(e) {}
-      }
-    })().catch(err => {
-      console.warn('[docs] thumbnail enrichment error:', err);
-    }).finally(() => {
-      _enrichmentInFlight = null;
-      // v8.6.35: if the user entered another deal while we were running,
-      // pick that one up now. We only stash the LATEST (rapid bounces
-      // A→B→C collapse to just C — B was superseded by C).
-      if (_pendingEnrichmentSubmissionId !== null) {
-        const nextId = _pendingEnrichmentSubmissionId;
-        _pendingEnrichmentSubmissionId = null;
-        dlog('[docs] thumbnail enrichment chaining to queued deal', { nextId });
-        // Defer one tick so any in-progress render finishes first.
-        setTimeout(() => {
-          try { scheduleLazyEnrichment(nextId); } catch (e) {}
-        }, 0);
-      }
-    });
-  }
+  function scheduleLazyEnrichment(){ /* Current pages load on selection; full text loads on search. */ }
 
   function detectTypeFromRow(row) {
     const ext = (row.file_name || '').split('.').pop()?.toLowerCase() || '';
@@ -5011,14 +3920,7 @@ window.initDocumentsView = function() {
   // id — that way new uploads still tag with the submission, while the user
   // can browse cross-submission docs. To fully detach, Altitude calls
   // setSubmissionContext(null, null) on submission close.
-  function clearSubmissionFilter() {
-    state.draftSubmissionMode = false;
-    state.submissionFilter = 'all';
-    updateSubmissionChip();
-    renderCategoryGrid();
-    renderDocsList();
-    renderTagsList();
-  }
+  function clearSubmissionFilter(){return setSubmissionContext(window.STATE.activeSubmissionId||null,state.activeSubmissionTitle);}
 
   // Public API for cross-module coordination (Altitude → docs view).
   // Defined inside the closure so the closure's state/functions are
@@ -5132,6 +4034,13 @@ window.initDocumentsView = function() {
     // Returns the count of docs relabeled.
     relabelDocsForFile: (fileId, patch) => {
       if (!patch || typeof patch !== 'object') return 0;
+      // v9.9.0: the redesigned intake pushes every file into the File Manager at drop time,
+      // so the classifier's type and route must travel on this relabel (July carried them on the insert).
+      const stmSrc = (window.STATE && Array.isArray(window.STATE.files)) ? window.STATE.files.find(x => x && x.id === fileId) : null;
+      const stmClsRaw = stmSrc ? stmSrc.classification : null;
+      const stmType = patch.pipelineClassification || (typeof stmClsRaw === 'string' ? stmClsRaw : (stmClsRaw && typeof stmClsRaw === 'object' ? stmClsRaw.type : null));
+      const stmRoute = (typeof patch.pipelineRoutedTo !== 'undefined') ? (patch.pipelineRoutedTo || null) : ((stmSrc && stmSrc.routedTo) || null);
+      const stmCls = stmType ? { type: String(stmType), route: stmRoute } : null;
       // Find the source file by id to get its name
       const f = (window.STATE && window.STATE.files || []).find(ff => ff.id === fileId);
       if (!f) {
@@ -5143,13 +4052,16 @@ window.initDocumentsView = function() {
       // Match docs by source-file linkage. v8.6.84: PDF split docs are named
       // "BaseName — Page N" (without extension), so match both the full
       // source filename and the extensionless split prefix.
+      const sourceSid = f.submissionId || window.STATE?.activeSubmissionId || null;
+      const sourcePath=f.storagePath||f._storagePath||null;
+      const ambiguous=(window.STATE?.files||[]).filter(ff=>ff.name===fname&&ff.id!==fileId).length>0;
       const matches = state.docs.filter(d =>
-        d.workbookFileName === fname ||
+        (d.submissionId || null) === sourceSid && (sourcePath?d.storagePath===sourcePath:d.sourceFileId?d.sourceFileId===fileId:!ambiguous) && (d.workbookFileName === fname ||
         d.nativeFileName === fname ||
         d.name === fname ||
         d.name === baseName ||
         (d.name && d.name.startsWith(baseName + ' — Page ')) ||
-        (d.name && d.name.startsWith(fname + ' — Page '))
+        (d.name && d.name.startsWith(fname + ' — Page ')))
       );
       if (matches.length === 0) return 0;
       // For combined-PDF page tagging: apply sectionClassifications when
@@ -5179,6 +4091,10 @@ window.initDocumentsView = function() {
         if (typeof patch.primaryBucket !== 'undefined') {
           d.primaryBucket = patch.primaryBucket;
         }
+        if (stmCls) {
+          d.pipelineClassification = stmCls.type;
+          d.pipelineRoutedTo = stmCls.route;
+        }
         if (typeof patch.color !== 'undefined') {
           // Combined docs live in the same bucket/color across all pages, but
           // only section starts receive a chip. Single relabels keep old page-1
@@ -5202,6 +4118,10 @@ window.initDocumentsView = function() {
           }
           if (typeof patch.primaryBucket !== 'undefined') {
             cloudPatch.primary_bucket = patch.primaryBucket;
+          }
+          if (stmCls) {
+            cloudPatch.pipeline_classification = stmCls.type;
+            cloudPatch.pipeline_routed_to = stmCls.route;
           }
           if (typeof patch.color !== 'undefined') {
             cloudPatch.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
@@ -5277,6 +4197,7 @@ window.initDocumentsView = function() {
         // page produced by the processor. Cleared in the finally block so it
         // doesn't leak into a subsequent manual upload session.
         state._pipelineCtx = {
+          sourceFileId:(window.STATE?.files||[]).find(f=>f._rawFile===file)?.id||(ctx&&ctx.fileId)||null,
           category: (ctx && ctx.category) || 'all',
           color: (ctx && ctx.color) || null,
           pipelineClassification: (ctx && ctx.pipelineClassification) || null,
@@ -5418,11 +4339,243 @@ window.initDocumentsView = function() {
     },
   };
 
+  // v9.4: explicit scoped API for the supplied Index + Viewer. State stays native.
+  const designJournal=()=>window.__STM_DOC_JOURNAL;
+  const designScope=()=>window.STATE?.activeSubmissionId||null;
+  const inDesignScope=d=>{
+    const sid=designScope();if(sid)return d.submissionId===sid;if(d.submissionId)return false;
+    return (window.STATE?.files||[]).some(f=>(d.sourceFileId===f.id||f._stmDocIds?.includes(d.id))||(d.storagePath&&(d.storagePath===f._storagePath||d.storagePath===f.storagePath)));
+  };
+  function designRecord(id){const d=state.docs.find(d=>d.id===id);return d?{...d,pdfData:undefined,highResData:undefined,nativeDataUrl:undefined}:null;}
+  function requireDesignDoc(id){nativeDocumentIO.capture();const d=state.docs.find(d=>d.id===id&&inDesignScope(d));if(!d)throw new Error('Document is not in the active submission.');return d;}
+  function designRecovery(){
+    for(const entry of designJournal()?.entries()||[]){
+      if((entry.sid||null)!==designScope())continue;
+      let d=state.docs.find(d=>d.id===entry.id);
+      if(entry.kind==='insert'&&!d){d={...entry.args[0]};state.docs.push(d);}
+      if(!d&&entry.record){d={...entry.record};state.docs.push(d);}
+      if(d&&entry.kind==='patch')applyDesignPatch(d,entry.args[1]);
+    }
+  }
+  function applyDesignPatch(d,patch){
+    const fields={submission_id:'submissionId',display_name:'displayName',category:'category',tagged:'tagged',color:'color',pipeline_tag:'pipelineTag',primary_bucket:'primaryBucket',relabeled_by_user:'relabeledByUser'};
+    for(const [db,key] of Object.entries(fields))if(Object.prototype.hasOwnProperty.call(patch,db))d[key]=patch[db];
+    if(patch.display_name!==undefined)d.name=patch.display_name;
+    if(patch.annotations)state.annotations.store[d.id]=patch.annotations;if(patch.extracted_text!==undefined)d.textContent=patch.extracted_text;if(patch.html_content!==undefined)d.htmlContent=sanitizeHtml(patch.html_content);
+  }
+  function designRefreshDOM(){renderCategoryGrid();renderDocsList();renderTagsList();window.refreshActiveSubmissionDocsCount?.();}
+  async function designPatch(id,patch){const doc=requireDesignDoc(id),token=nativeDocumentIO.capture();if(window.__STM_SUBMISSION?.busy)throw new Error('Finish processing before editing documents.');const allowed=new Set(['display_name','category','tagged','color','relabeled_by_user','annotations']);for(const key of Object.keys(patch))if(!allowed.has(key))throw new Error('Unsupported document field.');if('display_name'in patch&&(!String(patch.display_name).trim()||String(patch.display_name).length>250))throw new Error('Enter a name with 1–250 characters.');if('category'in patch&&!CONFIG.categories.some(c=>c.id===patch.category))throw new Error('Unknown category.');if('color'in patch&&patch.color!==null&&!CONFIG.tagColors.includes(patch.color))throw new Error('Unknown color.');applyDesignPatch(doc,patch);const task=window.sbUpdateDocumentPage(id,patch);renderDocsList();await task;nativeDocumentIO.assert(token);return true;}
+  async function designLoad(id,force){return nativeDocumentIO.load(id,force);}
+  function designSafeName(name){return String(name||'document').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/^\.+/,'_').slice(0,240)||'document';}
+  async function designBlob(doc){
+    let filename=designSafeName(doc.workbookFileName||doc.nativeFileName||doc.displayName),blob=null;
+    if(doc.storagePath){
+      try{const url=await window.sbGetDocumentSignedUrl(doc.storagePath,600);
+      if(url){const r=await nativeDocumentIO.fetch(url);if(r.ok)blob=await r.blob();}}catch(e){console.warn('Source download unavailable; checking cached content.',e.message);}
+    }
+    if(!blob){const src=findNativeWorkbookDoc(doc);if(src?.nativeDataUrl){const r=await nativeDocumentIO.fetch(src.nativeDataUrl);if(r.ok)blob=await r.blob();}}
+    if(blob)return {filename,blob,source:true};
+    if(doc.textContent){filename=filename.replace(/\.[^.]+$/,'')+'.txt';return {filename,blob:new Blob([doc.textContent],{type:'text/plain'}),source:false};}
+    if(doc.thumbnailData){const r=await nativeDocumentIO.fetch(doc.thumbnailData);blob=await r.blob();filename=filename.replace(/\.[^.]+$/,'')+(blob.type==='image/jpeg'?'.jpg':'.png');return {filename,blob,source:false};}
+    throw new Error('The source file and cached preview are unavailable for '+doc.displayName+'.');
+  }
+  async function designDownload(ids){return nativeDocumentIO.download(ids);}
+  window.docsView.design={
+    status:()=>designJournal()?.status()||{dirty:false,pending:0,error:''},
+    revision:()=>JSON.stringify([designJournal()?.revision(),state._lastHydratedAt,state._hydrating,state.docs.map(d=>[d.id,d.displayName,d.category,d.color,d.tagged,d.pipelineTag,!!d.thumbnailData,d.textContent?.length])]),
+    record:designRecord,stash:()=>designJournal()?.stash(),flush:()=>designJournal()?.flush()||Promise.resolve({mode:'cloud'}),
+    snapshot(){designRecovery();const docs=state.docs.filter(inDesignScope);return {sid:designScope(),title:state.activeSubmissionTitle,hydrate:window.docsView.getHydrateState(),save:this.status(),categories:CONFIG.categories.map(c=>({id:c.id,name:c.name,n:c.id==='all'?docs.length:docs.filter(d=>d.category===c.id).length})),colors:CONFIG.tagColors,docs:docs.map(d=>({id:d.id,name:d.displayName,sourceName:d.workbookFileName||d.nativeFileName||d.displayName,group:d.storagePath||d.sourceFileId||d.id,type:d.type,category:d.category||'all',color:d.color,tagged:!!d.tagged,tag:d.pipelineTag,classification:d.pipelineClassification||null,route:d.pipelineRoutedTo||null,page:Number(d.pageNumber)||1,pages:Number(d.totalPages)||1,storagePath:d.storagePath||null,annotations:(state.annotations.store[d.id]?.layers||[]).length}))};},
+    page(id){const d=requireDesignDoc(id);return {thumbnail:d.highResData||d.thumbnailData||null,html:d.htmlContent||'',text:d.textContent||'',annotations:(state.annotations.store[id]?.layers||[]).length};},
+    tools(id){const d=requireDesignDoc(id);state.currentCategory='all';state.searchQuery='';state.currentColorFilter='all';state.currentView='thumbnail';renderDocsList();const item=document.querySelector('[data-doc-id="'+CSS.escape(id)+'"]');item?.scrollIntoView({block:'center'});return d.id;},
+    async ingestIntake(){
+      const sid=designScope(),owner=window.currentUser?.id;
+      for(const f of window.STATE.files){
+        if(f.cancelled||f.state==='duplicate'||f.state==='error'||!f._rawFile)continue;
+        const existing=state.docs.filter(d=>(d.submissionId||null)===sid&&(d.sourceFileId===f.id||f._stmDocIds?.includes(d.id)));
+        if(existing.length){f._stmDocIds=existing.map(d=>d.id);continue;}
+        if(f._pushedToDocsView)continue;
+        const ids=await window.docsView.processFileFromPipeline(f._rawFile,{fileId:f.id,submissionId:sid,category:'all',color:null});
+        if(sid!==designScope()||owner!==window.currentUser?.id)throw new Error('Submission changed during document intake.');
+        f._stmDocIds=ids||[];f._pushedToDocsView=true;const first=state.docs.find(d=>f._stmDocIds.includes(d.id));if(first?.storagePath)f._storagePath=first.storagePath;
+      }
+      await this.flush();return this.snapshot();
+    },
+    async adoptFile(f){
+      const sid=designScope();if(!sid||!f._stmDocIds?.length)return;
+      for(const d of state.docs.filter(d=>f._stmDocIds.includes(d.id))){
+        if(d.submissionId&&d.submissionId!==sid)throw new Error('Intake document belongs to a different submission.');
+        if(d.submissionId===sid)continue;d.submissionId=sid;await window.sbUpdateDocumentPage(d.id,{submission_id:sid});
+      }
+      await this.flush();
+    },
+    patch:designPatch,load:designLoad,download:designDownload,
+    async refresh(){await this.flush();await window.docsView.refreshFromCloud({submissionId:designScope(),reason:'redesigned-file-manager-refresh'});designRecovery();return this.snapshot();},
+    async remove(id){const d=requireDesignDoc(id),sid=designScope();if(window.__STM_SUBMISSION?.busy)throw new Error('Wait for the active pipeline operation.');await this.flush();await window.sbDeleteDocumentPage(id,d.storagePath);if(sid!==designScope())throw new Error('Submission changed.');revokeDocBlobUrls([d]);state.docs=state.docs.filter(x=>x.id!==id);state.selectedIds.delete(id);designRefreshDOM();return true;},
+    async clearTags(){const docs=state.docs.filter(inDesignScope);for(const d of docs)if(d.tagged||d.color)await designPatch(d.id,{tagged:false,color:null});return true;},
+    async preview(id){const d=requireDesignDoc(id);await designLoad(id);if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');openPreview(id);return true;},
+    async exportPDF(){if(!window.jspdf?.jsPDF)throw new Error('The PDF export dependency is unavailable.');if(!state.docs.some(d=>inDesignScope(d)&&d.tagged))throw new Error('Tag at least one page before exporting PDF.');await this.flush();if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');return exportTagged();}
+  };
+
+
+  
+/* Research adapter, intentionally outside application/build sources.
+ * Root may move these functions into the existing Documents closure.
+ * Uses actual PostalMime/MsgReader. It never substitutes successful parse data.
+ * Factory injection makes isolated byte/parser verification possible without a browser.
+ */
+const createDocumentParsers=function(deps){
+ const {DOMParser,sanitizeHtml,paginateWordHtml}=deps;
+ const assertActive=deps.assertActive||(()=>{});
+ const clean=value=>String(value==null?'':value).replace(/\0+$/g,'');
+ const escape=value=>clean(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const bytes=value=>value instanceof ArrayBuffer?new Uint8Array(value):ArrayBuffer.isView(value)?new Uint8Array(value.buffer,value.byteOffset,value.byteLength):new TextEncoder().encode(String(value||''));
+ function safeDocHtml(html){
+  // The allowlist must run BEFORE paginateWordHtml can attach measurement nodes.
+  const safe=sanitizeHtml(String(html||''));
+  const doc=new DOMParser().parseFromString('<html><body><div id="stmPageRoot">'+safe+'</div></body></html>','text/html');
+  const root=doc.getElementById('stmPageRoot');if(!root)return '';
+  // Emails can carry remote tracking images. Keep only embedded raster data URLs;
+  // CID resolution is optional and must supply actual safe attachment bytes.
+  for(const img of root.querySelectorAll('img')){
+   if(!/^data:image\/(png|jpeg|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i.test(img.getAttribute('src')||''))img.remove();
+  }
+  return root.innerHTML;
+ }
+ function docHtmlText(safeHtml){
+  const doc=new DOMParser().parseFromString('<html><body><div id="stmTextRoot">'+String(safeHtml||'')+'</div></body></html>','text/html');
+  const root=doc.getElementById('stmTextRoot');if(!root)return '';
+  for(const el of root.querySelectorAll('script,style,template,noscript'))el.remove();
+  const blocks=new Set(['P','DIV','H1','H2','H3','H4','H5','H6','LI','UL','OL','PRE','BLOCKQUOTE','TABLE','TR','SECTION','ARTICLE','HEADER','FOOTER']);
+  function walk(node,inPre){
+   if(node.nodeType===3)return inPre?node.textContent:node.textContent.replace(/\s+/g,' ');
+   if(node.nodeType!==1)return '';
+   const tag=node.tagName.toUpperCase();if(tag==='BR')return '\n';if(tag==='IMG')return node.getAttribute('alt')||'';
+   const text=Array.from(node.childNodes).map(child=>walk(child,inPre||tag==='PRE')).join('');
+   if(tag==='TD'||tag==='TH')return text.trim()+'\t';
+   return blocks.has(tag)?text+'\n':text;
+  }
+  return walk(root,false).replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+ }
+ function pageRecords(html){
+  const safe=safeDocHtml(html);assertActive();
+  const pages=paginateWordHtml(safe);assertActive();
+  if(!Array.isArray(pages)||!pages.length)throw new Error('No readable document pages were produced.');
+  return pages.map((htmlContent,index)=>{const safePage=safeDocHtml(htmlContent);return{htmlContent:safePage,textContent:docHtmlText(safePage),pageNumber:index+1,totalPages:pages.length};});
+ }
+ function prepareWordPages(htmlPages){
+  // Call after the existing XML or height paginator. Replace its proportional
+  // whole-document text slicing with these exact page-derived fields.
+  return htmlPages.map((html,index)=>{const htmlContent=safeDocHtml(html);return{htmlContent,textContent:docHtmlText(htmlContent),pageNumber:index+1,totalPages:htmlPages.length};});
+ }
+ function address(item){
+  if(!item)return '';if(Array.isArray(item))return item.map(address).filter(Boolean).join(', ');
+  if(item.group)return (clean(item.name)?clean(item.name)+': ':'')+address(item.group)+';';
+  const name=clean(item.name),email=clean(item.address||item.smtpAddress||item.email);
+  return name&&email?name+' <'+email+'>':email||name;
+ }
+ function safeFilename(name,index){
+  // Preserve case/Unicode, discard any path and control characters.
+  return clean(name).split(/[\\/]/).pop().replace(/[\x00-\x1f\x7f]/g,'').trim()||'Attachment '+(index+1)+'.bin';
+ }
+ async function parseEml(raw){
+  assertActive();const parser=deps.PostalMime;
+  if(!parser||typeof parser.parse!=='function')throw new Error('Email preview parser is unavailable. The original email can still be downloaded.');
+  // rfc822Attachments keeps forwarded emails as their own original attachment.
+  const data=await parser.parse(bytes(raw),{rfc822Attachments:true});assertActive();
+  const attachments=[],inlineAttachments=[];
+  for(const [i,att]of(data.attachments||[]).entries()){
+   const normalized={filename:safeFilename(att.filename,i),contentType:att.mimeType||'application/octet-stream',bytes:bytes(att.content).slice(),contentId:clean(att.contentId)};
+   const inline=att.disposition==='inline'||(att.related&&att.disposition!=='attachment');
+   (inline?inlineAttachments:attachments).push(normalized);
+  }
+  return{format:'eml',headers:{subject:clean(data.subject),from:address(data.from),to:address(data.to),cc:address(data.cc),date:clean(data.date)},bodyText:clean(data.text),bodyHtml:clean(data.html),attachments,inlineAttachments};
+ }
+ async function parseMsg(raw,format='msg'){
+  assertActive();const Reader=deps.MsgReader;
+  if(typeof Reader!=='function')throw new Error('Outlook preview parser is unavailable. The original Outlook file can still be downloaded.');
+  const source=bytes(raw).slice(),reader=new Reader(source.buffer),data=reader.getFileData();assertActive();
+  if(!data||data.error)throw new Error(clean(data&&data.error)||'The Outlook file could not be parsed.');
+  let html=clean(data.bodyHtml);
+  if(!html&&data.html){
+   const cp=Number(data.internetCodepage||data.messageCodepage)||65001;
+   const charset=cp===65001?'utf-8':cp===1200?'utf-16le':cp===1201?'utf-16be':'windows-'+cp;
+   try{html=new TextDecoder(charset).decode(bytes(data.html));}catch(_){html=new TextDecoder('utf-8').decode(bytes(data.html));}
+   html=clean(html);
+  }
+  const recipients=data.recipients||[],attachments=[],inlineAttachments=[];
+  for(const [i,att]of(data.attachments||[]).entries()){
+   assertActive();const content=reader.getAttachment(att);
+   if(!content||content.content==null)throw new Error('An Outlook attachment could not be read.');
+   const normalized={filename:safeFilename(content.fileName||att.fileName||att.fileNameShort,i),contentType:clean(att.attachMimeTag)||'application/octet-stream',bytes:bytes(content.content).slice(),contentId:clean(att.pidContentId)};
+   // A CID alone is not sufficient to discard an explicit attachment.
+   const inline=att.attachmentHidden===true;
+   (inline?inlineAttachments:attachments).push(normalized);
+  }
+  const rawDate=clean(data.headers).match(/^Date:\s*(.+)$/im);
+  return{format,headers:{subject:clean(data.subject),from:address({name:data.senderName,address:data.senderSmtpAddress||data.senderEmail}),to:address(recipients.filter(r=>r.recipType!=='cc'&&r.recipType!=='bcc')),cc:address(recipients.filter(r=>r.recipType==='cc')),date:clean(data.clientSubmitTime||data.messageDeliveryTime||(rawDate&&rawDate[1]))},bodyText:clean(data.body),bodyHtml:html,attachments,inlineAttachments,bodyUnavailable:!data.body&&!html};
+ }
+ function prepareEmailPages(parsed){
+  const header=Object.entries(parsed.headers).filter(([,value])=>value).map(([key,value])=>'<div><strong>'+escape(key.charAt(0).toUpperCase()+key.slice(1))+':</strong> '+escape(value)+'</div>').join('');
+  const body=parsed.bodyHtml||'<pre>'+escape(parsed.bodyText)+'</pre>';
+  const pages=pageRecords('<div class="email-headers">'+header+'</div>'+body);
+  return{pages,emailMeta:{format:parsed.format,...parsed.headers,attachmentCount:parsed.attachments.length},attachments:parsed.attachments,inlineAttachments:parsed.inlineAttachments,bodyUnavailable:!!parsed.bodyUnavailable};
+ }
+ function prepareWorkbookPages(workbook,XLSX,options={}){
+  const rowsPerPage=Math.max(1,Math.floor(options.rowsPerPage||60));
+  const maxPreviewCells=options.maxPreviewCells||200000;
+  const sheets=(workbook.SheetNames||[]).map(name=>{
+   const sheet=workbook.Sheets[name];if(!sheet)throw new Error('Workbook sheet is unavailable: '+name);
+   return{name,sheet,range:sheet['!ref']?XLSX.utils.decode_range(sheet['!ref']):null};
+  });
+  const totalCells=sheets.reduce((n,{range:r})=>n+(r?(r.e.r-r.s.r+1)*(r.e.c-r.s.c+1):0),0);
+  // Fail visibly before any partial pages are added. Original download remains
+  // available; never truncate the final rows while reporting complete preview.
+  if(totalCells>maxPreviewCells)throw new Error('This workbook exceeds the '+maxPreviewCells.toLocaleString()+'-cell preview limit. Download the original workbook to view every row.');
+  const pages=[];
+  for(const {name,sheet,range}of sheets){
+   assertActive();
+   if(!range){pages.push({sheetName:name,htmlContent:'<h2>'+escape(name)+'</h2><p>Empty sheet</p>',textContent:name+'\nEmpty sheet',totalRows:0,totalCols:0,sheetPage:1,sheetPages:1});continue;}
+   const sheetPages=Math.ceil((range.e.r-range.s.r+1)/rowsPerPage),totalCols=range.e.c-range.s.c+1;
+   for(let start=range.s.r,sheetPage=1;start<=range.e.r;start+=rowsPerPage,sheetPage++){
+    assertActive();const end=Math.min(range.e.r,start+rowsPerPage-1),lines=[],rows=[];
+    for(let row=start;row<=end;row++){
+     const values=[];
+     for(let col=range.s.c;col<=range.e.c;col++){
+      const cell=sheet[XLSX.utils.encode_cell({r:row,c:col})];
+      // A formula with no cached value is unavailable, not zero. Never evaluate
+      // formulas, hyperlinks, HTML, VBA or external references while previewing.
+      const value=!cell?'':cell.v==null?(cell.f?'[Formula value not cached]':''):clean(XLSX.utils.format_cell(cell));
+      values.push(value);
+     }
+     lines.push(values.join('\t'));rows.push('<tr><th>'+String(row+1)+'</th>'+values.map(v=>'<td>'+escape(v)+'</td>').join('')+'</tr>');
+    }
+    const columns=[];for(let col=range.s.c;col<=range.e.c;col++)columns.push('<th>'+XLSX.utils.encode_col(col)+'</th>');
+    const htmlContent=safeDocHtml('<h2>'+escape(name)+'</h2><p>Rows '+(start+1)+'–'+(end+1)+' of '+(range.e.r+1)+'</p><table><thead><tr><th>Row</th>'+columns.join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table>');
+    pages.push({sheetName:name,htmlContent,textContent:name+'\n'+lines.join('\n'),totalRows:range.e.r-range.s.r+1,totalCols,sheetPage,sheetPages,sourceRowStart:start+1,sourceRowEnd:end+1});
+   }
+  }
+  if(!pages.length)throw new Error('The workbook contains no readable sheets.');
+  return pages.map((page,index)=>({...page,pageNumber:index+1,totalPages:pages.length}));
+ }
+ return{clean,safeDocHtml,docHtmlText,pageRecords,prepareWordPages,parseEml,parseMsg,prepareEmailPages,prepareWorkbookPages};
+};
+
+  const docParsers=createDocumentParsers({DOMParser,sanitizeHtml,paginateWordHtml,get PostalMime(){return window.PostalMime;},get MsgReader(){return window.MsgReader;},assertActive(){if(state._nativeParseToken)nativeDocumentIO.assert(state._nativeParseToken);}});
+  const nativeDocumentIO=window.STMNativeDocumentIO({state,inScope:inDesignScope,requireDoc:requireDesignDoc,detectType:detectTypeFromRow,sanitize:sanitizeHtml,render:renderDocsList,recover:designRecovery,highRes:ensurePdfHighRes,search:runSearch,setContext:setSubmissionContext,revoke:revokeDocBlobUrls,nativeFile:findNativeWorkbookDoc,closePreview});
+  function createNativeAnnotations(){if(window.__docsAnno)window.__docsAnno.destroy?.();window.__docsAnno=window.STMNativeAnnotations({state,root:document.getElementById('docs-view-root'),activeDoc:()=>state.nativeSelectedId,requireDoc:requireDesignDoc,persist:(id,store)=>window.sbUpdateDocumentAnnotations(id,store),preview:id=>window.__STM_DOCUMENTS_UI.open(id).then(()=>$id('nativeDocExpand').click()),notify:()=>window.dispatchEvent(new CustomEvent('stm:documents-change'))});}
+  const originalProcessPipeline=window.docsView.processFileFromPipeline;window.docsView.processFileFromPipeline=function(){const args=arguments;return nativeDocumentIO.track(()=>originalProcessPipeline.apply(this,args));};
+  Object.assign(window.docsView.design,{flush:()=>nativeDocumentIO.flush(),load:designLoad,remove:id=>nativeDocumentIO.remove([id]),download:designDownload,exportPages:ids=>nativeDocumentIO.exportPages(ids),exportPDF:exportTagged,retire:()=>nativeDocumentIO.retire(),refresh:async()=>{await nativeDocumentIO.flush();return nativeDocumentIO.hydrate();}});
+  window.addEventListener('stm:platform-change',()=>{if(window.currentUser&&!window.__STM_NATIVE_PLATFORM.state.busy){nativeDocumentIO.ensure().then(()=>{if(window.__docsAnno?.status().retired)createNativeAnnotations();}).catch(()=>{});}});
+  const originalBulk=bulkAction;bulkAction=function(act){if(act==='delete'){const ids=[...state.selectedIds];if(ids.length&&confirm('Delete '+ids.length+' selected document pages?'))nativeDocumentIO.remove(ids).catch(e=>toast('Delete failed',e.message,'warning'));return;}return originalBulk(act);};
+  const originalContext=contextAction;contextAction=function(act){if(act==='delete'){const id=state.contextDoc;hideContextMenu();if(id&&confirm('Delete this document page?'))nativeDocumentIO.remove([id]).catch(e=>toast('Delete failed',e.message,'warning'));return;}if(act==='download'){const id=state.contextDoc;hideContextMenu();nativeDocumentIO.download([id]).catch(e=>toast('Download failed',e.message,'warning'));return;}return originalContext(act);};
+  const originalSearch=runSearch;runSearch=function(){originalSearch();if(state.searchQuery&&state.docs.some(d=>inDesignScope(d)&&!d._nativeFullLoaded))nativeDocumentIO.search().catch(e=>toast('Search incomplete',e.message,'warning'));};
+  const nativeConfirmUpload=confirmUpload;let nativeUploadConfirmation=null;confirmUpload=function(){if(nativeUploadConfirmation)return nativeUploadConfirmation;$id('modalConfirm').disabled=true;nativeUploadConfirmation=nativeConfirmUpload().finally(()=>{nativeUploadConfirmation=null;$id('modalConfirm').disabled=false;});return nativeUploadConfirmation;};
+ 
   // ══════ INIT ══════
   function init() {
     if (typeof pdfjsLib !== 'undefined') {
       pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        'vendor/pdfjs/pdf.worker.min.mjs';
     }
     renderCategoryGrid();
     renderDocsList();
@@ -5547,45 +4700,7 @@ window.initDocumentsView = function() {
   };
 
   // ══════ TOOLS DROPDOWN (topbar button → annotation panel) ══════
-  function initToolsDropdown() {
-    const btn = $id('toolsBtn');
-    const toolbox = $id('annoToolbox');
-    if (!btn || !toolbox) return;
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isOpen = toolbox.classList.toggle('open');
-      btn.classList.toggle('open', isOpen);
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!toolbox.classList.contains('open')) return;
-      if (toolbox.contains(e.target)) return;
-      if (btn.contains(e.target)) return;
-      toolbox.classList.remove('open');
-      btn.classList.remove('open');
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && toolbox.classList.contains('open')) {
-        if (document.getElementById('previewModal')?.classList.contains('visible')) return;
-        toolbox.classList.remove('open');
-        btn.classList.remove('open');
-      }
-    });
-
-    toolbox.addEventListener('click', (e) => {
-      if (e.target.closest('.anno-btn')) {
-        setTimeout(() => {
-          toolbox.classList.remove('open');
-          btn.classList.remove('open');
-        }, 120);
-      }
-    });
-
-    refreshToolsBtnIndicator();
-    window.STM_REFRESH_TOOLS_BTN = refreshToolsBtnIndicator;
-  }
+  function initToolsDropdown(){const button=$id('toolsBtn'),toolbox=$id('annoToolbox');button.addEventListener('click',e=>{e.stopPropagation();const open=toolbox.classList.toggle('open');button.classList.toggle('open',open);});}
 
   function refreshToolsBtnIndicator() {
     const btn = $id('toolsBtn');
@@ -5605,976 +4720,7 @@ window.initDocumentsView = function() {
 
   init();
 
-  /* ════════════════ PART 2 — ANNOTATION ENGINE ════════════════ */
-
-function startAnnoEngine() {
-
-    function getStore(docId) {
-      if (!state.annotations.store[docId]) {
-        state.annotations.store[docId] = { layers: [], undone: [] };
-      }
-      return state.annotations.store[docId];
-    }
-
-    // Debounced annotation persistence. Pen strokes fire dozens of saveLayer
-    // calls per second during a single drag; we batch by docId and flush 1
-    // second after the last edit. Pending edits flush on view deactivation
-    // too (handled by docsViewActivated's symmetric counterpart at the end).
-    const _annoPersistTimers = {};
-    const ANNO_DEBOUNCE_MS = 1000;
-    function persistAnnotations(docId) {
-      if (typeof window.sbUpdateDocumentAnnotations !== 'function') return;
-      if (_annoPersistTimers[docId]) clearTimeout(_annoPersistTimers[docId]);
-      _annoPersistTimers[docId] = setTimeout(() => {
-        delete _annoPersistTimers[docId];
-        const store = state.annotations.store[docId];
-        if (!store) return;
-        window.sbUpdateDocumentAnnotations(docId, store).catch(err => {
-          console.warn('persist annotations failed for ' + docId + ':', err);
-        });
-      }, ANNO_DEBOUNCE_MS);
-    }
-
-    function saveLayer(docId, layer) {
-      const store = getStore(docId);
-      store.layers.push(layer);
-      store.undone = [];
-      updateAnnoIndicator(docId);
-      persistAnnotations(docId);
-    }
-
-    function updateAnnoIndicator(docId) {
-      const item = document.querySelector(`[data-doc-id="${docId}"]`);
-      if (!item) return;
-      const thumb = item.querySelector('.doc-thumb');
-      if (!thumb) return;
-      let ind = thumb.querySelector('.anno-indicator');
-      const store = getStore(docId);
-      if (store.layers.length > 0) {
-        if (!ind) {
-          ind = document.createElement('div');
-          ind.className = 'anno-indicator';
-          ind.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 19l7-7 3 3-7 7-3-3z"/></svg>';
-          thumb.appendChild(ind);
-        }
-      } else if (ind) {
-        ind.remove();
-      }
-    }
-
-    function setTool(tool) {
-      state.annotations.tool = tool;
-      state.annotations.previewBlocked = (tool !== 'pointer');
-
-      $$('.anno-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
-      $id('opacityGroup').classList.toggle('visible', tool === 'highlighter');
-      $id('fontSizeGroup').classList.toggle('visible', tool === 'text' || tool === 'sticky');
-      $id('fillGroup').classList.toggle('visible', tool === 'rectangle' || tool === 'ellipse');
-
-      $$('.anno-canvas-wrap').forEach(wrap => {
-        if (tool === 'pointer') {
-          wrap.classList.remove('drawing');
-          wrap.removeAttribute('data-tool');
-        } else {
-          wrap.classList.add('drawing');
-          wrap.setAttribute('data-tool', tool);
-        }
-      });
-
-      if (typeof window.STM_REFRESH_TOOLS_BTN === 'function') {
-        window.STM_REFRESH_TOOLS_BTN();
-      }
-    }
-
-    function ensureCanvas(thumbEl, docId) {
-      if (!thumbEl) return;
-      let wrap = thumbEl.querySelector('.anno-canvas-wrap');
-      if (wrap) {
-        const canvas = wrap.querySelector('.anno-canvas');
-        if (canvas && wrap.offsetWidth > 0) {
-          resizeCanvas(canvas, wrap);
-          redrawLayers(docId, canvas);
-        }
-        return wrap;
-      }
-
-      wrap = document.createElement('div');
-      wrap.className = 'anno-canvas-wrap';
-      if (state.annotations.tool !== 'pointer') {
-        wrap.classList.add('drawing');
-        wrap.setAttribute('data-tool', state.annotations.tool);
-      }
-      wrap.dataset.docId = docId;
-
-      const canvas = document.createElement('canvas');
-      canvas.className = 'anno-canvas';
-      wrap.appendChild(canvas);
-      thumbEl.appendChild(wrap);
-
-      // Now wrap is laid out — measure from it directly.
-      if (wrap.offsetWidth > 0) {
-        resizeCanvas(canvas, wrap);
-        redrawLayers(docId, canvas);
-      } else {
-        requestAnimationFrame(() => {
-          if (wrap.offsetWidth > 0) {
-            resizeCanvas(canvas, wrap);
-            redrawLayers(docId, canvas);
-          }
-        });
-      }
-      attachEvents(wrap, canvas, docId);
-      restoreTextAndStickyLayers(wrap, docId);
-      return wrap;
-    }
-
-    function resizeCanvas(canvas, container) {
-      // Source dimensions from the WRAP (container), not the canvas itself.
-      // The canvas is a replaced element and its CSS sizing has browser-
-      // specific edge cases; the wrap is a regular div with explicit
-      // `position: absolute; inset: 0` so its layout is unambiguous.
-      // The canvas's CSS rule `width: 100%; height: 100%;` ensures it
-      // displays at the wrap's size, which is what we size the backing for.
-      const rect = container.getBoundingClientRect();
-      if (rect.width < 10 || rect.height < 10) return;
-      const dpr = window.devicePixelRatio || 1;
-      // Round to integer CSS pixels so the backing/display ratio is exact
-      // (an integer multiple of dpr) and strokes don't drift by sub-pixel
-      // amounts at high coordinates.
-      const w = Math.round(rect.width);
-      const h = Math.round(rect.height);
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = w + 'px';
-      canvas.style.height = h + 'px';
-      const ctx = canvas.getContext('2d');
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
-    }
-
-    function attachEvents(wrap, canvas, docId) {
-      const getPos = (e) => {
-        const r = canvas.getBoundingClientRect();
-        const cx = e.touches ? e.touches[0].clientX : e.clientX;
-        const cy = e.touches ? e.touches[0].clientY : e.clientY;
-        return { x: cx - r.left, y: cy - r.top };
-      };
-
-      const onStart = (e) => {
-        if (state.annotations.tool === 'pointer') return;
-        if (e.target.closest('.anno-text-input, .anno-sticky')) return;
-        e.preventDefault(); e.stopPropagation();
-        // Defensive: if the canvas's CURRENT displayed size doesn't match
-        // its backing buffer (panel resized, scrollbar appeared, font load
-        // shifted layout, etc.), re-size + redraw before recording the
-        // first point. Without this, strokes from the new session would
-        // be offset by the size delta. We compare in CSS pixels (rect)
-        // vs CSS pixels (style), tolerating sub-pixel rounding.
-        const r = canvas.getBoundingClientRect();
-        const styledW = parseFloat(canvas.style.width) || 0;
-        const styledH = parseFloat(canvas.style.height) || 0;
-        if (Math.abs(r.width - styledW) > 1 || Math.abs(r.height - styledH) > 1) {
-          resizeCanvas(canvas, wrap);
-          redrawLayers(docId, canvas);
-        }
-        const pos = getPos(e);
-        const a = state.annotations;
-        a.isDrawing = true;
-        a.startX = pos.x; a.startY = pos.y;
-        a.currentCanvas = canvas;
-        a.currentCtx = canvas.getContext('2d');
-        a.currentDocId = docId;
-        a.currentPath = [pos];
-
-        if (a.tool === 'sticky') {
-          a.isDrawing = false;
-          createSticky(wrap, pos.x, pos.y, docId);
-          setTimeout(() => setTool('pointer'), 100);
-          return;
-        }
-        if (a.tool === 'text') {
-          return;
-        }
-        if (a.tool === 'pen' || a.tool === 'highlighter' || a.tool === 'eraser') {
-          beginFreehand(pos);
-        }
-      };
-
-      const onMove = (e) => {
-        const a = state.annotations;
-        if (!a.isDrawing || a.currentCanvas !== canvas) return;
-        e.preventDefault(); e.stopPropagation();
-        const pos = getPos(e);
-        a.currentPath.push(pos);
-        if (a.tool === 'pen' || a.tool === 'highlighter') drawFreehandSegment(pos);
-        else if (a.tool === 'eraser') eraseAt(pos);
-        else if (['rectangle','ellipse','arrow','line','text'].includes(a.tool)) drawShapePreview(pos);
-      };
-
-      const onEnd = (e) => {
-        const a = state.annotations;
-        if (!a.isDrawing || a.currentCanvas !== canvas) return;
-        if (e) e.preventDefault();
-        a.isDrawing = false;
-
-        if (a.tool === 'pen' || a.tool === 'highlighter') finishFreehand(docId);
-        else if (a.tool === 'eraser') finishErase(docId);
-        else if (['rectangle','ellipse','arrow','line'].includes(a.tool)) {
-          const pos = a.currentPath[a.currentPath.length - 1] || { x: a.startX, y: a.startY };
-          finishShape(pos, docId);
-        } else if (a.tool === 'text') {
-          const pos = a.currentPath[a.currentPath.length - 1] || { x: a.startX + 180, y: a.startY + 40 };
-          const sx = a.startX, sy = a.startY;
-          const bx = Math.min(sx, pos.x);
-          const by = Math.min(sy, pos.y);
-          const bw = Math.abs(pos.x - sx) > 15 ? Math.abs(pos.x - sx) : 180;
-          const bh = Math.abs(pos.y - sy) > 15 ? Math.abs(pos.y - sy) : 50;
-          redrawLayers(docId, canvas);
-          createTextInput(wrap, bx, by, bw, bh, docId);
-          setTimeout(() => setTool('pointer'), 100);
-        }
-        a.currentPath = [];
-      };
-
-      wrap.addEventListener('mousedown', onStart);
-      // Document-level listeners are installed ONCE globally below
-      // (see "global pointer listeners" near startAnnoEngine end). The
-      // global handlers dispatch to whichever canvas is `currentCanvas`,
-      // so we don't add per-canvas document listeners here — that pattern
-      // accumulated dozens of stale listeners every time the docs list
-      // re-rendered (search keystroke, scope change, sort change, etc.).
-      wrap.addEventListener('touchstart', onStart, { passive: false });
-      wrap.addEventListener('touchmove', onMove, { passive: false });
-      wrap.addEventListener('touchend', onEnd);
-      // Expose handlers on wrap so the global mousemove/mouseup can
-      // dispatch into them via the currentCanvas → wrap lookup.
-      wrap.__annoOnMove = onMove;
-      wrap.__annoOnEnd = onEnd;
-    }
-
-    function beginFreehand(pos) {
-      const a = state.annotations;
-      const ctx = a.currentCtx;
-      ctx.strokeStyle = a.color;
-      ctx.lineWidth = a.tool === 'highlighter' ? a.strokeWidth * 4 : a.strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.globalAlpha = 1;
-      if (a.tool !== 'highlighter') {
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-      }
-    }
-
-    function drawFreehandSegment(pos) {
-      const a = state.annotations;
-      const ctx = a.currentCtx;
-      if (a.tool === 'highlighter') {
-        redrawLayers(a.currentDocId, a.currentCanvas);
-        ctx.save();
-        ctx.strokeStyle = a.color;
-        ctx.lineWidth = a.strokeWidth * 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalAlpha = a.opacity;
-        ctx.beginPath();
-        const p = a.currentPath;
-        if (p.length > 0) {
-          ctx.moveTo(p[0].x, p[0].y);
-          for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
-        }
-        ctx.stroke();
-        ctx.restore();
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-      }
-    }
-
-    function finishFreehand(docId) {
-      const a = state.annotations;
-      saveLayer(docId, {
-        type: a.tool,
-        path: [...a.currentPath],
-        color: a.color,
-        width: a.tool === 'highlighter' ? a.strokeWidth * 4 : a.strokeWidth,
-        opacity: a.tool === 'highlighter' ? a.opacity : 1,
-      });
-      a.currentCtx.globalAlpha = 1;
-      a.currentCtx.globalCompositeOperation = 'source-over';
-      redrawLayers(docId, a.currentCanvas);
-    }
-
-    function eraseAt(pos) {
-      const a = state.annotations;
-      const ctx = a.currentCtx;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, a.strokeWidth * 2.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    function finishErase(docId) {
-      const a = state.annotations;
-      saveLayer(docId, {
-        type: 'eraser',
-        path: [...a.currentPath],
-        radius: a.strokeWidth * 2.5,
-      });
-      a.currentCtx.globalCompositeOperation = 'source-over';
-    }
-
-    function drawShapePreview(pos) {
-      const a = state.annotations;
-      const ctx = a.currentCtx;
-      const canvas = a.currentCanvas;
-      redrawLayers(a.currentDocId, canvas);
-      ctx.save();
-      ctx.strokeStyle = a.color;
-      ctx.fillStyle = a.color;
-      ctx.lineWidth = a.strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.globalAlpha = 1;
-
-      if (a.tool === 'rectangle') {
-        const x = Math.min(a.startX, pos.x);
-        const y = Math.min(a.startY, pos.y);
-        const w = Math.abs(pos.x - a.startX);
-        const h = Math.abs(pos.y - a.startY);
-        if (a.fill) {
-          ctx.globalAlpha = 0.25;
-          ctx.fillRect(x, y, w, h);
-          ctx.globalAlpha = 1;
-        }
-        ctx.strokeRect(x, y, w, h);
-      } else if (a.tool === 'ellipse') {
-        const cx = (a.startX + pos.x) / 2;
-        const cy = (a.startY + pos.y) / 2;
-        const rx = Math.abs(pos.x - a.startX) / 2;
-        const ry = Math.abs(pos.y - a.startY) / 2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        if (a.fill) {
-          ctx.globalAlpha = 0.25;
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-        ctx.stroke();
-      } else if (a.tool === 'arrow') {
-        drawArrow(ctx, a.startX, a.startY, pos.x, pos.y, a.strokeWidth);
-      } else if (a.tool === 'line') {
-        ctx.beginPath();
-        ctx.moveTo(a.startX, a.startY);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-      } else if (a.tool === 'text') {
-        const x = Math.min(a.startX, pos.x);
-        const y = Math.min(a.startY, pos.y);
-        const w = Math.abs(pos.x - a.startX);
-        const h = Math.abs(pos.y - a.startY);
-        ctx.setLineDash([4, 3]);
-        ctx.strokeRect(x, y, w, h);
-        ctx.setLineDash([]);
-      }
-      ctx.restore();
-    }
-
-    function drawArrow(ctx, x1, y1, x2, y2, lw) {
-      const headLen = Math.max(10, lw * 3);
-      const angle = Math.atan2(y2 - y1, x2 - x1);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x2, y2);
-      ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
-      ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    function finishShape(pos, docId) {
-      const a = state.annotations;
-      saveLayer(docId, {
-        type: a.tool,
-        x1: a.startX, y1: a.startY, x2: pos.x, y2: pos.y,
-        color: a.color, width: a.strokeWidth, fill: a.fill,
-      });
-      redrawLayers(docId, a.currentCanvas);
-    }
-
-    function createTextInput(wrap, x, y, w, h, docId, existing) {
-      const a = state.annotations;
-      const container = document.createElement('div');
-      container.className = 'anno-text-input';
-      container.style.left = x + 'px';
-      container.style.top = y + 'px';
-      container.style.width = w + 'px';
-      container.style.minHeight = h + 'px';
-      const color = existing?.color || a.color;
-      container.style.color = color;
-
-      const dragbar = document.createElement('div');
-      dragbar.className = 'anno-text-dragbar';
-      container.appendChild(dragbar);
-
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'anno-text-close';
-      closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-      dragbar.appendChild(closeBtn);
-
-      const edit = document.createElement('div');
-      edit.className = 'anno-text-editable';
-      edit.contentEditable = 'true';
-      edit.style.fontSize = (existing?.fontSize || a.fontSize) + 'px';
-      edit.style.color = color;
-      edit.textContent = existing?.text || '';
-      container.appendChild(edit);
-
-      wrap.appendChild(container);
-
-      const layer = existing || {
-        type: 'text',
-        x, y, width: w, height: h,
-        text: '',
-        color,
-        fontSize: a.fontSize,
-        el: container,
-      };
-      layer.el = container;
-
-      if (!existing) {
-        saveLayer(docId, layer);
-        edit.focus();
-      } else {
-        container.classList.add('committed');
-      }
-
-      edit.addEventListener('blur', () => {
-        layer.text = edit.textContent;
-        if (!layer.text.trim()) {
-          removeLayer(docId, layer);  // already calls persistAnnotations
-          container.remove();
-        } else {
-          container.classList.add('committed');
-          persistAnnotations(docId);  // text changed, save it
-        }
-        updateAnnoIndicator(docId);
-      });
-
-      edit.addEventListener('keydown', (e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          edit.blur();
-        } else if (e.key === 'Escape') {
-          edit.blur();
-        }
-      });
-
-      container.addEventListener('click', (e) => {
-        if (state.annotations.tool !== 'pointer') return;
-        e.stopPropagation();
-        $$('.anno-text-input.selected').forEach(el => { if (el !== container) el.classList.remove('selected'); });
-        if (container.classList.contains('committed')) {
-          container.classList.toggle('selected');
-        }
-      });
-
-      container.addEventListener('dblclick', (e) => {
-        if (state.annotations.tool !== 'pointer') return;
-        e.stopPropagation();
-        container.classList.remove('committed');
-        edit.focus();
-        const range = document.createRange();
-        range.selectNodeContents(edit);
-        const sel = window.getSelection();
-        sel.removeAllRanges(); sel.addRange(range);
-      });
-
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeLayer(docId, layer);
-        container.remove();
-        updateAnnoIndicator(docId);
-      });
-
-      makeDraggable(container, dragbar, wrap, layer);
-    }
-
-    function createSticky(wrap, x, y, docId, existing) {
-      const container = document.createElement('div');
-      container.className = 'anno-sticky';
-      container.style.left = x + 'px';
-      container.style.top = y + 'px';
-
-      const header = document.createElement('div');
-      header.className = 'anno-sticky-header';
-      header.innerHTML = '<div class="anno-sticky-label">Note</div>';
-
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'anno-sticky-close';
-      closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-      header.appendChild(closeBtn);
-      container.appendChild(header);
-
-      const body = document.createElement('div');
-      body.className = 'anno-sticky-body';
-      body.contentEditable = 'true';
-      body.textContent = existing?.text || '';
-      container.appendChild(body);
-
-      wrap.appendChild(container);
-
-      const layer = existing || {
-        type: 'sticky',
-        x, y,
-        text: '',
-        el: container,
-      };
-      layer.el = container;
-
-      if (!existing) {
-        saveLayer(docId, layer);
-        body.focus();
-      }
-
-      body.addEventListener('blur', () => {
-        layer.text = body.textContent;
-        updateAnnoIndicator(docId);
-        persistAnnotations(docId);
-      });
-      body.addEventListener('keydown', (e) => e.stopPropagation());
-
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeLayer(docId, layer);
-        container.remove();
-        updateAnnoIndicator(docId);
-      });
-
-      makeDraggable(container, header, wrap, layer);
-    }
-
-    function makeDraggable(el, handle, bounds, layer) {
-      let startX, startY, origLeft, origTop;
-      const onStart = (e) => {
-        if (e.target.closest('.anno-text-close, .anno-sticky-close')) return;
-        if (e.target.classList.contains('anno-text-editable') || e.target.classList.contains('anno-sticky-body')) return;
-        e.preventDefault(); e.stopPropagation();
-        const cx = e.touches ? e.touches[0].clientX : e.clientX;
-        const cy = e.touches ? e.touches[0].clientY : e.clientY;
-        startX = cx; startY = cy;
-        origLeft = parseFloat(el.style.left) || 0;
-        origTop = parseFloat(el.style.top) || 0;
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onEnd);
-        document.addEventListener('touchmove', onMove, { passive: false });
-        document.addEventListener('touchend', onEnd);
-      };
-      const onMove = (e) => {
-        const cx = e.touches ? e.touches[0].clientX : e.clientX;
-        const cy = e.touches ? e.touches[0].clientY : e.clientY;
-        const dx = cx - startX;
-        const dy = cy - startY;
-        const b = bounds.getBoundingClientRect();
-        const r = el.getBoundingClientRect();
-        const newX = Math.max(0, Math.min(b.width - r.width, origLeft + dx));
-        const newY = Math.max(0, Math.min(b.height - r.height, origTop + dy));
-        el.style.left = newX + 'px';
-        el.style.top = newY + 'px';
-        layer.x = newX;
-        layer.y = newY;
-      };
-      const onEnd = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onEnd);
-        document.removeEventListener('touchmove', onMove);
-        document.removeEventListener('touchend', onEnd);
-        // Persist new x/y. The bounds element (.anno-canvas-wrap) has the
-        // docId in its dataset — use that to scope the save.
-        const wDocId = bounds && bounds.dataset && bounds.dataset.docId;
-        if (wDocId) persistAnnotations(wDocId);
-      };
-      handle.addEventListener('mousedown', onStart);
-      handle.addEventListener('touchstart', onStart, { passive: false });
-    }
-
-    function removeLayer(docId, layer) {
-      const store = getStore(docId);
-      const idx = store.layers.indexOf(layer);
-      if (idx >= 0) store.layers.splice(idx, 1);
-      persistAnnotations(docId);
-    }
-
-    function redrawLayers(docId, canvas) {
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const dpr = window.devicePixelRatio || 1;
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(dpr, dpr);
-
-      const store = getStore(docId);
-      store.layers.forEach(layer => {
-        if (layer.type === 'text' || layer.type === 'sticky') return;
-        ctx.save();
-        if (layer.type === 'pen' || layer.type === 'highlighter') {
-          ctx.strokeStyle = layer.color;
-          ctx.lineWidth = layer.width;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.globalAlpha = layer.opacity || 1;
-          ctx.beginPath();
-          const p = layer.path;
-          if (p && p.length > 0) {
-            ctx.moveTo(p[0].x, p[0].y);
-            for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
-          }
-          ctx.stroke();
-        } else if (layer.type === 'eraser') {
-          ctx.globalCompositeOperation = 'destination-out';
-          const p = layer.path;
-          if (p) p.forEach(pt => {
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, layer.radius || 10, 0, Math.PI * 2);
-            ctx.fill();
-          });
-        } else if (layer.type === 'rectangle') {
-          ctx.strokeStyle = layer.color;
-          ctx.fillStyle = layer.color;
-          ctx.lineWidth = layer.width;
-          const x = Math.min(layer.x1, layer.x2);
-          const y = Math.min(layer.y1, layer.y2);
-          const w = Math.abs(layer.x2 - layer.x1);
-          const h = Math.abs(layer.y2 - layer.y1);
-          if (layer.fill) {
-            ctx.globalAlpha = 0.25;
-            ctx.fillRect(x, y, w, h);
-            ctx.globalAlpha = 1;
-          }
-          ctx.strokeRect(x, y, w, h);
-        } else if (layer.type === 'ellipse') {
-          ctx.strokeStyle = layer.color;
-          ctx.fillStyle = layer.color;
-          ctx.lineWidth = layer.width;
-          const cx = (layer.x1 + layer.x2) / 2;
-          const cy = (layer.y1 + layer.y2) / 2;
-          const rx = Math.abs(layer.x2 - layer.x1) / 2;
-          const ry = Math.abs(layer.y2 - layer.y1) / 2;
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-          if (layer.fill) {
-            ctx.globalAlpha = 0.25;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-          }
-          ctx.stroke();
-        } else if (layer.type === 'arrow') {
-          ctx.strokeStyle = layer.color;
-          ctx.fillStyle = layer.color;
-          ctx.lineWidth = layer.width;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          drawArrow(ctx, layer.x1, layer.y1, layer.x2, layer.y2, layer.width);
-        } else if (layer.type === 'line') {
-          ctx.strokeStyle = layer.color;
-          ctx.lineWidth = layer.width;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(layer.x1, layer.y1);
-          ctx.lineTo(layer.x2, layer.y2);
-          ctx.stroke();
-        }
-        ctx.restore();
-      });
-    }
-
-    function restoreTextAndStickyLayers(wrap, docId) {
-      const store = getStore(docId);
-      store.layers.forEach(layer => {
-        if (layer.type === 'text' && !layer.el) {
-          createTextInput(wrap, layer.x, layer.y, layer.width, layer.height, docId, layer);
-        } else if (layer.type === 'sticky' && !layer.el) {
-          createSticky(wrap, layer.x, layer.y, docId, layer);
-        }
-      });
-    }
-
-    function undo() {
-      let docId = state.annotations.currentDocId;
-      if (!docId) {
-        for (const id in state.annotations.store) {
-          if (state.annotations.store[id].layers.length > 0) docId = id;
-        }
-      }
-      if (!docId) { toast('Nothing to undo', '', 'info'); return; }
-      const store = getStore(docId);
-      if (store.layers.length === 0) { toast('Nothing to undo', '', 'info'); return; }
-      const layer = store.layers.pop();
-      store.undone.push(layer);
-      if (layer.el && layer.el.parentElement) layer.el.remove();
-      const item = document.querySelector(`[data-doc-id="${docId}"]`);
-      if (item) {
-        const canvas = item.querySelector('.anno-canvas');
-        if (canvas) redrawLayers(docId, canvas);
-      }
-      updateAnnoIndicator(docId);
-      persistAnnotations(docId);
-    }
-
-    function redo() {
-      let docId = state.annotations.currentDocId;
-      if (!docId) {
-        for (const id in state.annotations.store) {
-          if (state.annotations.store[id].undone && state.annotations.store[id].undone.length > 0) docId = id;
-        }
-      }
-      if (!docId) { toast('Nothing to redo', '', 'info'); return; }
-      const store = getStore(docId);
-      if (!store.undone || store.undone.length === 0) { toast('Nothing to redo', '', 'info'); return; }
-      const layer = store.undone.pop();
-      store.layers.push(layer);
-      const item = document.querySelector(`[data-doc-id="${docId}"]`);
-      if (item) {
-        const canvas = item.querySelector('.anno-canvas');
-        if (canvas) redrawLayers(docId, canvas);
-        const wrap = item.querySelector('.anno-canvas-wrap');
-        if (wrap && (layer.type === 'text' || layer.type === 'sticky')) {
-          if (layer.type === 'text') createTextInput(wrap, layer.x, layer.y, layer.width, layer.height, docId, layer);
-          else createSticky(wrap, layer.x, layer.y, docId, layer);
-        }
-      }
-      updateAnnoIndicator(docId);
-      persistAnnotations(docId);
-    }
-
-    function clearAnnotations() {
-      let docId = state.annotations.currentDocId;
-      if (!docId) {
-        const ids = Object.keys(state.annotations.store).filter(id => state.annotations.store[id].layers.length > 0);
-        if (ids.length === 0) { toast('Nothing to clear', '', 'info'); return; }
-        if (!confirm('Clear annotations from ' + ids.length + ' document(s)?')) return;
-        ids.forEach(id => clearDocAnnotations(id));
-        toast('Cleared', 'All annotations removed', 'success');
-        return;
-      }
-      clearDocAnnotations(docId);
-      toast('Cleared', 'Annotations removed', 'success');
-    }
-
-    function clearDocAnnotations(docId) {
-      const store = getStore(docId);
-      store.layers = [];
-      store.undone = [];
-      const item = document.querySelector(`[data-doc-id="${docId}"]`);
-      if (item) {
-        const wrap = item.querySelector('.anno-canvas-wrap');
-        if (wrap) {
-          wrap.querySelectorAll('.anno-text-input, .anno-sticky').forEach(el => el.remove());
-          const canvas = wrap.querySelector('.anno-canvas');
-          if (canvas) redrawLayers(docId, canvas);
-        }
-      }
-      updateAnnoIndicator(docId);
-      persistAnnotations(docId);
-    }
-
-    function initToolbar() {
-      $$('.anno-btn').forEach(b => {
-        b.onclick = () => setTool(b.dataset.tool);
-      });
-
-      $$('.anno-swatch').forEach(s => {
-        s.onclick = () => {
-          state.annotations.color = s.dataset.color;
-          $$('.anno-swatch').forEach(x => x.classList.remove('active'));
-          s.classList.add('active');
-          if (typeof window.STM_REFRESH_TOOLS_BTN === 'function') window.STM_REFRESH_TOOLS_BTN();
-        };
-      });
-
-      $$('.anno-stroke-btn').forEach(s => {
-        s.onclick = () => {
-          state.annotations.strokeWidth = parseInt(s.dataset.width);
-          $$('.anno-stroke-btn').forEach(x => x.classList.remove('active'));
-          s.classList.add('active');
-        };
-      });
-
-      $id('opacitySlider').addEventListener('input', (e) => {
-        state.annotations.opacity = parseInt(e.target.value) / 100;
-      });
-
-      $$('.anno-fontsize-btn').forEach(b => {
-        b.onclick = () => {
-          state.annotations.fontSize = parseInt(b.dataset.size);
-          $$('.anno-fontsize-btn').forEach(x => x.classList.remove('active'));
-          b.classList.add('active');
-        };
-      });
-
-      $id('fillToggle').onclick = () => {
-        state.annotations.fill = !state.annotations.fill;
-        $id('fillToggle').classList.toggle('active', state.annotations.fill);
-      };
-
-      $id('undoBtn').onclick = undo;
-      $id('redoBtn').onclick = redo;
-      $id('clearAnnoBtn').onclick = clearAnnotations;
-
-      $id('fullscreenBtn').onclick = () => {
-        const visible = filterDocs();
-        if (visible.length === 0) { toast('No documents', 'Upload files first', 'info'); return; }
-        let targetId = null;
-        for (const id in state.annotations.store) {
-          if (state.annotations.store[id].layers.length > 0) targetId = id;
-        }
-        if (!targetId && visible[0]) targetId = visible[0].id;
-        if (targetId) openPreview(targetId);
-      };
-    }
-
-    function initKeyboard() {
-      const toolKeys = {
-        'v': 'pointer', 'V': 'pointer',
-        'p': 'pen', 'P': 'pen',
-        'h': 'highlighter', 'H': 'highlighter',
-        'u': 'rectangle', 'U': 'rectangle',
-        'o': 'ellipse', 'O': 'ellipse',
-        'a': 'arrow', 'A': 'arrow',
-        'l': 'line', 'L': 'line',
-        't': 'text', 'T': 'text',
-        'n': 'sticky', 'N': 'sticky',
-        'e': 'eraser', 'E': 'eraser',
-      };
-
-      document.addEventListener('keydown', (e) => {
-        if (!_docsActive()) return;
-        const isInput = ['INPUT','TEXTAREA'].includes(document.activeElement.tagName) ||
-                        document.activeElement.contentEditable === 'true';
-        if (isInput) return;
-        if (state.preview.open) return;
-        if (e.ctrlKey || e.metaKey) {
-          if (e.key === 'z' || e.key === 'Z') {
-            if (e.shiftKey) { e.preventDefault(); redo(); }
-            else { e.preventDefault(); undo(); }
-          } else if (e.key === 'y' || e.key === 'Y') {
-            e.preventDefault();
-            redo();
-          }
-          return;
-        }
-
-        if (toolKeys[e.key]) {
-          e.preventDefault();
-          setTool(toolKeys[e.key]);
-        }
-
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-          const selected = $$('.anno-text-input.selected');
-          if (selected.length > 0) {
-            e.preventDefault();
-            selected.forEach(el => {
-              const wrap = el.closest('.anno-canvas-wrap');
-              if (!wrap) return;
-              const docId = wrap.dataset.docId;
-              const store = getStore(docId);
-              const idx = store.layers.findIndex(l => l.el === el);
-              if (idx >= 0) store.layers.splice(idx, 1);
-              el.remove();
-              updateAnnoIndicator(docId);
-              persistAnnotations(docId);
-            });
-          }
-        }
-      });
-    }
-
-    let resizeTimer = null;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        $$('.anno-canvas-wrap').forEach(wrap => {
-          const canvas = wrap.querySelector('.anno-canvas');
-          if (canvas && wrap.offsetWidth > 0) {
-            // Source from wrap, not thumb — same reasoning as ensureCanvas.
-            // doc-thumb has a 1px border-bottom; the wrap is `inset: 0` of
-            // doc-thumb's padding box so it's 1px shorter. Sourcing from
-            // thumb here reintroduces the original coordinate-mismatch bug
-            // every time the browser is resized.
-            resizeCanvas(canvas, wrap);
-            const docId = wrap.dataset.docId;
-            if (docId) redrawLayers(docId, canvas);
-          }
-        });
-      }, 150);
-    });
-
-    // Expose annotation API for external coordination (phases 3+).
-    // Cancel any pending debounced persist for a docId. Called when the
-    // doc is deleted while a save was queued — stops the wasted UPDATE
-    // against a non-existent row.
-    function cancelPersist(docId) {
-      if (_annoPersistTimers[docId]) {
-        clearTimeout(_annoPersistTimers[docId]);
-        delete _annoPersistTimers[docId];
-      }
-    }
-
-    window.__docsAnno = {
-      ensureCanvas,
-      setTool,
-      undo, redo,
-      clearAnnotations,
-      updateIndicator: updateAnnoIndicator,
-      cancelPersist,
-    };
-
-    initToolbar();
-    initKeyboard();
-
-    document.addEventListener('mousedown', (e) => {
-      if (!_docsActive()) return;
-      const wrap = e.target.closest('.anno-canvas-wrap');
-      if (wrap) {
-        state.annotations.currentDocId = wrap.dataset.docId;
-      }
-    });
-
-    // Single global mousemove/mouseup pair. Dispatches into the active
-    // wrap's stored handlers (set by attachEvents on the wrap itself).
-    // Replaces the per-canvas document listeners that previously
-    // accumulated on every doc-list re-render.
-    document.addEventListener('mousemove', (e) => {
-      if (!_docsActive()) return;
-      const canvas = state.annotations.currentCanvas;
-      if (!canvas) return;
-      const wrap = canvas.parentElement;
-      if (wrap && typeof wrap.__annoOnMove === 'function') {
-        wrap.__annoOnMove(e);
-      }
-    });
-    document.addEventListener('mouseup', (e) => {
-      if (!_docsActive()) return;
-      const canvas = state.annotations.currentCanvas;
-      if (!canvas) return;
-      const wrap = canvas.parentElement;
-      if (wrap && typeof wrap.__annoOnEnd === 'function') {
-        wrap.__annoOnEnd(e);
-      }
-    });
-
-    console.log('%c✓ Annotation engine ready',
-      'color: #0570DE; font-weight: bold; font-size: 11px;');
-  }
-
-  startAnnoEngine();
+  createNativeAnnotations();
 
   /* ════════════════ ACTIVATION HOOK ════════════════ */
 

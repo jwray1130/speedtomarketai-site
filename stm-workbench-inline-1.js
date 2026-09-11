@@ -1,0 +1,1 @@
+document.documentElement.classList.add('stm-auth-pending');

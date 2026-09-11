@@ -55,7 +55,7 @@
       if (!client) return { error: new Error('Supabase library failed to load.') };
       return client.auth.signInWithOtp({
         email: String(email || '').trim(),
-        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
+        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2') }
       });
     },
     signOut() { return signOut(); }
@@ -107,6 +107,8 @@
     if (pill) pill.textContent = 'ACTIVE SESSION';
     const userName = document.querySelector('.topbar-user-name');
     if (userName) userName.textContent = name;
+    const roleNode=document.querySelector('.topbar-user-role');
+    if(roleNode){const profile=window.currentUser?.id===user?.id?window.currentUser:null;const rawRole=String(profile?.role||user?.role||'').trim();const role=rawRole&&!['authenticated','anon','service_role'].includes(rawRole.toLowerCase())?rawRole.slice(0,80):'Account';roleNode.textContent=role;}
     const avatar = document.querySelector('.topbar-avatar');
     if (avatar) {
       avatar.textContent = String(name).split(/\s+/).filter(Boolean).map(s => s[0]).join('').slice(0, 2).toUpperCase() || 'UW';
@@ -148,7 +150,7 @@
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: window.location.origin + window.location.pathname
+        emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2')
       }
     });
     if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
