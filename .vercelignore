@@ -1,0 +1,10 @@
+# Repository-only material. Preserve bundled vendor licenses.
+/.git/
+/tests/
+/node_modules/
+/package.json
+/package-lock.json
+/README.md
+/RELEASE_NOTES.md
+/supabase/
+/.github/

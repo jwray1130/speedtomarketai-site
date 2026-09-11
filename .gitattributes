@@ -1,0 +1,2 @@
+# Preserve exact audited runtime and vendor bytes on every checkout.
+* -text
