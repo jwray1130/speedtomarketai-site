@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v9.9.7-brand-home-2026-09-11';
+window.STM_BUILD = 'v9.9.9-brand-click-2026-09-11';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
