@@ -2822,9 +2822,9 @@
     if (!('q' in bag)) bag.q = unmarkdown(quoteFileText87(submission));
     if (!('f' in bag)) bag.f = unmarkdown(fleetFileText87(submission));
     if (!('l' in bag)) bag.l = unmarkdown(lossFileText87(submission));
-    const quoteFileClean = submission?.snapshot?.extractions?.[moduleKey]?.reviewedInSummary ? '' : bag.q;
-    const fleetFileClean = submission?.snapshot?.extractions?.[moduleKey]?.reviewedInSummary ? '' : bag.f;
-    const lossFileClean = submission?.snapshot?.extractions?.[moduleKey]?.reviewedInSummary ? '' : bag.l;
+    const quoteFileClean = bag.q;
+    const fleetFileClean = bag.f;
+    const lossFileClean = bag.l;
     const kq = 'mq:' + moduleKey, kf = 'mf:' + moduleKey, kl = 'ml:' + moduleKey;
     if (!(kq in bag)) bag[kq] = (clean + '\n\n' + quoteFileClean).trim();
     if (!(kf in bag)) bag[kf] = (clean + '\n\n' + fleetFileClean).trim();

@@ -313,7 +313,7 @@ function stmFetchTimeout(ms) {
 //   Flip the default to false once `supabase functions deploy fetch-proxy`
 //   has a clean week; Phase 7 deletes the public chain entirely.
 // ════════════════════════════════════════════════════════════════════════
-if (typeof window.STM_ALLOW_PUBLIC_PROXIES === 'undefined') window.STM_ALLOW_PUBLIC_PROXIES = false;
+if (typeof window.STM_ALLOW_PUBLIC_PROXIES === 'undefined') window.STM_ALLOW_PUBLIC_PROXIES = true;
 const STM_RELAY_URL = ((typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL)
   ? SUPABASE_URL : 'https://hscjnbolpxmiyujaxjyd.supabase.co') + '/functions/v1/fetch-proxy';
 let _stmRelayDown = false;          // 404 / network-level failure → skip relay for the rest of this crawl
@@ -351,7 +351,7 @@ async function fetchViaFirstPartyRelay(url, timeoutMs) {
   if (!token) throw new Error('no session token');
   let res;
   try {
-    res = await (window.__STM_NATIVE_PIPELINE?.fetch || fetch)(STM_RELAY_URL, {
+    res = await fetch(STM_RELAY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ url: url }),
@@ -380,7 +380,7 @@ async function fetchTextViaProxy(url) {
   ];
   for (const mk of proxies) {
     try {
-      const res = await (window.__STM_NATIVE_PIPELINE?.fetch || fetch)(mk(url), { method: 'GET', signal: stmFetchTimeout(15000) });
+      const res = await fetch(mk(url), { method: 'GET', signal: stmFetchTimeout(15000) });
       if (!res.ok) continue;
       const text = await res.text();
       if (text && text.length > 20) return text;
@@ -434,7 +434,7 @@ async function fetchViaProxy(url) {
   ];
   for (const proxy of htmlProxies) {
     try {
-      const res = await (window.__STM_NATIVE_PIPELINE?.fetch || fetch)(proxy.mk(url), { method: 'GET', signal: stmFetchTimeout(20000) });
+      const res = await fetch(proxy.mk(url), { method: 'GET', signal: stmFetchTimeout(20000) });
       if (!res.ok) { lastErr = new Error(proxy.name + ' HTTP ' + res.status); continue; }
       const html = await res.text();
       // Guard against SPA shells — if the HTML is clearly an empty React/Vue
@@ -452,7 +452,7 @@ async function fetchViaProxy(url) {
   // clean text. Slower than the HTML proxies but handles modern SPAs.
   try {
     const jinaUrl = 'https://r.jina.ai/' + url;
-    const res = await (window.__STM_NATIVE_PIPELINE?.fetch || fetch)(jinaUrl, { method: 'GET', headers: { 'Accept': 'text/plain' }, signal: stmFetchTimeout(45000) });
+    const res = await fetch(jinaUrl, { method: 'GET', headers: { 'Accept': 'text/plain' }, signal: stmFetchTimeout(45000) });
     if (res.ok) {
       const text = await res.text();
       if (text && text.length > 100) {
@@ -760,7 +760,7 @@ async function scrapeWebsiteFromUrl() {
     const useClaude = false;
     const result = useClaude ? await scrapeUrlViaClaude(url) : await scrapeUrl(url);
     // Turn this into a pseudo-file entry that flows through the normal pipeline.
-    await ingestScrapedWebsite(url, result.text, result.subPages, {
+    ingestScrapedWebsite(url, result.text, result.subPages, {
       foundVia: 'direct-url',
       method: result.method,
       totalPages: result.totalPages,
@@ -807,7 +807,7 @@ async function findAndScrapeWebsite() {
     // Use the browser BFS crawler — same reasoning as the manual-URL path
     // (Claude-driven crawl can't operate through the Edge Function proxy).
     const result = await scrapeUrl(url);
-    await ingestScrapedWebsite(url, result.text, result.subPages, {
+    ingestScrapedWebsite(url, result.text, result.subPages, {
       foundVia: 'claude-search',
       searchTerms: name + (zip ? ' · ' + zip : ''),
       method: result.method,
@@ -872,8 +872,7 @@ Return exactly one of:
 }
 
 // Create a STATE.files entry from scraped website text and route it to the website module.
-async function ingestScrapedWebsite(url, text, subPages, extra) {
-  window.__STM_NATIVE_PIPELINE?.assertCurrent();
+function ingestScrapedWebsite(url, text, subPages, extra) {
   if (!text || text.length < 100) {
     setWebStatus('<strong>Scraped content too small</strong> ({{c}} chars). Site may be JS-only or bot-blocked. Paste HTML manually instead.', 'error', { c: (text ? text.length : 0) });
     return;
@@ -930,8 +929,7 @@ async function ingestScrapedWebsite(url, text, subPages, extra) {
 
   // If pipeline was already done, run incremental flow so the A1 website module updates
   if (STATE.pipelineDone) {
-    if (typeof queueIncrementalProcess === 'function') await queueIncrementalProcess([entry]);
-    else await incrementalProcess([entry]);
+    incrementalProcess([entry]);
   }
 }
 

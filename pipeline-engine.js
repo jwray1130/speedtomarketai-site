@@ -1414,7 +1414,7 @@ function renderClassifierReview() {
     const currentTagDef = CLASSIFIER_TYPES.find(t => t.value === currentTag);
     const isVariable = !!(currentTagDef && currentTagDef.variable);
     const variableInput = isVariable
-      ? `<input class="cr-variable-input" type="text" placeholder="${escapeHtml(currentTagDef.placeholder || '')}" value="${escapeHtml(currentLimit)}" data-stm-action="classify-limit" data-stm-id="${escapeHtml(f.id)}" />`
+      ? `<input class="cr-variable-input" type="text" placeholder="${escapeHtml(currentTagDef.placeholder || '')}" value="${escapeHtml(currentLimit)}" oninput="queueReclassifyLimit('${f.id}', this.value)" />`
       : '';
 
     // v8.5.4: prefer granular tag (e.g., "ACORD 125") over bucket name
@@ -1452,10 +1452,10 @@ function renderClassifierReview() {
         <div class="cr-controls">
           <div class="cr-sendto-wrap">
             <label class="cr-sendto-label" for="cr-sendto-${escapeHtml(f.id)}">Send to…</label>
-            <select id="cr-sendto-${escapeHtml(f.id)}" data-stm-action="classify-queue" data-stm-id="${escapeHtml(f.id)}">${options}</select>
+            <select id="cr-sendto-${escapeHtml(f.id)}" onchange="queueReclassify('${f.id}', this.value)">${options}</select>
             ${variableInput}
           </div>
-          <button class="ghost" data-stm-action="classify-accept" data-stm-id="${escapeHtml(f.id)}" title="Accept the AI's classification as-is">Confirm</button>
+          <button class="ghost" onclick="acceptClassification('${f.id}')" title="Accept the AI's classification as-is">Confirm</button>
         </div>
       </div>
     `;
@@ -1470,12 +1470,11 @@ function renderClassifierReview() {
   const footer = `
     <div class="cr-footer">
       <span>${pendingCount === 0 ? 'No changes queued. Use <strong>Send to…</strong> on any row to route manually, or <strong>Confirm</strong> to accept as-is.' : '<strong style="color: var(--signal-ink);">' + pendingCount + ' reroute' + (pendingCount === 1 ? '' : 's') + ' queued</strong> · only affected modules will re-run'}</span>
-      <button data-stm-action="classify-apply" ${pendingCount === 0 ? 'disabled' : ''}>Re-run Affected Modules</button>
+      <button onclick="applyReclassifications()" ${pendingCount === 0 ? 'disabled' : ''}>Re-run Affected Modules</button>
     </div>
   `;
 
   list.innerHTML = rows + footer;
-  window.STMNativeEvents.bind(list);
 }
 
 function toggleNcfCollapse() {
@@ -2060,8 +2059,7 @@ function renderStaleBanner8733() {
       + (staleCodes.length ? '<div class="sb-sub">Stale: ' + staleCodes.join(', ') + '</div>' : '')
       + (newCodes.length ? '<div class="sb-sub">Not yet run: ' + newCodes.join(', ') + '</div>' : '')
       + a8Note
-      + '<button class="sb-btn" data-stm-action="pending-refresh">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
-    window.STMNativeEvents.bind(dock);
+      + '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
     return;
   }
   // Legacy floating fallback (no dock on this page).
@@ -2074,8 +2072,7 @@ function renderStaleBanner8733() {
     document.body.appendChild(b);
   }
   b.innerHTML = '<div class="sb-text"><div class="sb-title">' + plan.all.length + ' section' + (plan.all.length === 1 ? ' has' : 's have') + ' work pending</div><div class="sb-sub">' + [...staleCodes, ...newCodes].join(', ') + '</div>' + a8Note + '</div>'
-    + '<button class="sb-btn" data-stm-action="pending-refresh">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
-  window.STMNativeEvents.bind(b);
+    + '<button class="sb-btn" onclick="confirmRefreshAllStale8733()">Refresh all (~$' + plan.est.toFixed(2) + ')</button>';
 }
 async function confirmRefreshAllStale8733() {
   // v8.7.147: kept name (wired into both banner surfaces and any older

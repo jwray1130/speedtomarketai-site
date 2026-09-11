@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v10-native-phase7-2026-09-10';
+window.STM_BUILD = 'v9.9.4-RC1-2026-09-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -94,11 +94,67 @@ const sb = (window.STM_AUTH_UNIFIED !== false && window.sb)
 window.sb = sb;
 window.currentUser = window.currentUser || null;
 
-async function checkAuth() { return window.__STM_NATIVE_PLATFORM?.handle(window.__STM_NATIVE_PLATFORM.checkAuth()); }
+async function checkAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  const overlay = document.getElementById('authOverlay');
+  if (!session) {
+    if (overlay) overlay.style.display = 'flex';
+    return false;
+  }
+  // Fetch profile row — falls back to session.user data if the row isn't there yet
+  let profile = null;
+  try {
+    const { data } = await sb.from('users').select('id,email,display_name,role').eq('id', session.user.id).single();
+    profile = data;
+  } catch (e) { /* swallow — profile row may not exist yet */ }
+  window.currentUser = profile || {
+    id: session.user.id,
+    email: session.user.email,
+    display_name: session.user.email ? session.user.email.split('@')[0] : 'User',
+    role: 'user'
+  };
+  if (overlay) overlay.style.display = 'none';
+  try { normalizePlatformShell8705('auth'); } catch(e) {}
+  // Update the top-bar avatar name from the signed-in profile
+  const avatarNameEl = document.querySelector('.avatar-name');
+  if (avatarNameEl && window.currentUser.display_name) {
+    avatarNameEl.innerHTML = escapeHtml(window.currentUser.display_name) + '<br><small>Exec UW · Casualty</small>';
+  }
+  const avatarCircleEl = document.querySelector('.avatar-circle');
+  if (avatarCircleEl && window.currentUser.display_name) {
+    const initials = window.currentUser.display_name.split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
+    avatarCircleEl.textContent = initials || 'U';
+  }
+  // Refresh the API pill
+  if (typeof updateApiPillUI === 'function') updateApiPillUI();
+  // Phase 4: pull user's submissions/settings from Supabase into STATE.
+  // Fire-and-forget — the UI is already up; hydration will re-render the
+  // Queue when data lands. Any failure is logged, not thrown.
+  if (typeof sbHydrate === 'function') { sbHydrate(); }
+  return true;
+}
 
-async function sendMagicLink() { return window.__STM_NATIVE_PLATFORM.sendMagicLink(); }
+async function sendMagicLink() {
+  const email = (document.getElementById('authEmail').value || '').trim();
+  const err = document.getElementById('authError');
+  const ok = document.getElementById('authSuccess');
+  err.textContent = ''; ok.textContent = '';
+  if (!email) { err.textContent = 'Enter your email.'; return; }
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2')
+    }
+  });
+  if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
+  ok.textContent = 'If that email is registered, you will receive a sign-in link shortly.';
+}
 
-async function signOut() { return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.signOut()); }
+async function signOut() {
+  await sb.auth.signOut();
+  window.location.reload();
+}
 window.signOut = signOut;
 
 // PHASE3-2026-06-09 — the missing half of the platform gate (audit H3).
@@ -108,7 +164,36 @@ window.signOut = signOut;
 // dismiss the overlay + load the profile; sign-out re-arms the gate.
 // INITIAL_SESSION covers the SDK's async localStorage restore;
 // TOKEN_REFRESHED keeps the profile fresh on long-lived sessions.
-// Native session coordinator owns the single platform auth subscription.
+try {
+  const _subscribeAuth = (window.stmAuth && typeof window.stmAuth.onChange === 'function')
+    ? window.stmAuth.onChange.bind(window.stmAuth)
+    : (cb) => sb.auth.onAuthStateChange((event, session) => cb(event, session));
+  _subscribeAuth((event, session) => {
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session) {
+      // FIX-2026-06-09 (focus-bounce): supabase-js re-emits SIGNED_IN /
+      // TOKEN_REFRESHED whenever the tab regains focus (it refreshes the
+      // session token on visibility). Re-running the full checkAuth() then
+      // re-hydrated the entire workspace (sbHydrate), re-applied the URL
+      // submission route, and reset scroll — bouncing the user off whatever
+      // view they were on every time they returned to the tab. If we're
+      // already authenticated as this same user and the gate overlay is
+      // down, there is nothing to do. The Phase-3 goals are unchanged: a
+      // LATE session (overlay still up) runs the full path, INITIAL_SESSION
+      // covers boot, and sign-out below re-arms the gate.
+      const ov = document.getElementById('authOverlay');
+      const overlayHidden = !ov || ov.style.display === 'none';
+      const sameUser = !!(window.currentUser && session.user && window.currentUser.id === session.user.id);
+      if (sameUser && overlayHidden) return;
+      checkAuth().catch(() => {});
+    } else if (event === 'SIGNED_OUT') {
+      window.currentUser = null;
+      const ov = document.getElementById('authOverlay');
+      if (ov) ov.style.display = 'flex';
+    }
+  });
+} catch (e) {
+  console.warn('[auth] state-change subscription failed (gate falls back to boot-time check only):', e && e.message);
+}
 
 // Returns the signed-in user's display_name, or 'Unknown' if nobody is signed in.
 // Used everywhere we previously had the hardcoded 'J. Wray' actor string.
@@ -231,10 +316,8 @@ function visibleTextFromUntrustedHtml(html, removeSelector) {
 }
 
 async function llmProxyFetch(body, extraHeaders) {
-  const __stmPipelineOwner = window.__STM_NATIVE_PIPELINE?.capture();
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error('Not signed in');
-  window.__STM_NATIVE_PIPELINE?.assertToken(__stmPipelineOwner);
 
   const headers = {
     'Content-Type': 'application/json',
@@ -277,24 +360,37 @@ async function llmProxyFetch(body, extraHeaders) {
 
     try {
       res = await fetch(LLM_PROXY_URL, {
-        method: 'POST', headers: headers, body: bodyJson, signal: abortCtrl.signal
+        method: 'POST',
+        headers: headers,
+        body: bodyJson,
+        signal: abortCtrl.signal
       });
       status = res.status;
-      // Keep the abort/timeout active until the response body has arrived.
-      bodyText = await res.text();
-      bodySnippet = bodyText.slice(0, 2048);
     } catch (err) {
       networkErr = err;
-      res = null;
+      // AbortError means we hit the per-attempt timeout. Treat as 0 status
+      // (network class) so it follows the network retry schedule.
       status = 0;
-      bodySnippet = '(network/body read error: ' + (err.message || 'unknown') + ')';
     } finally {
       clearTimeout(timeoutId);
       releaseCancel?.();
     }
-    window.__STM_NATIVE_PIPELINE?.assertToken(__stmPipelineOwner);
     window.__STM_SUBMISSION?.assertNotCancelled();
+
     const latencyMs = Date.now() - startedAt;
+
+    // If we got a response, read the body once. We need it for two paths:
+    // 1) success → JSON.parse
+    // 2) failure → snippet for error categorization + Ray ID extraction
+    if (res) {
+      try {
+        bodyText = await res.text();
+        bodySnippet = bodyText.slice(0, 2048);  // cap at 2KB for log meta
+      } catch (e) {
+        bodyText = '';
+        bodySnippet = '(body read error: ' + (e.message || 'unknown') + ')';
+      }
+    }
 
     // Build the structured meta object that goes into the audit log.
     // This is captured for BOTH success and failure attempts so we have
@@ -344,7 +440,6 @@ async function llmProxyFetch(body, extraHeaders) {
       refreshedAuthAfter401 = true;
       try {
         const { data: refreshData, error: refreshErr } = await sb.auth.refreshSession();
-        window.__STM_NATIVE_PIPELINE?.assertToken(__stmPipelineOwner);
         const freshToken = refreshData && refreshData.session && refreshData.session.access_token;
         if (!refreshErr && freshToken) {
           headers.Authorization = 'Bearer ' + freshToken;
@@ -426,8 +521,7 @@ async function llmProxyFetch(body, extraHeaders) {
     }
 
     // Wait, then loop.
-    await (window.__STM_NATIVE_PIPELINE?.wait(delayMs) || new Promise(r => setTimeout(r, delayMs)));
-    window.__STM_NATIVE_PIPELINE?.assertToken(__stmPipelineOwner);
+    await new Promise(r => setTimeout(r, delayMs));
     attempt++;
   }
 
@@ -1026,20 +1120,41 @@ async function flushEditsNow() {
 // builds the lite snapshot (text dropped, raw files removed) so each
 // call site doesn't reimplement the same payload shape.
 async function saveSubmissionSnapshot(rec, reason) {
-  const native = window.__STM_NATIVE_PLATFORM, owner = native.captureOwner();
-  native.assertOwner(owner);
   if (!rec || !rec.snapshot) return null;
-  const snapshot = {...rec.snapshot, files:native.slimFiles(rec.snapshot.files), derived:{...(rec.snapshot.derived||{}),
-    account:rec.account||null, broker:rec.broker||null, effectiveDate:rec.effective||rec.effectiveDate||null,
-    requestedLimits:rec.requested||rec.requestedLimits||null, missingInfo:rec.missingInfo||[]}};
-  const saved = await sbSaveSubmission(buildSubmissionPayload(rec,snapshot));
-  native.assertOwner(owner);
-  if (!saved) throw new Error('Submission was not saved. Retry Save before leaving.');
+  if (typeof sbSaveSubmission !== 'function') {
+    throw new Error('sbSaveSubmission not defined');
+  }
+  if (typeof logAudit === 'function') {
+    logAudit('Submissions', 'Saving ' + rec.id + ' to cloud (' + reason + ')…', 'ok');
+  }
+  const liteSnapshot = {
+    ...rec.snapshot,
+    files: (rec.snapshot.files || []).map(f => ({
+      ...f,
+      text: '',
+      textDropped: true,
+      pageTexts: undefined,
+      _rawFile: undefined
+    })),
+    derived: {
+      account:         rec.account || null,
+      broker:          rec.broker || null,
+      effectiveDate:   rec.effective || rec.effectiveDate || null,
+      requestedLimits: rec.requested || rec.requestedLimits || null,
+      missingInfo:     rec.missingInfo || null
+    }
+  };
+  const saved = await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+  if (typeof logAudit === 'function') {
+    logAudit('Submissions',
+      'Saved ' + rec.id + ' (' + reason + ') · row id ' +
+        (saved && saved.id ? saved.id.slice(0, 12) : '(no id)'),
+      'ok');
+  }
   return saved;
 }
 
 function updateSaveIndicator() {
-  if(window.__STM_SUBMISSION){const text=document.getElementById("saveIndicatorText");if(text)text.textContent=window.__STM_SUBMISSION.status().label;return;}
   const ind = document.getElementById('saveIndicator');
   const txt = document.getElementById('saveIndicatorText');
   if (!ind || !txt) return;
@@ -1114,19 +1229,76 @@ async function clearAllEdits() {
 // API SETTINGS — model + max tokens only. Key held server-side in Edge Function.
 // ============================================================================
 
-function openSettings() { return window.__STM_SHARED_SETTINGS.open();
+function openSettings() {
+  const m = document.getElementById('settingsModal');
+  if (!m) { console.warn('openSettings: settingsModal not in DOM'); toast('Settings modal not found', 'error'); return; }
+  // Populate fields defensively — any missing element shouldn't block the
+  // modal from opening. This was a real bug: a null guidelineStatus element
+  // would throw and prevent the modal from ever showing.
+  try {
+    const maxTok = document.getElementById('apiMaxTokens');
+    if (maxTok && STATE.api) maxTok.value = STATE.api.maxTokens;
+    const sel = document.getElementById('apiModel');
+    if (sel && STATE.api) {
+      Array.from(sel.options).forEach(o => { o.selected = (o.value === STATE.api.model); });
+    }
+    // Round 5 fix #1: pre-populate forceGlobal checkbox from STATE.
+    const fg = document.getElementById('forceGlobalModel');
+    if (fg && STATE.api) fg.checked = !!STATE.api.forceGlobal;
+    // Guideline field — show whatever's active, but only populate textarea if override exists.
+    // Phase 4: the override lives in ACTIVE_GUIDELINE (hydrated from user_settings
+    // on sign-in). If it doesn't equal DEFAULT_GUIDELINE, treat it as a user override.
+    const ta = document.getElementById('carrierGuideline');
+    const status = document.getElementById('guidelineStatus');
+    if (ta) {
+      const hasOverride = ACTIVE_GUIDELINE && ACTIVE_GUIDELINE !== DEFAULT_GUIDELINE;
+      if (hasOverride) {
+        ta.value = ACTIVE_GUIDELINE;
+        if (status) {
+          status.textContent = 'CUSTOM · ' + ACTIVE_GUIDELINE.length.toLocaleString() + ' CHARS';
+          status.style.color = 'var(--signal-ink)';
+        }
+      } else {
+        ta.value = '';
+        if (status) {
+          status.textContent = 'DEFAULT · ' + (DEFAULT_GUIDELINE ? DEFAULT_GUIDELINE.length.toLocaleString() : '?') + ' CHARS';
+          status.style.color = 'var(--text-3)';
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('openSettings field population failed', err);
+    // Non-fatal — we still open the modal below so the UW can at least see it.
+  }
+  m.classList.add('open');
 }
 
-function closeSettings() { return window.__STM_SHARED_SETTINGS.close();
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
 }
 
-function saveSettings() { return window.__STM_SHARED_SETTINGS.save();
+async function saveSettings() {
+  try {
+    await window.__STM_ADMIN_CONFIG.commit({model:document.getElementById('apiModel').value,maxTokens:Number(document.getElementById('apiMaxTokens').value),forceGlobal:!!document.getElementById('forceGlobalModel').checked,guideline:document.getElementById('carrierGuideline').value});
+    closeSettings(); toast('Settings saved'); return true;
+  } catch (e) { toast('Settings not saved: '+(e.message||e),'error'); return false; }
 }
 
-function resetGuidelineToDefault() { return window.__STM_SHARED_SETTINGS.reset();
+async function resetGuidelineToDefault() {
+  if (!confirm('Reset the carrier guideline back to the default Zurich E&S excerpt? Any custom guideline you pasted will be cleared.')) return;
+  document.getElementById('carrierGuideline').value = '';
+  document.getElementById('guidelineStatus').textContent = 'DEFAULT · ' + DEFAULT_GUIDELINE.length.toLocaleString() + ' CHARS';
+  document.getElementById('guidelineStatus').style.color = 'var(--text-3)';
+  await saveGuidelineOverride('');
 }
 
-function showDefaultGuideline() { return window.__STM_SHARED_SETTINGS.viewDefault();
+function showDefaultGuideline() {
+  const ta = document.getElementById('carrierGuideline');
+  if (!ta) return;
+  if (ta.value.length > 0 && !confirm('Replace the current textarea content with the default Zurich E&S guideline excerpt? Any unsaved changes will be lost.')) return;
+  ta.value = DEFAULT_GUIDELINE;
+  document.getElementById('guidelineStatus').textContent = 'VIEWING DEFAULT (unsaved)';
+  document.getElementById('guidelineStatus').style.color = 'var(--warning)';
 }
 
 // ============================================================================
@@ -1162,7 +1334,67 @@ function handleGuidelineFileInput(event) {
   event.target.value = '';
 }
 
-function loadGuidelineFromFile(file) { return window.__STM_SHARED_SETTINGS.loadFile(file);
+async function loadGuidelineFromFile(file) {
+  const ta = document.getElementById('carrierGuideline');
+  const status = document.getElementById('guidelineStatus');
+  if (!ta) return;
+
+  // Validate extension
+  const name = (file.name || '').toLowerCase();
+  const allowed = ['.pdf', '.docx', '.doc', '.txt', '.md'];
+  const ok = allowed.some(ext => name.endsWith(ext));
+  if (!ok) {
+    toast('Unsupported file type · use PDF, DOCX, DOC, TXT, or MD', 'error');
+    return;
+  }
+
+  // Validate size
+  if (file.size > GUIDELINE_MAX_FILE_SIZE) {
+    toast('File too large · max 10MB', 'error');
+    return;
+  }
+
+  // Show progress
+  if (status) {
+    status.textContent = 'PARSING ' + file.name.toUpperCase() + '...';
+    status.style.color = 'var(--text-2)';
+  }
+
+  try {
+    // Reuse the broker-upload extractText() helper. It handles PDF / DOCX / DOC
+    // / plain text and returns the extracted text plus optional metadata.
+    const meta = {};
+    const text = await extractText(file, meta);
+    const cleanText = (text || '').trim();
+
+    // Sanity check: scanned PDFs come back near-empty
+    if (cleanText.length < GUIDELINE_MIN_TEXT_LENGTH) {
+      if (status) {
+        status.textContent = 'PARSED ' + cleanText.length + ' CHARS · TOO SHORT';
+        status.style.color = 'var(--error)';
+      }
+      toast('Parsed only ' + cleanText.length + ' chars — file may be a scanned PDF or empty. Use the textarea to paste manually.', 'error');
+      return;
+    }
+
+    // Drop it in the textarea so user can review/edit before save
+    ta.value = cleanText;
+    if (status) {
+      status.textContent = 'LOADED ' + file.name.toUpperCase() + ' · ' + cleanText.length.toLocaleString() + ' CHARS · CLICK SAVE';
+      status.style.color = 'var(--signal)';
+    }
+    toast('Guideline parsed (' + cleanText.length.toLocaleString() + ' chars) · click Save to apply');
+    if (typeof logAudit === 'function') {
+      logAudit('Settings', 'Guideline file dropped: ' + file.name + ' · ' + cleanText.length + ' chars', 'ok');
+    }
+  } catch (err) {
+    console.error('Guideline file parse failed', err);
+    if (status) {
+      status.textContent = 'PARSE FAILED';
+      status.style.color = 'var(--error)';
+    }
+    toast('Parse failed · ' + (err.message || 'unknown') + ' · use textarea to paste manually', 'error');
+  }
 }
 
 // Updates the API pill in the top bar to reflect signed-in state.
@@ -1459,7 +1691,7 @@ async function extractText(file, metadata, onProgress) {
             if (pdf.numPages <= 15) {
               try {
                 const opList8708 = await page.getOperatorList();
-                const ticks8708 = collectTickPathsFromOps8708(window.__STM_NORMALIZE_PDF_TICKS(opList8708, pdfjsLib.OPS), pdfjsLib.OPS);
+                const ticks8708 = collectTickPathsFromOps8708(opList8708, pdfjsLib.OPS);
                 if (ticks8708.length) {
                   const detected8708 = detectCheckboxMarksOnPage8708(content.items, ticks8708);
                   if (detected8708.length) marks8708 = detected8708;
@@ -2710,7 +2942,7 @@ function renderFileList() {
       : '';
 
     return `
-      <div class="file-item ${stateClass}" ${f.state === 'needs_manual' ? `data-stm-action="manual-paste" data-stm-id="${escapeHtml(f.id)}" style="cursor: pointer;" title="Click to paste the document text manually"` : ''}>
+      <div class="file-item ${stateClass}" ${f.state === 'needs_manual' ? `onclick="openManualPasteModal('${f.id}')" style="cursor: pointer;" title="Click to paste the document text manually"` : ''}>
         <div class="file-icon">${escapeHtml(icon)}</div>
         <div class="file-meta">
           <div class="file-name">${escapeHtml(f.name)}</div>
@@ -2718,11 +2950,10 @@ function renderFileList() {
           ${lineageHtml}
         </div>
         ${confBadge ? `<div class="file-conf">${confBadge}</div>` : ''}
-        <div class="file-remove" data-stm-action="file-remove" data-stm-id="${escapeHtml(f.id)}" title="Remove">✕</div>
+        <div class="file-remove" onclick="event.stopPropagation(); removeFile('${f.id}')" title="Remove">✕</div>
       </div>
     `;
   }).join('');
-  window.STMNativeEvents.bind(list);
 
   footer.style.display = 'flex';
   const parsed = STATE.files.filter(f => f.state === 'parsed' || f.state === 'classified').length;
@@ -3387,7 +3618,50 @@ function deepClone(v) {
 
 // ---- Status change -------------------------------------------------------
 async function changeSubmissionStatus(submissionId, newStatus) {
-  return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.status(submissionId,newStatus));
+  const rec = STATE.submissions.find(s => s.id === submissionId);
+  if (!rec) return;
+  if (!SUB_STATUSES.includes(newStatus)) {
+    toast('Invalid status: ' + newStatus, 'error');
+    return;
+  }
+  if (rec.status === newStatus) { closeAllStatusMenus(); return; }
+  const from = rec.status;
+  const now = Date.now();
+  rec.status = newStatus;
+  rec.lastModifiedAt = now;
+  rec.statusHistory = rec.statusHistory || [];
+  rec.statusHistory.push({ from, to: newStatus, at: now, actor: currentActor() });
+  renderQueueTable();
+  updateQueueKpi();
+  logAudit('Submissions', rec.id + ' · status ' + from + ' → ' + newStatus, '—');
+  toast(displayAccount(rec) + ' · ' + newStatus.toLowerCase());
+  closeAllStatusMenus();
+  // Now awaited inline so the toast/UI reflects actual persistence. Previously
+  // fire-and-forget — UI showed new status before the cloud write committed,
+  // and a fast refresh in the gap would resurface the prior status. Errors
+  // don't throw out (local state still has the new status); they're logged
+  // so the user sees the failure indicator and can retry.
+  try {
+    if (typeof sbSaveSubmission !== 'function') throw new Error('sbSaveSubmission not defined');
+    const liteSnapshot = rec.snapshot ? {
+      ...rec.snapshot,
+      files: (rec.snapshot.files || []).map(f => ({ ...f, text: '', textDropped: true, pageTexts: undefined, _rawFile: undefined })),
+      derived: {
+        account:         rec.account || null,
+        broker:          rec.broker || null,
+        effectiveDate:   rec.effective || rec.effectiveDate || null,
+        requestedLimits: rec.requested || rec.requestedLimits || null,
+        missingInfo:     rec.missingInfo || null
+      }
+    } : null;
+    await sbSaveSubmission(buildSubmissionPayload(rec, liteSnapshot));
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Status synced to cloud · ' + rec.id + ' · ' + newStatus, 'ok');
+  } catch (err) {
+    console.error('Status sync failed', rec.id, err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'STATUS SYNC FAILED ' + rec.id + ' · ' + msg, 'error');
+    if (typeof toast === 'function') toast('Status save failed · ' + msg.slice(0, 80), 'error');
+  }
 }
 
 function displayAccount(rec) {
@@ -3399,15 +3673,103 @@ function displayAccount(rec) {
 // save the currently-active submission's state so the UW doesn't lose
 // anything when hopping between submissions.
 async function rehydrateSubmission(submissionId) {
-  return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.open(submissionId));
-}
-async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
-  window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
   const rec = STATE.submissions.find(s => s.id === submissionId);
-  if (!rec || !rec.snapshot) throw new Error('The selected submission has no saved snapshot.');
+  // v8.7.99: the queue list no longer ships snapshots (payload diet); fetch
+  // this one row's snapshot on demand the first time it is opened.
+  if (rec && !rec.snapshot && typeof sbFetchSubmissionSnapshot === 'function') {
+    try { rec.snapshot = await sbFetchSubmissionSnapshot(submissionId); } catch (e) { console.warn('[rehydrate] on-demand snapshot fetch failed:', e && e.message); }
+  }
+  if (!rec || !rec.snapshot) {
+    toast('Could not load submission — snapshot missing', 'error');
+    return;
+  }
+  // Same-submission click: if UW clicks the row they're already on, just go to
+  // submission view without reloading. The live workbench state is fresher than
+  // any stored snapshot, so reloading would be destructive.
+  if (STATE.activeSubmissionId === submissionId && STATE.pipelineDone) {
+    switchView('submission');
+    showStage('sum');
+    return;
+  }
+  // v8.6.6 (per GPT external audit): monotonic rehydrate token. Any
+  // async work started inside this call captures `myToken` and refuses
+  // to mutate STATE if a newer rehydrate has started since. Catches the
+  // race where the UW clicks A then B fast — A's sbLoadEdits resolves
+  // late and would otherwise overlay A's edits onto B's STATE. Also
+  // catches the A → B → A case where simply checking activeSubmissionId
+  // would let the first A fetch clobber the second A fetch's result.
   STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
   const myToken = STATE._rehydrateToken;
+  // PHASE A FIX (per GPT external audit): also bump _uploadToken here so
+  // any in-flight extractAndProcessFile from a prior submission detects the
+  // context change and bails out. Without this, swapping to a different
+  // archived submission while uploads from the previous one are still
+  // extracting could let stale text/classifications leak in.
   STATE._uploadToken = (STATE._uploadToken || 0) + 1;
+  // Different submission: save active submission's current state before swapping
+  // so the UW doesn't lose any live edits made since archive.
+  if (STATE.activeSubmissionId && STATE.activeSubmissionId !== submissionId) {
+    const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
+    if (activeRec && STATE.pipelineDone) {
+      // v8.6.5 (per GPT external audit): same race as startNewSubmission.
+      // Previous code called saveEditsNow() without await even though
+      // it's async — fire-and-forget meant the upsert could still be in
+      // flight when sbLoadEdits ran for the new submission, overlaying
+      // the stale cloud edit row on top of the fresh snapshot. Now uses
+      // shared flushEditsNow() helper which awaits the chain.
+      await flushEditsNow();
+      // Refresh snapshot with any edits the UW made to the active submission
+      activeRec.snapshot = {
+        files:          slimSnapshotFiles8799(),
+        extractions:    deepClone(STATE.extractions),
+        edits:          deepClone(STATE.edits),
+        customCards:    deepClone(STATE.customCards),
+        hiddenCards:    deepClone(STATE.hiddenCards),
+        handoff:        deepClone(STATE.handoff),
+        audit:          STATE.audit.slice(),
+        runTotalCost:   STATE.runTotalCost || 0,
+        pipelineRun:    STATE.pipelineRun,
+    _stmRunComplete: !!STATE.pipelineDone,
+    _stmOperation: window.__STM_SUBMISSION?.lastOperation?.()||null
+      };
+      activeRec.lastModifiedAt = Date.now();
+      // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
+      // a direct single-record save. Matches the pattern in archiveCurrentSubmission /
+      // changeSubmissionStatus / deleteSubmission. Verbose audit on every step
+      // so future silent failures become impossible to miss. No green success
+      // toast on auto-saves — would confuse UX since the user navigated away.
+      // v8.6.6 (per GPT external audit): await the snapshot save. The
+      // previous async IIFE fire-and-forget meant the cloud snapshot of
+      // the submission we're switching AWAY FROM could still be in flight
+      // when we proceeded. Closing the browser inside the IIFE's lifetime
+      // would lose recent state on cloud reload. Awaiting blocks the
+      // submission switch by ~1 round-trip but guarantees the cloud
+      // snapshot is durable before we mutate STATE for the new submission.
+      try {
+        await saveSubmissionSnapshot(activeRec, 'auto · switching submissions');
+      } catch (err) {
+        console.error('Submission save failed (rehydrate path)', activeRec.id, err);
+        const msg = (err && err.message) ? err.message : String(err);
+        if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · switching submissions) · ' + msg + ' · kept in-memory', 'error');
+        if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+      }
+    }
+  }
+  // v8.6.7 (per GPT external audit): stale-token guard BEFORE loading the
+  // target snapshot into STATE. The save above is awaited (~500ms), and
+  // during that window the user could have clicked another submission
+  // OR clicked New Submission. Without this guard, our submission's
+  // snapshot would land on STATE that's already been moved on.
+  // The token check returns early, leaving the newer caller in control.
+  if (myToken !== STATE._rehydrateToken) {
+    if (typeof logAudit === 'function') {
+      logAudit('Submissions',
+        'Skipped stale base snapshot hydrate · was for ' + submissionId +
+        ' · token ' + myToken + '/' + STATE._rehydrateToken,
+        'warn');
+    }
+    return;
+  }
   // Load target snapshot
   const snap = rec.snapshot;
   STATE.files         = deepClone(snap.files || []);
@@ -3418,9 +3780,8 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
   STATE.handoff       = deepClone(snap.handoff || { status: null, viewAs: 'uw', history: [] });
   STATE.audit         = (snap.audit || []).slice();
   STATE.runTotalCost  = snap.runTotalCost || 0;
-  STATE.pipelineStart = Number(snap.pipelineStart) || 0;
   STATE.pipelineRun   = snap.pipelineRun || rec.pipelineRun;
-  STATE.pipelineDone  = snap._stmRunComplete !== false;
+  STATE.pipelineDone  = true;
   STATE.pipelineRunning = false;
   STATE.activeSubmissionId = submissionId;
   STATE.newSubmissionDraftMode = false;
@@ -3433,10 +3794,9 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
   //                                 'custom:<id>' → STATE.customCards entry
   //                                 'hidden:<id>' → STATE.hiddenCards[id] = true
   if (typeof sbLoadEdits === 'function') {
-    await (async () => {
+    (async () => {
       try {
-        const editRows = nativeCloud ? nativeCloud.edits : await sbLoadEdits(submissionId);
-        window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
+        const editRows = await sbLoadEdits(submissionId);
         // v8.6.6: stale-overlay guard. If the user switched submissions
         // (or re-clicked this one) while sbLoadEdits was in flight, our
         // editRows belong to a no-longer-active context. Bailing avoids
@@ -3484,9 +3844,8 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
             editCount + ' edits, ' + customCount + ' custom, ' + hiddenCount + ' hidden', 'ok');
         }
         // Re-render the workbench cards so the cloud-overlaid edits show
-        // Render once after cloud overlays and owner-scoped recovery are applied.
+        if (typeof renderSummaryCards === 'function') renderSummaryCards();
       } catch (err) {
-        window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
         console.warn('sbLoadEdits failed during rehydrate', err);
         if (typeof logAudit === 'function') logAudit('Edits', 'Hydrate FAILED · ' + submissionId + ' · ' + (err.message || err), 'error');
       }
@@ -3496,10 +3855,9 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
   // the UW's 👍/👎/💬 reactions show up on the cards after refresh or when
   // opening an archived submission. Fire-and-forget with audit logging.
   if (typeof sbLoadFeedbackForSubmission === 'function') {
-    await (async () => {
+    (async () => {
       try {
-        const events = nativeCloud ? nativeCloud.feedback : await sbLoadFeedbackForSubmission(submissionId);
-        window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
+        const events = await sbLoadFeedbackForSubmission(submissionId);
         // v8.6.6: stale-overlay guard. Same race as sbLoadEdits — if
         // the user switched submissions while this fetch was in flight,
         // bail rather than overlaying stale feedback onto wrong submission.
@@ -3520,9 +3878,8 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
         if (typeof logAudit === 'function') logAudit('Feedback', 'Loaded ' + events.length + ' event(s) for ' + submissionId, 'ok');
         // Re-render anything that shows feedback counts / per-card reactions
         if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
-        // Render once after cloud overlays and owner-scoped recovery are applied.
+        if (typeof renderSummaryCards === 'function') renderSummaryCards();
       } catch (err) {
-        window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
         console.warn('Feedback rehydrate failed', err);
         if (typeof logAudit === 'function') logAudit('Feedback', 'Rehydrate failed: ' + (err.message || err), 'warn');
       }
@@ -3546,9 +3903,7 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
   // the older snapshot edits over fresher cloud rows before sbLoadEdits resolved.
   // Subsequent edits naturally trigger saveEditsNow via markDirty()/onEditCommit,
   // so removing this call costs nothing functionally.
-  window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
-  window.__STM_SUBMISSION?.context?.();
-  document.body.classList.toggle('pipeline-complete-mode',STATE.pipelineDone);
+  document.body.classList.add('pipeline-complete-mode');
   // UI refresh — render the submission view with the rehydrated state
   const sh = document.getElementById('sh-name');
   const sm = document.getElementById('sh-meta');
@@ -3558,7 +3913,7 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
     if (rec.broker)    parts.push('Broker: ' + rec.broker);
     if (rec.effective) parts.push('Effective: ' + rec.effective);
     if (rec.requested) parts.push('Requested: ' + rec.requested);
-    parts.push(rec.modulesRun + '/' + Object.keys(MODULES).length + ' modules · ' + (window.STMSubmissionContracts.confidence(rec.confidence)??0) + '% avg confidence');
+    parts.push(rec.modulesRun + '/' + Object.keys(MODULES).length + ' modules · ' + Math.round((rec.confidence || 0) * 100) + '% avg confidence');
     sm.textContent = parts.join(' · ');
   }
   // Warn if files had their bytes dropped by localStorage lite-persistence
@@ -3595,7 +3950,49 @@ async function stmNativeHydrateRaw(submissionId, nativeOwner, nativeCloud) {
 
 // ---- Delete submission ---------------------------------------------------
 async function deleteSubmission(submissionId, confirmAlready) {
-  return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.deleteSubmission(submissionId,confirmAlready));
+  const rec = STATE.submissions.find(s => s.id === submissionId);
+  if (!rec) return;
+  if (!confirmAlready && !confirm('Delete ' + displayAccount(rec) + ' from the queue? This cannot be undone.')) return;
+
+  const label = displayAccount(rec);
+  const deleteFn = window.sbDeleteSubmission;
+  if (typeof deleteFn !== 'function') {
+    const msg = 'window.sbDeleteSubmission not defined';
+    console.error('Cloud delete failed', submissionId, msg);
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg, 'error');
+    return;
+  }
+
+  // v8.6.19: cloud-confirmed delete. Do NOT optimistically remove from the
+  // queue before the parent DELETE is confirmed. The previous flow removed the
+  // row locally first, which made failed/no-op deletes look successful until the
+  // next hydrate put the row back. Now a row only disappears after Supabase
+  // confirms that DELETE /rest/v1/submissions affected at least one row.
+  if (typeof toast === 'function') toast('Deleting · ' + label);
+  if (typeof logAudit === 'function') logAudit('Submissions', 'Delete requested · ' + submissionId + ' · ' + label, '—');
+
+  try {
+    await deleteFn(submissionId);
+
+    if (!STATE._deletedSubmissionIds) STATE._deletedSubmissionIds = new Set();
+    STATE._deletedSubmissionIds.add(submissionId);
+    STATE.submissions = STATE.submissions.filter(s => s.id !== submissionId);
+    if (STATE.activeSubmissionId === submissionId) STATE.activeSubmissionId = null;
+    if (window.docsView && typeof window.docsView.pruneSubmission === 'function') {
+      try { window.docsView.pruneSubmission(submissionId); } catch(e) {}
+    }
+
+    renderQueueTable();
+    updateQueueKpi();
+    if (typeof logAudit === 'function') logAudit('Submissions', 'Cloud delete confirmed · ' + submissionId, 'ok');
+    if (typeof toast === 'function') toast('Deleted · ' + label, 'success');
+  } catch (err) {
+    console.error('Cloud delete failed', submissionId, err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof logAudit === 'function') logAudit('Submissions', 'CLOUD DELETE FAILED ' + submissionId + ' · ' + msg, 'error');
+    if (typeof toast === 'function') toast('Cloud delete failed · ' + msg.slice(0, 120), 'error');
+    if (STATE._deletedSubmissionIds) STATE._deletedSubmissionIds.delete(submissionId);
+  }
 }
 
 // ---- Status menu (dropdown) ----------------------------------------------
@@ -3728,7 +4125,6 @@ function renderQueueTable() {
     return (b.lastModifiedAt || 0) - (a.lastModifiedAt || 0);
   });
   tbody.innerHTML = sorted.map(rec => renderQueueRow(rec)).join('');
-  window.STMNativeEvents.bind(tbody);
 }
 
 function renderQueueRow(rec) {
@@ -3739,7 +4135,7 @@ function renderQueueRow(rec) {
   const effective = rec.effective ? escapeHtml(rec.effective) : '<span style="color: var(--text-3);">—</span>';
   const requested = rec.requested ? escapeHtml(rec.requested) : '<span style="color: var(--text-3);">—</span>';
   const modulesText = '<strong>' + (rec.modulesRun || 0) + '</strong>/' + Object.keys(MODULES).length;
-  const confPct = (window.STMSubmissionContracts.confidence(rec.confidence)??0);
+  const confPct = Math.round((rec.confidence || 0) * 100);
   const confClass = confPct >= 90 ? 'conf-high' : (confPct >= 75 ? 'conf-mid' : 'conf-low');
   const confText = rec.modulesRun > 0 ? confPct + '%' : '—';
   const missing = rec.missingInfo || [];
@@ -3752,10 +4148,10 @@ function renderQueueRow(rec) {
   const statusClass = SUB_STATUS_CLASS[rec.status] || 'status-awaiting';
   const statusPill = `
     <div class="status-wrap">
-      <button class="status-pill ${statusClass}" data-stm-action="queue-status" data-stm-id="${escapeHtml(rec.id)}">${escapeHtml(rec.status)}</button>
+      <button class="status-pill ${statusClass}" onclick="toggleStatusMenu('${rec.id}', this, event)">${escapeHtml(rec.status)}</button>
       <div class="status-menu" id="statusMenu-${rec.id}">
         ${SUB_STATUSES.map(s => `
-          <div class="status-menu-item${s === rec.status ? ' current' : ''}" data-status="${s}" data-stm-action="queue-change" data-stm-id="${escapeHtml(rec.id)}" data-stm-value="${escapeHtml(s)}">
+          <div class="status-menu-item${s === rec.status ? ' current' : ''}" data-status="${s}" onclick="event.stopPropagation(); changeSubmissionStatus('${rec.id}', '${s}')">
             <span class="dot"></span>${s}
           </div>
         `).join('')}
@@ -3776,7 +4172,7 @@ function renderQueueRow(rec) {
       <td class="modules-cell">${modulesText}</td>
       <td class="conf-cell ${confClass}">${confText}</td>
       <td>${missingChip}</td>
-      <td data-stm-action="queue-stop">${statusPill}</td>
+      <td onclick="event.stopPropagation()">${statusPill}</td>
     </tr>
   `;
 }
@@ -3919,15 +4315,15 @@ function feedbackOpenPopover(moduleId, customId, sentiment, anchorBtn) {
   popover.innerHTML = `
     <div class="fb-popover-head">
       <span class="fb-popover-title">${title}</span>
-      <button class="fb-popover-close" data-stm-action="feedback-close" title="Cancel">✕</button>
+      <button class="fb-popover-close" onclick="closeAllFeedbackPopovers()" title="Cancel">✕</button>
     </div>
     <div class="fb-popover-chips">
-      ${chips.map(c => `<button class="fb-chip" data-reason="${c.id}" data-stm-action="feedback-chip">${escapeHtml(c.label)}</button>`).join('')}
+      ${chips.map(c => `<button class="fb-chip" data-reason="${c.id}" onclick="toggleFeedbackChip(this)">${escapeHtml(c.label)}</button>`).join('')}
     </div>
     <textarea class="fb-popover-textarea" placeholder="${isNegative ? 'Optional — what would have been correct?' : 'Optional — describe what was missing…'}" rows="3"></textarea>
     <div class="fb-popover-actions">
-      <button class="fb-btn fb-btn-cancel" data-stm-action="feedback-close">Cancel</button>
-      <button class="fb-btn fb-btn-submit" data-stm-action="feedback-submit">${submitLabel}</button>
+      <button class="fb-btn fb-btn-cancel" onclick="closeAllFeedbackPopovers()">Cancel</button>
+      <button class="fb-btn fb-btn-submit" onclick="submitFeedbackFromPopover(this)">${submitLabel}</button>
     </div>
   `;
   // Position: append to the card so it flows naturally below the header
@@ -3935,7 +4331,6 @@ function feedbackOpenPopover(moduleId, customId, sentiment, anchorBtn) {
   if (!card) return;
   // Expand the card if it was collapsed so the popover is visible
   card.classList.remove('collapsed');
-  window.STMNativeEvents.bind(popover);
   card.appendChild(popover);
   // Autofocus the textarea after a beat
   setTimeout(() => popover.querySelector('.fb-popover-textarea')?.focus(), 80);
@@ -4201,7 +4596,7 @@ function updateFeedbackCount() {
   // Delegate to the admin renderer so a live feedback submission in-session
   // doesn't overwrite the cloud-truth status text with a session-only number.
   if (window.currentUser && window.currentUser.role === 'admin') {
-    if (typeof window.renderAdminFeedbackCard === 'function') window.renderAdminFeedbackCard();
+    if (typeof renderAdminFeedbackCard === 'function') renderAdminFeedbackCard();
     return;
   }
   const el = document.getElementById('feedbackStatus');
@@ -4280,8 +4675,7 @@ function auditActiveSubmissionId8750() {
 function auditPersistLocal8750(row) {
   try {
     if (typeof localStorage === 'undefined' || !row) return;
-    if(!window.currentUser?.id)return;
-    const key = 'stm_audit_ring_v10:'+window.currentUser.id;
+    const key = 'stm_audit_ring_v8750';
     const prior = JSON.parse(localStorage.getItem(key) || '[]');
     const arr = Array.isArray(prior) ? prior : [];
     arr.push(row);
@@ -4293,13 +4687,12 @@ function auditPersistLocal8750(row) {
 function auditReadLocal8750() {
   try {
     if (typeof localStorage === 'undefined') return [];
-    if(!window.currentUser?.id)return [];
-    const arr = JSON.parse(localStorage.getItem('stm_audit_ring_v10:'+window.currentUser.id) || '[]');
+    const arr = JSON.parse(localStorage.getItem('stm_audit_ring_v8750') || '[]');
     if (!Array.isArray(arr)) return [];
     const sid = auditActiveSubmissionId8750();
     if (sid) {
       const scoped = arr.filter(r => !r || !r.submissionId || String(r.submissionId) === String(sid));
-      return scoped.slice(-500);
+      if (scoped.length) return scoped.slice(-500);
     }
     return arr.slice(-500);
   } catch (e) { return []; }
@@ -4588,7 +4981,7 @@ async function exportAudit() {
 // ============================================================================
 function exportExcel() {
   if (!staleGuard8733('Export Excel Pack')) return;  // v8.7.133
-  if (Object.keys(STATE.extractions).length === 0 && STATE.customCards.length === 0) {
+  if (Object.keys(STATE.extractions).length === 0) {
     toast('Run pipeline first', 'warn');
     return;
   }
@@ -4625,8 +5018,8 @@ function exportExcel() {
       _m.code,
       _m.name,
       ext.sourceInfo || '—',
-      (window.STMSubmissionContracts.confidence(ext.confidence)??'—') + '%',
-      extractionTimingLabel95(ext),
+      Math.round((ext.confidence || 0) * 100) + '%',
+      Number(ext.timing || 0).toFixed(1),
       ext.mode
     ]);
   });
@@ -4638,7 +5031,7 @@ function exportExcel() {
       f.name,
       Math.round(f.size / 1024),
       f.classification || 'unknown',
-      window.STMSubmissionContracts.confidence(f.confidence)===null?'Not reported':window.STMSubmissionContracts.confidence(f.confidence)+'%',
+      f.confidence ? Math.round(f.confidence * 100) + '%' : '—',
       (f.routedTo && MODULES[f.routedTo]) ? MODULES[f.routedTo].code : (f.routedTo || '—'),
       f.state
     ]);
@@ -4652,16 +5045,16 @@ function exportExcel() {
   Object.entries(STATE.extractions).forEach(([mid, ext]) => {
     if (STATE.hiddenCards[mid]) return;  // skip hidden cards
     const m = MODULES[mid] || { code: mid, name: mid + ' (legacy module)' };  // FIX-AUDIT-2026-06-09
-    const isEdited = Object.prototype.hasOwnProperty.call(STATE.edits[mid]||{},'htmlOverride');
+    const isEdited = STATE.edits[mid] && STATE.edits[mid].htmlOverride;
     const effectiveText = cleanVisibleExtractionText99(mid, getEffectiveText(mid));  // v8.7.121: no machine blocks in XLSX export
     const rows = [
       [m.code + ' — ' + m.name + (isEdited ? '  (EDITED)' : '')],
       [],
-      ['Confidence', (window.STMSubmissionContracts.confidence(ext.confidence)??'—') + '%'],
-      ['Timing', extractionTimingLabel95(ext)],
+      ['Confidence', Math.round(ext.confidence * 100) + '%'],
+      ['Timing', Number(ext.timing || 0).toFixed(1) + 's'],
       ['Source', ext.sourceInfo || '—'],
       ['Mode', ext.mode],
-      ['Edited', isEdited ? 'YES · ' + stmNativeTimestamp(STATE.edits[mid].editedAt) : 'no'],
+      ['Edited', isEdited ? 'YES · ' + new Date(STATE.edits[mid].editedAt).toISOString() : 'no'],
       ['Generated', now.toISOString()],
       [],
       ['--- EXTRACTION OUTPUT ---'],
@@ -4689,8 +5082,8 @@ function exportExcel() {
     const rows = [
       ['CUSTOM · ' + cc.title],
       [],
-      ['Created', stmNativeTimestamp(cc.createdAt)],
-      ['Edited', stmNativeTimestamp(cc.editedAt)],
+      ['Created', new Date(cc.createdAt).toISOString()],
+      ['Edited', new Date(cc.editedAt).toISOString()],
       [],
       ['--- CONTENT ---'],
       []
@@ -4741,7 +5134,7 @@ async function copyReferralEmail() {
   if (!emailExt) { toast('No referral email — run pipeline first', 'warn'); return; }
   // Use the edited text if present, falling back to the original extraction.
   // getEffectiveText still keys on 'email_intel' below since edits map to module IDs.
-  let text = getEffectiveText(STATE.extractions.email_intel ? 'email_intel' : 'email');
+  let text = getEffectiveText('email_intel') || (emailExt.text || '');
   // Substitute placeholders with live values
   text = text
     .replace(/\[RUN_ID\]|\{RUN_ID\}/g, STATE.pipelineRun || 'unknown')
@@ -4788,17 +5181,17 @@ function exportMarkdown() {
   md += '\n---\n\n';
 
   // Extraction cards in CARD_ORDER, skipping hidden
-  const order = [...new Set([...(typeof CARD_ORDER !== 'undefined'?CARD_ORDER:[]),...Object.keys(STATE.extractions)])];
+  const order = (typeof CARD_ORDER !== 'undefined') ? CARD_ORDER : Object.keys(STATE.extractions);
   order.filter(mid => STATE.extractions[mid] && !STATE.hiddenCards[mid]).forEach(mid => {
-    const m = MODULES[mid]||{code:mid,name:'Archived output'};
+    const m = MODULES[mid];
     const ext = STATE.extractions[mid];
-    const isEdited = Object.prototype.hasOwnProperty.call(STATE.edits[mid]||{},'htmlOverride');
+    const isEdited = STATE.edits[mid] && STATE.edits[mid].htmlOverride;
     md += '## ' + m.code + ' — ' + m.name + (isEdited ? ' (edited)' : '') + '\n\n';
-    md += '_Confidence: ' + (window.STMSubmissionContracts.confidence(ext.confidence)??'—') + '% · ';
+    md += '_Confidence: ' + Math.round(ext.confidence * 100) + '% · ';
     md += 'Timing: ' + extractionTimingLabel95(ext) + ' · ';
     md += 'Source: ' + (ext.sourceInfo || '—') + ' · ';
     md += 'Mode: ' + ext.mode;
-    if (isEdited) md += ' · Edited: ' + stmNativeTimestamp(STATE.edits[mid].editedAt);
+    if (isEdited) md += ' · Edited: ' + new Date(STATE.edits[mid].editedAt).toISOString();
     md += '_\n\n';
     // v8.7.121: exports are user-facing; route through the visible cleaner so
     // machine-only fenced blocks (safety_grounding, *_structured, tower json)
@@ -4809,7 +5202,7 @@ function exportMarkdown() {
   // Custom cards
   STATE.customCards.filter(cc => !STATE.hiddenCards[cc.id]).forEach(cc => {
     md += '## CUSTOM — ' + cc.title + '\n\n';
-    md += '_Added: ' + stmNativeTimestamp(cc.createdAt) + '_\n\n';
+    md += '_Added: ' + new Date(cc.createdAt).toISOString() + '_\n\n';
     md += getCustomText(cc) + '\n\n---\n\n';
   });
 
@@ -5121,7 +5514,7 @@ function renderSummaryCards() {
   const container = document.getElementById('summaryCards');
   if (!container) return;
 
-  const extractedIds = [...new Set([...CARD_ORDER,...Object.keys(STATE.extractions)])].filter(mid => STATE.extractions[mid]);
+  const extractedIds = CARD_ORDER.filter(mid => STATE.extractions[mid]);
   if (typeof window.renderStaleBanner8733 === 'function') window.renderStaleBanner8733();  // v8.7.133: banner stays truthful on every render
 
   // Update summary header stats
@@ -5129,10 +5522,10 @@ function renderSummaryCards() {
   if (sm) {
     const count = extractedIds.length;
     const avgConf = count > 0
-      ? Math.round(extractedIds.reduce((a, mid) => a + (window.STMSubmissionContracts.confidence(STATE.extractions[mid].confidence)||0), 0) / count) + '%'
+      ? Math.round(extractedIds.reduce((a, mid) => a + STATE.extractions[mid].confidence, 0) / count * 100) + '%'
       : '—';
     const totalTime = count > 0
-      ? extractedIds.reduce((a, mid) => a + (Number(STATE.extractions[mid].timing)||0), 0).toFixed(1) + 's'
+      ? extractedIds.reduce((a, mid) => a + STATE.extractions[mid].timing, 0).toFixed(1) + 's'
       : '—';
     const editedCount = Object.keys(STATE.edits).length + STATE.customCards.length;
     const editedSuffix = editedCount > 0 ? ` · <strong style="color: var(--warning);">${editedCount} edited</strong>` : '';
@@ -5161,7 +5554,6 @@ function renderSummaryCards() {
   });
 
   container.innerHTML = cards.join('');
-  window.STMNativeEvents.bind(container);
   updateHiddenTray();
   // FIX-2026-06-09 (paired-cards): if a card rendered expanded (was-updated
   // auto-expand), open its side-by-side partner too — never half-open rows.
@@ -5175,7 +5567,18 @@ function renderSummaryCards() {
       const mid = card.dataset.mid;
       const type = card.dataset.type;
       card.classList.add('dirty');
-      try { window.__STM_SUBMISSION.edit(mid,body.innerHTML); } catch(e) { window.toast(e.message,'error'); }
+      if (type === 'extraction') {
+        STATE.edits[mid] = STATE.edits[mid] || { originalText: STATE.extractions[mid].text };
+        STATE.edits[mid].htmlOverride = body.innerHTML;
+        STATE.edits[mid].editedAt = Date.now();
+      } else if (type === 'custom') {
+        const cc = STATE.customCards.find(c => c.id === mid);
+        if (cc) {
+          cc.html = body.innerHTML;
+          cc.editedAt = Date.now();
+        }
+      }
+      markDirty();
     });
     // Prevent click-on-body from toggling the card collapse
     body.addEventListener('click', e => e.stopPropagation());
@@ -5188,7 +5591,9 @@ function renderSummaryCards() {
       const mid = card.dataset.mid;
       const cc = STATE.customCards.find(c => c.id === mid);
       if (cc) {
-        try { window.__STM_SUBMISSION.rename(mid,titleEl.textContent); } catch(e) { window.toast(e.message,'error'); }
+        cc.title = titleEl.textContent;
+        cc.editedAt = Date.now();
+        markDirty();
       }
     });
     titleEl.addEventListener('click', e => e.stopPropagation());
@@ -5266,14 +5671,13 @@ function extractionTimingLabel95(ext) {
 function renderExtractionCard(mid) {
   const m = MODULES[mid];
   const ext = STATE.extractions[mid];
-  if(!m)return window.__STM_NATIVE_UI.legacyCard(mid);
   const isFull = FULL_WIDTH.has(mid);
-  const confPct = (window.STMSubmissionContracts.confidence(ext.confidence)??'—');
+  const confPct = Math.round(ext.confidence * 100);
   const modeBadge = ext.cached8760
     ? '<span class="sc-mode-cached8760" title="Reused identical prior extraction at zero cost">CACHED</span>'
     : ext.mode === 'live'
     ? '<span style="color: var(--signal-ink); font-weight: 700;">LIVE</span>'
-    : '<span style="color: var(--text-3);">'+(ext.mode?escapeHtml(ext.mode.toUpperCase()):'MODE NOT REPORTED')+'</span>';
+    : '<span style="color: var(--warning); font-weight: 700;">LOCAL</span>';
   const sourceText = ext.sourceInfo
     ? `from ${escapeHtml(ext.sourceInfo.length > 60 ? ext.sourceInfo.slice(0, 57) + '…' : ext.sourceInfo)}`
     : '';
@@ -5311,9 +5715,9 @@ function renderExtractionCard(mid) {
             : '<span class="sc-stale-badge" title="Inputs changed since last run (' + escapeHtml((staleFlag8733.triggers || []).join(', ')) + '). Click the refresh icon to rebuild this section.">STALE</span>'))
     : '';
   const refreshBtn8733 = (mid !== 'guidelines')
-    ? '<button class="sc-act sc-refresh" data-stm-action="card-refresh" data-stm-id="' + escapeHtml(mid) + '" title="Refresh this section from current inputs">\u21bb</button>'
+    ? '<button class="sc-act sc-refresh" onclick="event.stopPropagation(); requestSectionRefresh8733(\'' + mid + '\', this)" title="Refresh this section from current inputs">\u21bb</button>'
     : '';
-  const revertBtn = isEdited ? `<button class="sc-act" data-stm-action="card-revert" data-stm-id="${escapeHtml(mid)}" title="Revert to original AI output">⟲</button>` : '';
+  const revertBtn = isEdited ? `<button class="sc-act" onclick="event.stopPropagation(); revertCard('${mid}')" title="Revert to original AI output">⟲</button>` : '';
 
   // Default to collapsed for a clean summary view. One exception:
   //   - Cards flagged as was-updated (after an incremental refresh) auto-expand
@@ -5324,19 +5728,19 @@ function renderExtractionCard(mid) {
 
   return `
     <div class="sc-card${startCollapsed ? ' collapsed' : ''}${isFull ? ' full' : ''}${isEdited ? ' dirty' : ''}${ext.wasUpdated ? ' was-updated' : ''}${staleFlag8733 ? ' is-stale' : ''}" data-mid="${mid}" data-type="extraction">
-      <div class="sc-card-head" data-stm-action="card-toggle">
+      <div class="sc-card-head" onclick="toggleCard(this)">
         <div class="sc-card-head-top">
           <span class="sc-tag">${m.code}</span>
           <span class="sc-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}${editedBadge}</span>
           ${updatedBadge}${staleBadge8733}
           <div class="sc-card-actions">
             ${refreshBtn8733}
-            <button class="sc-act fb-act fb-pos" data-stm-action="card-positive" data-stm-id="${escapeHtml(mid)}" title="Good output — log positive feedback">👍</button>
-            <button class="sc-act fb-act fb-neg" data-stm-action="card-negative" data-stm-id="${escapeHtml(mid)}" title="Something's wrong — give feedback">👎</button>
-            <button class="sc-act fb-act fb-sug" data-stm-action="card-suggest" data-stm-id="${escapeHtml(mid)}" title="Suggest what's missing">💬</button>
+            <button class="sc-act fb-act fb-pos" onclick="event.stopPropagation(); feedbackQuickPositive('${mid}')" title="Good output — log positive feedback">👍</button>
+            <button class="sc-act fb-act fb-neg" onclick="event.stopPropagation(); feedbackOpenPopover('${mid}', null, 'negative', this)" title="Something's wrong — give feedback">👎</button>
+            <button class="sc-act fb-act fb-sug" onclick="event.stopPropagation(); feedbackOpenPopover('${mid}', null, 'suggestion', this)" title="Suggest what's missing">💬</button>
             ${revertBtn}
-            <button class="sc-act" data-stm-action="card-edit" data-stm-id="${escapeHtml(mid)}" title="Edit">✎</button>
-            <button class="sc-act danger" data-stm-action="card-delete" data-stm-id="${escapeHtml(mid)}" title="Hide card">✕</button>
+            <button class="sc-act" onclick="event.stopPropagation(); focusEditCard('${mid}')" title="Edit">✎</button>
+            <button class="sc-act danger" onclick="event.stopPropagation(); deleteCard('${mid}')" title="Hide card">✕</button>
           </div>
           <span class="sc-toggle">▾</span>
         </div>
@@ -5361,12 +5765,12 @@ function renderExtractionCard(mid) {
 function renderCustomCard(cc) {
   return `
     <div class="sc-card full custom collapsed" data-mid="${cc.id}" data-type="custom">
-      <div class="sc-card-head" data-stm-action="card-toggle">
+      <div class="sc-card-head" onclick="toggleCard(this)">
         <div class="sc-card-head-top">
           <span class="sc-tag">CUSTOM</span>
           <span class="sc-card-title-edit" contenteditable="true" spellcheck="true">${escapeHtml(cc.title)}</span>
           <div class="sc-card-actions">
-            <button class="sc-act danger" data-stm-action="card-delete" data-stm-id="${escapeHtml(cc.id)}" title="Delete">✕</button>
+            <button class="sc-act danger" onclick="event.stopPropagation(); deleteCard('${cc.id}')" title="Delete">✕</button>
           </div>
           <span class="sc-toggle">▾</span>
         </div>
@@ -5379,7 +5783,7 @@ function renderCustomCard(cc) {
           </div>
         </div>
       </div>
-      <div class="sc-body" contenteditable="true" data-editable="true" spellcheck="true">${typeof sanitizeModelHtml === 'function' ? sanitizeModelHtml(cc.html ?? '<p>Start typing your note…</p>') : (cc.html ?? '<p>Start typing your note…</p>')}</div>
+      <div class="sc-body" contenteditable="true" data-editable="true" spellcheck="true">${typeof sanitizeModelHtml === 'function' ? sanitizeModelHtml(cc.html || '<p>Start typing your note…</p>') : (cc.html || '<p>Start typing your note…</p>')}</div>
     </div>
   `;
 }
@@ -5794,7 +6198,7 @@ function closeManualPasteModal() {
   __pasteTargetFileId = null;
 }
 
-async function confirmManualPaste() {
+function confirmManualPaste() {
   if (!__pasteTargetFileId) return;
   const entry = STATE.files.find(f => f.id === __pasteTargetFileId);
   if (!entry) return;
@@ -5824,9 +6228,9 @@ async function confirmManualPaste() {
     // a concurrent drop can land in incrementalProcess simultaneously
     // and race on module reruns / archives.
     if (typeof queueIncrementalProcess === 'function') {
-      await queueIncrementalProcess([entry]);
+      queueIncrementalProcess([entry]).catch(err => console.error('Incremental queue failed:', err));
     } else {
-      await incrementalProcess([entry]);
+      incrementalProcess([entry]);
     }
   }
 }
@@ -5988,7 +6392,8 @@ function getEffectiveText(mid) {
   const edit = STATE.edits[mid];
   if (edit && Object.prototype.hasOwnProperty.call(edit, 'htmlOverride')) {
     // Convert edited HTML back to plain text for exports
-    const tmp = new DOMParser().parseFromString(String(edit.htmlOverride || ''), 'text/html').body;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = edit.htmlOverride;
     return (tmp.innerText || tmp.textContent || '').trim();
   }
   return STATE.extractions[mid] ? STATE.extractions[mid].text : '';
@@ -5996,7 +6401,8 @@ function getEffectiveText(mid) {
 
 // Helper: get effective text for a custom card
 function getCustomText(cc) {
-  const tmp = new DOMParser().parseFromString(String(cc.html || ''), 'text/html').body;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = cc.html || '';
   return (tmp.innerText || tmp.textContent || '').trim();
 }
 
@@ -6217,7 +6623,8 @@ function getActiveSubmissionId8706() {
   } catch (e) { return ''; }
 }
 function openWorkbenchForActiveSubmission8706() {
-  return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.navigate('workbench'));
+  const sid = getActiveSubmissionId8706();
+  window.location.href = sid ? '/workbench?submission=' + encodeURIComponent(sid) : '/workbench';
 }
 
 // v8.7.08 — platform route-context recovery.  When Workbench sends users back
@@ -6231,13 +6638,78 @@ function getRouteSubmissionId8708() {
     return params.get('submission') || params.get('submissionId') || '';
   } catch (e) { return ''; }
 }
-async function applyPlatformRouteSubmission8708() {
-  return window.__STM_NATIVE_PLATFORM?.restoreRoute(false);
+async function applyPlatformRouteSubmission8708(reason) {
+  // FIX-2026-06-09 (focus-bounce): the URL route is a ONE-SHOT handoff
+  // instruction from the Workbench, not persistent state. sbHydrate calls
+  // this on completion — and since Phase 3, hydrate also ran on every tab
+  // refocus (token refresh → checkAuth), so a stale ?submission=…#submission
+  // URL re-applied the Pipeline view every time the user returned to the
+  // tab, bouncing them off the Queue. Consume the route exactly once per
+  // page load, and strip the routing hash after a successful apply so it can
+  // never re-fire. Validation failures do NOT consume — an early hydrate
+  // that arrives before submissions load must not burn the route.
+  if (window.__stmRouteConsumed8708) return false;
+  const sid = getRouteSubmissionId8708();
+  const h = String(location.hash || '').replace(/^#/, '').toLowerCase();
+  if (!sid || !['submission','documents','filemanager'].includes(h)) return false;
+  if (!Array.isArray(STATE.submissions) || !STATE.submissions.find(s => s.id === sid)) return false;
+  window.__stmRouteConsumed8708 = true;
+  if (STATE.activeSubmissionId !== sid || !STATE.pipelineDone) {
+    if (typeof rehydrateSubmission === 'function') await rehydrateSubmission(sid);
+  }
+  if (h === 'documents' || h === 'filemanager') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('docs', { fastNav: true });
+  } else if (h === 'submission') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('pipe');
+  }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  return true;
 }
 window.applyPlatformRouteSubmission8708 = applyPlatformRouteSubmission8708;
 function navigateSystem8706(target) {
-  closeUniversalSystemNav8706();
-  return window.__STM_NATIVE_PLATFORM?.handle(window.__STM_NATIVE_PLATFORM.navigate(target));
+  // v8.7.08 — system switching should feel instantaneous.  This is still a
+  // shell-only navigation helper: it never runs pipeline, saves, uploads, clears
+  // tags, quotes, or binds.  We close the dropdown synchronously, then render
+  // the requested surface before any heavier document refresh/enrichment work.
+  target = String(target || '').toLowerCase();
+  try { closeUniversalSystemNav8706(); } catch (e) {}
+
+  const current = document.body.classList.contains('docs-fullwidth') ? 'documents'
+    : document.getElementById('view-admin')?.classList.contains('active') ? 'admin'
+    : document.getElementById('view-submission')?.classList.contains('active') ? 'submission'
+    : 'queue';
+
+  if (target === 'queue') {
+    if (current !== 'queue' && typeof switchView === 'function') switchView('queue');
+    history.replaceState(null, '', '/platform#queue');
+    return;
+  }
+  if (target === 'submission' || target === 'pipeline') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('pipe');
+    const sid = getActiveSubmissionId8706();
+    const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
+    history.replaceState(null, '', '/platform' + suffix + '#submission');
+    return;
+  }
+  if (target === 'documents' || target === 'filemanager' || target === 'files') {
+    if (typeof switchView === 'function') switchView('submission');
+    if (typeof showStage === 'function') showStage('docs', { fastNav: true });
+    const sid = getActiveSubmissionId8706();
+    const suffix = sid ? '?submission=' + encodeURIComponent(sid) : '';
+    history.replaceState(null, '', '/platform' + suffix + '#documents');
+    return;
+  }
+  if (target === 'admin') {
+    if (current !== 'admin' && typeof switchView === 'function') switchView('admin');
+    history.replaceState(null, '', '/platform#admin');
+    return;
+  }
+  if (target === 'workbench') {
+    openWorkbenchForActiveSubmission8706();
+  }
 }
 function closeUniversalSystemNav8706() {
   document.querySelectorAll('[data-system-nav].open').forEach(nav => {
@@ -6283,7 +6755,13 @@ function wireUniversalSystemNav8706() {
     });
   });
 }
-function applyPlatformHashRoute8706() { /* Native session owns route restoration. */ }
+function applyPlatformHashRoute8706() {
+  const h = String(location.hash || '').replace(/^#/, '').toLowerCase();
+  if (!h) return;
+  if (['queue','submission','documents','filemanager','admin'].includes(h)) {
+    navigateSystem8706(h === 'filemanager' ? 'documents' : h);
+  }
+}
 document.addEventListener('click', (event) => {
   if (!event.target.closest('[data-system-nav]')) closeUniversalSystemNav8706();
 });
@@ -6322,9 +6800,9 @@ function switchView(name) {
   // Phase 6: refresh admin views when Admin tab opens. Each renderer gates on
   // currentUser.role internally, so non-admins are skipped silently.
   if (name === 'admin') {
-    if (typeof renderAdminUsersCard    === 'function') window.renderAdminUsersCard();
-    if (typeof window.renderAdminFeedbackCard === 'function') window.renderAdminFeedbackCard();
-    if (typeof renderAdminAuditLog     === 'function') window.renderAdminAuditLog({ append: false });
+    if (typeof renderAdminUsersCard    === 'function') renderAdminUsersCard();
+    if (typeof renderAdminFeedbackCard === 'function') renderAdminFeedbackCard();
+    if (typeof renderAdminAuditLog     === 'function') renderAdminAuditLog({ append: false });
   }
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
@@ -6368,15 +6846,15 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   const setHrefForActive = () => {
     const activeId = (typeof STATE !== 'undefined') ? STATE.activeSubmissionId : null;
     btn.href = activeId
-      ? 'workbench.html?submissionId=' + encodeURIComponent(activeId)
-      : 'workbench.html';
+      ? '/workbench?submission=' + encodeURIComponent(activeId)
+      : '/workbench';
   };
   btn.addEventListener('mousedown', setHrefForActive);
   btn.addEventListener('click', (event) => {
     const activeId = (typeof STATE !== 'undefined') ? STATE.activeSubmissionId : null;
     if (activeId) {
       event.preventDefault();
-      window.location.href = 'workbench.html?submissionId=' + encodeURIComponent(activeId);
+      window.location.href = '/workbench?submission=' + encodeURIComponent(activeId);
     }
     // else: default href="/workbench" handles it (queue/admin view).
   });
@@ -6386,19 +6864,73 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 // New submission entry point — archives the currently-loaded submission (if any)
 // then clears state and opens the workbench for a fresh one.
 async function startNewSubmission() {
-  return window.__STM_NATIVE_PLATFORM.handle(window.__STM_NATIVE_PLATFORM.newSubmission());
-}
-async function stmNativeNewRaw(nativeOwner) {
-  window.__STM_NATIVE_PLATFORM.assertOwner(nativeOwner);
+  // v8.6.7 (per GPT external audit): invalidate any in-flight rehydrate
+  // FIRST, before any awaited work. If a previous click started
+  // rehydrateSubmission(B) and it's currently parked on saveSubmissionSnapshot
+  // or sbLoadEdits, bumping the token here causes its post-await stale-token
+  // checks to bail. Without this bump, B's rehydrate could resume and
+  // overwrite the wiped state we're about to set up.
   STATE._rehydrateToken = (STATE._rehydrateToken || 0) + 1;
+
+  // Phase 3 (#5): also bump the upload token. If the user is in the middle
+  // of an upload (handleFiles still extracting some PDFs) and clicks New
+  // Submission, the in-flight extractAndProcessFile calls will detect the
+  // bumped token after their next await and bail out — preventing stale
+  // text/classifications from leaking into the new submission.
   STATE._uploadToken = (STATE._uploadToken || 0) + 1;
+
+  // Save any in-flight edits to the active submission before wiping
+  if (STATE.activeSubmissionId && STATE.pipelineDone) {
+    const activeRec = STATE.submissions.find(s => s.id === STATE.activeSubmissionId);
+    if (activeRec) {
+      // v8.6.5 (per GPT external audit): await the edits flush before
+      // snapshotting. Previous code called saveEditsNow() without await
+      // even though it's async — fire-and-forget meant the upsert could
+      // still be in flight when STATE.edits got wiped below. Refresh,
+      // close, or rapid navigation would lose the in-flight save.
+      // flushEditsNow() awaits the async chain and swallows save errors
+      // (snapshot path is the resilience layer).
+      await flushEditsNow();
+      activeRec.snapshot = {
+        files:          slimSnapshotFiles8799(),
+        extractions:    deepClone(STATE.extractions),
+        edits:          deepClone(STATE.edits),
+        customCards:    deepClone(STATE.customCards),
+        hiddenCards:    deepClone(STATE.hiddenCards),
+        handoff:        deepClone(STATE.handoff),
+        audit:          STATE.audit.slice(),
+        runTotalCost:   STATE.runTotalCost || 0,
+        pipelineRun:    STATE.pipelineRun,
+    _stmRunComplete: !!STATE.pipelineDone,
+    _stmOperation: window.__STM_SUBMISSION?.lastOperation?.()||null
+      };
+      activeRec.lastModifiedAt = Date.now();
+      // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
+      // a direct single-record save. Same pattern as the rehydrate path above.
+      // No green success toast — user clicked "new submission", we don't need
+      // to celebrate the auto-save of the previous one.
+      // v8.6.6 (per GPT external audit): await the snapshot save before
+      // wiping STATE for the new submission. Previous async IIFE meant
+      // the cloud snapshot of the OLD submission could still be in
+      // flight while STATE.files / STATE.extractions / etc. were being
+      // emptied below. Closing the browser within that window would
+      // strand the cloud snapshot at an outdated version.
+      try {
+        await saveSubmissionSnapshot(activeRec, 'auto · before new submission');
+      } catch (err) {
+        console.error('Submission save failed (startNew path)', activeRec.id, err);
+        const msg = (err && err.message) ? err.message : String(err);
+        if (typeof logAudit === 'function') logAudit('Submissions', 'SAVE FAILED ' + activeRec.id + ' (auto · before new submission) · ' + msg + ' · kept in-memory', 'error');
+        if (typeof toast === 'function') toast('Cloud save failed · ' + msg.slice(0, 80), 'error');
+      }
+    }
+  }
   // Fresh start — reset any lingering state from a previous submission
   STATE.files = [];
   STATE.extractions = {};
   STATE.pipelineDone = false;
   STATE.pipelineRunning = false;
   STATE.pipelineRun = null;
-  STATE.pipelineStart = 0;
   STATE.activeSubmissionId = null;
   STATE.newSubmissionDraftMode = true;
   STATE.edits = {};
@@ -6777,72 +7309,20 @@ try {
 window.__STM_ADMIN_CONFIG = (() => {
   let pending=false;
   // v9.9.3: Settings are the signed-in user's own user_settings row, as in July; only the Admin page read stays administrator-only.
-  function owner(adminOnly){const u=window.currentUser;if(!u)throw new Error('Sign in to change settings.');if(adminOnly&&u.role!=='admin')throw new Error('Administrator access required.');window.__STM_NATIVE_PLATFORM?.assertOwner(u.id);return u.id;}
+  function owner(adminOnly){const u=window.currentUser;if(!u)throw new Error('Sign in to change settings.');if(adminOnly&&u.role!=='admin')throw new Error('Administrator access required.');const r=parent.STM_RUNTIME;if(r&&(r.platformWindow!==window||r.user?.id!==u.id||(adminOnly&&r.user?.role!=='admin')))throw new Error(adminOnly?'Stale administrator session.':'Session changed. Reopen settings for the current account.');return u.id;}
   function models(){return Array.from(document.querySelector('#apiModel')?.options||[]).map(o=>({value:o.value,label:o.textContent}));}
   function read(){owner(true);return {api:{...STATE.api},guideline:getActiveGuideline(),custom:ACTIVE_GUIDELINE!==DEFAULT_GUIDELINE,defaultGuideline:DEFAULT_GUIDELINE,models:models(),pending};}
   function current(){return {api:{...STATE.api},guideline:getActiveGuideline(),custom:ACTIVE_GUIDELINE!==DEFAULT_GUIDELINE,defaultGuideline:DEFAULT_GUIDELINE,models:models(),pending};}
-  async function commit(data){const token=window.__STM_NATIVE_PLATFORM.captureOwner();window.__STM_NATIVE_PLATFORM.assertOwner(token);const id=owner(false);if(pending)throw new Error('A configuration save is already running.');if(STATE.pipelineRunning||window.__STM_SUBMISSION?.busy||window.__STM_NATIVE_PIPELINE?.busy)throw new Error('Finish the active pipeline before changing configuration.');
+  async function commit(data){const id=owner(false);if(pending)throw new Error('A configuration save is already running.');if(STATE.pipelineRunning||window.__STM_SUBMISSION?.busy)throw new Error('Finish the active pipeline before changing configuration.');
     const models=current().models.map(o=>o.value),tokens=Number(data.maxTokens),guide=String(data.guideline??'').trim();
     if(!models.includes(data.model)||!Number.isInteger(tokens)||tokens<512||tokens>16384||typeof data.forceGlobal!=='boolean')throw new Error('Choose a supported model, 512-16,384 integer tokens, and a valid routing selection.');
     if(guide&&guide.length<100)throw new Error('The guideline must contain at least 100 characters, or be empty to use the default.');
     if(guide.length>2000000)throw new Error('The guideline exceeds the supported text size.');
-    pending=true;window.__STM_SETTINGS_WRITE=id;window.dispatchEvent(new Event("stm:settings-changed"));
+    pending=true;window.__STM_SETTINGS_WRITE=id;
     try{await sbSaveSettings({user_id:id,default_model:data.model,max_tokens:tokens,force_global_model:data.forceGlobal,carrier_guideline:guide||null});
-      window.__STM_NATIVE_PLATFORM.assertOwner(token);if(owner(false)!==id)throw new Error('Session changed while saving. Reopen configuration for the current account.');
-      STATE.api={model:data.model,maxTokens:tokens,forceGlobal:data.forceGlobal};ACTIVE_GUIDELINE=guide||DEFAULT_GUIDELINE;updateApiPillUI();logAudit(window.currentUser?.role==='admin'?'Admin':'Settings','Model and guideline settings saved for current user','user');window.dispatchEvent(new Event('stm:settings-changed'));return current();
-    }finally{pending=false;if(window.__STM_SETTINGS_WRITE===id)window.__STM_SETTINGS_WRITE=null;window.dispatchEvent(new Event("stm:settings-changed"));}
+      if(owner(false)!==id)throw new Error('Session changed while saving. Reopen configuration for the current account.');
+      STATE.api={model:data.model,maxTokens:tokens,forceGlobal:data.forceGlobal};ACTIVE_GUIDELINE=guide||DEFAULT_GUIDELINE;updateApiPillUI();logAudit(window.currentUser?.role==='admin'?'Admin':'Settings','Model and guideline settings saved for current user','user');return current();
+    }finally{pending=false;if(window.__STM_SETTINGS_WRITE===id)window.__STM_SETTINGS_WRITE=null;}
   }
-  return {read,commit,get pending(){return pending;}};
-})();
-
-function stmNativeTimestamp(value){if(value==null||value==="")return "Not reported";const d=new Date(value);return Number.isFinite(d.getTime())?d.toISOString():"Not reported";}
-
-// Direct native lifecycle helpers, called only after owner/context checks and durable save.
-window.__STM_NATIVE_CORE = {
-  hydrate:stmNativeHydrateRaw, newSubmission:stmNativeNewRaw,
-  resetSettings(){ ACTIVE_GUIDELINE=DEFAULT_GUIDELINE; if(SAVE_DEBOUNCE){clearTimeout(SAVE_DEBOUNCE);SAVE_DEBOUNCE=null;} LAST_SAVE_TS=0; },
-  applySettings(settings){
-    if(!settings)return;
-    if(settings.carrier_guideline?.length>=100)ACTIVE_GUIDELINE=settings.carrier_guideline;
-    if(settings.default_model)STATE.api.model=settings.default_model;
-    if(settings.max_tokens)STATE.api.maxTokens=settings.max_tokens;
-    if(typeof settings.force_global_model==='boolean')STATE.api.forceGlobal=settings.force_global_model;
-    if(typeof updateApiPillUI==='function')updateApiPillUI();
-  }
-};
-window.stripAddressTail99=stripAddressTail99;
-window.slimSnapshotFiles8799=slimSnapshotFiles8799;
-
-// Both Settings entry points share one transaction and pending flag.
-window.__STM_NATIVE_CONFIG=window.__STM_ADMIN_CONFIG;
-(function sharedSettingsController(){
- 'use strict';
- const W=window,$=id=>document.getElementById(id),native=()=>W.__STM_NATIVE_PLATFORM,cfg=()=>W.__STM_ADMIN_CONFIG;
- let owner=null,opening=0,revision=0,parseSerial=0,parsing=false,dirty=false,fingerprint='';
- const active=()=>!!owner&&$('settingsModal')?.classList.contains('open');
- function captured(){const p=native(),token=p.captureOwner();p.assertOwner(token);if(!p.state.authenticated||!p.state.ready)throw Error('Finish signing in before opening settings.');return token;}
- function valid(token,serial){try{native().assertOwner(token);return owner===token&&serial===opening&&active();}catch(_){return false;}}
- function message(text){if($('guidelineStatus'))$('guidelineStatus').textContent=text;}
- function busy(){return !!cfg()?.pending;}
- function syncBusy(){const modal=$('settingsModal');if(!modal)return;for(const el of modal.querySelectorAll('input,select,textarea,button'))el.disabled=busy();const save=modal.querySelector('#stmSharedSettingsSave');if(save)save.disabled=busy()||parsing;}
- function formFingerprint(){return JSON.stringify([STATE.api,getActiveGuideline()]);}
- function fill(){const guide=getActiveGuideline(),custom=guide!==DEFAULT_GUIDELINE;$('apiModel').value=STATE.api.model;$('apiMaxTokens').value=STATE.api.maxTokens;$('forceGlobalModel').checked=!!STATE.api.forceGlobal;$('carrierGuideline').value=custom?guide:'';message((custom?'CUSTOM':'DEFAULT')+' · '+guide.length.toLocaleString()+' CHARS');dirty=false;fingerprint=formFingerprint();syncBusy();}
- function sync(){syncBusy();if(active()&&valid(owner,opening)&&!busy()&&!dirty&&fingerprint!==formFingerprint())fill();}
- function invalidateParse(){parseSerial++;parsing=false;}
- function close(force=false){if(busy()&&!force)return false;invalidateParse();opening++;owner=null;dirty=false;$('settingsModal')?.classList.remove('open');syncBusy();return true;}
- function retire(){close(true);revision++;fingerprint='';for(const id of ['carrierGuideline','apiMaxTokens','guidelineFileInput'])if($(id))$(id).value='';if($('apiModel'))$('apiModel').selectedIndex=-1;if($('forceGlobalModel'))$('forceGlobalModel').checked=false;message('');}
- function open(){try{if(busy())throw Error('Wait for the settings save to finish.');const token=captured();close(true);owner=token;opening++;revision++;$('settingsModal').classList.add('open');fill();return true;}catch(error){W.toast?.(error.message,'error');return false;}}
- function changed(){revision++;dirty=true;message('UNSAVED PERSONAL SETTINGS');}
- async function save(){const token=owner,serial=opening;try{if(!valid(token,serial))throw Error('Reopen Settings for the signed-in account.');if(parsing)throw Error('Wait for guideline import to finish before saving.');const data={model:$('apiModel').value,maxTokens:Number($('apiMaxTokens').value),forceGlobal:!!$('forceGlobalModel').checked,guideline:$('carrierGuideline').value};await cfg().commit(data);if(!valid(token,serial))return false;fill();close();W.toast?.('Settings saved');return true;}catch(error){if(valid(token,serial)){message('NOT SAVED · '+(error.message||error));W.toast?.('Settings not saved: '+(error.message||error),'error');}return false;}finally{syncBusy();}}
- function viewDefault(){if(!active()||busy())return;if($('carrierGuideline').value&&!confirm('Replace the current text with the embedded default guideline? Unsaved guideline edits will be replaced.'))return;$('carrierGuideline').value=DEFAULT_GUIDELINE;changed();message('VIEWING DEFAULT · SAVE TO APPLY');}
- async function reset(){const token=owner,serial=opening;if(!valid(token,serial)||busy())return false;if(!confirm('Reset the carrier guideline to the embedded default? The saved personal override will be cleared.'))return false;invalidateParse();$('carrierGuideline').value='';changed();try{await cfg().commit({...STATE.api,forceGlobal:!!STATE.api.forceGlobal,guideline:''});if(!valid(token,serial))return false;message('DEFAULT GUIDELINE SAVED');W.toast?.('Guideline reset to default');return true;}catch(error){if(valid(token,serial)){message('NOT SAVED · '+(error.message||error));W.toast?.(error.message||String(error),'error');}return false;}finally{syncBusy();}}
- async function loadFile(file){const token=owner,serial=opening,mine=++parseSerial,rev=revision;
-  try{if(!valid(token,serial))throw Error('Reopen Settings for the signed-in account.');if(busy())throw Error('Wait for the settings save to finish.');if(!file||!/\.(pdf|docx|doc|txt|md)$/i.test(file.name||''))throw Error('Choose PDF, DOCX, DOC, TXT or MD.');if(file.size>10*1024*1024)throw Error('The guideline file must be 10 MB or smaller.');parsing=true;syncBusy();message('PARSING '+file.name);const metadata={},text=String(await W.extractText(file,metadata)||'').trim();
-   if(!valid(token,serial)||mine!==parseSerial)return false;if(rev!==revision){message('Import finished. Your newer text was kept; choose the file again to replace it.');return false;}if(text.length<100)throw Error('Fewer than 100 characters were extracted. Use a text-based PDF/DOCX or paste the text.');if(text.length>2000000)throw Error('The guideline exceeds 2,000,000 text characters.');$('carrierGuideline').value=text;changed();message(metadata.approximate?'APPROXIMATE DOC TEXT · REVIEW AND SAVE':'IMPORTED · REVIEW AND SAVE TO APPLY');return true;
-  }catch(error){if(valid(token,serial)&&mine===parseSerial){message('IMPORT FAILED · '+(error.message||error));W.toast?.(error.message||String(error),'error');}return false;}
-  finally{if(mine===parseSerial){parsing=false;syncBusy();}}
- }
- for(const id of ['apiModel','apiMaxTokens','forceGlobalModel','carrierGuideline'])$(id)?.addEventListener('input',changed);
- W.addEventListener('stm:settings-changed',sync);
- W.__STM_SHARED_SETTINGS={open,close,save,reset,viewDefault,loadFile,retire,sync,get parsing(){return parsing;}};
+  return {read,commit};
 })();

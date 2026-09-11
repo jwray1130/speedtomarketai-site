@@ -79,30 +79,49 @@ if (typeof window !== 'undefined' && window.sb && window.sb.auth && !window.__st
 }
 
 async function sbUser() {
-  const native=window.__STM_NATIVE_PLATFORM;
-  if(!native || !native.userId)return null;
-  native.assertOwner();
-  return {id:native.userId,email:window.currentUser?.email||null};
+  const now = Date.now();
+
+  const profileUser = __sbUserFromCurrentProfile();
+  if (profileUser) {
+    __sbSetCachedUser(profileUser);
+    return profileUser;
+  }
+
+  if (__sbCachedUser && (now - __sbCachedUserAt) < SB_USER_CACHE_MS) {
+    return __sbCachedUser;
+  }
+
+  if (__sbUserInflight) return __sbUserInflight;
+
+  __sbUserInflight = (async () => {
+    const { data: { session } } = await window.sb.auth.getSession();
+    const user = session && session.user ? session.user : null;
+    __sbSetCachedUser(user);
+    return user;
+  })().finally(() => {
+    __sbUserInflight = null;
+  });
+
+  return __sbUserInflight;
 }
 
 // ---- Submissions ----------------------------------------------------------
 // One row per submission. The whole per-submission object (files-lite,
 // extractions, edits, etc.) goes into the `snapshot` jsonb column.
 async function sbLoadSubmissions() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   // v8.6.1: explicit user_id scope. Previously this relied entirely on
   // RLS to filter results by current user, which is correct in theory
   // but fragile in practice — any RLS policy regression or admin-mode
   // session would silently return other users' rows. Hard-scoping here
   // is defense in depth: even if RLS is misconfigured, the WHERE clause
   // protects the user's view. Per GPT's external audit recommendation.
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser()));
+  const u = await sbUser();
   if (!u) throw new Error('not signed in');
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from('submissions')
     .select('id, status, status_history, account_name, broker, effective_date, requested, missing_info, modules_run, confidence, pipeline_run, title, updated_at, created_at')
     .eq('user_id', u.id)
-    .order('updated_at', { ascending: false })));
+    .order('updated_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
@@ -112,14 +131,12 @@ async function sbLoadSubmissions() {
 // fetches exactly ONE row's snapshot on demand; used by rehydrateSubmission()
 // the first time a queue row is opened.
 async function sbFetchSubmissionSnapshot(id) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!window.sb || !id) return null;
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from('submissions')
     .select('snapshot')
-    .eq('user_id',__nativeOwner.userId)
     .eq('id', id)
-    .maybeSingle()));
+    .maybeSingle();
   if (error) throw error;
   return data ? data.snapshot : null;
 }
@@ -127,8 +144,7 @@ window.sbFetchSubmissionSnapshot = sbFetchSubmissionSnapshot;
 
 
 async function sbSaveSubmission(sub) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
   // v8.5.6: tombstone check. If this submission was just deleted in the
   // local UI, refuse to save — otherwise an in-flight save fired before
   // delete propagated would upsert the row right back. Set is populated
@@ -174,11 +190,11 @@ async function sbSaveSubmission(sub) {
     console.warn('sbSaveSubmission blocked at upsert — submission was deleted: ' + row.id);
     return null;
   }
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from('submissions')
     .upsert(row, { onConflict: 'id' })
     .select()
-    .single()));
+    .single();
   if (error) throw error;
   return data;
 }
@@ -237,7 +253,6 @@ function sbRecordDeleteDebug(stage, detail) {
 window.sbRecordDeleteDebug = sbRecordDeleteDebug;
 
 async function sbDeleteSubmission(id) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   // v8.6.19: visible, deterministic parent delete.
   // Use a direct PostgREST DELETE so the browser Network panel must show
   // DELETE /rest/v1/submissions. This bypasses any supabase-js ambiguity and
@@ -246,14 +261,13 @@ async function sbDeleteSubmission(id) {
   if (!id) throw new Error('missing submission id');
   sbRecordDeleteDebug('start', { id: id });
 
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser()));
+  const u = await sbUser();
   if (!u || !u.id) {
     sbRecordDeleteDebug('no-user', { id: id });
     throw new Error('not signed in');
   }
 
-  const { data: { session } } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.auth.getSession()));
-  if(session?.user?.id!==__nativeOwner.userId)throw new Error('Sign-in changed before deletion.');
+  const { data: { session } } = await window.sb.auth.getSession();
   const token = session && session.access_token;
   if (!token) {
     sbRecordDeleteDebug('no-access-token', { id: id, user_id: u.id });
@@ -267,7 +281,7 @@ async function sbDeleteSubmission(id) {
 
   sbRecordDeleteDebug('fetch-delete', { id: id, user_id: u.id, url: url.replace(token, '[token]') });
 
-  const resp = await __stmNativeDataAwait(__nativeOwner,()=>(fetch(url, {
+  const resp = await fetch(url, {
     method: 'DELETE',
     headers: {
       apikey: STM_SUPABASE_REST_ANON_KEY,
@@ -275,9 +289,9 @@ async function sbDeleteSubmission(id) {
       Prefer: 'return=representation',
       Accept: 'application/json'
     }
-  })));
+  });
 
-  const bodyText = await __stmNativeDataAwait(__nativeOwner,()=>(resp.text()));
+  const bodyText = await resp.text();
   sbRecordDeleteDebug('fetch-result', {
     id: id,
     status: resp.status,
@@ -292,8 +306,7 @@ async function sbDeleteSubmission(id) {
   let rows = [];
   if (bodyText) {
     try { rows = JSON.parse(bodyText); }
-    catch (e) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw e; throw new Error('DELETE /submissions returned non-JSON body: ' + bodyText.slice(0, 200)); }
+    catch (e) { throw new Error('DELETE /submissions returned non-JSON body: ' + bodyText.slice(0, 200)); }
   }
 
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -310,20 +323,17 @@ async function sbDeleteSubmission(id) {
 
 // ---- Edits / Custom cards / Hidden cards ---------------------------------
 async function sbLoadEdits(submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from('submission_edits')
     .select('module_key, edit_type, payload, updated_at')
-    .eq('user_id',__nativeOwner.userId)
-    .eq('submission_id', submissionId)));
+    .eq('submission_id', submissionId);
   if (error) throw error;
   return data || [];
 }
 
 async function sbSaveEdit(submissionId, moduleKey, editType, payload, pipelineRun) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { error } = await window.sb
     .from('submission_edits')
     .upsert({
       user_id: u.id,
@@ -332,16 +342,14 @@ async function sbSaveEdit(submissionId, moduleKey, editType, payload, pipelineRu
       edit_type: editType,            // 'edit' | 'custom' | 'hidden'
       payload: payload || {},
       pipeline_run: pipelineRun || null
-    }, { onConflict: 'submission_id,module_key' })));
+    }, { onConflict: 'submission_id,module_key' });
   if (error) throw error;
 }
 
 async function sbDeleteEdit(submissionId, moduleKey) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { error } = await window.sb
     .from('submission_edits').delete()
-    .eq('user_id',__nativeOwner.userId)
-    .eq('submission_id', submissionId).eq('module_key', moduleKey)));
+    .eq('submission_id', submissionId).eq('module_key', moduleKey);
   if (error) throw error;
 }
 
@@ -351,21 +359,18 @@ async function sbDeleteEdit(submissionId, moduleKey) {
 // orphan rows in Supabase — which would then come back on next rehydrate
 // once the rehydrate path properly reads from submission_edits.
 async function sbDeleteAllEditsForSubmission(submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!submissionId) return;
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { error } = await window.sb
     .from('submission_edits').delete()
-    .eq('user_id',__nativeOwner.userId)
-    .eq('submission_id', submissionId)));
+    .eq('submission_id', submissionId);
   if (error) throw error;
 }
 
 // Helper: flatten the in-memory edits/customCards/hiddenCards maps into a single
 // upsert batch for the given submission. Called from saveEditsNow().
 async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, customCards, hiddenCards) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!submissionId) return;   // no active submission → nothing to persist
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return;
+  const u = await sbUser(); if (!u) return;
   const rows = [];
   // edits: { [moduleId]: { text: ..., ... } }
   if (edits && typeof edits === 'object') {
@@ -397,8 +402,8 @@ async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, cus
     }
   }
   if (!rows.length) return;
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.from('submission_edits')
-    .upsert(rows, { onConflict: 'submission_id,module_key' })));
+  const { error } = await window.sb.from('submission_edits')
+    .upsert(rows, { onConflict: 'submission_id,module_key' });
   if (error) throw error;
 }
 
@@ -407,13 +412,12 @@ async function sbSaveAllEditsForSubmission(submissionId, pipelineRun, edits, cus
 // UW sees their prior 👍/👎/💬 reactions on the same cards after refresh or
 // when opening an archived submission. Empty array if none or on error.
 async function sbLoadFeedbackForSubmission(submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!submissionId) return [];
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from('feedback_events')
     .select('*')
     .eq('submission_id', submissionId)
-    .order('created_at', { ascending: true })));
+    .order('created_at', { ascending: true });
   if (error) { console.warn('sbLoadFeedbackForSubmission failed', error); return []; }
   // Translate DB rows back into the STATE.feedback event shape the app's
   // existing UI code expects (sentiment, moduleId, moduleName, text, etc).
@@ -443,8 +447,8 @@ async function sbLoadFeedbackForSubmission(submissionId) {
       moduleName: ctx.moduleName || null,
       reason: ctx.reason || null,
       text: row.comment || null,
-      outputSnapshot: ctx.outputSnapshot ?? null,
-      outputConfidence: ctx.outputConfidence ?? null,
+      outputSnapshot: ctx.outputSnapshot || null,
+      outputConfidence: ctx.outputConfidence || null,
       sourceDocNames: ctx.sourceDocNames || null,
       exportedAt: null
     };
@@ -455,8 +459,7 @@ async function sbLoadFeedbackForSubmission(submissionId) {
 // Each click of 👍 / 👎 / 💬 becomes one insert. No batch read — Phase 6
 // admin view will query Supabase directly.
 async function sbLogFeedback(event) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
   // Map the app's existing feedback event shape onto the feedback_events row.
   const rating =
     event.sentiment === 'positive'   ? 'up'      :
@@ -465,7 +468,7 @@ async function sbLogFeedback(event) {
   const moduleKey = event.moduleId   ? 'card:'   + event.moduleId
                   : event.customCardId ? 'custom:' + event.customCardId
                   : event.level       ? ('level:' + event.level) : null;
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.from('feedback_events').insert({
+  const { error } = await window.sb.from('feedback_events').insert({
     user_id: u.id,
     submission_id: event.submissionId || null,
     pipeline_run: event.pipelineRun || null,
@@ -475,12 +478,12 @@ async function sbLogFeedback(event) {
     context: {
       moduleName: event.moduleName || null,
       reason: event.reason || null,
-      outputSnapshot: event.outputSnapshot ?? null,
-      outputConfidence: event.outputConfidence ?? null,
+      outputSnapshot: event.outputSnapshot || null,
+      outputConfidence: event.outputConfidence || null,
       sourceDocNames: event.sourceDocNames || null,
       actor: event.actor || null
     }
-  })));
+  });
   if (error) throw error;
 }
 
@@ -500,9 +503,8 @@ async function sbLogFeedback(event) {
 //      write fails silently — exactly the foundational silent-failure class
 //      of bug we're trying to prevent in this layer.
 async function sbLogAuditEvent(category, message, meta, submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   try {
-    const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return;   // rule 3
+    const u = await sbUser(); if (!u) return;   // rule 3
 
     // rule 4 — guard NOT NULL columns
     const cat = (category != null && String(category).trim()) || 'info';
@@ -539,11 +541,11 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
       let exists = cache.get(effectiveSid);
       if (exists === undefined) {
         try {
-          const { data, error: chkErr } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+          const { data, error: chkErr } = await window.sb
             .from('submissions')
             .select('id')
             .eq('id', effectiveSid)
-            .maybeSingle()));
+            .maybeSingle();
           exists = !chkErr && !!data;
           cache.set(effectiveSid, exists);
         } catch (e) {
@@ -583,7 +585,7 @@ async function sbLogAuditEvent(category, message, meta, submissionId) {
       message:       msg,
       meta:          metaText
     };
-    const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.from('audit_events').insert(row)));
+    const { error } = await window.sb.from('audit_events').insert(row);
     if (error) {
       // rule 2 — DO NOT call logAudit() here. Console only.
       // FK violations: cache "doesn't exist yet" for this submission so
@@ -643,10 +645,7 @@ function sbInvalidateSubmissionExistsCache(submissionId) {
       // is the same as if the buffer hadn't existed.
       (async () => {
         try {
-          const native=window.__STM_NATIVE_PLATFORM, owner=native.captureOwner();
-          native.assertOwner(owner);
-          if(queue.some(row=>row.user_id!==owner.userId))return;
-          const { error } = await __stmNativeDataAwait(owner,()=>window.sb.from('audit_events').insert(queue));
+          const { error } = await window.sb.from('audit_events').insert(queue);
           if (error) {
             console.warn('[audit] replay of ' + queue.length + ' buffered events failed:', error.message);
           }
@@ -662,20 +661,18 @@ window.sbLogAuditEvent = sbLogAuditEvent;
 
 // ---- User settings (carrier guideline, model pref, etc.) -----------------
 async function sbLoadSettings() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
-    .from('user_settings').select('*').eq('user_id', u.id).maybeSingle()));
+  const u = await sbUser(); if (!u) return null;
+  const { data, error } = await window.sb
+    .from('user_settings').select('*').eq('user_id', u.id).maybeSingle();
   if (error) throw error;
   return data;
 }
 
 async function sbSaveSettings(patch) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
-  const row = { ...patch, user_id: u.id };
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
-    .from('user_settings').upsert(row, { onConflict: 'user_id' })));
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const row = { user_id: u.id, ...patch };
+  const { error } = await window.sb
+    .from('user_settings').upsert(row, { onConflict: 'user_id' });
   if (error) throw error;
 }
 
@@ -691,16 +688,15 @@ async function sbSaveSettings(patch) {
 // Returns: array of { id, email, display_name, role, created_at, submission_count }
 // sorted by display_name (case-insensitive, A→Z).
 async function sbLoadAdminUsers() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
 
   // Run both queries in parallel — neither depends on the other.
   // For submissions we only need user_id; pulling the whole row would be
   // wasted bandwidth for what is just a per-user count.
-  const [usersRes, subsRes] = await __stmNativeDataAwait(__nativeOwner,()=>(Promise.all([
+  const [usersRes, subsRes] = await Promise.all([
     window.sb.from('users').select('id, email, display_name, role, created_at'),
     window.sb.from('submissions').select('user_id')
-  ])));
+  ]);
   if (usersRes.error) throw usersRes.error;
   if (subsRes.error)  throw subsRes.error;
 
@@ -735,11 +731,10 @@ window.sbLoadAdminUsers = sbLoadAdminUsers;
 // feedback" — which is why renderAdminFeedbackCard gates on role and skips
 // for non-admins (they'd see a half-broken "my own rows only" view).
 async function sbLoadFeedbackSummary() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await window.sb
     .from('feedback_events')
-    .select('rating, exported_at')));
+    .select('rating, exported_at');
   if (error) throw error;
   const rows = data || [];
   let up = 0, down = 0, comment = 0, unexported = 0;
@@ -754,13 +749,12 @@ async function sbLoadFeedbackSummary() {
 window.sbLoadFeedbackSummary = sbLoadFeedbackSummary;
 
 async function sbLoadFeedbackRecent(limit) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await window.sb
     .from('feedback_events')
     .select('id, user_id, submission_id, module_key, rating, comment, context, created_at')
     .order('created_at', { ascending: false })
-    .limit(limit || 10)));
+    .limit(limit || 10);
   if (error) throw error;
   return data || [];
 }
@@ -778,8 +772,7 @@ window.sbLoadFeedbackRecent = sbLoadFeedbackRecent;
 // loading page 5 is still O(log n) and new rows arriving during browsing
 // don't shift the pagination boundary.
 async function sbLoadAuditEvents(options) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
   const opts = options || {};
   const limit = opts.limit || 50;
   let q = window.sb.from('audit_events')
@@ -792,7 +785,7 @@ async function sbLoadAuditEvents(options) {
   if (opts.beforeCreatedAt) {
     q = q.lt('created_at', opts.beforeCreatedAt);
   }
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(q));
+  const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }
@@ -801,10 +794,9 @@ window.sbLoadAuditEvents = sbLoadAuditEvents;
 // Client-side distinct. At modest volumes (< ~5k rows) this is fine; above
 // that we'd migrate to an RPC doing `select distinct category` server-side.
 async function sbLoadAuditCategories() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) throw new Error('not signed in');
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
-    .from('audit_events').select('category').limit(5000)));
+  const u = await sbUser(); if (!u) throw new Error('not signed in');
+  const { data, error } = await window.sb
+    .from('audit_events').select('category').limit(5000);
   if (error) throw error;
   const set = new Set((data || []).map(r => r.category).filter(Boolean));
   return Array.from(set).sort();
@@ -818,7 +810,184 @@ window.sbLoadAuditCategories = sbLoadAuditCategories;
 // Called from checkAuth() once we have a session. Populates STATE.* from
 // Supabase, replacing whatever the legacy localStorage loaders would have
 // done. Safe to call multiple times.
-async function sbHydrate() { return window.__STM_NATIVE_PLATFORM.hydrate(); }
+async function sbHydrate() {
+  if (typeof STATE !== 'undefined') STATE._queueHydrating = true;
+  if (typeof renderQueueTable === 'function') renderQueueTable();
+  if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate starting…', 'ok');
+  try {
+    // Defensive: if the session hasn't resolved yet, sbLoadSubmissions will
+    // hit RLS and return 0 rows silently. Wait briefly for auth to settle.
+    const sess = await window.sb.auth.getSession();
+    if (!sess.data.session) {
+      if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
+      if (typeof renderQueueTable === 'function') renderQueueTable();
+      if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrate skipped — no session yet', 'warn');
+      return;
+    }
+    // Submissions. Each DB row's `snapshot` holds the per-submission object;
+    // we flatten it back into the shape the rest of the app expects so the
+    // Queue / rehydrate paths keep working unchanged.
+    const subRowsRaw = await sbLoadSubmissions();
+    // v8.6.10 (per GPT external audit): filter out tombstoned IDs.
+    // If a hydrate fires while a delete is in flight (e.g. user clicks
+    // delete then immediately switches submissions, triggering hydrate),
+    // the cloud row may still exist briefly. Without this filter, that
+    // hydrate would re-add the deleted row to STATE.submissions and the
+    // UI would show it again. The tombstone is in-memory only, so this
+    // filter only protects the in-session window — across page refresh,
+    // tombstone is gone but cloud delete should also be complete by then.
+    const tombstones =
+      (typeof STATE !== 'undefined' && STATE._deletedSubmissionIds && STATE._deletedSubmissionIds.size)
+        ? STATE._deletedSubmissionIds
+        : null;
+    const subRows = tombstones
+      ? subRowsRaw.filter(r => !tombstones.has(r.id))
+      : subRowsRaw;
+    if (tombstones && subRows.length < subRowsRaw.length) {
+      console.warn('[hydrate] filtered ' + (subRowsRaw.length - subRows.length) +
+        ' tombstoned submission(s) from cloud response');
+    }
+    STATE.submissions = subRows.map(r => {
+      const d = (r.snapshot && r.snapshot.derived) || {};   // fallback for pre-step-6 rows
+      // Phase 7 step 6 (post-test fix): recompute modulesRun/confidence from
+      // snapshot.extractions when the flat columns are NULL and snapshot.derived
+      // doesn't carry them either (which is the case for every row saved before
+      // step 6 — liteSnapshot.derived only ever stuffed 5 of the 7 fields).
+      const ext = (r.snapshot && r.snapshot.extractions) || {};
+      const extIds = Object.keys(ext);
+      const computedModulesRun = extIds.length > 0 ? extIds.length : null;
+      const computedConfidence = extIds.length > 0
+        ? extIds.reduce((sum, k) => sum + (ext[k].confidence || 0), 0) / extIds.length
+        : null;
+
+      // Compute display-field values once so the missingInfo fallback can
+      // reference them without redundant work.
+      // FIX-2026-06-09 (queue-name): the workbench insured_name resolver wrote
+      // name+address strings into account_name before the write-back was
+      // normalized. Strip the address tail at rehydration too so rows stored
+      // before the fix display clean immediately (DB heals on next workbench
+      // open; this covers the display until then). stripAddressTail99 lives in
+      // pipeline-core.js — same page, classic-script shared scope.
+      const accountValRaw = r.account_name   || d.account         || null;
+      const accountVal   = (accountValRaw && typeof stripAddressTail99 === 'function')
+        ? stripAddressTail99(accountValRaw) : accountValRaw;
+      const brokerVal    = r.broker         || d.broker          || null;
+      const effectiveVal = r.effective_date || d.effectiveDate   || null;
+      const requestedVal = r.requested      || d.requestedLimits || null;
+
+      // Phase 7 step 6 (post-test fix #2): missing_info clobber-recovery.
+      // Earlier saves with the broken empty-array hydrate path overwrote
+      // BOTH the flat column AND snapshot.derived.missingInfo to []. When
+      // both sources are empty, recompute by mirroring computeMissingInfo()
+      // logic: check which extraction keys are present + which derived
+      // fields are populated. This heals clobbered rows on next save.
+      const computedMissingInfo = [];
+      if (!accountVal)               computedMissingInfo.push('Named Insured');
+      if (!brokerVal)                computedMissingInfo.push('Broker');
+      if (!effectiveVal)             computedMissingInfo.push('Effective date');
+      if (!ext.losses)               computedMissingInfo.push('Loss runs');
+      if (!ext.gl_quote)             computedMissingInfo.push('Primary GL');
+      if (!ext.al_quote)             computedMissingInfo.push('Primary AL');
+      if (requestedVal && !ext.excess) computedMissingInfo.push('Underlying excess schedule');
+      if (!ext.supplemental)         computedMissingInfo.push('Supplemental application');
+      if (!ext.safety)               computedMissingInfo.push('Safety program');
+      if (!ext.email_intel)          computedMissingInfo.push('Broker email');
+
+      return {
+        id: r.id,
+        pipelineRun: r.pipeline_run,
+        status: r.status,
+        // Phase 7 step 5: status_history flat column → in-memory statusHistory.
+        // Old rows saved before the patch may have empty arrays; in that case
+        // fall back to whatever the snapshot happened to carry (usually nothing,
+        // since pre-patch saves didn't persist it either — but safe fallback).
+        statusHistory: (r.status_history && r.status_history.length > 0)
+          ? r.status_history
+          : ((r.snapshot && r.snapshot.statusHistory) || []),
+        title: r.title,
+        lastModifiedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+        createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+        snapshot: r.snapshot || null,
+        // Phase 7 step 6: prefer flat columns (NEW source of truth) but fall
+        // back to snapshot.derived for rows saved before the migration. Field
+        // names match the in-memory rec convention (effective, not effectiveDate).
+        // missingInfo: empty-array short-circuit is a real bug — a NOT NULL
+        // DEFAULT '[]' column will be truthy & is-array but EMPTY, so we have
+        // to length-check before using it as the source of truth.
+        account:     accountVal,
+        broker:      brokerVal,
+        effective:   effectiveVal,
+        requested:   requestedVal,
+        missingInfo: (Array.isArray(r.missing_info) && r.missing_info.length > 0)
+          ? r.missing_info
+          : ((Array.isArray(d.missingInfo) && d.missingInfo.length > 0)
+            ? d.missingInfo
+            : ((r.snapshot && r.snapshot.extractions)
+              // v8.7.100: the queue diet removed snapshot from list rows, so
+              // the clobber-recovery recompute (which reads snapshot
+              // extractions) only runs when a snapshot is actually present;
+              // otherwise an absent snapshot would falsely mark everything
+              // missing. Diet rows with an empty column show [] instead.
+              ? computedMissingInfo : [])),
+        modulesRun:  (typeof r.modules_run === 'number') ? r.modules_run
+                   : (typeof d.modulesRun === 'number') ? d.modulesRun
+                   : computedModulesRun,
+        confidence:  (typeof r.confidence === 'number')  ? r.confidence
+                   : (typeof d.confidence === 'number')  ? d.confidence
+                   : computedConfidence
+      };
+    });
+    if (typeof logAudit === 'function') logAudit('Supabase', 'Hydrated ' + STATE.submissions.length + ' submissions', 'ok');
+    if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
+    // Rerender the Queue table. The function is `renderQueueTable` in this
+    // codebase (not renderSubmissionsTable — an earlier version had the wrong
+    // name, which is why refreshes appeared to wipe the Queue visually even
+    // when STATE was populated).
+    if (typeof renderQueueTable === 'function') renderQueueTable();
+    if (typeof updateQueueKpi === 'function') updateQueueKpi();
+    // v8.7.08: if this page load came from Workbench with
+    // /platform?submission=<id>#submission or #documents, hydrate that
+    // submission now that STATE.submissions is populated. This restores the
+    // exact Submission/File Manager context without requiring a manual row click.
+    try {
+      if (typeof window.applyPlatformRouteSubmission8708 === 'function') {
+        await window.applyPlatformRouteSubmission8708('sbHydrate');
+      }
+    } catch (routeErr) {
+      console.warn('[route] submission context restore failed:', routeErr);
+    }
+
+    // Settings → carrier guideline + model prefs.
+    const settings = await sbLoadSettings();
+    if (settings) {
+      if (settings.carrier_guideline && settings.carrier_guideline.length > 100) {
+        ACTIVE_GUIDELINE = settings.carrier_guideline;
+      }
+      if (settings.default_model && STATE.api) STATE.api.model = settings.default_model;
+      if (settings.max_tokens && STATE.api)    STATE.api.maxTokens = settings.max_tokens;
+      // Round 5 fix #1: read force_global_model. When true, callLLM in pipeline.js
+      // routes every LLM call through STATE.api.model regardless of per-module preference.
+      if (typeof settings.force_global_model === 'boolean' && STATE.api) STATE.api.forceGlobal = settings.force_global_model;
+      // Phase 8.5 fix #5: refresh the visible model pill in the top bar so it
+      // shows the just-loaded model name immediately, not the original default.
+      // Without this the pill keeps showing the pre-hydrate model until some
+      // other UI action triggers updateApiPillUI() (e.g. opening Settings).
+      if (typeof updateApiPillUI === 'function') updateApiPillUI();
+    }
+
+    // Feedback is write-only from the app's perspective now. The admin view
+    // (Phase 6) reads directly from Supabase. STATE.feedback stays empty.
+    STATE.feedback = [];
+    if (typeof updateFeedbackCount === 'function') updateFeedbackCount();
+  } catch (e) {
+    if (typeof STATE !== 'undefined') STATE._queueHydrating = false;
+    if (typeof renderQueueTable === 'function') renderQueueTable();
+    console.warn('sbHydrate failed', e);
+    if (typeof logAudit === 'function') {
+      logAudit('Supabase', 'Hydrate FAILED: ' + (e.message || e), 'warn');
+    }
+  }
+}
 window.sbHydrate = sbHydrate;
 
 // ============================================================================
@@ -950,8 +1119,7 @@ const STORAGE_ALLOWED_MIME = new Set(Object.values(EXTENSION_TO_MIME).concat([
   'application/vnd.ms-powerpoint.slideshow.macroEnabled.12',
 ]));
 async function sbUploadDocumentFile(file, fileId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
+  const u = await sbUser(); if (!u) return null;
   // Derive a safe extension from the original name. We do this defensively:
   // raw filenames can contain path separators ('../../etc/passwd' yields
   // ext='/etc/passwd' under a naive regex), unicode, control chars, or
@@ -968,13 +1136,13 @@ async function sbUploadDocumentFile(file, fileId) {
   if (!contentType || !STORAGE_ALLOWED_MIME.has(contentType)) {
     contentType = EXTENSION_TO_MIME[ext] || 'application/octet-stream';
   }
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.storage
+  const { error } = await window.sb.storage
     .from(STORAGE_BUCKET)
     .upload(path, file, {
       cacheControl: '3600',
       upsert: true,
       contentType,
-    })));
+    });
   if (error) {
     console.warn('sbUploadDocumentFile failed:', error.message);
     _noteCloudFail();
@@ -988,12 +1156,11 @@ async function sbUploadDocumentFile(file, fileId) {
 // Default: 1 hour; long enough for a preview/OCR session, short enough
 // that links emailed by accident expire fast.
 async function sbGetDocumentSignedUrl(storagePath, expiresInSeconds) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!storagePath) return null;
   const expires = expiresInSeconds || 3600;
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.storage
+  const { data, error } = await window.sb.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(storagePath, expires)));
+    .createSignedUrl(storagePath, expires);
   if (error) {
     console.warn('sbGetDocumentSignedUrl failed:', error.message);
     _noteCloudFail();
@@ -1004,11 +1171,10 @@ async function sbGetDocumentSignedUrl(storagePath, expiresInSeconds) {
 }
 
 async function sbDeleteDocumentFile(storagePath) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!storagePath) return;
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.storage
+  const { error } = await window.sb.storage
     .from(STORAGE_BUCKET)
-    .remove([storagePath])));
+    .remove([storagePath]);
   if (error) console.warn('sbDeleteDocumentFile failed:', error.message);
 }
 
@@ -1143,23 +1309,22 @@ async function compressThumbForPersist(dataUrl) {
 // Insert (or upsert) a single doc page. Used right after addDoc() in the
 // view fires, so the row appears in the database within a second of upload.
 async function sbInsertDocumentPage(doc) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
+  const u = await sbUser(); if (!u) return null;
   const row = buildDocPageRow(doc, u.id);
   // Compress oversized thumbnail before sending to Postgres.
   if (row.thumbnail_data_url) {
-    row.thumbnail_data_url = await __stmNativeDataAwait(__nativeOwner,()=>(compressThumbForPersist(row.thumbnail_data_url)));
+    row.thumbnail_data_url = await compressThumbForPersist(row.thumbnail_data_url);
   }
   // Hard cap on html_content too — 1 MB is plenty for Word page HTML and
   // keeps row size manageable for queries.
   if (row.html_content && row.html_content.length > 1024 * 1024) {
     row.html_content = row.html_content.slice(0, 1024 * 1024);
   }
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from(DOC_TABLE)
     .upsert(row, { onConflict: 'id' })
     .select()
-    .single()));
+    .single();
   if (error) {
     // Detailed failure log — without this, batch failures (constraint
     // violations on color or category, RLS blocks, FK errors) drop pages
@@ -1233,16 +1398,32 @@ async function sbInsertDocumentPage(doc) {
 
 // Patch a subset of columns on an existing doc. Used for the small-grain
 // mutations: tag toggle, color change, rename, recategorize.
-async function sbUpdateDocumentPage(docId,patch){
- const p=window.__STM_NATIVE_PLATFORM,o=p.captureOwner();p.assertOwner(o);
- const {data,error}=await __stmNativeDataAwait(o,()=>window.sb.from(DOC_TABLE).update(patch).eq('id',docId).eq('user_id',o.userId).select('id').maybeSingle());
- if(error)throw new Error(error.message||'Document save failed.');if(!data||data.id!==docId)throw new Error('The cloud did not acknowledge this document change.');return data;
+async function sbUpdateDocumentPage(docId, patch) {
+  const u = await sbUser(); if (!u) return null;
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .update(patch)
+    .eq('id', docId)
+    .eq('user_id', u.id);  // belt-and-braces; RLS already enforces this
+  if (error) {
+    console.warn('sbUpdateDocumentPage failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  return true;
 }
 
 // Persist annotations JSON only — used by the debounced auto-save inside
 // the annotation engine. Strips DOM `el` references before saving so the
 // payload is JSON-serializable.
-async function sbUpdateDocumentAnnotations(docId,annoStore){const safe=JSON.parse(JSON.stringify(annoStore,(k,v)=>k==='el'?undefined:v));return window.sbUpdateDocumentPage(docId,{annotations:safe});}
+async function sbUpdateDocumentAnnotations(docId, annoStore) {
+  const safe = {
+    layers: (annoStore?.layers || []).map(stripElFromLayer),
+    undone: (annoStore?.undone || []).map(stripElFromLayer),
+  };
+  return sbUpdateDocumentPage(docId, { annotations: safe });
+}
 
 function stripElFromLayer(layer) {
   if (!layer || typeof layer !== 'object') return layer;
@@ -1252,13 +1433,46 @@ function stripElFromLayer(layer) {
 }
 
 // Delete a doc + its storage object.
-async function sbDeleteDocumentPage(docId,storagePath){
- const p=window.__STM_NATIVE_PLATFORM,o=p.captureOwner();p.assertOwner(o);if(storagePath&&!storagePath.startsWith(o.userId+'/'))throw new Error('The source belongs to another account.');
- const {data,error}=await __stmNativeDataAwait(o,()=>window.sb.from(DOC_TABLE).delete().eq('id',docId).eq('user_id',o.userId).select('id'));
- if(error)throw new Error(error.message||'Document deletion failed.');if(!Array.isArray(data))throw new Error('The cloud did not confirm document deletion.');
- if(!data.length){const check=await __stmNativeDataAwait(o,()=>window.sb.from(DOC_TABLE).select('id').eq('id',docId).eq('user_id',o.userId).maybeSingle());if(check.error||check.data)throw new Error('The document deletion was not confirmed.');}
- if(storagePath){const pending=window.__STM_DOC_JOURNAL?.entries().some(e=>e.kind==='insert'&&e.args[0]?.storagePath===storagePath);if(!pending){const result=await __stmNativeDataAwait(o,()=>window.sb.from(DOC_TABLE).select('id',{count:'exact',head:true}).eq('user_id',o.userId).eq('storage_path',storagePath));if(!result.error&&result.count===0)await __stmNativeDataAwait(o,()=>sbDeleteDocumentFile(storagePath));}}
- return true;
+async function sbDeleteDocumentPage(docId, storagePath) {
+  const u = await sbUser(); if (!u) return null;
+  // CRITICAL: a single storage object is shared by every page row from
+  // one source (e.g. all 50 pages of a PDF point to the same .pdf upload).
+  // Deleting the storage binary unconditionally would orphan every other
+  // page that still points at it. Order:
+  //   1. delete this row first
+  //   2. count remaining rows with the same storage_path
+  //   3. only delete the binary if no rows remain that reference it
+  const { error } = await window.sb
+    .from(DOC_TABLE)
+    .delete()
+    .eq('id', docId)
+    .eq('user_id', u.id);
+  if (error) {
+    console.warn('sbDeleteDocumentPage failed:', error.message);
+    _noteCloudFail();
+    return null;
+  }
+  _noteCloudOk();
+  if (storagePath) {
+    // Count surviving rows that still need this binary. Use HEAD to
+    // avoid pulling row data — we only need the count.
+    const { count, error: countErr } = await window.sb
+      .from(DOC_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', u.id)
+      .eq('storage_path', storagePath);
+    if (countErr) {
+      // Conservative: if the count query fails, leave the binary alone
+      // rather than risk orphaning sibling pages. Storage will be reaped
+      // by sbDeleteAllDocumentPages or the submission cascade later.
+      console.warn('sbDeleteDocumentPage ref-count failed; leaving binary in place:', countErr.message);
+      return true;
+    }
+    if ((count || 0) === 0) {
+      await sbDeleteDocumentFile(storagePath);
+    }
+  }
+  return true;
 }
 
 // Pull every doc for the current user. Ordered newest-first so the view's
@@ -1300,9 +1514,8 @@ const DOC_HYDRATE_COLUMNS = [
 const DOC_HYDRATE_PAGE_SIZE = 500;
 
 async function sbFetchDocumentPages(opts) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   opts = opts || {};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser()));
+  const u = await sbUser();
   // v8.6: throw instead of returning [] when not signed in. The previous
   // behavior masked auth-not-ready as "0 docs found", which made debugging
   // confusing — the UI showed "No documents yet" with no signal that auth
@@ -1320,7 +1533,7 @@ async function sbFetchDocumentPages(opts) {
   async function fetchPage(offset) {
     let q = window.sb
       .from(DOC_TABLE)
-      .select(DOC_HYDRATE_COLUMNS).eq('user_id', __nativeOwner.userId);
+      .select(DOC_HYDRATE_COLUMNS);
     if (opts.submissionId) {
       q = q.eq('submission_id', opts.submissionId);
     } else {
@@ -1333,7 +1546,7 @@ async function sbFetchDocumentPages(opts) {
          .order('page_number', { ascending: true })
          .order('created_at',  { ascending: false })
          .range(offset, offset + DOC_HYDRATE_PAGE_SIZE - 1);
-    const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(q));
+    const { data, error } = await q;
     if (error) {
       const err = new Error(
         'document_pages fetch failed: ' + (error.message || 'unknown') +
@@ -1357,9 +1570,8 @@ async function sbFetchDocumentPages(opts) {
   while (safety-- > 0) {
     let page;
     try {
-      page = await __stmNativeDataAwait(__nativeOwner,()=>(fetchPage(offset)));
+      page = await fetchPage(offset);
     } catch (err) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw err;
       console.warn('sbFetchDocumentPages failed:', err.message, err.supabaseCode || '');
       _noteCloudFail();
       throw err;
@@ -1393,15 +1605,14 @@ async function sbFetchDocumentPages(opts) {
 // hydrate, and by any feature that needs a thumbnail right now (e.g.,
 // when a doc scrolls into view).
 async function sbFetchDocumentPageThumbnail(docId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
+  const u = await sbUser(); if (!u) return null;
   if (!docId) return null;
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from(DOC_TABLE)
     .select('id, thumbnail_data_url')
     .eq('user_id', u.id)
     .eq('id', docId)
-    .maybeSingle()));
+    .maybeSingle();
   if (error) {
     console.warn('sbFetchDocumentPageThumbnail failed for ' + docId + ':', error.message);
     return null;
@@ -1414,15 +1625,14 @@ async function sbFetchDocumentPageThumbnail(docId) {
 // enrichment so 60 thumbnails do not become 60 sequential PostgREST round-
 // trips. One chunk of 20 ids becomes one `id in (...)` request.
 async function sbFetchDocumentPageThumbnails(docIds) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return [];
+  const u = await sbUser(); if (!u) return [];
   const ids = Array.from(new Set((docIds || []).filter(Boolean)));
   if (ids.length === 0) return [];
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from(DOC_TABLE)
     .select('id, thumbnail_data_url')
     .eq('user_id', u.id)
-    .in('id', ids)));
+    .in('id', ids);
   if (error) {
     console.warn('sbFetchDocumentPageThumbnails failed for ' + ids.length + ' ids:', error.message);
     return [];
@@ -1435,15 +1645,14 @@ async function sbFetchDocumentPageThumbnails(docIds) {
 // preview enlarge (needs html_content), annotation overlay (needs annotations).
 // v8.5.2: also includes thumbnail_data_url since hydrate no longer fetches it.
 async function sbFetchDocumentPageFull(docId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
+  const u = await sbUser(); if (!u) return null;
   if (!docId) return null;
-  const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data, error } = await window.sb
     .from(DOC_TABLE)
-    .select('id, user_id, submission_id, storage_path, extracted_text, html_content, annotations, thumbnail_data_url')
+    .select('id, extracted_text, html_content, annotations, thumbnail_data_url')
     .eq('user_id', u.id)
     .eq('id', docId)
-    .maybeSingle()));
+    .maybeSingle();
   if (error) {
     console.warn('sbFetchDocumentPageFull failed for ' + docId + ':', error.message);
     return null;
@@ -1462,14 +1671,13 @@ async function sbFetchDocumentPageFull(docId) {
 // orphan binaries (already a known cosmetic issue protected by the
 // protect_delete trigger), not visible-broken docs.
 async function sbDeleteAllDocumentPages() {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser())); if (!u) return null;
+  const u = await sbUser(); if (!u) return null;
   // Gather storage_paths first so we know what to clean. We don't delete
   // the binaries yet — we'll do that after the row deletion succeeds.
-  const { data: rows, error: selErr } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { data: rows, error: selErr } = await window.sb
     .from(DOC_TABLE)
     .select('storage_path')
-    .eq('user_id', u.id)));
+    .eq('user_id', u.id);
   if (selErr) {
     console.warn('sbDeleteAllDocumentPages select failed:', selErr.message);
     return null;
@@ -1477,10 +1685,10 @@ async function sbDeleteAllDocumentPages() {
   const paths = (rows || []).map(r => r.storage_path).filter(Boolean);
   // STEP 1: Delete the database rows. If this fails, we abort — never
   // delete storage when we don't know if the rows are gone.
-  const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+  const { error } = await window.sb
     .from(DOC_TABLE)
     .delete()
-    .eq('user_id', u.id)));
+    .eq('user_id', u.id);
   if (error) {
     console.warn('sbDeleteAllDocumentPages row delete failed:', error.message);
     _noteCloudFail();
@@ -1491,9 +1699,9 @@ async function sbDeleteAllDocumentPages() {
   // residue and the protect_delete trigger blocks accidental cascades.
   // Log so future cleanup-via-Storage-UI knows what to expect.
   if (paths.length > 0) {
-    const { error: stErr } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.storage
+    const { error: stErr } = await window.sb.storage
       .from(STORAGE_BUCKET)
-      .remove(paths)));
+      .remove(paths);
     if (stErr) console.warn('sbDeleteAllDocumentPages storage cleanup (non-fatal):', stErr.message);
   }
   _noteCloudOk();
@@ -1530,16 +1738,15 @@ async function sbDeleteAllDocumentPages() {
 // orphans in the storage bucket — cosmetic only, not a correctness issue.
 // ============================================================================
 async function sbCollectDocumentStoragePathsForSubmission(submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!submissionId) return [];
-  const u = await __stmNativeDataAwait(__nativeOwner,()=>(sbUser()));
+  const u = await sbUser();
   if (!u) return [];
   try {
-    const { data: rows, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb
+    const { data: rows, error } = await window.sb
       .from(DOC_TABLE)
       .select('storage_path')
       .eq('user_id', u.id)
-      .eq('submission_id', submissionId)));
+      .eq('submission_id', submissionId);
     if (error) {
       console.warn('[delete] storage_path collect failed; parent cascade will still delete rows:',
         error.code || '', error.message);
@@ -1548,7 +1755,6 @@ async function sbCollectDocumentStoragePathsForSubmission(submissionId) {
     }
     return (rows || []).map(r => r.storage_path).filter(Boolean);
   } catch (e) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw e;
     console.warn('[delete] storage_path collect threw; parent cascade will still delete rows:', e.message);
     return [];
   }
@@ -1559,15 +1765,13 @@ async function sbCollectDocumentStoragePathsForSubmission(submissionId) {
 // Returns void; errors are logged but do not throw — orphan binaries
 // are cosmetic only.
 async function sbDeleteStoragePaths(paths) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   if (!Array.isArray(paths) || paths.length === 0) return;
   try {
-    const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.storage.from(STORAGE_BUCKET).remove(paths)));
+    const { error } = await window.sb.storage.from(STORAGE_BUCKET).remove(paths);
     if (error) {
       console.warn('[delete] storage cleanup (non-fatal):', error.message);
     }
   } catch (e) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw e;
     console.warn('[delete] storage cleanup threw (non-fatal):', e.message);
   }
 }
@@ -1578,12 +1782,11 @@ async function sbDeleteStoragePaths(paths) {
 // Returns true (matching old "ok" semantics) so callers that don't read
 // the return value continue to work.
 async function sbDeleteDocumentPagesForSubmission(submissionId) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   // This function is now a thin wrapper — it just collects paths and
   // schedules a best-effort storage cleanup. The actual document_pages
   // row deletion happens via ON DELETE CASCADE when the parent
   // submission is deleted.
-  const paths = await __stmNativeDataAwait(__nativeOwner,()=>(sbCollectDocumentStoragePathsForSubmission(submissionId)));
+  const paths = await sbCollectDocumentStoragePathsForSubmission(submissionId);
   // Note: deletion of storage binaries is now handled by deleteSubmission
   // in app.js AFTER the parent delete succeeds. We don't fire the storage
   // remove() here because if the parent delete fails, we'd have stranded
@@ -1610,35 +1813,21 @@ window.sbDeleteStoragePaths = sbDeleteStoragePaths;
 // v8.7.160: extraction cache rows. Best-effort by design: any error
 // returns null/false and the engine falls back to the local ring.
 async function sbCacheGet8760(cacheKey) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   try {
-    const { data, error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.from('extraction_cache')
-      .select('payload, created_run, created_at').eq('cache_key', cacheKey).maybeSingle()));
+    const { data, error } = await window.sb.from('extraction_cache')
+      .select('payload, created_run, created_at').eq('cache_key', cacheKey).maybeSingle();
     if (error || !data || !data.payload) return null;
     return data;
-  } catch (_) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw _; return null; }
+  } catch (_) { return null; }
 }
 async function sbCachePut8760(cacheKey, moduleId, model, promptHash, payload, createdRun) {
-  const __nativeOwner=window.__STM_NATIVE_PLATFORM?.captureOwner()||{userId:null,epoch:-1};
   try {
-    const { error } = await __stmNativeDataAwait(__nativeOwner,()=>(window.sb.from('extraction_cache').upsert({
-      user_id: __nativeOwner.userId, cache_key: cacheKey, module_id: moduleId, model: model || null,
+    const { error } = await window.sb.from('extraction_cache').upsert({
+      cache_key: cacheKey, module_id: moduleId, model: model || null,
       prompt_hash: promptHash || null, payload: payload, created_run: createdRun || null
-    }, { onConflict: 'user_id,cache_key' })));  // v8.7.164: composite per-user key
+    }, { onConflict: 'user_id,cache_key' });  // v8.7.164: composite per-user key
     return !error;
-  } catch (_) {
-    if(!window.__STM_NATIVE_PLATFORM?.isOwner(__nativeOwner))throw _; return false; }
+  } catch (_) { return false; }
 }
 window.sbCacheGet8760 = sbCacheGet8760;
 window.sbCachePut8760 = sbCachePut8760;
-
-async function __stmNativeDataAwait(owner, request) {
-  const native=window.__STM_NATIVE_PLATFORM;
-  if(!native)throw new Error('Platform session is not ready.');
-  native.assertOwner(owner);
-  let result;
-  try { result=await request(); } catch(error) { native.assertOwner(owner); throw error; }
-  native.assertOwner(owner);
-  return result;
-}

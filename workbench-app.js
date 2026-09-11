@@ -1,66 +1,3 @@
-/* Research proposal. Root integrates the adapters inside the original
- * workbench-app init closure; this file installs no UI or global overrides.
- * In particular it never calls __stmApplyPhasePipeline or a rating engine.
- */
-(function(global){
- 'use strict';
- const PROFILE=['projIndicator','projAddress','statRepose','isoClass','isoDesc','hazardGrade','exposureAmt','exposureBasis','dramScore','resConstPct','comConstPct','punitveDmg','website'];
- const NARRATIVES={descOps:'description_operations',guidelineConflicts:'guideline_conflicts_text',expLoss:'exposure_to_loss',acctStrengths:'account_strengths',pricingRationale:null};
- const NAMES={descOps:'Summary of operations',guidelineConflicts:'Guideline conflicts',expLoss:'Exposure to loss',acctStrengths:'Strengths of the account',pricingRationale:'Underwriting narrative / pricing rationale'};
- function createScopedUnderwritingSource(ctx){
-  const {document:doc,edits}=ctx,$=id=>doc.getElementById(id);
-  const ids=[...PROFILE,...Object.keys(NARRATIVES)];
-  for(const id of ids)if(!$(id))throw Error('Missing original Underwriting control: '+id);
-  // Defaults come from original markup, never a live sourceUW snapshot which
-  // may already contain user overrides after a heavy-data refresh.
-  const defaults=Object.fromEntries(ids.map(id=>{const el=$(id);return [id,el.options?(Array.from(el.options).find(o=>o.defaultSelected)||el.options[0])?.value||'':el.defaultValue||''];}));
-  function owner(sid){const api=ctx.api(),expected=api.ownerId;ctx.assertOwner(expected);if(!sid||api.submissionId!==sid||ctx.activeSubmission()?.id!==sid||api.restoreError)throw Error(api.restoreError||'The submission is no longer active. Reopen it.');}
-  function removeOverride(id){delete edits.map[id];edits.removed.add(id);const el=$(id);delete el.dataset.userSet;delete el.dataset.stmExplicitEdit;el.classList.remove('autofilled-from-platform');}
-  function resolveText(id,submission){const field=NARRATIVES[id];if(field===null)return '';const result=ctx.resolve(field,submission);return result?.value==null?'':String(result.value);}
-  function finish(action,detail){ctx.recordHistory(action,detail);ctx.changed();ctx.mirror();}
-  function populateProfile(submission){
-   // Same original source fields. hazardGradeSelect is intentionally absent:
-   // it belongs to Internal Rater and is not part of a UW-only reset.
-   const targets=[['iso_class_code','isoClass','value'],['iso_description','isoDesc','value'],['hazard_grade','hazardGrade','value'],['exposure_amount','exposureAmt','value'],['exposure_basis','exposureBasis','select'],['website','website','value']];
-   for(const [field,id,kind]of targets){const result=ctx.resolve(field,submission);if(result?.value==null||result.value==='')continue;const value=id==='exposureBasis'?ctx.normalizeExposureBasisOption(result.value):result.value;ctx.setInputValue('#'+id,value,kind);}
-   const direct=ctx.directSubmissionWebsite(submission);if(direct&&!$('website').value)ctx.setInputValue('#website',direct,'value');
-   // Reuse original ISO listener/reference data, jurisdiction guideposts and
-   // controlling-class/revenue-sum function; do not copy a mock ISO table.
-   $('isoClass').dispatchEvent(new Event('input',{bubbles:true}));
-   ctx.applyStateGuideposts('native-underwriting-reset');
-   ctx.syncGlProfile('native-underwriting-reset');
-  }
-  return {
-   restore(sid,id){owner(sid);if(!Object.prototype.hasOwnProperty.call(NARRATIVES,id))throw Error('Unknown narrative.');const next=resolveText(id,ctx.activeSubmission());removeOverride(id);$(id).value=next;owner(sid);finish('Narrative restored',NAMES[id]);return next;},
-   reset(sid){
-    owner(sid);const submission=ctx.activeSubmission();
-    for(const id of ids){removeOverride(id);$(id).value=defaults[id];}
-    populateProfile(submission);
-    for(const id of Object.keys(NARRATIVES))$(id).value=resolveText(id,submission);
-    // Required even if a prior heavy-data refresh captured an edited rationale.
-    $('pricingRationale').value='';owner(sid);
-    finish('Underwriting reset','Pipeline risk profile and narratives restored; pricing rationale cleared.');
-    return Object.fromEntries(ids.map(id=>[id,$(id).value]));
-   },
-   defaults(){return {...defaults};}
-  };
- }
- global.STMCreateScopedUnderwritingSource=createScopedUnderwritingSource;
- if(typeof module==='object'&&module.exports)module.exports=createScopedUnderwritingSource;
-})(typeof globalThis==='object'?globalThis:window);
-
-window.stmNormalizeCoverageNative=function(entry){
- const panel=entry?.querySelector('.limit-details-panel');if(!panel)return;
- const controls=Array.from(panel.querySelectorAll('input,select,textarea')).filter(e=>!e.matches('.flatpickr-alt-input,.stm-date-alt-input')&&e.dataset.stmDateAlt!=='1'&&!(e.previousElementSibling?._flatpickr?.altInput===e));
- controls.forEach((e,i)=>{e.id='stm-coverage-'+panel.id+'-'+i;});
- const title=entry.querySelector('[data-native-title]');if(title)title.id='stm-title-'+panel.id;
- const included=entry.querySelector('input[data-target]');if(included)included.id='stm-include-'+panel.id;
- const carrier=entry.querySelector('input[data-policy-layer]');if(carrier)carrier.id='stm-carrier-'+panel.id;
-};
-window.stmAssertWorkbenchOwner = function(expected) {
- const owner=expected || window.__STM_NATIVE_OPEN_OWNER || window.__STM_WB?.ownerId;
- if(window.__STM_NATIVE_SESSION_BLOCKED || !owner || owner!==window.currentUser?.id)throw new Error('Session changed. Reopen the submission.');
-};
 /*
 =====================================================================
   Speed to Market AI — Underwriting Workbench
@@ -68,7 +5,7 @@ window.stmAssertWorkbenchOwner = function(expected) {
 =====================================================================
 */
 
-window.STM_BUILD = 'v10-native-phase7-release-candidate';
+window.STM_BUILD = 'v9.9.4-RC1-2026-09-10';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -95,15 +32,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     function platformRouteForWorkbench8709(target, suffix) {
-        if (target === 'submission' || target === 'pipeline') return 'platform.html' + suffix + '#/submission/pipeline';
-        if (target === 'documents' || target === 'filemanager' || target === 'files') return 'platform.html' + suffix + '#/submission/documents';
-        if (target === 'queue') return 'platform.html' + suffix + '#/queue';
-        if (target === 'admin') return 'platform.html' + suffix + '#/admin';
+        if (target === 'submission' || target === 'pipeline') return '/platform' + suffix + '#submission';
+        if (target === 'documents' || target === 'filemanager' || target === 'files') return '/platform' + suffix + '#documents';
+        if (target === 'queue') return '/platform#queue';
+        if (target === 'admin') return '/platform#admin';
         return '';
     }
-    async function navigateSystem8706(target) {
-        document.activeElement?.blur();
-        if(window.__STM_WB?.dirty){try{const saved=await window.__STM_WB.save();if(saved?.mode!=='cloud')throw new Error(saved?.summary||'Your changes are kept on this device but have not reached the cloud.');if(window.__STM_WB.dirty)throw new Error('Newer edits are still waiting to save. Retry before leaving.');}catch(e){alert("Save failed. Stay on this page and retry: "+e.message);return;}}
+    function navigateSystem8706(target) {
         target = String(target || '').toLowerCase();
         closeUniversalSystemNav8706();
         const sid = getWorkbenchSubmissionId8706();
@@ -323,11 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const APP_EVENTS = [];
     function recordHistory(action, detail = '') {
-        // Initial/restore population is not a new user action. Keep actual
-        // user events during yielding source work; suppress only its known
-        // automatic timeline producers. Historical restored entries survive.
-        if (STM_EDITS.restoring || !window.__STM_WB?.localKey) return;
-        if (window.__STM_HISTORY_LOADING && ['Forms loaded','Edits restored'].includes(String(action))) return;
         APP_EVENTS.unshift({ id: 'ev-' + (window.crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)), at: new Date().toISOString(), action: String(action || 'Action'), detail: String(detail || ''), actor: window.currentUser?.display_name || window.currentUser?.email || 'User', userId: window.currentUser?.id || null });
         if (APP_EVENTS.length > 75) APP_EVENTS.pop();
         renderHistoryLog();
@@ -336,7 +266,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHistoryLog() {
         const log = document.getElementById('historyLog');
         if (!log) return;
-        if(window.__STM_NATIVE_REVIEW){window.__STM_NATIVE_REVIEW.renderHistory(APP_EVENTS);return;}
         if (!APP_EVENTS.length) {
             log.innerHTML = `<div class="history-empty">No actions recorded yet. Status changes, saves, form actions, and coverage edits will appear here.</div>`;
             return;
@@ -411,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function stmSerializeEl(el) {
         if (!el) return null;
         if (el.type === 'checkbox' || el.type === 'radio') return { c: !!el.checked };
-        return el.classList.contains('convert-to-millions')?{v:el.value,n:el._stmAmountDraft?0:1}:{v:el.value};
+        return { v: el.value };
     }
     function stmApplyEl(el, saved, fire) {
         if (!el || saved == null) return false;
@@ -427,7 +356,6 @@ document.addEventListener('DOMContentLoaded', () => {
         el.setAttribute('data-user-set', '1');
         if (fire !== false) {
             el.dispatchEvent(new Event('input',  { bubbles: true }));
-            if(el.classList.contains('convert-to-millions')&&saved.n!==0&&/^[\d,.\s]*$/.test(el.value)){el._stmNormalizedAmount=String(el.value);el._stmAmountDraft=false;}
             el.dispatchEvent(new Event('change', { bubbles: true }));
         }
         return true;
@@ -501,11 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     })();
 
     function stmMarkDirty(el) {
-        if(el?.id==='nativeSubjectsAll'||(['resConstPct','comConstPct'].includes(el?.id)&&el.validity.badInput))return;
-        if(el?.matches('[data-native-title]'))return;
-        if (STM_EDITS.restoring || window.__STM_NATIVE_SESSION_BLOCKED) return;
-        if(el?.dataset)el.dataset.stmExplicitEdit='1';
-        window.__STM_WB?.changed();
+        if (STM_EDITS.restoring) return;
         const formsRoot = document.getElementById('formsContainer');
         if (formsRoot && formsRoot.contains(el)) { STM_EDITS.formsDirty = true; stmRefreshEditsPill(); stmMirrorDebounced(); return; }
         const tcfg = stmTableCfgFor(el);
@@ -528,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
         STM_EDITS.map[key] = Object.assign({ t: Date.now() }, stmSerializeEl(target));
         STM_EDITS.removed.delete(key);
         el.setAttribute('data-user-set', '1');
-        if (target !== el) {target.setAttribute('data-user-set', '1');target.dataset.stmExplicitEdit='1';}
+        if (target !== el) target.setAttribute('data-user-set', '1');
         stmRefreshEditsPill(); stmMirrorDebounced();
     }
 
@@ -536,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!e.isTrusted || document.activeElement !== e.target) return; // synthetic .click() default input events are trusted, but not focused user edits
         const el = e.target;
         if (!el || !el.matches || !el.matches('input, select, textarea')) return;
-        if (el.type === 'button' || el.type === 'submit' || el.type === 'file' || el.closest('dialog')) return;
+        if (el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
         stmMarkDirty(el);
     }, true));
 
@@ -609,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const el = key.indexOf('name:') === 0
                 ? document.querySelector('[name="' + key.slice(5).replace(/"/g, '\\"') + '"]')
                 : document.getElementById(key);
-            if (el && !(['resConstPct','comConstPct'].includes(el.id)&&el.validity.badInput)) fields[key] = Object.assign({ t: fields[key].t || Date.now() }, stmSerializeEl(el));
+            if (el) fields[key] = Object.assign({ t: fields[key].t || Date.now() }, stmSerializeEl(el));
         }
         const tables = {};
         for (const cfg of STM_EDIT_TABLES) {
@@ -622,12 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return { v: 2, savedAt: new Date().toISOString(), fields, tables, forms };
     }
     function stmWriteLocalMirror() {
-        if(window.__STM_WB_RESET_RETIRED)return;
-        // A delayed timer must never move an old account's recovery into a new account.
-        if(window.__STM_NATIVE_SESSION_BLOCKED||window.__STM_WB?.restoreError)return;
-        const owner=window.__STM_WB?.ownerId;
-        if(owner&&owner!==window.currentUser?.id)return;
-        try { const key=window.__STM_WB?.localKey || stmLocalKey();localStorage.setItem(key, JSON.stringify(stmBuildPayload()));if(window.__STM_WB?.dirty)localStorage.setItem(key+':pending','1'); } catch (e) {}
+        try { localStorage.setItem(stmLocalKey(), JSON.stringify(stmBuildPayload())); } catch (e) {}
     }
     function stmReadLocalMirror() {
         try {
@@ -661,9 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function stmSaveEdits() {
-        const saveOwner=window.currentUser?.id, saveLocalKey=stmLocalKey();
-        window.stmAssertWorkbenchOwner(saveOwner);
-        if(STM_EDITS.restoreError)throw new Error(STM_EDITS.restoreError);
+        if(STM_EDITS.restoreError)return {mode:'local-fail',summary:'Restore failed. No changes saved.',error:new Error(STM_EDITS.restoreError)};
         const sid = STM_EDITS.submissionId;
         const payload = stmBuildPayload();
         stmWriteLocalMirror();
@@ -680,17 +597,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const { error } = await window.sb.from('workbench_field_edits')
                     .upsert(rows, { onConflict: 'submission_id,field_key' });
                 if (error) throw error;
-                window.stmAssertWorkbenchOwner(saveOwner);
             }
             if (STM_EDITS.removed.size) {
                 const { error: delErr } = await window.sb.from('workbench_field_edits')
                     .delete().eq('submission_id', sid).in('field_key', Array.from(STM_EDITS.removed));
                 if (delErr) throw delErr;
-                window.stmAssertWorkbenchOwner(saveOwner);
                 STM_EDITS.removed.clear();
             }
-            window.stmAssertWorkbenchOwner(saveOwner);
-            try { const current=stmBuildPayload();if(JSON.stringify(current.fields)===JSON.stringify(payload.fields)&&JSON.stringify(current.tables)===JSON.stringify(payload.tables)&&JSON.stringify(current.forms)===JSON.stringify(payload.forms)) localStorage.removeItem(saveLocalKey+':pending'); }catch(_){}
+            try { const current=stmBuildPayload();if(JSON.stringify(current.fields)===JSON.stringify(payload.fields)&&JSON.stringify(current.tables)===JSON.stringify(payload.tables)&&JSON.stringify(current.forms)===JSON.stringify(payload.forms)) localStorage.removeItem(stmLocalKey()+':pending'); }catch(_){}
             return { mode: 'cloud', summary };
         } catch (err) {
             if (stmCloudTableMissing(err)) {
@@ -705,11 +619,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Restore (runs AFTER applyFullPhasePipeline) ── */
     async function restoreWorkbenchEdits8760(submission) {
-        window.__STM_HISTORY_LOADING=(window.__STM_HISTORY_LOADING||0)+1;
-        try { return await restoreWorkbenchEdits8760NativeHistoryBody(submission); }
-        finally { window.__STM_HISTORY_LOADING=Math.max(0,(window.__STM_HISTORY_LOADING||1)-1); }
-    }
-    async function restoreWorkbenchEdits8760NativeHistoryBody(submission) {
         STM_EDITS.restoreError = null;
         try {
             STM_EDITS.submissionId = (submission && submission.id) || null;
@@ -725,7 +634,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     else console.warn('[workbench] Phase 2: cloud edit load failed —', err && err.message);
                 }
             }
-            window.stmAssertWorkbenchOwner();
             // Prefer a known unsynced local save to stale cloud rows; never silently discard it.
             try { if (localStorage.getItem(stmLocalKey()+':pending') === '1' || (!localStorage.getItem(stmLocalKey()) && localStorage.getItem(stmLegacyLocalKey()+':pending') === '1')) {
                 const pendingLocal = stmReadLocalMirror();
@@ -752,7 +660,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? document.querySelector('[name="' + key.slice(5).replace(/"/g, '\\"') + '"]')
                     : document.getElementById(key);
                 if (el && stmApplyEl(el, v)) {
-                    el.dataset.stmExplicitEdit = '1';
                     if (['hazardGradeSelect','nonAdmittedLimit','quotaShareLimit','nonAdmittedAttachment','nonAdmittedPremium','projIndicator','projAddress','isoClass','exposureAmt','exposureBasis','resConstPct','comConstPct','website','descOps','guidelineConflicts','expLoss','acctStrengths','pricingRationale'].includes(key)) el.dataset.stmExplicitEdit = '1';
                     applied++;
                 }
@@ -807,25 +714,15 @@ document.addEventListener('DOMContentLoaded', () => {
             pill.id = 'stmEditsPill';
             pill.title = 'Click to discard all saved workbench edits for this submission and reload the pipeline-filled values.';
             pill.addEventListener('click', async () => {
-                if(window.__STM_WB_RESETTING||window.__STM_WB_RESET_RETIRED)return;
                 if (!confirm('Discard ALL saved workbench edits for this submission and re-sync from the pipeline?')) return;
-                const owner=window.__STM_WB?.ownerId,key=window.__STM_WB?.localKey,legacy=stmLegacyLocalKey();
                 try {
-                    window.stmAssertWorkbenchOwner(owner);
-                    if(!key||!STM_EDITS.submissionId||!window.sb||STM_EDITS.cloudUnavailable)throw new Error('Cloud reset is unavailable. Your edits have been kept.');
-                    window.__STM_WB_RESETTING=true;document.body.inert=true;
-                    await window.__STM_WB.awaitPendingSave();
-                    window.stmAssertWorkbenchOwner(owner);
-                    const result=await window.sb.from('workbench_field_edits').delete().eq('submission_id',STM_EDITS.submissionId);
-                    if(result.error)throw new Error(result.error.message||'Cloud deletion failed.');
-                    window.stmAssertWorkbenchOwner(owner);
-                    window.__STM_WB.retireForReset();
-                    for(const k of [key,key+':pending',legacy,legacy+':pending'])localStorage.removeItem(k);
-                    location.reload();
-                } catch(e) {
-                    document.body.inert=false;window.__STM_WB_RESETTING=false;
-                    alert('Reset could not finish. Stay on this page: '+(e.message||e));
-                }
+                    if (STM_EDITS.submissionId && window.sb && window.currentUser && !STM_EDITS.cloudUnavailable) {
+                        await window.sb.from('workbench_field_edits').delete().eq('submission_id', STM_EDITS.submissionId);
+                    }
+                } catch (e) { console.warn('[workbench] Phase 2: cloud reset failed —', e && e.message); }
+                try { localStorage.removeItem(stmLocalKey()); } catch (e) {}
+                recordHistory('Saved edits discarded', 're-syncing from pipeline');
+                location.reload();
             });
             saveBtn.insertAdjacentElement('afterend', pill);
         }
@@ -1156,11 +1053,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const yieldToBrowser8783 = () => new Promise(r => setTimeout(r, 0));
 
         async function applyFullPhasePipeline(data) {
-        window.__STM_HISTORY_LOADING=(window.__STM_HISTORY_LOADING||0)+1;
-        try { return await applyFullPhasePipelineNativeHistoryBody(data); }
-        finally { window.__STM_HISTORY_LOADING=Math.max(0,(window.__STM_HISTORY_LOADING||1)-1); }
-    }
-    async function applyFullPhasePipelineNativeHistoryBody(data) {
             if (!window.WorkbenchRules
                 || typeof window.WorkbenchRules.resolveField !== 'function') {
                 console.warn('[workbench] applyFullPhasePipeline: WorkbenchRules not loaded; skipping');
@@ -1334,7 +1226,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Exposed as a diagnostic hook only. The production path calls
         // applyFullPhasePipeline(data) directly from loadSubmissionFromUrl().
         window.__stmApplyPhasePipeline = applyFullPhasePipeline;
-        window.__STM_NATIVE_UW_SOURCE=window.STMCreateScopedUnderwritingSource({document,edits:STM_EDITS,api:()=>window.__STM_WB,assertOwner:window.stmAssertWorkbenchOwner,activeSubmission:()=>window.workbenchActiveSubmission,resolve:(key,s)=>window.WorkbenchRules.resolveField(key,s),normalizeExposureBasisOption,setInputValue,directSubmissionWebsite:directSubmissionWebsite8702,applyStateGuideposts:applyStateGuideposts8703,syncGlProfile:syncUnderwritingRiskProfileFromGlRater8702,recordHistory,changed:integrationChanged,mirror:stmWriteLocalMirror});
 
         // v8.7.49: Workbench load-state messaging. With the retired demo
         // card gone, direct /workbench visits and transient auth/Supabase
@@ -1359,7 +1250,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         (async function loadSubmissionFromUrl() {
             const params = new URLSearchParams(window.location.search);
-            const submissionId = params.get('submission') || params.get('submissionId');
+            const submissionId = params.get('submission');
             if (!submissionId) {
                 setWorkbenchLoadStatus8749(
                     'info',
@@ -1401,8 +1292,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 // files:[]). Stage 2 fetches snapshot.files in its own task,
                 // merges, and re-runs the file-corpus passes. Any Stage-1/2
                 // error falls back to the legacy select('*') - never worse.
-                window.__STM_NATIVE_OPEN_OWNER = window.currentUser.id;
-                const loadOwner = window.__STM_NATIVE_OPEN_OWNER;
                 let data = null, error = null, twoStage = false;
                 try {
                     const light = await window.sb
@@ -1447,9 +1336,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                window.stmAssertWorkbenchOwner(loadOwner);
                 clearWorkbenchLoadStatus8749();
-                data=window.__STM_REVIEW_SOURCE(data);window.workbenchActiveSubmission = data;
+                window.workbenchActiveSubmission = data;
                 const extractionCount = data.snapshot?.extractions
                     ? Object.keys(data.snapshot.extractions).length
                     : 0;
@@ -1484,18 +1372,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (window.WorkbenchRules
                     && typeof window.WorkbenchRules.resolveField === 'function') {
                     await applyFullPhasePipeline(data);
-                    window.__STM_WB_PHASE6?.rememberSource();
-                    window.__STM_WB_PHASE7?.rememberSource();
                     // PHASE2-2026-06-09: overlay saved USER edits strictly after
                     // the pipeline fill — restored fields get data-user-set so the
                     // 600ms population-pass retry can never clobber them.
-                    window.stmAssertWorkbenchOwner();
                     await restoreWorkbenchEdits8760(data);
-                    integrationLocalKey = stmLocalKey();
-                    integrationOwner = window.currentUser?.id || null;
-                    integrationDirty = localStorage.getItem(integrationLocalKey + ':pending') === '1';
-                    window.dispatchEvent(new Event('stm:workbench-loaded'));
-                    window.stmAssertWorkbenchOwner();
                     // v8.7.103: Stage 2 is now DEFERRED by default.
                     // The Supabase report proved the staged selects return 200,
                     // but the browser still blocks after first paint while the
@@ -1519,7 +1399,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                     .select('snap_files:snapshot->files')
                                     .eq('id', submissionId)
                                     .maybeSingle();
-                                window.stmAssertWorkbenchOwner(loadOwner);
                                 if (heavy.error) throw heavy.error;
                                 data.snapshot.files = (heavy.data && heavy.data.snap_files) || [];
                             } catch (hErr) {
@@ -1529,7 +1408,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                     if (full.data && full.data.snapshot) data.snapshot = full.data.snapshot;
                                 } catch (_) {}
                             }
-                            window.stmAssertWorkbenchOwner(loadOwner);
                             data.snapshot._heavyPending = false;
                             data.snapshot._filesDeferred = false;
                             data.snapshot._filesLoaded = true;
@@ -1537,7 +1415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             window.__stmHeavyRefilled8799 = true;
                             // v8.7.100: fresh identity so WeakMap caches rebuild
                             // against the merged files, not Stage-1 files:[].
-                            const refreshed = window.__STM_REVIEW_SOURCE({ ...data });
+                            const refreshed = { ...data };
                             window.workbenchActiveSubmission = refreshed;
                             await yieldToBrowser8783();
                             try { applyV8685PopulationPass(refreshed); } catch (_) {}
@@ -1560,9 +1438,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } else {
                     console.warn('[workbench] Phase 2: WorkbenchRules not loaded; skipping apply');
-                    window.stmAssertWorkbenchOwner();
                     await restoreWorkbenchEdits8760(data);
-                    window.stmAssertWorkbenchOwner();
                 }
             } catch (err) {
                 console.warn('[workbench] Phase 1: unexpected error loading submission:', err);
@@ -4314,12 +4190,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function applyPrimaryCoverageCards91(submission) {
-            // Deferred retries must use the latest same-submission source object;
-            // the earlier object's resolver cache predates deferred file loading.
-            if(window.__STM_NATIVE_SESSION_BLOCKED)return;
-            const active=window.workbenchActiveSubmission;
-            if(active?.id&&active.id!==submission?.id)return;
-            if(active?.id)submission=active;
             // v8.6.91: second-pass binding for visible GL/AL cards. Some cards
             // are rebuilt after the initial Phase 4/7 appliers run; re-apply
             // resolver values late so visible inputs do not remain blank.
@@ -4367,7 +4237,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 + escapeHtml(String(s.review || 0)) + ' review, '
                 + escapeHtml(String(s.missing || 0)) + ' missing of '
                 + escapeHtml(String(s.total || 0)) + '. '
-                + 'Review the populated fields before using this submission.'
+                + 'No API call was made. Details are in <code>window.workbenchFieldCoverageReport</code> and console tables.'
                 + conflict;
             box.style.display = 'block';
         }
@@ -5019,7 +4889,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let h = 5381;
             for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
             return String(100000 + (h % 900000));
-        })(new URLSearchParams(location.search).get('submission') || new URLSearchParams(location.search).get('submissionId') || 'STM');
+        })(new URLSearchParams(location.search).get('submission') || 'STM');
         $("#dealName").oninput = e => $("#insuredNameTxt").textContent = e.target.value || "—";
         $("#admission").onchange = e => {
             const c = e.target.value === "admitted" ? "BluePeak Admitted Casualty Company" : "Crestline E&S Insurance Company";
@@ -5105,15 +4975,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => applyStateGuideposts8703('initial'), 250);
 
         $("#pageContent").addEventListener("input", e => {
-            if (e.target.classList.contains("currency-input") && !e.target.closest(".native-risk")) {
+            if (e.target.classList.contains("currency-input")) {
                 formatCurrency(e.target);
             }
         });
 
-        $("#pageContent").addEventListener('change',e=>{
-            if(e.target.matches('.native-risk .currency-input')){formatCurrency(e.target);recalcMEP();window.dispatchEvent(new Event('stm:risk-updated'));}
-        });
-        window.stmNativeMoneyNumber=value=>_parseMoneyInput(value).value||0;
         const sameAsMailingChk = $("#sameAsMailingChk");
         if (sameAsMailingChk) {
             const insuredForm = $("#insuredForm");
@@ -5236,8 +5102,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.warn('[workbench] Phase 14.3 readiness skipped —',
                             rErr && rErr.message);
                     }
-                    try { window.__STM_WB_PHASE7.setReviewStatus(window.__STM_WB.submissionId,status); }
-                    catch(error) { alert('Review status was not changed: '+error.message);return; }
+                    const statusEl = $("#statusText");
+                    statusEl.textContent = status;
+                    statusEl.setAttribute('data-status', status);
+                    recordHistory('Status changed', `Submission marked ${status}`);
                     actionsMenu.classList.remove('visible');
                     actionsBtn.classList.remove('open');
                     actionsBtn.setAttribute('aria-expanded', 'false');
@@ -5344,7 +5212,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         /* ─── Subjectivities "Other?" expansion ─────────────────── */
-        function setupSubjectivities(){document.querySelector('#form-subjectivities .add-other-btn')?.addEventListener('click',()=>window.__STM_NATIVE_REVIEW.addCustomDraft());}
+        function setupSubjectivities() {
+            const otherCheckbox = $("#otherSubjectivityCheckbox");
+            if (!otherCheckbox) return;
+            const otherPanel = otherCheckbox.closest('.other-subjectivity').querySelector('.other-details-panel');
+            otherCheckbox.addEventListener('change', () => otherPanel.classList.toggle('visible', otherCheckbox.checked));
+            otherPanel.querySelector('.add-other-btn')?.addEventListener('click', () => {
+                otherPanel.insertBefore(document.createElement('div'), otherPanel.lastElementChild).outerHTML = `<div class="other-input-group"><textarea rows="2" placeholder="Enter other subjectivity..."></textarea></div>`;
+            });
+        }
 
         /* ─── Year-over-Year (YOY) Metrics for Renewal ──────────── */
         function setupYOY() {
@@ -5497,7 +5373,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const expAlExp = parseNumber(ercIn.expAlExp?.value);
                 const expPrem = parseCurrency(ercIn.expPrem?.value);
                 let pctGl = parsePercent(ercIn.splitGl?.value);
-                if (!ercIn.splitGl?.value.trim()) pctGl = .5;
+                if (!pctGl) pctGl = .5;
                 pctGl = Math.min(Math.max(pctGl, 0), 1);
                 const pctAl = 1 - pctGl;
                 const premGl = expPrem * pctGl;
@@ -5510,8 +5386,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rateAl = expAlExp ? premAl / expAlExp : 0;
                 if (ercOut.rateGl) ercOut.rateGl.textContent = fmt.money(rateGl, 2);
                 if (ercOut.rateAl) ercOut.rateAl.textContent = fmt.money(rateAl, 2);
-                const renGlExp = ercIn.renGlExp?.value.trim() ? parseNumber(ercIn.renGlExp.value) : expGlExp;
-                const renAlExp = ercIn.renAlExp?.value.trim() ? parseNumber(ercIn.renAlExp.value) : expAlExp;
+                const renGlExp = parseNumber(ercIn.renGlExp?.value) || expGlExp;
+                const renAlExp = parseNumber(ercIn.renAlExp?.value) || expAlExp;
                 const flatGl = (renGlExp / glPer) * rateGl;
                 const flatAl = renAlExp * rateAl;
                 const flatTotal = flatGl + flatAl;
@@ -5519,9 +5395,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (ercOut.flatAl) ercOut.flatAl.textContent = fmt.money(flatAl);
                 if (ercOut.flatTot) ercOut.flatTot.textContent = fmt.money(flatTotal);
                 const renPrem = parseCurrency(ercIn.renPrem?.value);
-                const usePrem = ercIn.renPrem?.value.trim() ? renPrem : flatTotal;
-                const selGl = ercIn.renPrem?.value.trim() ? (renPrem * pctGl) : flatGl;
-                const selAl = ercIn.renPrem?.value.trim() ? (renPrem * pctAl) : flatAl;
+                const usePrem = renPrem > 0 ? renPrem : flatTotal;
+                const selGl = renPrem > 0 ? (renPrem * pctGl) : flatGl;
+                const selAl = renPrem > 0 ? (renPrem * pctAl) : flatAl;
                 if (ercOut.renGl) ercOut.renGl.textContent = fmt.money(selGl);
                 if (ercOut.renAl) ercOut.renAl.textContent = fmt.money(selAl);
                 const erc = flatTotal > 0 ? (usePrem / flatTotal - 1) : 0;
@@ -5532,9 +5408,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 setSummary('expPrem', expPrem ? fmt.money(expPrem) : '—');
                 setSummary('splitGl', fmt.pct(pctGl, 1));
                 setSummary('splitAl', fmt.pct(pctAl, 1));
-                setSummary('renGlExp', (ercIn.renGlExp?.value.trim() || renGlExp) ? fmt.num(renGlExp) : '—');
-                setSummary('renAlExp', (ercIn.renAlExp?.value.trim() || renAlExp) ? fmt.num(renAlExp) : '—');
-                setSummary('renPrem', (ercIn.renPrem?.value.trim() || usePrem) ? fmt.money(usePrem) : '—');
+                setSummary('renGlExp', renGlExp ? fmt.num(renGlExp) : '—');
+                setSummary('renAlExp', renAlExp ? fmt.num(renAlExp) : '—');
+                setSummary('renPrem', usePrem ? fmt.money(usePrem) : '—');
                 setSummary('erc', ercText);
                 const ercBadge = document.querySelector('.erc-badge');
                 if (ercBadge) {
@@ -5555,14 +5431,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (ercIn.splitGl) {
                 ercIn.splitGl.addEventListener('input', () => {
-                    const gl = Math.min(Math.max((ercIn.splitGl.value.trim() ? parsePercent(ercIn.splitGl.value) * 100 : 50), 0), 100);
+                    const gl = Math.min(Math.max(parsePercent(ercIn.splitGl.value) * 100, 0), 100);
                     if (ercIn.splitAl) ercIn.splitAl.value = (100 - gl).toFixed(1) + '%';
                     calcERC();
                 });
             }
             if (ercIn.splitAl) {
                 ercIn.splitAl.addEventListener('input', () => {
-                    const al = Math.min(Math.max((ercIn.splitAl.value.trim() ? parsePercent(ercIn.splitAl.value) * 100 : 50), 0), 100);
+                    const al = Math.min(Math.max(parsePercent(ercIn.splitAl.value) * 100, 0), 100);
                     if (ercIn.splitGl) ercIn.splitGl.value = (100 - al).toFixed(1) + '%';
                     calcERC();
                 });
@@ -5601,8 +5477,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const units = parseNumber(tr.querySelector('[data-a="units"]').value);
                     const rate = parseCurrency(tr.querySelector('[data-a="rate"]').value);
                     const prem = units * rate;
-                    const expU = tr.querySelector('[data-a="expUnits"]').value.trim() ? parseNumber(tr.querySelector('[data-a="expUnits"]').value) : units;
-                    const expR = tr.querySelector('[data-a="expRate"]').value.trim() ? parseCurrency(tr.querySelector('[data-a="expRate"]').value) : rate;
+                    const expU = parseNumber(tr.querySelector('[data-a="expUnits"]').value) || units;
+                    const expR = parseCurrency(tr.querySelector('[data-a="expRate"]').value) || rate;
                     const expPrem = expU * expR;
                     tr.querySelector('[data-a="expUnits"]').placeholder = fmt.num(units);
                     tr.querySelector('[data-a="expRate"]').placeholder = fmt.money(rate, 0);
@@ -5699,7 +5575,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let coverageCloneSeq = 0;
 
         function getCoverageName(entry) {
-            return entry?.querySelector('[data-native-title]')?.value?.trim() || entry?.querySelector('.limit-entry-header .checkbox-label span')?.textContent?.trim()
+            return entry?.querySelector('.limit-entry-header .checkbox-label span')?.textContent?.trim()
                 || entry?.querySelector('.limit-entry-name')?.textContent?.trim()
                 || entry?.dataset.coverageType
                 || 'Coverage';
@@ -5898,7 +5774,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 mepPremiumOutput.value = '';
                 return;
             }
-            const premium = premiumInput ? (_parseMoneyInput(premiumInput.value).value || 0) : 0;
+            const premium = premiumInput ? parseCurrency(premiumInput.value) : 0;
             const mepPct = parseNumber(mepPctInput?.value || 0);
             mepPremiumOutput.value = premium || mepPct ? ((premium * mepPct) / 100).toLocaleString('en-US') : '';
         }
@@ -5992,7 +5868,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             initLimitDateInputs(newEntry);
-            window.stmNormalizeCoverageNative(newEntry);
             sanitizeLimitDateFields95(newEntry);
             // Flatpickr can attach its altInput on the same task but after DOM
             // measurements in some browsers.  Re-run the sanitizer after paint so
@@ -6076,7 +5951,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (deleteIcon) {
                     const entry = deleteIcon.closest('.limit-entry');
                     const name = getCoverageName(entry);
-                    if (entry && (e.__stmDeleteConfirmed || confirm('Are you sure you want to delete this coverage entry?'))) {
+                    if (entry && confirm('Are you sure you want to delete this coverage entry?')) {
                         entry.remove();
                         recordHistory('Coverage removed', name);
                         recalcMEP();
@@ -6532,25 +6407,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 return HAZARD[getHazardKey()] || HAZARD.High;
             }
 
-            function internalExactAmount(raw){
-                const m=String(raw).replace(/[$,\s]/g,'').match(/^([0-9]*\.?[0-9]+)(mm|m|k|b|million|thousand|billion)?$/i);
-                if(!m)return 0;const suffix=(m[2]||'').toLowerCase();
-                return Number(m[1])*(['m','mm','million'].includes(suffix)?1e6:['k','thousand'].includes(suffix)?1e3:['b','billion'].includes(suffix)?1e9:1);
-            }
             function convertToDollars(input, shouldRecalc = true) {
                 if (!input) return 0;
-                const raw = String(input.value || '').trim();
-                if (!raw) { input._stmNormalizedAmount=''; return 0; }
-                if(input===attachInput && /^Primary$/i.test(raw)){input.value='Primary';_flagMoneyInput(input,null);if(shouldRecalc)recalcInternalRater();return 0;}
-                if (input._stmNormalizedAmount===raw) return cleanNumber(raw);
-                const parsed=_parseMoneyInput(raw);
-                if(parsed.rejected){input.value='';input._stmNormalizedAmount='';_flagMoneyInput(input,'rejected');if(shouldRecalc)recalcInternalRater();return 0;}
-                const suffix=/[a-z]/i.test(raw);
-                let num=internalExactAmount(raw);
+                const raw = String(input.value || '').replace(/[$,]/g, '').trim();
+                if (!raw) return 0;
+                let num = parseFloat(raw);
+                if (!Number.isFinite(num)) return 0;
                 let _coercedToMillions = false;
-                if(!suffix&&num>0&&num<1000){num*=ONE_M;_coercedToMillions=true;}
-                input.value=num.toLocaleString('en-US',{maximumFractionDigits:10});
-                input._stmNormalizedAmount=input.value;input._stmAmountDraft=false;
+                if (num > 0 && num < 1000) { num *= ONE_M; _coercedToMillions = true; }
+                input.value = num.toLocaleString('en-US');
                 // FIX-PHASE1-2026-06-09: surface the millions-shorthand cliff.
                 // Entries of 100–999 convert to $100M–$999M — at that magnitude
                 // a typo (meant dollars) is costlier than the shorthand is
@@ -6624,16 +6489,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (input.readOnly) return;            // derived cells (tower/HE attachments) are engine-written
                     if (input.classList.contains('convert-to-millions')) convertToDollars(input, opts.recalc !== false);
                     else if (input.value.trim()) {
-                        const raw=input.value.trim(),parsed=_parseMoneyInput(raw);
-                        if(parsed.rejected){input.value='';_flagMoneyInput(input,'rejected');}
-                        else{const amount=internalExactAmount(raw);input.value=amount.toLocaleString('en-US',{maximumFractionDigits:10});_flagMoneyInput(input,null);}
+                        input.value = formatMoneyTextRaw(input.value);
                         if (opts.recalc !== false) recalcInternalRater();
                     }
                 };
                 input.addEventListener('blur', normalize);
                 input.addEventListener('change', normalize);
                 input.addEventListener('input', () => {
-                    delete input._stmNormalizedAmount;input._stmAmountDraft=true;_flagMoneyInput(input,null);
                     // Live comma-format only. Do NOT apply the workbook's <1000 => millions
                     // convention until blur/change, so typing "5" can still become "50".
                     liveFormatMoneyInput(input);
@@ -7363,7 +7225,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderRatingSummary();
                 formatInternalRaterMoneyFields();
                 syncPricingSummary();
-                window.dispatchEvent(new Event('stm:worksheets-updated'));
             }
             window.__stmRecalcInternalRater87104 = function(reason) {
                 const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -7458,8 +7319,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 recalcInternalRater();
             });
 
-            document.getElementById('clearSheetBtn')?.addEventListener('click', (event) => {
-                if (!event.__stmClearConfirmed && !confirm('Clear the entire Internal Rater sheet? This will reset factors, primary policies, tower layers, and high excess rows.')) return;
+            document.getElementById('clearSheetBtn')?.addEventListener('click', () => {
+                if (!confirm('Clear the entire Internal Rater sheet? This will reset factors, primary policies, tower layers, and high excess rows.')) return;
                 primaryTbody.innerHTML = '';
                 addPrimaryPolicyRow('General Liability', 'TBD', ONE_M);
                 addPrimaryPolicyRow('Auto Liability', 'TBD', ONE_M);
@@ -7746,10 +7607,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (e.target.closest('.form-actions-icons') || e.target === cb) return;
                         cb.checked = !cb.checked;
                         cb.dispatchEvent(new Event('change', { bubbles: true }));
-                        if(e.isTrusted)window.__STM_WB_PHASE7?.commitNativeForms();
                     });
-                    cb.addEventListener('change', event => {
-                        if(event.isTrusted)window.__STM_WB_PHASE7?.commitNativeForms();
+                    cb.addEventListener('change', () => {
                         row.classList.toggle('is-selected', cb.checked);
                         updateSelectAllState();
                         updatePricingSummary();
@@ -7760,15 +7619,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             const action = btn.dataset.formAction;
                             const { num, name, label } = getFormLabel(row);
                             if (action === 'preview') {
-                                window.__STM_NATIVE_REVIEW.previewForms(row);
+                                alert(`Form Preview\n\n${label}\n\nThis is a local preview placeholder for the selected policy form.`);
+                                recordHistory('Form previewed', label);
                             } else if (action === 'download') {
-                                window.__STM_NATIVE_REVIEW.downloadForm(row);
+                                const blob = new Blob([`Form Number: ${num}\nForm Name: ${name}\nGenerated: ${new Date().toLocaleString()}\n`], { type: 'text/plain' });
+                                const a = document.createElement('a');
+                                a.href = URL.createObjectURL(blob);
+                                a.download = `${(num || 'form').replace(/[^a-z0-9_-]+/gi, '_')}.txt`;
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+                                recordHistory('Form downloaded', label);
                             } else if (action === 'remove') {
                                 row.remove();
                                 updateSelectAllState();
                                 updatePricingSummary();
                                 recordHistory('Form removed', label);
-                                window.__STM_WB_PHASE7?.commitNativeForms();
                             }
                         });
                     });
@@ -7828,9 +7694,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 const selection = getLayerSelection();
                 recordHistory('Forms reset', selection.key ? `${selection.key} defaults restored` : 'No layer selected');
             }
-            document.getElementById('formsReset')?.addEventListener('click',()=>{if(confirm('Restore this layer’s default form schedule? Custom additions and removals will be replaced.'))window.__STM_NATIVE_REVIEW.resetForms();});
-            document.getElementById('formsPreview')?.addEventListener('click',()=>window.__STM_NATIVE_REVIEW.previewForms());
-            document.getElementById('formsAdd')?.addEventListener('click',()=>window.__STM_NATIVE_REVIEW.openForms());
+            document.getElementById('formsReset')?.addEventListener('click', resetCoverageLists);
+            document.getElementById('formsPreview')?.addEventListener('click', () => {
+                const checked = list.querySelectorAll('.form-row input[type="checkbox"]:checked');
+                const names = Array.from(checked).map(cb => getFormLabel(cb.closest('.form-row')).label);
+                if (names.length === 0) {
+                    alert('No forms selected to preview. Select a Layer Type and choose at least one form.');
+                    return;
+                }
+                alert(`Preview — ${names.length} selected form${names.length === 1 ? '' : 's'}:\n\n${names.join('\n')}`);
+                recordHistory('Forms previewed', `${names.length} selected`);
+            });
+            document.getElementById('formsAdd')?.addEventListener('click', () => {
+                if (!list.querySelector('.form-category-section')) {
+                    alert('Select a Layer Type before adding custom forms.');
+                    return;
+                }
+                const formNum = prompt('Form Number:');
+                if (!formNum) return;
+                const formName = prompt('Form Name:');
+                if (!formName) return;
+                const firstCategory = list.querySelector('.form-category-section');
+                if (!firstCategory) return;
+                const row = document.createElement('div');
+                row.className = 'form-row is-selected';
+                row.dataset.formNum = formNum;
+                row.dataset.default = 'false';
+                row.innerHTML = `<div class="form-checkbox"><input type="checkbox" checked></div><span class="form-num">${escapeHtml(formNum)}</span><span class="form-name">${escapeHtml(formName)}</span><div class="form-actions-icons"><button type="button" class="form-action-btn" data-form-action="preview" title="Preview" aria-label="Preview">${ICON_PREVIEW}</button><button type="button" class="form-action-btn" data-form-action="download" title="Download" aria-label="Download">${ICON_DOWNLOAD}</button><button type="button" class="form-action-btn form-action-btn--remove" data-form-action="remove" title="Remove" aria-label="Remove">${ICON_REMOVE}</button></div>`;
+                firstCategory.appendChild(row);
+                wireFormRowEvents();
+                updateSelectAllState();
+                updatePricingSummary();
+                recordHistory('Form added', `${formNum} — ${formName}`);
+            });
             if (selectAll) selectAll.addEventListener('change', () => {
                 const targetChecked = selectAll.checked;
                 list.querySelectorAll('.form-row input[type="checkbox"]').forEach(cb => {
@@ -7841,7 +7737,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectAll.indeterminate = false;
                 const selection = getLayerSelection();
                 recordHistory(targetChecked ? 'All forms selected' : 'All forms cleared', selection.key || 'No layer');
-                window.__STM_WB_PHASE7?.commitNativeForms();
             });
             const typeEl = document.querySelector('#layerType, #typeSelector, [data-deal-type]');
             if (typeEl) typeEl.addEventListener('change', syncFormsWithLayerType);
@@ -8168,19 +8063,19 @@ document.addEventListener('DOMContentLoaded', () => {
            with a localStorage mirror as offline fallback. The button only says
            "Saved ✓" after the cloud write resolves; local-only paths say so.
            The old stm-deal:* snapshot (written, never read — a placebo) is gone. */
-        const saveBtn = $('#saveBtn');let nativeSaveFeedbackTimer=null;
+        const saveBtn = $('#saveBtn');
         if (saveBtn) {
             saveBtn.addEventListener('click', async () => {
-                const originalText = 'Save';clearTimeout(nativeSaveFeedbackTimer);
+                const originalText = saveBtn.textContent;
                 if (saveBtn.dataset.saving === '1') return;  // debounce double-clicks
                 saveBtn.dataset.saving = '1';
                 saveBtn.disabled = true;
                 saveBtn.textContent = 'Saving…';
                 let label = 'Save failed', hist = 'Save failed', detail = '';
                 try {
-                    const r = await window.__STM_WB.save();
+                    const r = await stmSaveEdits();
                     detail = r.summary;
-                    if (r.mode === 'cloud')          { label = window.__STM_WB.dirty ? 'Saved — newer edits pending' : 'Saved ✓'; hist = 'Saved to cloud'; }
+                    if (r.mode === 'cloud')          { label = 'Saved ✓';                hist = 'Saved to cloud'; }
                     else if (r.mode === 'local')     { label = 'Saved locally';          hist = 'Saved locally (no submission/session)'; }
                     else if (r.mode === 'local-no-table') { label = 'Saved locally — run Phase 2 migration'; hist = 'Saved locally (cloud table missing)'; }
                     else                              { label = 'Saved locally — cloud failed'; hist = 'Cloud save failed; kept locally'; }
@@ -8188,10 +8083,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     detail = e.message || 'unexpected error';
                     console.warn('Save failed:', detail);
                 }
-                // Save requested was persisted by __STM_WB.save; outcome belongs to this status UI.
+                recordHistory(hist, detail);
                 saveBtn.textContent = label;
-                saveBtn.disabled = false;delete saveBtn.dataset.saving;
-                nativeSaveFeedbackTimer=setTimeout(() => {
+                setTimeout(() => {
                     saveBtn.textContent = originalText;
                     saveBtn.disabled = false;
                     delete saveBtn.dataset.saving;
@@ -8210,69 +8104,49 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.querySelectorAll('[data-erc]').forEach(el=>{if(!el.id&&el.matches('input,select,textarea'))el.id='stm-erc-'+el.dataset.erc;});
     let integrationDirty = false;
-    let integrationSavePromise = null;
     let integrationLocalKey = null;
-    let integrationOwner = null;
     let integrationRevision = 0;
     function integrationChanged() {
-        if(window.__STM_WB_RESET_RETIRED)return;
         if (STM_EDITS.restoring) return;
         integrationDirty = true; integrationRevision++;
-        
+        try { parent.STM_RUNTIME?.workbenchChanged(integrationRevision); } catch (_) {}
     }
-    document.addEventListener('input', e => { if(e.isTrusted && !e.target.closest('dialog') && document.activeElement===e.target && e.target.matches('input,textarea,select,[contenteditable]')) integrationChanged(); }, true);
-    document.addEventListener('change', e => { if(e.isTrusted && !e.target.closest('dialog') && document.activeElement===e.target && e.target.matches('input,textarea,select')) integrationChanged(); }, true);
+    document.addEventListener('input', e => { if(e.isTrusted && document.activeElement===e.target && e.target.matches('input,textarea,select,[contenteditable]')) integrationChanged(); }, true);
+    document.addEventListener('change', e => { if(e.isTrusted && document.activeElement===e.target && e.target.matches('input,textarea,select')) integrationChanged(); }, true);
     document.addEventListener('click',e=>{if(!e.isTrusted)return;for(const cfg of STM_EDIT_TABLES){const sel=[cfg.addSel,cfg.removeSel,cfg.rowRemoveSel].filter(Boolean).join(',');if(sel&&e.target.closest(sel)){STM_EDITS.dirtyTables.add(cfg.key);integrationChanged();stmMirrorDebounced();}}},true);
     document.addEventListener('click', e => { if(e.isTrusted && e.target.closest('#formsContainer, #formsAdd, #formsReset, [data-pp-remove], [data-tw-remove], #internalAddPrimary, #internalAddLayer, #glRaterAddRow, #glRaterRemoveRow')) integrationChanged(); }, true);
     window.__STM_WB = {
         ready: true,
         get dirty(){return integrationDirty;},
-        get localKey(){return integrationLocalKey;},
-        get ownerId(){return integrationOwner || window.__STM_NATIVE_OPEN_OWNER || null;},
         get restoreError(){return STM_EDITS.restoreError || null;},
         get revision(){return integrationRevision;},
-        awaitPendingSave(){return integrationSavePromise;},
-        retireForReset(){window.stmAssertWorkbenchOwner(integrationOwner);window.__STM_WB_RESET_RETIRED=true;integrationDirty=false;},
         get submissionId(){return STM_EDITS.submissionId;},
         payload: () => stmBuildPayload(),
         // Capture the owner-scoped key during load: auth loss clears currentUser before stashing.
-        stash(){if(!window.__STM_WB_RESET_RETIRED&&!STM_EDITS.restoreError && integrationDirty && integrationLocalKey){try{localStorage.setItem(integrationLocalKey,JSON.stringify(stmBuildPayload()));localStorage.setItem(integrationLocalKey+':pending','1');}catch(_){}}},
+        stash(){if(integrationDirty && integrationLocalKey){try{localStorage.setItem(integrationLocalKey,JSON.stringify(stmBuildPayload()));localStorage.setItem(integrationLocalKey+':pending','1');}catch(_){}}},
         history: () => APP_EVENTS.slice(),
         async load(data){
             if(!data?.id) throw new Error('Cannot open an unidentified submission.');
             if(STM_EDITS.submissionId && STM_EDITS.submissionId!==data.id) throw new Error('New submissions require a fresh workbench instance.');
-            data=window.__STM_REVIEW_SOURCE(data);window.workbenchActiveSubmission=data;
+            window.workbenchActiveSubmission=data;
             const notice=document.getElementById('workbenchLoadStatus');if(notice){notice.textContent='Loading submission...';notice.style.display='block';}
             await window.__stmApplyPhasePipeline(data);
             window.__STM_WB_PHASE6?.rememberSource();
             window.__STM_WB_PHASE7?.rememberSource();
-            window.stmAssertWorkbenchOwner();
-                    await restoreWorkbenchEdits8760(data);
-                    window.stmAssertWorkbenchOwner();
-            integrationLocalKey=stmLocalKey();integrationOwner=window.currentUser?.id||null;
+            await restoreWorkbenchEdits8760(data);
+            integrationLocalKey=stmLocalKey();
             try{integrationDirty=localStorage.getItem(stmLocalKey()+':pending')==='1';}catch(_){integrationDirty=false;}
             if(notice){notice.textContent='';notice.style.display='none';}
             return {id:data.id,fields:window.workbenchFieldCoverageReport||null};
         },
         async save(){
-            if(window.__STM_WB_RESETTING||window.__STM_WB_RESET_RETIRED)throw new Error("Reset is in progress. Wait for this page to reopen.");
-            if(window.__STM_NATIVE_SESSION_BLOCKED || !integrationOwner || integrationOwner!==window.currentUser?.id)throw new Error('Session changed. Reopen the submission before saving.');
             if(STM_EDITS.restoreError)throw new Error(STM_EDITS.restoreError);
             if(!STM_EDITS.submissionId) throw new Error('Open a saved submission before saving the workbench.');
-            window.__STM_NATIVE_REVIEW?.validate();
-            // Existing owner/restore/native field validation must run above.
-            if(integrationSavePromise)return integrationSavePromise;
-            const saveOwner=integrationOwner;
-            recordHistory('Save requested','Workbench save requested; the current save status reports its outcome.');
             const revision=integrationRevision;
-            const task=(async()=>{
-                const result=await stmSaveEdits();
-                window.stmAssertWorkbenchOwner(saveOwner);
-                if(result.mode==='cloud' && revision===integrationRevision)integrationDirty=false;
-                return result;
-            })();
-            integrationSavePromise=task;
-            try{return await task;}finally{if(integrationSavePromise===task)integrationSavePromise=null;}
+            const result=await stmSaveEdits();
+            if(result.mode==='cloud' && revision===integrationRevision) integrationDirty=false;
+            recordHistory(result.mode==='cloud'?'Saved to cloud':'Saved locally only',result.summary);
+            return result;
         },
         setField(id,value){
             const el=document.getElementById(id);if(!el) throw new Error('Unknown field: '+id);
@@ -8301,7 +8175,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.STMWorkbenchPhase6?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory});
     window.STMWorkbenchPhase7?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory,
         replaceHistory(rows){APP_EVENTS.splice(0,APP_EVENTS.length,...rows.slice(0,75));renderHistoryLog();}});
-    
+    try{ parent.STM_RUNTIME?.workbenchReady(window); }catch(_){}
 
 
     }
