@@ -311,11 +311,16 @@ html[data-theme="dark"] .g::after{opacity:.45;}
 html,body{height:100%;overflow:hidden;}
 .topbar{position:fixed;top:0;left:0;right:0;z-index:50;height:64px;}
 .topbar.wb{grid-template-columns:auto auto 1fr;gap:18px;}
-/* v9.9.0 top bar: content sized columns, the right group never slides under the chapters */
-.topbar.wb{grid-template-columns:auto auto minmax(max-content,1fr);gap:16px;}
-.topbar .chapters{flex:none;}
-.topbar.wb>.chapters{min-width:max-content;max-width:none;overflow:visible;}
-.topbar .tb-right{justify-self:end;flex:none;width:max-content;}
+/* v9.9.6 top bars: the platform bar never compresses; the workbench bar is a flex row that hugs the chapter pill,
+   keeps every label, and wraps the chapters onto a second row when one row cannot hold them */
+.topbar.wb{display:flex;align-items:center;gap:16px;}
+.topbar.wb>.brand{flex:none;}
+.topbar.wb>.chapters{flex:none;width:max-content;min-width:0;max-width:none;overflow:visible;}
+.topbar.wb>.tb-right{flex:none;margin-left:auto;width:auto;}
+.topbar .brk{display:none;}
+.topbar>.nav{overflow:visible !important;max-width:none !important;min-width:max-content !important;}
+.topbar .tb-icon{flex:0 0 34px;width:34px;height:34px;min-height:34px;max-height:34px;padding:0;line-height:0;}
+.topbar .tb-icon svg{width:16px;height:16px;}
 .tb-user .who{display:none;}
 .chapters .deal-type{display:flex;align-items:center;gap:2px;margin-left:4px;padding-left:6px;border-left:1px solid var(--line-2);}
 .chapters .deal-type b{font-family:var(--fM);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;color:var(--ink-3);padding:0 6px 0 4px;}
@@ -323,13 +328,15 @@ html,body{height:100%;overflow:hidden;}
 .chapters .deal-type button.on{background:var(--acc-tint);color:var(--acc-text);box-shadow:inset 0 0 0 1px var(--acc-tint-2);}
 .chapters button.fresh{animation:tabin .5s var(--ease) both;}
 @keyframes tabin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-@media(max-width:1900px){.topbar.wb .tb-pill.in .t{display:none;}.topbar.wb #sysBtn>span:not(.car){display:none;}.topbar.wb .tb-right .sw .t{display:none;}.topbar.wb .tb-right .sw{padding:0 10px;}.topbar.wb #stm-save-state{max-width:140px;}}
-@media(max-width:1700px){.topbar.wb .brand>span:last-child{display:none;}.chapters button{padding:0 12px;}}
-@media(max-width:1620px){.chapters button{padding:0 10px;font-size:13px;}.chapters .deal-type b{display:none;}}
-/* v9.9.5: the platform nav pill never scrolls, and icon buttons keep their circle at any zoom */
-.topbar>.nav,.topbar.wb>.chapters{overflow:visible !important;max-width:none !important;min-width:max-content !important;}
-.topbar .tb-icon{flex:0 0 34px;width:34px;height:34px;min-height:34px;max-height:34px;padding:0;line-height:0;}
-.topbar .tb-icon svg{width:16px;height:16px;}
+@media(max-width:1840px){
+ .topbar.wb{flex-wrap:wrap;height:110px !important;min-height:110px !important;padding:8px 24px;row-gap:4px;}
+ .topbar.wb>.brand{order:1;}
+ .topbar.wb>.tb-right{order:1;}
+ .topbar.wb .brk{display:block;order:2;flex-basis:100%;height:0;}
+ .topbar.wb>.chapters{order:3;}
+ body:has(.topbar.wb) #frames,body:has(.topbar.wb) #loading,body:has(.topbar.wb) #stm-auth-gate{top:110px !important;}
+ body:has(.topbar.wb) #sysmenu{top:114px;}
+}
 @media(max-width:1100px){.topbar .tb-pill.in{display:none;}}
 @media(max-width:1440px){.topbar{padding:0 18px;}.topbar.wb{gap:12px;}}
 @media(max-width:1340px){.chapters button{padding:0 8px;font-size:12.5px;}.tb-pill.acts{padding:0 10px;}}
@@ -975,7 +982,7 @@ b, strong { font-weight:600; }
 })();
 
 </script>
-<link href="redesign-runtime.css?v=9.9.5" rel="stylesheet"/></head>
+<link href="redesign-runtime.css?v=9.9.6" rel="stylesheet"/></head>
 <body>
 <div id="chrome"></div>
 <div id="frames"></div>
@@ -1344,6 +1351,7 @@ document.addEventListener('keydown',e=>{if((e.key==='t'||e.key==='T')&&!e.target
 window.addEventListener('message',e=>{if(e.source===parent&&e.data?.stm&&e.data.type==='theme')document.documentElement.dataset.theme=e.data.theme==='dark'?'dark':'light';});
 document.documentElement.dataset.theme=R.theme;window.STMDesign.refresh();
 })();
+window.addEventListener('message',e=>{if(e.source===parent&&e.data&&e.data.stm===1&&e.data.type==='close-menus'){try{closeMenus();}catch(_){}}});
 <\/script></body>
 </html>
 </script>
@@ -10222,6 +10230,6 @@ html[data-theme="dark"] .legend i.d{background:#2A3A5C;}
   document.documentElement.dataset.theme = R.theme;
   window.STMDesign = { refresh }; refresh(); setInterval(() => refresh(), 650);
 })();
-<\/script></body></html></script><script src="integration-core.js?v=9.9.5"></script>
-<script src="foundation-contracts.js?v=9.9.5"></script><script src="redesign-shell.js?v=9.9.5"></script><script src="redesign-runtime.js?v=9.9.5"></script></body>
+<\/script></body></html></script><script src="integration-core.js?v=9.9.6"></script>
+<script src="foundation-contracts.js?v=9.9.6"></script><script src="redesign-shell.js?v=9.9.6"></script><script src="redesign-runtime.js?v=9.9.6"></script></body>
 </html>
