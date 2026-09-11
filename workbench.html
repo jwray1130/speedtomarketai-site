@@ -323,9 +323,14 @@ html,body{height:100%;overflow:hidden;}
 .chapters .deal-type button.on{background:var(--acc-tint);color:var(--acc-text);box-shadow:inset 0 0 0 1px var(--acc-tint-2);}
 .chapters button.fresh{animation:tabin .5s var(--ease) both;}
 @keyframes tabin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-@media(max-width:1900px){.tb-pill.in .t{display:none;}#sysBtn>span:not(.car){display:none;}.tb-right .sw .t{display:none;}.tb-right .sw{padding:0 10px;}#stm-save-state{max-width:140px;}}
-@media(max-width:1700px){.brand>span:last-child{display:none;}.chapters button{padding:0 12px;}}
+@media(max-width:1900px){.topbar.wb .tb-pill.in .t{display:none;}.topbar.wb #sysBtn>span:not(.car){display:none;}.topbar.wb .tb-right .sw .t{display:none;}.topbar.wb .tb-right .sw{padding:0 10px;}.topbar.wb #stm-save-state{max-width:140px;}}
+@media(max-width:1700px){.topbar.wb .brand>span:last-child{display:none;}.chapters button{padding:0 12px;}}
 @media(max-width:1620px){.chapters button{padding:0 10px;font-size:13px;}.chapters .deal-type b{display:none;}}
+/* v9.9.5: the platform nav pill never scrolls, and icon buttons keep their circle at any zoom */
+.topbar>.nav,.topbar.wb>.chapters{overflow:visible !important;max-width:none !important;min-width:max-content !important;}
+.topbar .tb-icon{flex:0 0 34px;width:34px;height:34px;min-height:34px;max-height:34px;padding:0;line-height:0;}
+.topbar .tb-icon svg{width:16px;height:16px;}
+@media(max-width:1100px){.topbar .tb-pill.in{display:none;}}
 @media(max-width:1440px){.topbar{padding:0 18px;}.topbar.wb{gap:12px;}}
 @media(max-width:1340px){.chapters button{padding:0 8px;font-size:12.5px;}.tb-pill.acts{padding:0 10px;}}
 
@@ -970,7 +975,7 @@ b, strong { font-weight:600; }
 })();
 
 </script>
-<link href="redesign-runtime.css?v=9.9.4" rel="stylesheet"/></head>
+<link href="redesign-runtime.css?v=9.9.5" rel="stylesheet"/></head>
 <body>
 <div id="chrome"></div>
 <div id="frames"></div>
@@ -10217,6 +10222,6 @@ html[data-theme="dark"] .legend i.d{background:#2A3A5C;}
   document.documentElement.dataset.theme = R.theme;
   window.STMDesign = { refresh }; refresh(); setInterval(() => refresh(), 650);
 })();
-<\/script></body></html></script><script src="integration-core.js?v=9.9.4"></script>
-<script src="foundation-contracts.js?v=9.9.4"></script><script src="redesign-shell.js?v=9.9.4"></script><script src="redesign-runtime.js?v=9.9.4"></script></body>
+<\/script></body></html></script><script src="integration-core.js?v=9.9.5"></script>
+<script src="foundation-contracts.js?v=9.9.5"></script><script src="redesign-shell.js?v=9.9.5"></script><script src="redesign-runtime.js?v=9.9.5"></script></body>
 </html>

@@ -24,6 +24,7 @@
     const ercEl = k => doc.querySelector('[data-erc="' + k + '"]');
     function assertOwner(sid) {
       if (api.restoreError) throw new Error(api.restoreError);
+      if (sid == null && !api.submissionId && global.currentUser) { const r0 = runtime; if (r0 && (r0.workbenchWindow !== global || r0.activeId)) throw new Error('Stale renewal action rejected. Reopen the submission.'); return; }
       if (!global.currentUser || !sid || api.submissionId !== sid) throw new Error('This workbench session is no longer active. Reopen the submission.');
       const r = runtime;
       if (r && (r.activeId !== sid || r.workbenchWindow !== global || r.user?.id !== global.currentUser.id)) throw new Error('Stale renewal action rejected. Reopen the submission.');

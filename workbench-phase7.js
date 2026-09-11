@@ -21,6 +21,7 @@
   const editingBefore=new Map();
   function owner(sid){
    if(api.restoreError)throw new Error(api.restoreError);
+   if(sid==null&&!api.submissionId&&global.currentUser){const r0=host;if(r0&&(r0.workbenchWindow!==global||r0.activeId))throw new Error('Stale workbench action rejected.');return;}
    if(!sid||api.submissionId!==sid||!global.currentUser)throw new Error('The submission is no longer active. Reopen it.');
    const r=host;if(r&&(r.activeId!==sid||r.workbenchWindow!==global||r.user?.id!==global.currentUser.id))throw new Error('Stale workbench action rejected.');
   }

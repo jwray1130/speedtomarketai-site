@@ -71,8 +71,8 @@ const R=window.STM_RUNTIME={dealType:'New',freshTab:null,
   if(!authenticated){state.route=id;renderChrome();updateChrome();showAuth();return;}
   if(id==='admin'&&R.user?.role!=='admin'){R.toast('Administrator access is required.','error');return;}
   if(id.startsWith('wb-')){
-   if(!R.activeId){R.toast('Open a saved submission from the queue before opening its workbench.');id='queue';}
-   else {setBusy(true,'Opening workbench...');try{await ensureWorkbench();}catch(e){showError(e);throw e;}finally{setBusy(false,null,epoch);}if(ticket!==routeSequence||epoch!==sessionEpoch)return;}
+   /* v9.9.5: the workbench opens without a submission too, blank, exactly as July's standalone workbench did */
+    setBusy(true,'Opening workbench...');try{await ensureWorkbench();}catch(e){showError(e);throw e;}finally{setBusy(false,null,epoch);}if(ticket!==routeSequence||epoch!==sessionEpoch)return;
   }
   if(id==='sub-docs'&&!R.activeId){platform.STATE.newSubmissionDraftMode=true;}
   if(ticket!==routeSequence||epoch!==sessionEpoch)return;
@@ -193,7 +193,7 @@ async function ensureWorkbench(){
  if(workbench?.__STM_WB?.submissionId===sid&&wbSourceStamp===stamp)return workbench;
  if(workbench?.__STM_WB?.submissionId===sid){
   const w=workbench;wbLoadSid=sid;
-  wbLoadPromise=(async()=>{await saveWorkbenchBeforeLeaving();await w.__STM_WB.load(C.workbenchRecord(activeRecord(),platform.STATE));requireSession(epoch);wbSourceStamp=stamp;return w;})();
+  wbLoadPromise=(async()=>{await saveWorkbenchBeforeLeaving();if(sid)await w.__STM_WB.load(C.workbenchRecord(activeRecord(),platform.STATE));requireSession(epoch);wbSourceStamp=stamp;return w;})();
   try{return await wbLoadPromise;}finally{wbLoadPromise=null;wbLoadSid=null;}
  }
  disposeWorkbench();const gen=wbGeneration;wbLoadSid=sid;
@@ -203,7 +203,7 @@ async function ensureWorkbench(){
   wframe=createHost('workbench');frames['native-workbench']=wframe;
   let w;try{w=await ready;}finally{clearTimeout(timer);if(gen===wbGeneration)workbenchWait=null;}
   if(gen!==wbGeneration||sid!==R.activeId||epoch!==sessionEpoch)throw new Error('Submission changed while the workbench was loading.');
-  await w.__STM_WB.load(C.workbenchRecord(activeRecord(),platform.STATE));requireSession(epoch);wbSourceStamp=stamp;return w;
+  if(sid)await w.__STM_WB.load(C.workbenchRecord(activeRecord(),platform.STATE));requireSession(epoch);wbSourceStamp=stamp;return w;
  })();
  try{return await wbLoadPromise;}finally{if(gen===wbGeneration){wbLoadPromise=null;wbLoadSid=null;}}
 }

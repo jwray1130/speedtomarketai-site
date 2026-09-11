@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v9.9.4-RC1-2026-09-10';
+window.STM_BUILD = 'v9.9.5-blank-workbench-topbar-2026-09-11';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
