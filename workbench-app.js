@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v9.9.4-RC1-2026-09-10';
+window.STM_BUILD = 'v8.7.167-a3-attachment-cache-contract-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -258,10 +258,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const APP_EVENTS = [];
     function recordHistory(action, detail = '') {
-        APP_EVENTS.unshift({ id: 'ev-' + (window.crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)), at: new Date().toISOString(), action: String(action || 'Action'), detail: String(detail || ''), actor: window.currentUser?.display_name || window.currentUser?.email || 'User', userId: window.currentUser?.id || null });
+        APP_EVENTS.unshift({ at: new Date().toISOString(), action: String(action || 'Action'), detail: String(detail || '') });
         if (APP_EVENTS.length > 75) APP_EVENTS.pop();
         renderHistoryLog();
-        window.__STM_WB_PHASE7?.historyRecorded();
     }
     function renderHistoryLog() {
         const log = document.getElementById('historyLog');
@@ -305,7 +304,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // returned a real policy term on every load and the lock silently
         // discarded it. Locks only protect fields that actually hold a value.
         try {
-            if (el?.dataset?.stmExplicitEdit === '1') return true;
             if (!el || !el.getAttribute || el.getAttribute('data-user-set') !== '1') return false;
             const v = (el.value != null ? String(el.value) : '').trim();
             return v !== '';
@@ -323,9 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const STM_EDIT_TABLES = [
-        { key:'gl_exposure',bodySel:'#classTerritoryTable tbody',rowSel:':scope > tr',addSel:'#glRaterAddRow',removeSel:'#glRaterRemoveRow',attr:'data-f' },
-        { key:'al_fleet',bodySel:'#autoExposuresTbl tbody',rowSel:':scope > tr',attr:'data-f' },
-
         { key: 'primary',  bodySel: '#primaryPoliciesTbl tbody', rowSel: ':scope > tr', addSel: '#internalAddPrimary',     rowRemoveSel: '[data-pp-remove]', attr: 'data-pp' },
         { key: 'tower',    bodySel: '#towerLimitsTable tbody',   rowSel: ':scope > tr', addSel: '#internalAddLayer',       rowRemoveSel: '[data-tw-remove]', attr: 'data-tw' },
         { key: 'highex',   bodySel: '#highExcessTable tbody',    rowSel: ':scope > tr', addSel: '#internalAddHighExcess',  rowRemoveSel: '[data-he-remove]', attr: 'data-he' },
@@ -457,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     ['input', 'change'].forEach(ev => document.addEventListener(ev, (e) => {
-        if (!e.isTrusted || document.activeElement !== e.target) return; // synthetic .click() default input events are trusted, but not focused user edits
+        if (!e.isTrusted) return;                            // programmatic fills never dirty
         const el = e.target;
         if (!el || !el.matches || !el.matches('input, select, textarea')) return;
         if (el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
@@ -512,21 +507,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const sid = STM_EDITS.submissionId
             || (window.workbenchActiveSubmission && window.workbenchActiveSubmission.id)
             || ($('#dealNum') && $('#dealNum').textContent.trim()) || 'untitled';
-        return 'stm-wbedits:v9:' + encodeURIComponent(window.currentUser?.id || 'anonymous') + ':' + sid;
-    }
-    // v9.9.2: July kept its local fallback under 'stm-wbedits:<submission>'. Read it when
-    // the owner-scoped key is empty so an unsynced July edit still restores after the upgrade.
-    function stmLegacyLocalKey() {
-        const sid = STM_EDITS.submissionId
-            || (window.workbenchActiveSubmission && window.workbenchActiveSubmission.id)
-            || ($('#dealNum') && $('#dealNum').textContent.trim()) || 'untitled';
         return 'stm-wbedits:' + sid;
     }
     function stmBuildPayload() {
-        window.__STM_WB_PHASE5?.capture();
-        window.__STM_WB_PHASE6?.capture();
-        window.__STM_WB_PHASE7?.capture();
-        window.__STM_WB_PHASE9?.capture();
         const fields = Object.assign(Object.create(null), STM_EDITS.map);
         // Re-read live values for dirty keys so Save captures the latest text.
         for (const key of Object.keys(fields)) {
@@ -549,12 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try { localStorage.setItem(stmLocalKey(), JSON.stringify(stmBuildPayload())); } catch (e) {}
     }
     function stmReadLocalMirror() {
-        try {
-            const current = localStorage.getItem(stmLocalKey());
-            if (current) return JSON.parse(current);
-            const legacy = localStorage.getItem(stmLegacyLocalKey());
-            return legacy ? JSON.parse(legacy) : null;
-        } catch (e) { return null; }
+        try { return JSON.parse(localStorage.getItem(stmLocalKey()) || 'null'); } catch (e) { return null; }
     }
 
     function stmCloudRowsFromPayload(payload, sid) {
@@ -580,11 +558,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function stmSaveEdits() {
-        if(STM_EDITS.restoreError)return {mode:'local-fail',summary:'Restore failed. No changes saved.',error:new Error(STM_EDITS.restoreError)};
         const sid = STM_EDITS.submissionId;
         const payload = stmBuildPayload();
         stmWriteLocalMirror();
-        try { localStorage.setItem(stmLocalKey()+':pending','1'); }catch(_){}
         const nFields = Object.keys(payload.fields).length;
         const nTables = Object.keys(payload.tables).length;
         const summary = nFields + ' field' + (nFields !== 1 ? 's' : '') + (nTables ? ' · ' + nTables + ' table' + (nTables !== 1 ? 's' : '') : '') + (payload.forms ? ' · forms' : '');
@@ -604,7 +580,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (delErr) throw delErr;
                 STM_EDITS.removed.clear();
             }
-            try { const current=stmBuildPayload();if(JSON.stringify(current.fields)===JSON.stringify(payload.fields)&&JSON.stringify(current.tables)===JSON.stringify(payload.tables)&&JSON.stringify(current.forms)===JSON.stringify(payload.forms)) localStorage.removeItem(stmLocalKey()+':pending'); }catch(_){}
             return { mode: 'cloud', summary };
         } catch (err) {
             if (stmCloudTableMissing(err)) {
@@ -619,7 +594,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Restore (runs AFTER applyFullPhasePipeline) ── */
     async function restoreWorkbenchEdits8760(submission) {
-        STM_EDITS.restoreError = null;
         try {
             STM_EDITS.submissionId = (submission && submission.id) || null;
             let payload = null, source = null;
@@ -634,17 +608,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     else console.warn('[workbench] Phase 2: cloud edit load failed —', err && err.message);
                 }
             }
-            // Prefer a known unsynced local save to stale cloud rows; never silently discard it.
-            try { if (localStorage.getItem(stmLocalKey()+':pending') === '1' || (!localStorage.getItem(stmLocalKey()) && localStorage.getItem(stmLegacyLocalKey()+':pending') === '1')) {
-                const pendingLocal = stmReadLocalMirror();
-                if(pendingLocal){payload=pendingLocal;source='local (pending cloud sync)';}
-            }} catch(_){}
             if (!payload) { payload = stmReadLocalMirror(); source = payload ? 'local' : null; }
             if (!payload) { stmInjectEditsUi(); return; }
-            window.__STM_WB_PHASE5?.validate(payload.fields?.__phase5);
-            window.__STM_WB_PHASE6?.validate(payload.fields?.__phase6);
-            window.__STM_WB_PHASE7?.validate(payload.fields?.__phase7);
-            window.__STM_WB_PHASE9?.validate(payload.fields?.__phase9);
 
             STM_EDITS.restoring = true;
             let applied = 0;
@@ -659,16 +624,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const el = key.indexOf('name:') === 0
                     ? document.querySelector('[name="' + key.slice(5).replace(/"/g, '\\"') + '"]')
                     : document.getElementById(key);
-                if (el && stmApplyEl(el, v)) {
-                    if (['hazardGradeSelect','nonAdmittedLimit','quotaShareLimit','nonAdmittedAttachment','nonAdmittedPremium','projIndicator','projAddress','isoClass','exposureAmt','exposureBasis','resConstPct','comConstPct','website','descOps','guidelineConflicts','expLoss','acctStrengths','pricingRationale'].includes(key)) el.dataset.stmExplicitEdit = '1';
-                    applied++;
-                }
+                if (el && stmApplyEl(el, v)) applied++;
             }
             // 3) Dynamic tables.
             for (const cfg of STM_EDIT_TABLES) {
                 const rows = payload.tables && payload.tables[cfg.key];
                 if (!rows) continue;
-                if (window.__STM_WB_PHASE6?.hasSavedTable(payload.fields?.__phase6,cfg.key)) continue;
                 const body = document.querySelector(cfg.bodySel);
                 applied += stmTableRestore(body, cfg, rows);
                 STM_EDITS.dirtyTables.add(cfg.key);
@@ -679,10 +640,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 STM_EDITS.formsDirty = true;
             }
             STM_EDITS.map = Object.assign(Object.create(null), payload.fields || {});
-            window.__STM_WB_PHASE5?.restore(payload.fields?.__phase5);
-            window.__STM_WB_PHASE6?.restore(payload.fields?.__phase6);
-            window.__STM_WB_PHASE7?.restore(payload.fields?.__phase7);
-            window.__STM_WB_PHASE9?.restore(payload.fields?.__phase9);
             STM_EDITS.restoring = false;
             stmInjectEditsUi();
             stmRefreshEditsPill();
@@ -692,9 +649,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             STM_EDITS.restoring = false;
-            STM_EDITS.restoreError = err?.message || 'Saved workbench edits could not be restored.';
-            console.warn('[workbench] Restore blocked:', STM_EDITS.restoreError);
-            if(window.__STM_WB)throw err;
+            console.warn('[workbench] Phase 2: restore failed (non-fatal) —', err && err.message);
         }
     }
     window.restoreWorkbenchEdits8760 = restoreWorkbenchEdits8760;
@@ -1569,7 +1524,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     missed.push({ field: t.field, sel: t.sel });
                     continue;
                 }
-                if (t.field === 'paper' && stmFieldLocked(document.getElementById('admission'))) continue;
                 const applied = (t.field === 'mailing_address' || t.field === 'controlling_address')
                     ? applyResolvedAddressToWorkbench8739(t.field, resolved.value)
                     : applyResolvedToElement(el, t.kind, resolved.value);
@@ -1626,7 +1580,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // function fires after our apply and overwrites with the
             // legacy Crestline value.
             setTimeout(() => {
-                if (stmFieldLocked(document.getElementById('admission'))) return;
                 const paperResolved = rules.resolveField('paper', submission);
                 if (!paperResolved || !paperResolved.value) return;
 
@@ -1664,7 +1617,6 @@ document.addEventListener('DOMContentLoaded', () => {
         //     fields return null, panel stays empty, console logs the
         //     gate firing exactly once.
         function applyGLCoverageFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage('gl')) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -1745,7 +1697,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // reject that, all 5 AL fields return null, and #details-al stays
         // empty + unchecked — correct outcome, no contamination.
         function applyALCoverageFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage('al')) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -1825,7 +1776,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // blocked the source module) we do NOT clone an empty EL panel —
         // EL simply doesn't appear, which is the correct UI outcome.
         function applyELCoverageFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage('el')) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -1961,7 +1911,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // gl_quote (EBL is usually a GL endorsement). No empty clone if
         // zero fields resolve.
         function applyEBLCoverageFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage('ebl')) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -2078,7 +2027,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // typeKey:    addCoverageEntry template key (e.g. "aircraft")
         // fieldOrder: resolver field names in visible column order
         function applyClonableCoverage(submission, phaseLabel, typeKey, fieldOrder) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage(typeKey)) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -2221,7 +2169,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // panelSelector: static panel id (e.g. '#details-fgl')
         // checkboxSelector: the panel's enable checkbox
         function applyDefaultPanelCoverage(submission, phaseLabel, panelSelector, checkboxSelector, fieldOrder) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage(panelSelector.replace('#details-', ''))) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
 
@@ -2441,11 +2388,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function applyUnderwritingFromActiveSubmission(submission) {
-            // Hydration can update an unowned hazard without resetting a
-            // user-owned primary schedule's explicit DIL factors.
-            const previousRatingHydration = window.__stmRatingSourceHydration;
-            window.__stmRatingSourceHydration = true;
-            try {
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
             const targets = [
@@ -2486,7 +2428,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (hz) hz.dispatchEvent(new Event('change', { bubbles: true }));
             setTimeout(() => syncUnderwritingRiskProfileFromGlRater8702('post-underwriting-apply'), 550);
             console.log('[workbench] v8.7.03 underwriting apply:', filled.length, 'filled ·', missed.length, 'missed', filled);
-            } finally { window.__stmRatingSourceHydration = previousRatingHydration; }
         }
 
 
@@ -2754,7 +2695,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE6?.owns("gl_exposure")) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
             const tbl = document.getElementById('classTerritoryTable');
@@ -3490,7 +3430,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 n85(r.claims) || n85(r.paid) || n85(r.reserve) || n85(r.incurred)
             );
             const fill = (rowsId, rows) => {
-                if (window.__STM_WB_PHASE5?.ownsLoss(rowsId)) return 0;
                 if (!rows || !rows.length) return 0;
                 const noLossChkId = rowsId === 'glLossRows' ? 'noLossesGlChk' : 'noLossesAutoChk';
                 const noLossChk = document.getElementById(noLossChkId);
@@ -3581,7 +3520,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return count;
             };
             function fillLarge98(containerId, addBtnId, rows) {
-                if (window.__STM_WB_PHASE5?.ownsLoss(containerId)) return 0;
                 if (!rows || !rows.length) return 0;
                 const container = document.getElementById(containerId);
                 const addBtn = document.getElementById(addBtnId);
@@ -3934,7 +3872,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         function applyALFleetFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE6?.owns("al_fleet")) return;
             const mapping = [
                 ['Private Passenger', 'fleet_private_passenger'],
                 ['Light', 'fleet_light'],
@@ -3971,7 +3908,7 @@ document.addEventListener('DOMContentLoaded', () => {
             window.__stmBatchInternalRater87104 = true;
             let requested = 0, leadLimit = 0, towerSum8745 = 0, weAreLead8745 = false, attachDisplay8745 = 'Primary';
             try {
-            const setInput = (sel, val) => { const el = document.querySelector(sel); if (el && !stmFieldLocked(el)) set85Silent87104(el, val); };
+            const setInput = (sel, val) => { const el = document.querySelector(sel); if (el) set85Silent87104(el, val); };
             // FIX-2026-06-10 (millions shorthand): extractions sometimes carry
             // "$5M" parsed down to the bare number 5. The workbook's own
             // convention (Worksheet_Change) treats small limit/attachment
@@ -4043,7 +3980,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // up empty.
             setInput('#nonAdmittedAttachment', attachDisplay8745);
 
-            if (primaryTbody && !window.__STM_WB_PHASE6?.owns("primary")) {
+            if (primaryTbody) {
                 const rows = [
                     { cov:'General Liability', carrier:r85('gl_carrier', submission) || 'TBD', limit:n85(r85('gl_each_occurrence', submission)) || 1000000, prem:n85(r85('gl_premium', submission)) },
                     { cov:'Auto Liability', carrier:r85('al_carrier', submission) || 'TBD', limit:n85(r85('al_combined_single_limit', submission)) || 1000000, prem:n85(r85('al_premium', submission)) }
@@ -4060,7 +3997,7 @@ document.addEventListener('DOMContentLoaded', () => {
                       <td class="computed" data-pp-out="dilPrem">$0</td><td class="computed" data-pp-out="firstMilPrem">$0</td><td><button type="button" class="btn-secondary btn-sm" data-pp-remove>Remove</button></td>
                     </tr>`).join('');
             }
-            if (towerTbody && !window.__STM_WB_PHASE6?.owns("tower")) {
+            if (towerTbody) {
                 const leadCarrier = r85('underlying_lead_carrier', submission) || r85('gl_carrier', submission) || 'Underlying Lead';
                 const rows = [];
                 // v8.7.145: the underlying lead row's Attachment xs P cell is
@@ -4087,7 +4024,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.__stmBatchInternalRater87104 = prevInternalBatch87104 === true;
                 window.__stmInternalRaterDirty87104 = false;
             }
-            window.__STM_NATIVE_RATING?.wire();
             const runRecalc87104 = () => {
                 try {
                     if (typeof window.__stmRecalcInternalRater87104 === 'function') {
@@ -4113,7 +4049,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // API calls and without triggering the Carrier Layer handler that would
         // overwrite the carrier with our own paper.
         function applyLeadExcessCardFromResolver(submission) {
-            if (window.__STM_WB_PHASE5?.ownsCoverage('lead-excess')) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
             const row = document.querySelector('.limit-entry[data-coverage-type="lead-excess"]');
@@ -4426,12 +4361,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Fully guarded: absent rules/panel → silent no-op, panel
         // unchanged. Matches subjectivities by normalized label text.
         function applySubjectivityIntelligenceFromActiveSubmission(submission) {
-            // Clear previous cues only. Selections remain the underwriter's.
-            document.querySelectorAll('#form-subjectivities .subjectivity-entry').forEach(entry => {
-                entry.classList.remove('subjectivity-suggested', 'subjectivity-strong');
-                entry.removeAttribute('title');
-                entry.querySelectorAll('.subjectivity-suggest-chip').forEach(chip => chip.remove());
-            });
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.recommendSubjectivities !== 'function') return;
 
@@ -4544,8 +4473,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const value = valuesByPosition[i];
                 const el = els[i];
                 if (value == null || value === '' || !el) { missed++; continue; }
-                // Phase 5: source refresh may fill unedited positions, never explicit user overrides.
-                if (stmFieldLocked(el)) { missed++; continue; }
                 try {
                     if (el.classList.contains('limit-date') || el._flatpickr) {
                         // Date — normalize then setDate via flatpickr
@@ -4672,7 +4599,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function applyResolvedAddressToWorkbench8739(fieldName, rawValue) {
-            if (window.__STM_WB_PHASE5?.ownsDialog(fieldName)) return;
             const parsed = parseWorkbenchAddress8739(rawValue);
             const formatted = parsed ? formatAddressParts8739(parsed) : '';
 
@@ -4955,11 +4881,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (code && raw !== code) $("#isoClass").value = code;
             const ref = getGlClassRef8702(code);
             const desc = (ref && ref.description) || isoDescMap[code] || "";
-            if (desc || $("#isoClass").dataset.stmExplicitEdit === '1') $("#isoDesc").value = desc;
+            if (desc) $("#isoDesc").value = desc;
             const hg = isoHazardGradeMap[code] || "";
-            if (hg || $("#isoClass").dataset.stmExplicitEdit === '1') $("#hazardGrade").value = hg;
+            if (hg) $("#hazardGrade").value = hg;
             const conflict = guidelineConflictsMap[code] || "";
-            if (conflict && !stmFieldLocked($("#guidelineConflicts"))) $("#guidelineConflicts").value = conflict;
+            if (conflict) $("#guidelineConflicts").value = conflict;
         });
 
         const homeStateForGuideposts = $("#homeState");
@@ -5521,7 +5447,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             }
-            window.__stmRecalcAutoComparison = calcAuto;
             buildAuto();
         }
 
@@ -6308,7 +6233,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ['input', 'blur'].forEach(ev => inp.addEventListener(ev, recalcAL));
             });
 
-            window.__stmRecalcALFleet = recalcAL;
             recalcAL();
         }
 
@@ -6535,13 +6459,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><button type="button" class="btn-secondary btn-sm" data-pp-remove>Remove</button></td>
                 `;
                 primaryTbody.appendChild(tr);
-                wirePrimaryPolicyRow(tr);
-                recalcInternalRater();
-            }
-
-            function wirePrimaryPolicyRow(tr) {
-                if (tr.dataset.stmNativeWired === 'primary') return;
-                tr.dataset.stmNativeWired = 'primary';
                 tr.querySelectorAll('input, select').forEach(el => {
                     if (el.matches('[data-pp="limit"], [data-pp="ulPrem"], [data-pp="manualPrem"]')) hookCurrency(el);
                     else el.addEventListener('input', recalcInternalRater);
@@ -6557,6 +6474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     tr.remove();
                     recalcInternalRater();
                 });
+                recalcInternalRater();
             }
 
             function primaryRows() {
@@ -6910,12 +6828,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><button type="button" class="btn-secondary btn-sm" data-tw-remove>Remove</button></td>
                 `;
                 towerTbody.appendChild(tr);
-                wireTowerLayerRow(tr);
-            }
-
-            function wireTowerLayerRow(tr) {
-                if (tr.dataset.stmNativeWired === 'tower') return;
-                tr.dataset.stmNativeWired = 'tower';
                 tr.querySelectorAll('input').forEach(input => {
                     if (input.matches('[data-tw="limit"], [data-tw="attach"], [data-tw="cPrem"]')) hookCurrency(input);
                     else input.addEventListener('input', recalcInternalRater);
@@ -7313,9 +7225,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('internalAddHighExcess')?.addEventListener('click', () => addHighExcessRow());
 
             hazardSel?.addEventListener('change', () => {
-                if (!window.__stmRatingSourceHydration || !window.__STM_WB_PHASE6?.owns('primary')) {
-                    updatePrimaryHazardFactors();
-                }
+                updatePrimaryHazardFactors();
                 recalcInternalRater();
             });
 
@@ -7328,29 +7238,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderHighExcessDefaults();
                 recalcInternalRater();
             });
-
-            window.__STM_NATIVE_RATING = {
-                wire() {
-                    primaryTbody.querySelectorAll('tr').forEach(wirePrimaryPolicyRow);
-                    towerTbody.querySelectorAll('tr').forEach(wireTowerLayerRow);
-                },
-                recalc: recalcInternalRater,
-                addPrimary: addPrimaryPolicyRow,
-                addTower: addTowerLayerRow,
-                addHigh: addHighExcessRow,
-                inspect() {
-                    return {
-                        ready: !!(window.STMRater && window.STMRater.ready),
-                        bands: state.visibleGroundRows.map(row => ({...row, autoDisplay: money(row.autoPremium || 0)})),
-                        highVisible: shouldShowHighExcess(),
-                        high: state.lastHighExcess ? {...state.lastHighExcess} : null,
-                        tower: state.lastTower ? state.lastTower.map(t => ({...t})) : null,
-                        capacities: {tower:9, high:14},
-                        glBase: state.lastBases?.glBase || 0,
-                        otherBase: state.lastBases?.otherBase || 0
-                    };
-                }
-            };
 
             const prevInitialBatch87104 = window.__stmBatchInternalRater87104;
             window.__stmBatchInternalRater87104 = true;
@@ -7548,11 +7435,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             function applyFormsEmphasis(listEl) {
-                // Recalculate display-only cues instead of accumulating stale recommendations.
-                listEl?.querySelectorAll('.form-row').forEach(row => {
-                    row.classList.remove('form-row--indicated'); row.removeAttribute('title');
-                    row.querySelectorAll('.form-indicated-chip').forEach(chip => chip.remove());
-                });
                 const W = window;
                 if (!listEl || !W.WorkbenchRules
                     || typeof W.WorkbenchRules.recommendForms !== 'function') return;
@@ -7658,7 +7540,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             function syncFormsWithLayerType() {
                 const selection = getLayerSelection();
-                if (window.__STM_WB_PHASE7?.preserveForms(selection.key)) { applyFormsEmphasis(list); updateSelectAllState(); return; }
                 if (!selection.key) {
                     showFormsEmptyState(selection.label ? `No default forms configured for ${selection.label}.` : 'Select a Lead or Excess Layer Type on the Deal page.');
                     updatePricingSummary();
@@ -7668,29 +7549,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 updatePricingSummary();
             }
 
-            function appendDesignForm(form) {
-                if (!getLayerSelection().key) throw new Error('Choose a Lead or Excess layer before adding forms.');
-                let category = Array.from(list.querySelectorAll('.form-category-section')).find(e => e.querySelector('h4')?.textContent === form.category);
-                if (!category) {
-                    category = document.createElement('div'); category.className = 'form-category-section';
-                    const h = document.createElement('h4'); h.className = 'form-category-header'; h.textContent = form.category || 'Custom forms';
-                    category.append(h); list.append(category);
-                }
-                const row = document.createElement('div'); row.className = 'form-row' + (form.on ? ' is-selected' : '');
-                row.dataset.formNum = form.num; row.dataset.category = form.category || 'Custom forms'; row.dataset.default = String(!!form.def);
-                row.innerHTML = `<div class="form-checkbox"><input type="checkbox" ${form.on ? 'checked' : ''}></div><span class="form-num">${escapeHtml(form.num)}</span><span class="form-name">${escapeHtml(form.name)}${form.def ? '<span class="form-default-flag">Default</span>' : ''}</span><div class="form-actions-icons"><button type="button" class="form-action-btn" data-form-action="preview" aria-label="Preview details">${ICON_PREVIEW}</button><button type="button" class="form-action-btn" data-form-action="download" aria-label="Download details">${ICON_DOWNLOAD}</button><button type="button" class="form-action-btn form-action-btn--remove" data-form-action="remove" aria-label="Remove">${ICON_REMOVE}</button></div>`;
-                category.append(row); wireFormRowEvents(); updateSelectAllState(); updatePricingSummary(); return row;
-            }
-            window.__STM_NATIVE_FORMS = {
-                catalog: () => JSON.parse(JSON.stringify(FORMS_DATA)), selection: getLayerSelection,
-                populate: populateForms, append: appendDesignForm,
-                rebuild(rows) { list.innerHTML = ''; rows.forEach(appendDesignForm); applyFormsEmphasis(list); updateSelectAllState(); },
-                refresh() { wireFormRowEvents(); applyFormsEmphasis(list); updateSelectAllState(); updatePricingSummary(); }
-            };
-
             function resetCoverageLists() {
-                const k = getLayerSelection().key;
-                if (k) populateForms(k); else showFormsEmptyState();
+                syncFormsWithLayerType();
                 const selection = getLayerSelection();
                 recordHistory('Forms reset', selection.key ? `${selection.key} defaults restored` : 'No layer selected');
             }
@@ -8091,93 +7951,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     delete saveBtn.dataset.saving;
                 }, label === 'Saved ✓' ? 1400 : 2400);
             });
-        }    // v9 bridge: the original controls, closures and rating functions remain authoritative.
-    // Give formerly anonymous static controls stable persistence keys.
-    function stableKey(text){let h=2166136261;for(const c of String(text)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
-    document.querySelectorAll('#form-subjectivities .subjectivity-entry').forEach(entry=>{
-        const label=entry.querySelector('.checkbox-label');
-        const cb=entry.querySelector('input[type="checkbox"]');
-        if(cb&&!cb.id)cb.id='stm-subjectivity-'+stableKey(label?.textContent.trim()||'');
-    });
-    document.querySelectorAll('.limit-details-panel[id]').forEach(panel=>{
-        Array.from(panel.querySelectorAll('input,select,textarea')).filter(el=>el.dataset.stmDateAlt!=='1').forEach((el,i)=>{if(!el.id&&!el.readOnly)el.id='stm-coverage-'+panel.id+'-'+i;});
-    });
-    document.querySelectorAll('[data-erc]').forEach(el=>{if(!el.id&&el.matches('input,select,textarea'))el.id='stm-erc-'+el.dataset.erc;});
-    let integrationDirty = false;
-    let integrationLocalKey = null;
-    let integrationRevision = 0;
-    function integrationChanged() {
-        if (STM_EDITS.restoring) return;
-        integrationDirty = true; integrationRevision++;
-        try { parent.STM_RUNTIME?.workbenchChanged(integrationRevision); } catch (_) {}
-    }
-    document.addEventListener('input', e => { if(e.isTrusted && document.activeElement===e.target && e.target.matches('input,textarea,select,[contenteditable]')) integrationChanged(); }, true);
-    document.addEventListener('change', e => { if(e.isTrusted && document.activeElement===e.target && e.target.matches('input,textarea,select')) integrationChanged(); }, true);
-    document.addEventListener('click',e=>{if(!e.isTrusted)return;for(const cfg of STM_EDIT_TABLES){const sel=[cfg.addSel,cfg.removeSel,cfg.rowRemoveSel].filter(Boolean).join(',');if(sel&&e.target.closest(sel)){STM_EDITS.dirtyTables.add(cfg.key);integrationChanged();stmMirrorDebounced();}}},true);
-    document.addEventListener('click', e => { if(e.isTrusted && e.target.closest('#formsContainer, #formsAdd, #formsReset, [data-pp-remove], [data-tw-remove], #internalAddPrimary, #internalAddLayer, #glRaterAddRow, #glRaterRemoveRow')) integrationChanged(); }, true);
-    window.__STM_WB = {
-        ready: true,
-        get dirty(){return integrationDirty;},
-        get restoreError(){return STM_EDITS.restoreError || null;},
-        get revision(){return integrationRevision;},
-        get submissionId(){return STM_EDITS.submissionId;},
-        payload: () => stmBuildPayload(),
-        // Capture the owner-scoped key during load: auth loss clears currentUser before stashing.
-        stash(){if(integrationDirty && integrationLocalKey){try{localStorage.setItem(integrationLocalKey,JSON.stringify(stmBuildPayload()));localStorage.setItem(integrationLocalKey+':pending','1');}catch(_){}}},
-        history: () => APP_EVENTS.slice(),
-        async load(data){
-            if(!data?.id) throw new Error('Cannot open an unidentified submission.');
-            if(STM_EDITS.submissionId && STM_EDITS.submissionId!==data.id) throw new Error('New submissions require a fresh workbench instance.');
-            window.workbenchActiveSubmission=data;
-            const notice=document.getElementById('workbenchLoadStatus');if(notice){notice.textContent='Loading submission...';notice.style.display='block';}
-            await window.__stmApplyPhasePipeline(data);
-            window.__STM_WB_PHASE6?.rememberSource();
-            window.__STM_WB_PHASE7?.rememberSource();
-            await restoreWorkbenchEdits8760(data);
-            integrationLocalKey=stmLocalKey();
-            try{integrationDirty=localStorage.getItem(stmLocalKey()+':pending')==='1';}catch(_){integrationDirty=false;}
-            if(notice){notice.textContent='';notice.style.display='none';}
-            return {id:data.id,fields:window.workbenchFieldCoverageReport||null};
-        },
-        async save(){
-            if(STM_EDITS.restoreError)throw new Error(STM_EDITS.restoreError);
-            if(!STM_EDITS.submissionId) throw new Error('Open a saved submission before saving the workbench.');
-            const revision=integrationRevision;
-            const result=await stmSaveEdits();
-            if(result.mode==='cloud' && revision===integrationRevision) integrationDirty=false;
-            recordHistory(result.mode==='cloud'?'Saved to cloud':'Saved locally only',result.summary);
-            return result;
-        },
-        setField(id,value){
-            const el=document.getElementById(id);if(!el) throw new Error('Unknown field: '+id);
-            if(el.disabled||el.readOnly) throw new Error('This field is derived or read-only: '+id);
-            if(el.tagName==='SELECT' && !Array.from(el.options).some(o=>o.value===String(value)))throw new Error('Invalid selection: '+id);
-            stmApplyEl(el,el.type==='checkbox'?{c:!!value}:{v:String(value)},true);
-            stmMarkDirty(el);integrationChanged();return el.value;
-        },
-        navigate(route){
-            const map={
-             'wb-deal':['deal'], 'wb-loss':['risk','risk','loss'], 'wb-limits':['risk','risk','limits'],
-             'wb-gl':['risk','risk','gl-exposure-rater'], 'wb-al':['risk','risk','al-fleet-rater'], 'wb-internal':['risk','risk','internal-rater'],
-             'wb-forms':['forms','form','endorsements'], 'wb-subj':['forms','form','subjectivities'], 'wb-uw':['underwriting'], 'wb-renewal':['renewal'], 'wb-history':['history']};
-            const m=map[route];if(!m)throw new Error('Unknown workbench route');
-            document.querySelector('#mainNav [data-page="'+m[0]+'"]')?.click();
-            if(m[1]) document.querySelector('['+'data-'+m[1]+'="'+m[2]+'"]')?.click();
-            document.body.dataset.integrationRoute=route;window.scrollTo(0,0);
-        },
-        markDirty:stmMarkDirty,
-        serializeElement:stmSerializeEl,
-        tableSpecs:STM_EDIT_TABLES,
-        changed:integrationChanged
-    };
-    window.STMWorkbenchPhase9?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory});
-    window.STMWorkbenchPhase5?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory,addCoverageEntry,coverageTypes:COVERAGE_TYPES,coverageName:getCoverageName,initDates:initLimitDateInputs,recalc:recalcMEP,applyLayer:applyLayerTypeToLimits,prefillInsured:prefillInsuredDialogFromCards8739});
-    window.STMWorkbenchPhase6?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory});
-    window.STMWorkbenchPhase7?.install({api:window.__STM_WB,edits:STM_EDITS,applyEl:stmApplyEl,markDirty:stmMarkDirty,mirror:stmWriteLocalMirror,changed:integrationChanged,recordHistory,
-        replaceHistory(rows){APP_EVENTS.splice(0,APP_EVENTS.length,...rows.slice(0,75));renderHistoryLog();}});
-    try{ parent.STM_RUNTIME?.workbenchReady(window); }catch(_){}
-
-
+        }
     }
 
     // --- Script Loading and Initialization Trigger ---
@@ -8212,12 +7986,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (el._flatpickr) return el._flatpickr;
                         // Make a hidden mirror input for altInput.value reads
                         const altInput = document.createElement('input');
-                        altInput.type = 'date'; altInput.className = el.className; altInput.setAttribute('aria-label',el.getAttribute('aria-label')||el.placeholder||'Date');
+                        altInput.type = 'hidden';
                         altInput.value = el.value || '';
                         if (el.parentNode) el.parentNode.insertBefore(altInput, el.nextSibling);
                         el.addEventListener('input', () => { altInput.value = el.value; });
-                        altInput.addEventListener('input', () => { el.value=altInput.value; });
-                        altInput.addEventListener('change', e => { el.value=altInput.value;el.dispatchEvent(new Event('change',{bubbles:true}));if(e.isTrusted)stmMarkDirty(el); });
                         const stub = {
                             altInput: altInput,
                             input: el,
