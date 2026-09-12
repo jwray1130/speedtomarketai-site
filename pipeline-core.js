@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v8.7.158-route-proof-verified-2026-07-09';
+window.STM_BUILD = 'v8.7.167-a3-attachment-cache-contract-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -5704,7 +5704,9 @@ function renderExtractionCard(mid) {
   const ext = STATE.extractions[mid];
   const isFull = FULL_WIDTH.has(mid);
   const confPct = Math.round(ext.confidence * 100);
-  const modeBadge = ext.mode === 'live'
+  const modeBadge = ext.cached8760
+    ? '<span class="sc-mode-cached8760" title="Reused identical prior extraction at zero cost">CACHED</span>'
+    : ext.mode === 'live'
     ? '<span style="color: var(--signal-ink); font-weight: 700;">LIVE</span>'
     : '<span style="color: var(--warning); font-weight: 700;">LOCAL</span>';
   const sourceText = ext.sourceInfo

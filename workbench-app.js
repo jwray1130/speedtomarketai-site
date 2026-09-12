@@ -5,7 +5,7 @@
 =====================================================================
 */
 
-window.STM_BUILD = 'v8.7.158-route-proof-verified-2026-07-09';
+window.STM_BUILD = 'v8.7.167-a3-attachment-cache-contract-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 
 document.addEventListener('DOMContentLoaded', () => {
