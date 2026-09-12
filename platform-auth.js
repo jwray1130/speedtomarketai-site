@@ -55,7 +55,7 @@
       if (!client) return { error: new Error('Supabase library failed to load.') };
       return client.auth.signInWithOtp({
         email: String(email || '').trim(),
-        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2') }
+        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + window.location.pathname }
       });
     },
     signOut() { return signOut(); }
@@ -148,7 +148,7 @@
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2')
+        emailRedirectTo: window.location.origin + window.location.pathname
       }
     });
     if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
