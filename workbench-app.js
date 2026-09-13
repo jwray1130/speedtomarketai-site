@@ -2657,24 +2657,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 const seen = new Set();
                 for (const item of arr) {
                     if (!item || typeof item !== 'object') continue;
-                    const code = String(item.code || item.class_code || item.iso_class_code || '').replace(/[^0-9]/g, '').slice(0, 5);
-                    const exposure = moneyNumber87105(item.premium_basis ?? item.exposure_amount ?? item.exposure ?? item.sales ?? item.gross_sales ?? item.receipts);
+                    const rawCode = item.code || item.class_code || item.iso_class_code || '';
+                    const code = String(rawCode).replace(/[^0-9]/g, '').slice(0, 5);
+                    const rawExposure = item.premium_basis ?? item.exposure_amount ?? item.exposure ?? item.sales ?? item.gross_sales ?? item.receipts;
+                    const exposure = moneyNumber87105(rawExposure);
+                    const exactExposure = /^\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(String(rawExposure ?? '').trim()) ? Number(String(rawExposure).replace(/[$,\s]/g, '')) : null;
                     if (!/^\d{4,5}$/.test(code) || !isRecognizedGlClass92(code) || exposure <= 0) continue;
                     const key = code + ':' + exposure;
                     if (seen.has(key)) continue;
                     seen.add(key);
-                    const base = glQuoteBasisToSelect87105(item.rate_basis ?? item.exposure_basis ?? item.basis ?? item.rating_basis);
-                    const premP = moneyNumber87105(item.prem_ops_premium ?? item.premises_operations_premium ?? item.premops_premium ?? item.prem_ops ?? item.premises_premium);
-                    const premG = moneyNumber87105(item.prod_comp_premium ?? item.products_completed_operations_premium ?? item.products_premium ?? item.products_ops_premium);
+                    const rawBasis = item.rate_basis ?? item.exposure_basis ?? item.basis ?? item.rating_basis;
+                    const base = glQuoteBasisToSelect87105(rawBasis);
+                    const rawP = item.prem_ops_premium ?? item.premises_operations_premium ?? item.premops_premium ?? item.prem_ops ?? item.premises_premium;
+                    const rawG = item.prod_comp_premium ?? item.products_completed_operations_premium ?? item.products_premium ?? item.products_ops_premium;
+                    const rawRateP = item.prem_ops_rate ?? item.premises_operations_rate ?? item.rateP;
+                    const rawRateG = item.prod_comp_rate ?? item.products_completed_operations_rate ?? item.rateG;
+                    const absent = value => value == null || String(value).trim() === '';
+                    const explicitRate = value => /^\d+(?:\.\d+)?$/.test(String(value ?? '').trim()) ? String(value).trim() : '';
+                    const statedZero = value => /^\$?\s*0(?:\.0+)?$/.test(String(value ?? '').trim());
+                    const premP = moneyNumber87105(rawP);
+                    const premG = moneyNumber87105(rawG);
                     out.push({
                         code,
                         desc: normalizeGlDesc91(item.description || item.classification || item.iso_description, code),
                         exposure: exposure.toLocaleString('en-US'),
+                        exactExposure,
+                        exactCode:/^\d{4,5}$/.test(String(rawCode).trim()),
                         base,
-                        rateP: rateFromQuotedPremium87105(premP, exposure, base),
-                        rateG: rateFromQuotedPremium87105(premG, exposure, base),
-                        quotePremP: premP || '',
-                        quotePremG: premG || '',
+                        rateP: !absent(rawRateP) ? explicitRate(rawRateP) : statedZero(rawP) ? '0' : rateFromQuotedPremium87105(premP, exposure, base),
+                        rateG: !absent(rawRateG) ? explicitRate(rawRateG) : statedZero(rawG) ? '0' : rateFromQuotedPremium87105(premG, exposure, base),
+                        quotePremP: premP || (statedZero(rawP) ? 0 : ''),
+                        quotePremG: premG || (statedZero(rawG) ? 0 : ''),
+                        missingPremiumP:absent(rawP) && absent(rawRateP),
+                        missingPremiumG:absent(rawG) && absent(rawRateG),
+                        // Unknown basis text may use a legacy display default;
+                        // it is not an explicit match for raw premium backfill.
+                        basisStated:/^(?:\(?0*1\)?|1,?000|(?:gross\s+)?(?:sales|receipts)|revenue|(?:gross\s+)?(?:sales|receipts)\s+(?:per|\/)\s*\$?1,?000|\$?1,?000\s+(?:of\s+)?(?:gross\s+)?(?:sales|receipts))$/i.test(String(rawBasis ?? '').trim()),
                         source: 'gl_structured.class_codes'
                     });
                 }
@@ -2683,6 +2701,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn('[workbench] v8.7.105 structured GL class rows unavailable:', e && e.message);
                 return [];
             }
+        }
+
+        function glSourceReview89(submission) {
+            const rec = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote;
+            if (!rec) return '';
+            const reasons = [];
+            if (rec.applicantGate === 'mismatch') reasons.push('The GL extraction records an applicant mismatch.');
+            if (rec.excluded === true || rec.rejected === true || rec.refused === true || /^(?:excluded|rejected|refused)$/i.test(rec.status || rec.outcome || '') || rec.gateDetails?.proceed === false) reasons.push('The GL extraction is excluded from automatic class rating.');
+            const review = window.WorkbenchRules?.sourceReviewMetadata95?.(rec);
+            if (review?.source_identity_conflicts?.length) reasons.push('The GL source records an insured identity conflict.');
+            else if (review?.review_required) reasons.push('The GL source explicitly requires review.');
+            return reasons.join(' ');
         }
 
         function parseGLClassRows89(submission) {
@@ -2696,9 +2726,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // subject's supplemental, and the underwriter prices deliberately.
             // The explicit test-packet allowance and matched/neutral verdicts
             // pass through unchanged.
-            const glGate8736 = submission && submission.extractions && submission.extractions.gl_quote && submission.extractions.gl_quote.applicantGate;
+            const glRecord = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote;
+            const glGate8736 = glRecord?.applicantGate;
             const gateModeApp8737 = (function () { try { var v = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('STM_APPLICANT_GATE_MODE')) || (typeof window !== 'undefined' && window.STM_APPLICANT_GATE_MODE) || ''; return String(v).toLowerCase() === 'strict' ? 'strict' : 'off'; } catch (_) { return 'off'; } })();
-            if (gateModeApp8737 === 'strict' && glGate8736 === 'mismatch') {
+            if (glRecord?.excluded === true || glRecord?.rejected === true || glRecord?.refused === true || /^(?:excluded|rejected|refused)$/i.test(glRecord?.status || glRecord?.outcome || '') || glRecord?.gateDetails?.proceed === false || (gateModeApp8737 === 'strict' && glGate8736 === 'mismatch')) {
                 console.warn('[workbench] v8.7.136 GL rater auto-feed blocked: gl_quote is a foreign-insured mismatch; no class rows applied');
                 return [];
             }
@@ -2708,76 +2739,112 @@ document.addEventListener('DOMContentLoaded', () => {
             // class_codes block, which is small, loaded in Stage 1, and works
             // for every carrier that emits a class schedule.
             const structuredRows = structuredGlClassRows87105(submission);
-            if (structuredRows.length) return structuredRows;
-            const text = collectSnapshotFileTexts89(submission, /quote|acord|application|gl|exposure|supp/i);
-            const rows = [];
-            const seen = new Set();
-            const add = (desc, code, exposure) => {
-                code = String(code || '').trim();
-                const n = Number(String(exposure || '').replace(/[^0-9]/g, '')) || 0;
-                if (!/^\d{4,5}$/.test(code) || n <= 0) return;
-                // Guard against quote numbers, years, NAIC codes, property values,
-                // vehicle model years and other non-GL schedule fragments.
-                if (!isRecognizedGlClass92(code)) return;
-                if (n < 100000) return;
+            if (structuredRows.length && structuredRows.every(row => !row.missingPremiumP && !row.missingPremiumG)) return structuredRows.map(row => ({...row, sourceReview:glSourceReview89(submission)}));
+            // Keep file/page boundaries: a missing cell in one quote must never
+            // borrow a premium from a different page, file or submission.
+            const rows = new Map();
+            const number = value => /^\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$/.test(String(value || '').trim()) ? Number(String(value).replace(/[$,\s]/g, '')) : null;
+            const add = (desc, code, exposure, basis, premiums, source) => {
+                const n = number(exposure);
+                if (!isRecognizedGlClass92(code) || !(n > 0)) return;
+                const base = glQuoteBasisToSelect87105(basis);
+                // Raw fallback supports the established 001 sales-per-1000
+                // contract. Other carrier basis codes require structured data
+                // or deliberate rating; do not derive a rate on a guessed base.
+                const [p, g] = /^\(?0*1\)?$/.test(basis) ? premiums : [null, null];
+                const candidate = {code, desc:normalizeGlDesc91(desc, code), exposure:n.toLocaleString('en-US'), base,
+                    rateP:p === null ? '' : p === 0 ? '0' : rateFromQuotedPremium87105(p, n, base),
+                    rateG:g === null ? '' : g === 0 ? '0' : rateFromQuotedPremium87105(g, n, base),
+                    quotePremP:p === null ? '' : p, quotePremG:g === null ? '' : g,
+                    review:p === null || g === null || !!lookupGlClassRef92(code)?.review,
+                    reviewReason:p === null || g === null ? 'Class premium columns are missing or ambiguous; review the source schedule.' : '',
+                    source:'gl_source.classification_schedule', sourceFile:source.file, sourcePage:source.page, sourceReview:glSourceReview89(submission)};
                 const key = code + ':' + n;
-                if (seen.has(key)) return;
-                seen.add(key);
-                rows.push({ code, desc: normalizeGlDesc91(desc, code), exposure:n.toLocaleString('en-US'), base:glBasisForSelect92(code), review: !!(lookupGlClassRef92(code) && lookupGlClassRef92(code).review) });
-            };
-            const clean = String(text || '').replace(/\u00a0/g, ' ');
-            // Highest-confidence path: parse the GL classification table block, not
-            // arbitrary quote/property/vehicle text. This prevents NAIC 14982,
-            // vehicle years and property building values from polluting the GL rater.
-            const blocks = [];
-            const blockRe = /CLASSIFICATION[\s\S]{0,2600}?RATE\s+BASIS\s*:/gi;
-            let bm;
-            while ((bm = blockRe.exec(clean)) !== null) blocks.push(bm[0]);
-            if (!blocks.length) {
-                const alt = /CLASSIFICATION[\s\S]{0,2600}?(?:ADDITIONAL COVERAGES|PREM\/OPS|PROD\/COMP|$)/i.exec(clean);
-                if (alt) blocks.push(alt[0]);
-            }
-            for (const block of blocks) {
-                const lines = block.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
-                const codeIdxs = [];
-                lines.forEach((line, idx) => { if (/^\d{4,5}$/.test(line) && isRecognizedGlClass92(line)) codeIdxs.push(idx); });
-                if (codeIdxs.length >= 1) {
-                    const codes = codeIdxs.map(i => lines[i]);
-                    const firstCodeIdx = codeIdxs[0];
-                    const lastCodeIdx = codeIdxs[codeIdxs.length - 1];
-                    const descLines = lines.slice(0, firstCodeIdx).filter(x => !/^(CLASSIFICATION|CODE#|PREMIUM BASIS|RATE|BASIS|PREM\/OPS)$/i.test(x));
-                    const exposureLines = [];
-                    for (let i = lastCodeIdx + 1; i < lines.length && exposureLines.length < codes.length; i++) {
-                        const s = lines[i];
-                        if (/^\(?0*1\)?$/.test(s)) break;
-                        if (/^\d{1,3}(?:,\d{3})+$|^\d{5,}$/.test(s)) exposureLines.push(s);
-                    }
-                    codes.forEach((code, i) => add(descLines[i] || (lookupGlClassRef92(code) && lookupGlClassRef92(code).description), code, exposureLines[i]));
+                const old = rows.get(key);
+                if (!old) rows.set(key, candidate);
+                else if (old.base !== base || old.quotePremP !== candidate.quotePremP || old.quotePremG !== candidate.quotePremG) {
+                    // Conflicting schedules have no automatic premium winner.
+                    Object.assign(old, {quotePremP:'', quotePremG:'', rateP:'', rateG:'', review:true, sourceConflict:true,
+                        reviewReason:'Conflicting class schedules; review source premiums and basis.'});
                 }
-                // Same block, flattened fallback for rows preserved on one line.
-                const flat = lines.join('  ');
-                const rowRe = /([A-Z][A-Z0-9 ,.&\/\-'()]{3,130}?)\s+(\d{4,5})\s+(\d{1,3}(?:,\d{3})+|\d{5,})\s+\(?0*1\)?/gi;
-                let m;
-                while ((m = rowRe.exec(flat)) !== null) add(m[1], m[2], m[3]);
+            };
+            for (const file of Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : []) {
+                if (file?.cancelled || file?.excluded || file?.rejected || file?.refused || /^(?:duplicate|error|excluded|rejected|refused)$/i.test(file?.state || file?.status || '')) continue;
+                if (file?.submissionId && submission?.id && String(file.submissionId) !== String(submission.id)) continue;
+                const routes = [file?.routedTo, ...(Array.isArray(file?.routedToAll) ? file.routedToAll : [])].filter(Boolean);
+                if (routes.length && !routes.includes('gl_quote')) continue;
+                const metadata = [file?.classification, file?.primaryTag, file?.subType,
+                    ...(Array.isArray(file?.classifications) ? file.classifications.map(c => [c?.tag, c?.subType, c?.section_hint].join(' ')) : [])].join(' ');
+                const pages = Array.isArray(file?.extractMeta?.pageTexts) ? file.extractMeta.pageTexts : [];
+                pages.forEach((page, pageIndex) => {
+                    const text = String(typeof page === 'string' ? page : page?.text || page?.content || page?.pageText || '').replace(/\u00a0/g, ' ');
+                    if (!routes.includes('gl_quote') && !/\b(?:GL|GENERAL LIABILITY)\b/i.test(metadata + '\n' + text)) return;
+                    const source = {file:String(file.id || file.storagePath || file._storagePath || file.name || ''), page:page?.page || pageIndex + 1};
+                    const startRe = /\bCLASSIFICATION\b/gi;
+                    let start;
+                    while ((start = startRe.exec(text))) {
+                        const tail = text.slice(start.index, start.index + 5000);
+                        const end = tail.search(/RATE\s+BASIS\s*:|ADDITIONAL\s+COVERAGES|APPLICABLE\s+POLICY\s+FORMS/i);
+                        const block = tail.slice(0, end < 0 ? tail.length : end);
+                        const lines = block.split(/\n+/).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+                        const anchors = Array.from(block.matchAll(/\b(\d{4,5})[ \t]+((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)[ \t]+(\(?0*[1-9]\)?)(?=\s|$)/g));
+                        const header = text.slice(Math.max(0, start.index - 100), start.index) + '\n' + block.slice(0, anchors[0]?.index ?? Math.min(block.length, 300));
+                        const hasPremiumColumns = /PREM\s*\//i.test(header) && /PROD\s*\/\s*COMP/i.test(header) && /PREMIUM\s+BASIS/i.test(header) && !/\bRATES?\s*:/i.test(header);
+                        let matchedRows = 0;
+                        for (let i = 0; i < anchors.length; i++) {
+                            const match = anchors[i];
+                            if (!isRecognizedGlClass92(match[1])) continue;
+                            const remaining = block.slice(match.index + match[0].length, anchors[i + 1]?.index ?? block.length).trim();
+                            const pair = /^(\$\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)\s+(\$\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(?=\s|$)([\s\S]*)$/.exec(remaining);
+                            // Two explicitly bounded currency cells only. One
+                            // unlabeled amount cannot reveal which column is blank.
+                            const premiums = hasPremiumColumns && pair && !/[\d$]/.test(pair[3]) ? [number(pair[1]), number(pair[2])] : [null, null];
+                            add('', match[1], match[2], match[3], premiums, source);
+                            matchedRows++;
+                        }
+                        if (matchedRows) continue;
+                        // Older PDF extraction emits complete columns. Accept only
+                        // exact code/exposure column cardinality in this schedule;
+                        // do not assign premium columns without row alignment.
+                        const indexes = lines.map((s, i) => /^\d{4,5}$/.test(s) && isRecognizedGlClass92(s) ? i : -1).filter(i => i >= 0);
+                        if (!indexes.length || indexes.some((v, i) => v !== indexes[0] + i)) continue;
+                        const exposures = lines.slice(indexes.at(-1) + 1, indexes.at(-1) + 1 + indexes.length);
+                        const bases = lines.slice(indexes.at(-1) + 1 + indexes.length, indexes.at(-1) + 1 + indexes.length * 2);
+                        if (exposures.length !== indexes.length || exposures.some(x => !(number(x) > 0)) || bases.length !== indexes.length || bases.some(x => !/^\(?0*[1-9]\)?$/.test(x))) continue;
+                        indexes.forEach((index, i) => add('', lines[index], exposures[i], bases[i], [null, null], source));
+                    }
+                });
             }
-            // Fallback: if the text contains codes/exposures in separate columns,
-            // pair the known GL codes with the first large exposure values after them.
-            if (!rows.length) {
-                const knownCodes = Array.from(clean.matchAll(/\b(\d{4,5})\b/g)).map(m => m[1]).filter(isRecognizedGlClass92);
-                const expos = Array.from(clean.matchAll(/\b(9,900,000|8,000,000|6,800,000|800,000)\b/g)).map(m => m[1]);
-                for (let i = 0; i < Math.min(knownCodes.length, expos.length); i++) add((lookupGlClassRef92(knownCodes[i]) && lookupGlClassRef92(knownCodes[i]).description), knownCodes[i], expos[i]);
-            }
-            return rows.slice(0, 8);
+            if (structuredRows.length) return structuredRows.map(row => {
+                const raw = !row.exactCode || row.exactExposure == null ? null : rows.get(row.code + ':' + row.exactExposure);
+                const out = {...row, sourceReview:glSourceReview89(submission)};
+                // Structured rows define the schedule. Only an absent premium
+                // (and absent explicit rate) can use one exact raw match; never
+                // append raw classes, repair malformed values or choose a conflict.
+                if (raw && !raw.sourceConflict && row.basisStated && raw.base === row.base) {
+                    for (const suffix of ['P', 'G']) {
+                        if (row['missingPremium' + suffix] && raw['quotePrem' + suffix] !== '') {
+                            out['quotePrem' + suffix] = raw['quotePrem' + suffix];
+                            out['rate' + suffix] = raw['rate' + suffix];
+                            out['premiumSource' + suffix] = {file:raw.sourceFile, page:raw.sourcePage};
+                        }
+                    }
+                }
+                if (raw?.sourceConflict) out.reviewReason = raw.reviewReason;
+                return out;
+            });
+            return Array.from(rows.values()).slice(0, 12);
         }
 
 
         function applyGLExposureRaterFromActiveSubmission(submission) {
-            if (window.__STM_WB_PHASE6?.owns("gl_exposure")) return;
             const rules = window.WorkbenchRules;
             if (!rules || typeof rules.resolveField !== 'function') return;
             const tbl = document.getElementById('classTerritoryTable');
             const tbody = tbl && tbl.querySelector('tbody');
             if (!tbody) return;
+            tbl.dataset.glSourceReview = glSourceReview89(submission);
+            if (window.__STM_WB_PHASE6?.owns("gl_exposure")) return;
             const prevBatch = window.__stmBatchGlRater87104;
             window.__stmBatchGlRater87104 = true;
             let filled = 0;
@@ -2816,6 +2883,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!row) return;
                 delete row.dataset.quotePremP;
                 delete row.dataset.quotePremG;
+                ['rateP', 'rateG'].forEach(field => {
+                    const el = row.querySelector('[data-f="' + field + '"]');
+                    if (el) { el.value = ''; el.title = r.reviewReason || ''; }
+                });
+                row.dataset.glSourceReview = r.reviewReason || '';
+                row.classList.toggle('class-code-review-required', !!r.review);
                 put(row, 'code', r.code);
                 put(row, 'desc', r.desc);
                 put(row, 'state', r.state || stateZip.state);
@@ -2824,8 +2897,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 put(row, 'base', r.base || '1000');
                 put(row, 'rateP', r.rateP);
                 put(row, 'rateG', r.rateG);
-                if (r.quotePremP) row.dataset.quotePremP = String(r.quotePremP);
-                if (r.quotePremG) row.dataset.quotePremG = String(r.quotePremG);
+                if (r.quotePremP != null && r.quotePremP !== '') row.dataset.quotePremP = String(r.quotePremP);
+                if (r.quotePremG != null && r.quotePremG !== '') row.dataset.quotePremG = String(r.quotePremG);
             });
             // v8.7.11: when real GL class rows exist, clear starter/default rows
             // (for example 91580 / GA / 30009 / $0) so they are not mistaken for
@@ -2833,10 +2906,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const latestRows = Array.from(tbody.querySelectorAll('tr'));
             latestRows.forEach((row, idx) => {
                 if (idx < rowsToApply.length) return;
-                row.querySelectorAll('input').forEach(inp => { inp.value = ''; inp.classList.remove('autofilled-from-platform'); });
+                row.querySelectorAll('input').forEach(inp => { inp.value = ''; inp.title = ''; inp.classList.remove('autofilled-from-platform'); });
                 row.querySelectorAll('select').forEach(sel => { if (sel.querySelector('option[value="1000"]')) sel.value = '1000'; });
                 delete row.dataset.quotePremP;
                 delete row.dataset.quotePremG;
+                delete row.dataset.glSourceReview;
+                row.classList.remove('class-code-review-required');
                 row.querySelectorAll('[data-out], .computed').forEach(cell => { if (cell.tagName !== 'INPUT') cell.textContent = cell.dataset.out && /rate/i.test(cell.dataset.out) ? '0.000' : '$0'; });
             });
             unlockGlRaterRows94(document);
@@ -6236,7 +6311,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.__stmGlRaterDirty87104 = true;
                     return;
                 }
-                let totP = 0, totG = 0;
+                let totP = 0, totG = 0, missingP = false, missingG = false;
                 tbody.querySelectorAll('tr').forEach(tr => {
                     const exp = parseNumber(tr.querySelector('[data-f="exposures"]').value);
                     const baseSel = tr.querySelector('[data-f="base"]').value;
@@ -6245,16 +6320,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     const rateG = parseNumber(tr.querySelector('[data-f="rateG"]').value);
                     const quotedPremP87105 = parseNumber(tr.dataset.quotePremP || '');
                     const quotedPremG87105 = parseNumber(tr.dataset.quotePremG || '');
-                    const premP = quotedPremP87105 > 0 ? quotedPremP87105 : (exp / base) * rateP;
-                    const premG = quotedPremG87105 > 0 ? quotedPremG87105 : (exp / base) * rateG;
-                    tr.querySelector('[data-out="totalRate"]').textContent = (rateP + rateG).toFixed(3);
-                    tr.querySelector('[data-out="premP"]').textContent = fmt.money(premP);
-                    tr.querySelector('[data-out="premG"]').textContent = fmt.money(premG);
+                    const hasNumber = value => /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(String(value ?? '').replace(/[$,\s]/g, ''));
+                    const active = !!tr.querySelector('[data-f="code"]').value.trim() || !!tr.querySelector('[data-f="exposures"]').value.trim();
+                    const unknownP = active && !hasNumber(tr.dataset.quotePremP) && !hasNumber(tr.querySelector('[data-f="rateP"]').value);
+                    const unknownG = active && !hasNumber(tr.dataset.quotePremG) && !hasNumber(tr.querySelector('[data-f="rateG"]').value);
+                    const premP = hasNumber(tr.dataset.quotePremP) ? quotedPremP87105 : (exp / base) * rateP;
+                    const premG = hasNumber(tr.dataset.quotePremG) ? quotedPremG87105 : (exp / base) * rateG;
+                    tr.querySelector('[data-out="totalRate"]').textContent = unknownP || unknownG ? 'Not rated' : (rateP + rateG).toFixed(3);
+                    tr.querySelector('[data-out="premP"]').textContent = unknownP ? 'Not stated' : fmt.money(premP);
+                    tr.querySelector('[data-out="premG"]').textContent = unknownG ? 'Not stated' : fmt.money(premG);
+                    if (tr.dataset.glSourceReview) tr.classList.toggle('class-code-review-required', unknownP || unknownG || tr.dataset.glClassCodeReview === '1');
+                    missingP = missingP || unknownP; missingG = missingG || unknownG;
                     totP += premP; totG += premG;
                 });
-                if (totPremOpsEl) totPremOpsEl.innerHTML = `<strong>${fmt.money(totP)}</strong>`;
-                if (totProductsEl) totProductsEl.innerHTML = `<strong>${fmt.money(totG)}</strong>`;
-                if (totalDisplayEl) totalDisplayEl.textContent = fmt.money(totP + totG);
+                if (totPremOpsEl) totPremOpsEl.innerHTML = `<strong>${missingP ? 'Not stated' : fmt.money(totP)}</strong>`;
+                if (totProductsEl) totProductsEl.innerHTML = `<strong>${missingG ? 'Not stated' : fmt.money(totG)}</strong>`;
+                if (totalDisplayEl) totalDisplayEl.textContent = missingP || missingG ? 'Not rated' : fmt.money(totP + totG);
                 syncUnderwritingRiskProfileFromGlRater8702('gl-rater-edit');
             }
             window.__stmRecalcGLRater87104 = function(reason) {

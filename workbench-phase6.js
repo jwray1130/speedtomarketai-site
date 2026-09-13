@@ -94,7 +94,7 @@
       return assignKeys(kind).map(row => {
         const cells={}; cfg.fields.forEach(k => {const el=element(row,kind,k); if(el) cells[k]=api.serializeElement(el);});
         const result={key:row.dataset.stmRatingKey,cells};
-        if(kind==='gl_exposure') result.meta={quotePremP:row.dataset.quotePremP||'',quotePremG:row.dataset.quotePremG||'',autoDesc:element(row,kind,'desc')?.dataset.autoDesc||'0',lookup:row.dataset.glClassCodeLookup||'',review:row.dataset.glClassCodeReview||''};
+        if(kind==='gl_exposure') result.meta={quotePremP:row.dataset.quotePremP||'',quotePremG:row.dataset.quotePremG||'',autoDesc:element(row,kind,'desc')?.dataset.autoDesc||'0',lookup:row.dataset.glClassCodeLookup||'',review:row.dataset.glClassCodeReview||'',sourceReview:row.dataset.glSourceReview||''};
         if(kind==='tower') result.internal=row.classList.contains('is-internal-layer');
         return result;
       });
@@ -132,14 +132,19 @@
         warning:el.classList.contains('money-input-coerced')?'The original input handler normalized this value.':el.classList.contains('money-input-rejected')?'The original parser rejected this value.':'',
         filled:el.classList.contains('autofilled-from-platform')};
     }
+    function hasQuotePremium(value) {
+      const text=String(value??'').trim();
+      return /^\+?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)&&Number.isFinite(Number(text));
+    }
     function readTable(kind) {
       const cfg=specs[kind];
       return assignKeys(kind).map((row,index)=>{
         const fields={}; [...cfg.fields,...(cfg.derived||[])].forEach(k=>{fields[k]=describe(element(row,kind,k),'r|'+kind+'|'+row.dataset.stmRatingKey+'|'+k,k);});
         const outputs={};row.querySelectorAll('['+cfg.out+']').forEach(el=>outputs[el.getAttribute(cfg.out)]=el.textContent.trim());
+        const sourceReview=kind==='gl_exposure'?[$(cfg.id).dataset.glSourceReview,row.dataset.glSourceReview].filter(Boolean).join(' '):'';
         return {key:row.dataset.stmRatingKey,index,fields,outputs,label:cfg.fixed?row.cells[0]?.textContent.trim():'',
-          quoted:kind==='gl_exposure'&&(Number(row.dataset.quotePremP)>0||Number(row.dataset.quotePremG)>0),
-          lookup:row.dataset.glClassCodeLookup||'',review:row.classList.contains('class-code-review-required'),
+          quoted:kind==='gl_exposure'&&(hasQuotePremium(row.dataset.quotePremP)||hasQuotePremium(row.dataset.quotePremG)),
+          lookup:row.dataset.glClassCodeLookup||'',review:row.classList.contains('class-code-review-required')||!!sourceReview,sourceReview,
           internal:row.classList.contains('is-internal-layer'),rated:!cfg.rated||index<cfg.rated};
       });
     }
@@ -213,7 +218,7 @@
             if(field==='base'&&!['1000','100','1','payroll'].includes(String(val.v)))fail();
             if(field==='admit'&&!['Non-Admitted','Admitted'].includes(String(val.v)))fail();
           }
-          if(row.meta!==undefined){if(kind!=='gl_exposure'||!object(row.meta))fail();for(const [k,v]of Object.entries(row.meta)){if(!['quotePremP','quotePremG','autoDesc','lookup','review'].includes(k)||typeof v!=='string'||v.length>1000)fail();}}
+          if(row.meta!==undefined){if(kind!=='gl_exposure'||!object(row.meta))fail();for(const [k,v]of Object.entries(row.meta)){if(!['quotePremP','quotePremG','autoDesc','lookup','review','sourceReview'].includes(k)||typeof v!=='string'||v.length>1000)fail();}}
           if(row.internal!==undefined&&(kind!=='tower'||typeof row.internal!=='boolean'))fail();
         }
       }
@@ -227,7 +232,7 @@
         for(const field of cfg.fields){const el=element(row,kind,field);if(!el)throw new Error('The native rating template is missing '+field);const value=saved.cells[field];if(el.type==='checkbox')el.checked=value.c;else el.value=String(value.v??'');el.dataset.userSet='1';el.dataset.stmExplicitEdit='1';}
         if(kind==='gl_exposure'){
           const m=saved.meta||{};for(const k of ['quotePremP','quotePremG']){if(m[k])row.dataset[k]=m[k];else delete row.dataset[k];}
-          element(row,kind,'desc').dataset.autoDesc=m.autoDesc||'0';row.dataset.glClassCodeLookup=m.lookup||'';row.dataset.glClassCodeReview=m.review||'';row.classList.toggle('class-code-review-required',m.review==='1');
+          element(row,kind,'desc').dataset.autoDesc=m.autoDesc||'0';row.dataset.glClassCodeLookup=m.lookup||'';row.dataset.glClassCodeReview=m.review||'';row.dataset.glSourceReview=m.sourceReview||'';row.classList.toggle('class-code-review-required',m.review==='1'||!!m.sourceReview);
         }
         if(kind==='tower')row.classList.toggle('is-internal-layer',!!saved.internal);
       });

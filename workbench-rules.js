@@ -1590,6 +1590,11 @@
     if (!extractions) return null;
     const moduleRec = extractions[moduleKey];
     if (!moduleRec || typeof moduleRec.text !== 'string') return null;
+    if (/^(?:excess|tower)$/.test(moduleKey) && /^(?:underlying_lead_(?:limit|carrier|premium)|attachment_point|tower_role)$/.test(fieldName)) {
+      const excluded = moduleRec.excluded === true || moduleRec.rejected === true || moduleRec.refused === true || /^(?:excluded|rejected|refused)$/i.test(moduleRec.status || moduleRec.outcome || '') || moduleRec.gateDetails?.proceed === false;
+      const refusedText = /\bNo matching [^\n]* found for this insured\b/i.test(moduleRec.text);
+      if (excluded || refusedText || (applicantGateModeWr8737() === 'strict' && moduleRec.applicantGate === 'mismatch')) return {value:null,blocked:true,reason:'underlying_source_excluded'};
+    }
 
     // FIX-PHASE-3.5-CROSS-APPLICANT-DEFENSE-2026-05-14
     // v8.7.27: de-fanged to NON-BLOCKING ADVISORY (Justin's decision).
@@ -1690,7 +1695,7 @@
     // (classcode markdown, tower HTML/JSON, prose narratives) and should
     // not be treated as one generic label soup.
     const adapted = moduleSpecificFieldAdapter(moduleKey, moduleRec.text, fieldName, submission);
-    if (adapted?.blocked && /^fleet_/.test(fieldName)) return adapted;
+    if (adapted?.blocked && (/^fleet_/.test(fieldName) || fieldName === 'underlying_lead_limit')) return adapted;
     if (adapted && adapted.value != null && adapted.value !== '') {
       let val = adapted.value;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
@@ -2616,8 +2621,17 @@
     // confined to the text ABOVE the first narrative header; the explicit
     // "Lead $X" chip token is read first and accepts both "$2M" and
     // "$2,000,000" forms.
-    const narrCut8744 = clean.search(/\n\s*\**\s*(?:Ask vs Offer|Tower Completion|Primary Adequacy|Capacity|Adequacy|Recommendation)\b/i);
-    const layerRegion8744 = narrCut8744 > -1 ? clean.slice(0, narrCut8744) : clean;
+    const narrCut8744 = clean.search(/(?:^|\n)\s*\**\s*(?:Ask vs Offer|Tower Completion|Primary Adequacy|Capacity|Adequacy|Recommendation)\b/i);
+    let layerRegion8744 = narrCut8744 > -1 ? clean.slice(0, narrCut8744) : clean;
+    if (fieldName === 'underlying_lead_limit') {
+      const headings = Array.from(layerRegion8744.matchAll(/(?:^|\n)\s*Layer\s+\d+\s*[-:–—][^\n]*/gi));
+      if (headings.length) {
+        const lead = headings.map((heading,index)=>({heading,index})).filter(x=>/\blead\s+(?:umbrella|excess)\b/i.test(x.heading[0]));
+        layerRegion8744 = lead.length === 1 ? layerRegion8744.slice(lead[0].heading.index,headings[lead[0].index+1]?.index ?? layerRegion8744.length) : '';
+      } else if (/^(?:\s*[^\n]*\b)?(?:first|second|third|higher)\s+excess\b/i.test(layerRegion8744) && !/\blead\s+(?:umbrella|excess)\b/i.test(layerRegion8744)) {
+        layerRegion8744 = '';
+      }
+    }
     const isLead = /lead\s+(?:umbrella|excess|\$)|lead layer|commercial liability umbrella|schedule of underlying/.test(lower)
       || /\$?\s*[0-9][0-9,\.]*\s*(?:m|mm|million)?\s*(?:xs|excess\s+of|over)\s*\$?\s*[0-9]/i.test(clean);  // v8.7.127: any X-xs-Y shape; the old literal 2-xs-1 was account-tuned
 
@@ -2626,7 +2640,7 @@
     let leadLimit = null;
     let attachment = null;
 
-    let leadTag8744 = /(?:^|[>\s])Lead\s*\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million))\b/i.exec(clean);
+    let leadTag8744 = /(?:^|[>\s])Lead\s*\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?\s*(?:M|MM|million))\b/i.exec(layerRegion8744);
     const xs = new RegExp('(' + money + ')\\s*(?:xs|x\\s*s|excess\\s+of|over)\\s*(' + money + ')', 'i').exec(layerRegion8744);
     // v8.7.127: in "X xs Y" tower shorthand, bare numbers are ALWAYS millions
     // in excess casualty ("2 xs 1" means $2M xs $1M on every account). A bare
@@ -2638,13 +2652,21 @@
       return bare ? (s.trim() + 'M') : v;
     };
     if (leadTag8744) leadLimit = leadTag8744[1];  // v8.7.144: the chip token is unambiguous and wins
-    if (xs) { if (!leadLimit) leadLimit = xsToken8727(xs[1]); attachment = xsToken8727(xs[2]); }
+    if (xs) { if (!leadLimit && /\blead\s+(?:umbrella|excess|layer)\b/i.test(layerRegion8744)) leadLimit = xsToken8727(xs[1]); attachment = xsToken8727(xs[2]); }
 
-    // Declarations often say: Each Occurrence Limit (Liability Coverage) $2,000,000.
-    if (!leadLimit) {
-      const lm = /Each\s+Occurrence\s+Limit(?:\s*\(\s*Liability\s+Coverage\s*\))?\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i.exec(clean)
-        || /Liability\s+Coverage[\s\S]{0,80}?Each\s+Occurrence[\s\S]{0,40}?\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i.exec(clean)
-        || /Lead\s+(?:Umbrella|Excess)?\s*[·:\-]?\s*Lead\s*\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/i.exec(clean);
+    // An entire package may place primary GL before its umbrella. Scope
+    // occurrence limits to the explicit umbrella/excess declarations (or
+    // the module's lead-layer summary), stopping before scheduled primaries.
+    // A14 also renders "Limits: Each Occurrence $X" without the word Limit.
+    let limitRegion = layerRegion8744;
+    const dec = /\bDECLARATIONS\s*:\s*(?:COMMERCIAL\s+)?(?:LIABILITY\s+)?UMBRELLA\b/i.exec(limitRegion);
+    if (dec) limitRegion = limitRegion.slice(dec.index).split(/\bSCHEDULE\s+OF\s+UNDERLYING\b|\bDECLARATIONS\s*:/i).filter(Boolean)[0] || '';
+    else limitRegion = limitRegion.split(/\bSCHEDULE\s+OF\s+UNDERLYING\b/i)[0];
+    const explicitExcess = /\b(?:LEAD\s+(?:UMBRELLA|EXCESS)|(?:COMMERCIAL\s+)?(?:LIABILITY\s+)?UMBRELLA\s+(?:COVERAGE|LIABILITY)|EXCESS\s+LIABILITY\s+(?:COVERAGE|DECLARATIONS))\b/i.test(limitRegion);
+    if (!leadLimit && explicitExcess) {
+      const lm = /Each\s+Occurrence(?:\s+Limit)?(?:\s*\(\s*Liability\s+Coverage\s*\))?\s*:?\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i.exec(limitRegion)
+        || /Liability\s+Coverage[\s\S]{0,80}?Each\s+Occurrence[\s\S]{0,40}?\$?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.\d+)?\s*(?:M|MM|million)?)/i.exec(limitRegion)
+        || /Lead\s+(?:Umbrella|Excess)?\s*[·:\-]?\s*Lead\s*\$?\s*([0-9]+(?:\.\d+)?\s*(?:M|MM|million|K|thousand)?)/i.exec(limitRegion);
       if (lm) leadLimit = lm[1];
     }
     // v8.7.127: the A15 tower contract renders the lead layer as the tag
@@ -3111,6 +3133,25 @@
       if (fleetVal != null) return hit(fleetVal, 0.88, moduleKey + '_fleet_code_or_schedule_count');
     }
     if (moduleKey === 'excess' || moduleKey === 'tower') {
+      const moduleVal = parseUnderlyingLayer85(clean, fieldName);
+      if (moduleVal != null) return hit(moduleVal, 0.90, moduleKey + '_scoped_underlying_layer');
+      if (fieldName === 'underlying_lead_limit') {
+        const values = new Set();
+        for (const file of Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : []) {
+          if (file?.cancelled || file?.excluded || file?.rejected || file?.refused || /^(?:duplicate|error|excluded|rejected|refused)$/i.test(file?.state || file?.status || '')) continue;
+          if (file?.submissionId && submission?.id && String(file.submissionId) !== String(submission.id)) continue;
+          const routes = [file?.routedTo, ...(Array.isArray(file?.routedToAll) ? file.routedToAll : [])].filter(Boolean);
+          if (routes.length && !routes.includes('excess')) continue;
+          for (const page of Array.isArray(file?.extractMeta?.pageTexts) ? file.extractMeta.pageTexts : []) {
+            const text = String(typeof page === 'string' ? page : page?.text || page?.content || page?.pageText || '');
+            if (!/\bDECLARATIONS\s*:\s*(?:COMMERCIAL\s+)?(?:LIABILITY\s+)?UMBRELLA\b/i.test(text)) continue;
+            const value = parseUnderlyingLayer85(unmarkdown(text), fieldName);
+            if (value != null) values.add(value);
+          }
+        }
+        if (values.size > 1) return {value:null,blocked:true,reason:'conflicting_underlying_declarations'};
+        return values.size ? hit(Array.from(values)[0], 0.90, moduleKey + '_scoped_quote_umbrella_declarations') : null;
+      }
       const layerVal = parseUnderlyingLayer85(cleanPlusQuote, fieldName);
       if (layerVal != null) return hit(layerVal, 0.90, moduleKey + '_file_quote_underlying_layer');
     }
