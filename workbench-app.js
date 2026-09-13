@@ -2714,6 +2714,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const rec = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote;
             if (!rec) return '';
             const reasons = [];
+            if (window.WorkbenchRules?.quoteModuleIsApplicationOnly95?.(submission, 'gl_quote')) reasons.push('The recorded GL class source is an application or contract. Carrier quote evidence is required for automatic class rating.');
             if (rec.applicantGate === 'mismatch') reasons.push('The GL extraction records an applicant mismatch.');
             if (rec.excluded === true || rec.rejected === true || rec.refused === true || /^(?:excluded|rejected|refused)$/i.test(rec.status || rec.outcome || '') || rec.gateDetails?.proceed === false) reasons.push('The GL extraction is excluded from automatic class rating.');
             const review = window.WorkbenchRules?.sourceReviewMetadata95?.(rec);
@@ -2729,11 +2730,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // schedule source here is untrustworthy: the structured block IS
             // the foreign quote's, and the file-text path cannot distinguish
             // a foreign quote PDF from a subject ACORD by name. Feed nothing;
-            // the caller's fallback row resolves from A7 classcode and the
-            // subject's supplemental, and the underwriter prices deliberately.
+            // the underwriter can enter a deliberate class schedule manually.
             // The explicit test-packet allowance and matched/neutral verdicts
             // pass through unchanged.
             const glRecord = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote;
+            if (window.WorkbenchRules?.quoteModuleIsApplicationOnly95?.(submission, 'gl_quote')) return [];
             const glGate8736 = glRecord?.applicantGate;
             const gateModeApp8737 = (function () { try { var v = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('STM_APPLICANT_GATE_MODE')) || (typeof window !== 'undefined' && window.STM_APPLICANT_GATE_MODE) || ''; return String(v).toLowerCase() === 'strict' ? 'strict' : 'off'; } catch (_) { return 'off'; } })();
             if (glRecord?.excluded === true || glRecord?.rejected === true || glRecord?.refused === true || /^(?:excluded|rejected|refused)$/i.test(glRecord?.status || glRecord?.outcome || '') || glRecord?.gateDetails?.proceed === false || (gateModeApp8737 === 'strict' && glGate8736 === 'mismatch')) {
@@ -2775,18 +2776,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         reviewReason:'Conflicting class schedules; review source premiums and basis.'});
                 }
             };
-            for (const file of Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : []) {
-                if (file?.cancelled || file?.excluded || file?.rejected || file?.refused || /^(?:duplicate|error|excluded|rejected|refused)$/i.test(file?.state || file?.status || '')) continue;
-                if (file?.submissionId && submission?.id && String(file.submissionId) !== String(submission.id)) continue;
-                const routes = [file?.routedTo, ...(Array.isArray(file?.routedToAll) ? file.routedToAll : [])].filter(Boolean);
-                if (routes.length && !routes.includes('gl_quote')) continue;
-                const metadata = [file?.classification, file?.primaryTag, file?.subType,
-                    ...(Array.isArray(file?.classifications) ? file.classifications.map(c => [c?.tag, c?.subType, c?.section_hint].join(' ')) : [])].join(' ');
-                const pages = Array.isArray(file?.extractMeta?.pageTexts) ? file.extractMeta.pageTexts : [];
-                pages.forEach((page, pageIndex) => {
-                    const text = String(typeof page === 'string' ? page : page?.text || page?.content || page?.pageText || '').replace(/\u00a0/g, ' ');
-                    if (!routes.includes('gl_quote') && !/\b(?:GL|GENERAL LIABILITY)\b/i.test(metadata + '\n' + text)) return;
-                    const source = {file:String(file.id || file.storagePath || file._storagePath || file.name || ''), page:page?.page || pageIndex + 1};
+            for (const evidence of window.WorkbenchRules?.carrierQuotePages95?.(submission, 'gl_quote') || []) {
+                    const file = evidence.file;
+                    const text = evidence.text.replace(/\u00a0/g, ' ');
+                    const source = {file:String(file.id || file.storagePath || file._storagePath || file.name || ''), page:evidence.page};
                     const startRe = /\bCLASSIFICATION\b/gi;
                     let start;
                     while ((start = startRe.exec(text))) {
@@ -2820,7 +2813,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (exposures.length !== indexes.length || exposures.some(x => !(number(x) > 0)) || bases.length !== indexes.length || bases.some(x => !/^\(?0*[1-9]\)?$/.test(x))) continue;
                         indexes.forEach((index, i) => add('', lines[index], exposures[i], bases[i], [null, null], source));
                     }
-                });
             }
             if (structuredRows.length) return structuredRows.map(row => {
                 const raw = !row.exactCode || row.exactExposure == null ? null : rows.get(row.code + ':' + row.exactExposure);
@@ -2867,13 +2859,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 const r = rules.resolveField(field, submission);
                 return r && r.value != null && r.value !== '' ? r : null;
             };
+            // An operational class recommendation or application revenue does
+            // not establish a carrier's class schedule. Keep the fallback only
+            // when the resolved class and exposure belong to the GL quote.
+            const quoteGet = field => {
+                const resolved = get(field);
+                return /^gl_quote(?::|$)/.test(resolved?.source || '') ? resolved : null;
+            };
             const fallback = [{
-                code: get('iso_class_code')?.value,
-                desc: get('iso_description')?.value,
+                code: quoteGet('iso_class_code')?.value,
+                desc: quoteGet('iso_description')?.value,
                 state: get('home_state')?.value || stateZip.state,
                 zip: stateZip.zip,
-                exposure: get('exposure_amount')?.value,
-                base: normalizeBasisForSelect(get('exposure_basis')?.value)
+                exposure: quoteGet('exposure_amount')?.value,
+                base: normalizeBasisForSelect(quoteGet('exposure_basis')?.value)
             }].filter(x => x.code && x.exposure);
             rowsToApply = classRows.length ? classRows.map(x => ({...x, state: stateZip.state, zip: stateZip.zip})) : fallback;
             ensureRows(Math.max(rowsToApply.length, 1));

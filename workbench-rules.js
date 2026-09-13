@@ -1164,20 +1164,20 @@
     loss_history_auto:          ['losses:json', 'losses'],
     loss_history_by_year:       ['losses:json', 'losses'],
     large_losses:               ['losses:json', 'losses'],
-    fleet_private_passenger:    ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_light:                ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_medium:               ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_heavy:                ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_extra_heavy:          ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_truck_tractors:       ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_heavy_local:          ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_heavy_other:          ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_extra_heavy_local:    ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_extra_heavy_intermediate: ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_extra_heavy_long:     ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_truck_tractors_local: ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_truck_tractors_intermediate: ['al_quote:json', 'al_quote', 'supplemental'],
-    fleet_truck_tractors_long:  ['al_quote:json', 'al_quote', 'supplemental'],
+    fleet_private_passenger:    ['al_quote:json', 'al_quote'],
+    fleet_light:                ['al_quote:json', 'al_quote'],
+    fleet_medium:               ['al_quote:json', 'al_quote'],
+    fleet_heavy:                ['al_quote:json', 'al_quote'],
+    fleet_extra_heavy:          ['al_quote:json', 'al_quote'],
+    fleet_truck_tractors:       ['al_quote:json', 'al_quote'],
+    fleet_heavy_local:          ['al_quote:json', 'al_quote'],
+    fleet_heavy_other:          ['al_quote:json', 'al_quote'],
+    fleet_extra_heavy_local:    ['al_quote:json', 'al_quote'],
+    fleet_extra_heavy_intermediate: ['al_quote:json', 'al_quote'],
+    fleet_extra_heavy_long:     ['al_quote:json', 'al_quote'],
+    fleet_truck_tractors_local: ['al_quote:json', 'al_quote'],
+    fleet_truck_tractors_intermediate: ['al_quote:json', 'al_quote'],
+    fleet_truck_tractors_long:  ['al_quote:json', 'al_quote'],
     underlying_lead_limit:      ['excess:json', 'tower:json', 'excess', 'tower'],  // v8.7.144: structured first; narrative text is a fallback, never an authority
     underlying_lead_carrier:    ['excess:json', 'tower:json', 'excess', 'tower'],
     underlying_lead_premium:    ['excess:json', 'tower:json', 'excess', 'tower'],
@@ -1388,6 +1388,7 @@
   }
 
   function resolveField(fieldName, submission) {
+    if (/^fleet_/.test(fieldName) && quoteModuleIsApplicationOnly95(submission, 'al_quote')) return null;
     if (/^fleet_/.test(fieldName) && root.STMFleetSource) {
       const roster = root.STMFleetSource.fromSubmission(submission,{strict:applicantGateModeWr8737()==='strict'});
       if (roster?.blocked) return null;
@@ -1602,6 +1603,7 @@
     if (!extractions) return null;
     const moduleRec = extractions[moduleKey];
     if (!moduleRec || typeof moduleRec.text !== 'string') return null;
+    if (moduleKey === 'gl_quote' && /^(?:iso_class_code|iso_description|exposure_amount|exposure_basis)$/.test(fieldName) && quoteModuleIsApplicationOnly95(submission, moduleKey)) return null;
     if (/^(?:excess|tower)$/.test(moduleKey) && /^(?:underlying_lead_(?:limit|carrier|premium)|attachment_point|tower_role)$/.test(fieldName)) {
       const excluded = moduleRec.excluded === true || moduleRec.rejected === true || moduleRec.refused === true || /^(?:excluded|rejected|refused)$/i.test(moduleRec.status || moduleRec.outcome || '') || moduleRec.gateDetails?.proceed === false;
       const refusedText = /\bNo matching [^\n]* found for this insured\b/i.test(moduleRec.text);
@@ -1916,7 +1918,82 @@
     return filePageTexts87(submission, { nameRe: /loss|claim/i, classRe: /loss|claim/i });
   }
   function fleetFileText87(submission) {
-    return filePageTexts87(submission, { nameRe: /quote|acord|auto|vehicle|fleet/i, classRe: /al|auto|fleet|vehicle|acord|quote/i });
+    return carrierQuotePages95(submission, 'al_quote').map(page => page.text).join('\n\n');
+  }
+
+  // Rating evidence is page-scoped. A carrier quote embedded in an application
+  // packet stays usable; an ACORD page does not become a quote because the file
+  // was routed to a quote module or a different page contains a quote number.
+  function nonQuoteRatingPage95(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (/\bACORD\s+\d{1,3}\s*\(\s*\d{4}(?:\s*\/\s*\d{1,2})?\s*\)|\bACORD\s+CORPORATION\b|\bThe ACORD name and logo are registered marks\b/i.test(t)) return true;
+    return /\b(?:COMMERCIAL INSURANCE APPLICATION|COMMERCIAL GENERAL LIABILITY SECTION|BUSINESS AUTO SECTION|SUPPLEMENTAL\s+(?:INSURANCE\s+)?APPLICATION|(?:CONTRACTORS?|CONSTRUCTION|INSURANCE)\s+(?:SUPPLEMENTAL\s+)?APPLICATION|(?:MASTER\s+)?SUBCONTRACT(?:OR)?\s+AGREEMENT|AGREEMENT\s+BETWEEN\s+(?:CONTRACTOR|OWNER)\s+AND\s+(?:SUBCONTRACTOR|CONTRACTOR))\b/i.test(t.slice(0, 700));
+  }
+
+  function carrierQuotePageProof95(text, moduleKey, applicationFile = false) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t || nonQuoteRatingPage95(t)) return false;
+    const relevant = moduleKey === 'gl_quote' ? /\bGENERAL\s+LIABILITY\b/i.test(t)
+      : /\b(?:BUSINESS\s+(?:AUTO|AUTOMOBILE)|AUTO(?:MOBILE)?\s+LIABILITY|FLEET|COVER(?:AGE|ED)\s+AUTOS)\b/i.test(t);
+    if (!relevant) return false;
+    const labelledQuote = /\bQuote\s+(?:Number|No\.?)\s*:\s*[A-Z0-9][A-Z0-9-]*\b/i.test(t);
+    const declarations = /\bDECLARATIONS\s*[:\-]?\s*(?:COMMERCIAL\s+GENERAL\s+LIABILITY|BUSINESS\s+AUTO(?:MOBILE)?)/i.test(t);
+    const title = /\b(?:COMMERCIAL\s+GENERAL\s+LIABILITY|GENERAL\s+LIABILITY|BUSINESS\s+AUTO(?:MOBILE)?|AUTO(?:MOBILE)?\s+LIABILITY)\s+(?:INSURANCE\s+)?(?:QUOTE|QUOTATION|BINDER)\b|\bTransaction(?:\s+Type)?\s*:\s*QUOTE\b/i.test(t);
+    // The GL carrier premium table has a distinct two-premium-column schema.
+    // Application classification/exposure tables alone are not this evidence.
+    const glPremiumTable = moduleKey === 'gl_quote' && /\bCLASSIFICATION\b/i.test(t) && /PREM\s*\//i.test(t) && /PROD\s*\/\s*COMP/i.test(t) && /PREMIUM\s+BASIS/i.test(t);
+    return declarations || title || (!applicationFile && glPremiumTable) || (labelledQuote && /\b(?:PREMIUM|CLASSIFICATION|SCHEDULE\s+OF\s+COVER(?:AGE|ED)\s+AUTOS)\b/i.test(t));
+  }
+
+  function applicationRatingFile95(file) {
+    const classification = [file?.classification,file?.primaryTag,file?.subType].filter(Boolean).join(' ');
+    return /\b(?:ACORD(?:\s*\d+)?|APPLICATION|SUPPLEMENTAL|SUB\s*AGREEMENT|SUBCONTRACT(?:OR)?)\b/i.test(classification) ||
+      /^(?:ACORD\s*\d*|(?:SUPPLEMENTAL\s+)?APPLICATION|SUBCONTRACT(?:OR)?\s+AGREEMENT)\b/i.test(String(file?.name || ''));
+  }
+
+  function ratingSourceFiles95(submission) {
+    const sid = submission?.id || submission?.submission_id;
+    return (Array.isArray(submission?.snapshot?.files) ? submission.snapshot.files : []).filter(file => file &&
+      !(file.submissionId && sid && String(file.submissionId) !== String(sid)) &&
+      !file.cancelled && !file.excluded && !file.rejected && !file.refused && file.gateDetails?.proceed !== false &&
+      !/^(?:duplicate|error|excluded|rejected|refused)$/i.test(file.state || file.status || ''));
+  }
+
+  function carrierQuotePages95(submission, moduleKey) {
+    const out = [];
+    for (const file of ratingSourceFiles95(submission)) {
+      const routes = [file.routedTo, ...(Array.isArray(file.routedToAll) ? file.routedToAll : [])].filter(Boolean);
+      if (routes.length && !routes.includes(moduleKey)) continue;
+      const pages = Array.isArray(file.extractMeta?.pageTexts) ? file.extractMeta.pageTexts : [];
+      pages.forEach((page, pageIndex) => {
+        const text = String(typeof page === 'string' ? page : page?.text || page?.content || page?.pageText || '');
+        if (carrierQuotePageProof95(text, moduleKey, applicationRatingFile95(file))) out.push({file, pageIndex, page:page?.page || pageIndex + 1, text});
+      });
+    }
+    return out;
+  }
+
+  function quoteModuleIsApplicationOnly95(submission, moduleKey) {
+    const record = submission?.snapshot?.extractions?.[moduleKey] || submission?.extractions?.[moduleKey];
+    if (!record) return false;
+    const ids = new Set(Array.isArray(record.sourceFileIds95) ? record.sourceFileIds95.map(String) : []);
+    const names = new Set(String(record.sourceInfo || '').split(', ').filter(Boolean));
+    for (const source of Array.isArray(record.source_coverage_status95) ? record.source_coverage_status95 : []) {
+      if (source?.sourceModule && source.sourceModule !== moduleKey) continue;
+      if (source?.fileId) ids.add(String(source.fileId));
+      if (source?.fileName) names.add(String(source.fileName));
+    }
+    const files = ratingSourceFiles95(submission).filter(file => ids.has(String(file.id)) || names.has(file.name));
+    // Stage-1/legacy records can lack file metadata. Unknown provenance is not
+    // evidence of an application; do not invalidate already-saved quote data.
+    if (!files.length) return false;
+    return files.every(file => {
+      const pages = (Array.isArray(file.extractMeta?.pageTexts) ? file.extractMeta.pageTexts : [])
+        .map(page => String(typeof page === 'string' ? page : page?.text || page?.content || page?.pageText || '')).filter(Boolean);
+      if (pages.some(text => carrierQuotePageProof95(text, moduleKey, applicationRatingFile95(file)))) return false;
+      return applicationRatingFile95(file) ||
+        (pages.length > 0 && pages.every(nonQuoteRatingPage95));
+    });
   }
 
   function firstReasonableParagraph(text, maxChars) {
@@ -3130,7 +3207,7 @@
       const supVal = parseSupplementalExposure85(clean, fieldName, submission);
       if (supVal) return hit(supVal, 0.84, 'supplemental_acord_schedule');
     }
-    if (moduleKey === 'al_quote' || moduleKey === 'supplemental') {
+    if (moduleKey === 'al_quote' && !quoteModuleIsApplicationOnly95(submission, moduleKey)) {
       if (/^fleet_/.test(fieldName)) {
         // Only an explicitly labeled complete correction supersedes a roster.
         // Use this module's text, not concatenated unrelated source documents.
@@ -4922,21 +4999,16 @@
   function extractAuthoritativeGlClassRows8712(submission) {
     const out = [];
     const seen = new Set();
-    // v8.7.136: applicant-gate discipline for the derived GL schedule. The
-    // supplemental corpus below already routes through _moduleTextIfApplicant,
-    // but the raw quote FILE text did not: a foreign-insured GL quote's page
-    // text could drive the subject's ISO code, description, and exposure.
-    // When the engine marked gl_quote as a hard mismatch, exclude the quote
-    // file corpus entirely; subject-supplied documents still derive normally.
-    const glGate8736 = submission && submission.extractions && submission.extractions.gl_quote && submission.extractions.gl_quote.applicantGate;
-    const quoteText = (applicantGateModeWr8737() === 'strict' && glGate8736 === 'mismatch') ? '' : ((typeof quoteFileText87 === 'function') ? quoteFileText87(submission) : '');  // v8.7.137: strict-only
-    const supplementalText = [
-      _moduleTextIfApplicant(submission, 'gl_quote'),
-      _moduleTextIfApplicant(submission, 'supplemental'),
-      _moduleTextIfApplicant(submission, 'exposure'),
-      _moduleTextIfApplicant(submission, 'summary-ops')
-    ].join('\n');
-    const corpora = [quoteText, supplementalText].filter(Boolean);
+    // Derived controlling classes honor the same source and applicant scope
+    // as the quote rater; unrelated operational fields keep their own rules.
+    const record = submission?.snapshot?.extractions?.gl_quote || submission?.extractions?.gl_quote;
+    const blocked = quoteModuleIsApplicationOnly95(submission, 'gl_quote') || record?.excluded || record?.refused || record?.rejected || record?.gateDetails?.proceed === false ||
+      (applicantGateModeWr8737() === 'strict' && record?.applicantGate === 'mismatch');
+    // Controlling class schedules come from quote evidence. Applications and
+    // derived operational narratives still have their separate UW authority.
+    const quoteText = blocked ? '' : carrierQuotePages95(submission, 'gl_quote').map(page => page.text).join('\n\n');
+    const moduleText = blocked ? '' : _moduleTextIfApplicant(submission, 'gl_quote');
+    const corpora = [quoteText, moduleText].filter(Boolean);
     function add(code, exposure, reason) {
       if (!code || seen.has(code)) return;
       const ref = lookupGlClassCode(code);
@@ -5279,6 +5351,8 @@
     resolveField,
     buildFieldCoverageReport,
     sourceReviewMetadata95,
+    carrierQuotePages95,
+    quoteModuleIsApplicationOnly95,
     moduleSpecificFieldAdapter,
     GL_CLASS_CODE_TABLE,
     GL_CLASS_CODE_EXTENSIONS,

@@ -286,6 +286,12 @@ function dominantAppRoute8741(f, sections) {
 function lockedSectionRoute8740(f, allSections, cl) {
   const route = routeForSection8738(cl);
   if (!route) return route;
+  // ACORDs are label-only even when an old classifier called a form's
+  // exposure/fleet table a quote. A real quote in a combined PDF must prove
+  // its own non-ACORD pages; a checkbox labelled QUOTE is not that proof.
+  if (stmHasAcordSource95(f, allSections) && (QUOTE_ROUTES_8739.has(route) || stmIsAuxiliaryQuoteTag95(cl))) {
+    if (!stmQuotePageIndexes95(f, allSections, cl).length) return null;
+  }
   if (!QUOTE_ROUTES_8739.has(route)) return route;
   const sections = allSections || [];
   const labels = sections.map(sectionLabel8739);
@@ -619,6 +625,13 @@ function detectGeneralDecPages8792(f) {
 }
 
 function sliceTextForModule(f, mid) {
+  if (GEN_DEC_QUOTE_FAMILY8792.has(mid) && !f._acordQuoteScope95 && stmHasAcordSource95(f, f.classifications)) {
+    const pages = f.pageTexts || f.extractMeta?.pageTexts || [];
+    const allowed = new Set(stmQuotePageIndexes95(f, f.classifications));
+    if (!allowed.size) return '';
+    const scoped = pages.map((text, index) => allowed.has(index) ? text : '');
+    return sliceTextForModule({...f, pageTexts:scoped, text:scoped.filter(Boolean).join('\n\n'), _genDec8792:null, _acordQuoteScope95:true}, mid);
+  }
   // No per-page text available? Return whole-file text (legacy behavior).
   if (!f.pageTexts || !Array.isArray(f.pageTexts) || f.pageTexts.length === 0) {
     return f.text || '';
@@ -2871,7 +2884,69 @@ function stmClassifierTextBlob(file) {
 }
 
 function stmNormTag(tag) {
-  return String(tag || '').trim().toLowerCase();
+  return String(tag || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function stmIsAuxiliaryQuoteTag95(cl) {
+  return /^(?:gl exposure|al fleet)$/.test(stmNormTag(cl?.tag || cl?.type));
+}
+
+function stmIsAcordPage95(text) {
+  const value=String(text || '');
+  if (/\bACORD\s*\d{2,4}\s*\(\s*\d{4}\s*[/-]\s*\d{2}\s*\)|\bACORD\s+CORPORATION\b|\bCOMMERCIAL\s+INSURANCE\s+APPLICATION\b|\bAPPLICANT\s+INFORMATION\s+SECTION\b/i.test(value)) return true;
+  return /\b(?:BUSINESS\s+AUTO|COMMERCIAL\s+GENERAL\s+LIABILITY|UMBRELLA\s*[/&]\s*EXCESS)\s+SECTION\b/i.test(value) && !stmCarrierQuoteTerms95(value);
+}
+
+function stmHasAcordSource95(file, classifications) {
+  const pages = file?.pageTexts || file?.extractMeta?.pageTexts || [];
+  return /\bacords?\b/i.test(String(file?.name || '')) ||
+    (classifications || file?.classifications || []).some(cl => /\bacord\s*\d+/i.test([cl?.tag,cl?.type,cl?.subType].join(' '))) ||
+    pages.some(stmIsAcordPage95) || stmIsAcordPage95(file?.text);
+}
+
+function stmCarrierQuoteTerms95(text) {
+  const value = String(text || '');
+  return /\b(?:quotation|quote\s*(?:number|no\.?|#)|binder\s*(?:number|no\.?|#)|(?:common\s+policy\s+|general\s+|auto\s+|liability\s+)?declarations)\b/i.test(value) &&
+    /\b(?:premium|underwritten|NAIC|policy\s+(?:period|number)|insurance|insurer)\b/i.test(value);
+}
+
+function stmCarrierQuotePage95(text) {
+  return !stmIsAcordPage95(text) && stmCarrierQuoteTerms95(text);
+}
+
+function stmIsQuoteClassification95(cl) {
+  return stmIsAuxiliaryQuoteTag95(cl) || /\bquote\b|\bquotation\b|\bbinder\b|\bdeclarations?\b|t&c|\blead\s*\$|\sxs\s*\$/i.test([cl?.tag,cl?.type,cl?.subType].join(' ').replace(/_/g,' '));
+}
+
+function stmQuotePageIndexes95(file, classifications, target) {
+  const pages = file?.pageTexts || file?.extractMeta?.pageTexts || [];
+  if (!Array.isArray(pages) || !pages.length) return [];
+  const classes = classifications || file?.classifications || [], allowed = new Set(), acordPages = new Set();
+  classes.forEach(cl => {
+    if (!/\bacord\s*\d+/i.test([cl?.tag,cl?.type,cl?.subType].join(' '))) return;
+    const match=/^\s*(?:pages?|p\.?)\s*(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\s*$/i.exec(String(cl.section_hint || ''));
+    if (!match) return;
+    for(let i=Math.max(0,Number(match[1])-1);i<Math.min(pages.length,Number(match[2]||match[1]));i++) acordPages.add(i);
+  });
+  // Only bounded, explicitly quoted sections may supply continuation pages
+  // inside a mixed application PDF. Whole-file classifier hints are not proof.
+  classes.forEach(cl => {
+    const label = [cl?.tag,cl?.type,cl?.subType].join(' ');
+    const match = /^\s*(?:pages?|p\.?)\s*(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\s*$/i.exec(String(cl?.section_hint || ''));
+    if (!match || !/\bquote\b|\bquotation\b|\bbinder\b|\bdeclarations?\b|t&c|\blead\s*\$|\sxs\s*\$/i.test(label)) return;
+    const start = Number(match[1])-1, end = Number(match[2] || match[1])-1;
+    if (start < 0 || end < start || end >= pages.length) return;
+    if (!pages.slice(start,end+1).some(stmCarrierQuotePage95)) return;
+    for (let i=start;i<=end;i++) if (!stmIsAcordPage95(pages[i]) && (!acordPages.has(i) || stmCarrierQuotePage95(pages[i]))) allowed.add(i);
+  });
+  // A source page can prove itself even before section classification exists.
+  pages.forEach((text,index) => {if(stmCarrierQuotePage95(text)) allowed.add(index);});
+  if (target) {
+    const match = /^\s*(?:pages?|p\.?)\s*(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\s*$/i.exec(String(target.section_hint || ''));
+    if (match) return [...allowed].filter(i=>i>=Number(match[1])-1&&i<=Number(match[2]||match[1])-1).sort((a,b)=>a-b);
+    if (!stmIsAuxiliaryQuoteTag95(target)) return [];
+  }
+  return [...allowed].sort((a,b)=>a-b);
 }
 
 function stmClassEntry(type, tag, confidence, reasoning, sectionHint, subType) {
@@ -3002,11 +3077,14 @@ function stmDetectAlFleet(file) {
 
 // Whole-file hints can still assist extraction routing, but cannot establish
 // a page marker. Locate an actual populated table on one source page instead.
-function stmAuxiliaryMarkerPage95(file, tag) {
+function stmAuxiliaryMarkerPage95(file, tag, classifications) {
   const pages = file?.extractMeta?.pageTexts || file?.pageTexts;
   if (!Array.isArray(pages)) return null;
+  const acord = stmHasAcordSource95(file, classifications);
+  const quotePages = acord ? new Set(stmQuotePageIndexes95(file, classifications)) : null;
   for (let i=0;i<pages.length;i++) {
     if (typeof pages[i] !== 'string') continue;
+    if (stmIsAcordPage95(pages[i]) || (quotePages && !quotePages.has(i))) continue;
     const text=pages[i].replace(/\s+/g,' '),compact=text.replace(/[^a-z0-9]/gi,'').toUpperCase();
     if (tag === 'AL Fleet') {
       const identifier=(text.match(/\b[A-HJ-NPR-Z0-9]{16,17}\b/g) || []).some(value=>/\d/.test(value) && !/^([A-Z0-9])\1+$/.test(value));
@@ -3023,10 +3101,15 @@ function stmAuxiliaryMarkerPage95(file, tag) {
   return null;
 }
 
-function stmAuxiliaryMarkerClassification95(classification, file) {
+function stmAuxiliaryMarkerClassification95(classification, file, classifications) {
   const tag=classification?.tag || classification?.type;
-  if (!/^(?:GL Exposure|AL Fleet)$/.test(tag || '') || !/^Surgical guard:/i.test(classification.reasoning || '')) return classification;
-  const page=stmAuxiliaryMarkerPage95(file,tag);
+  if (stmHasAcordSource95(file,classifications) && stmIsQuoteClassification95(classification) && !stmIsAuxiliaryQuoteTag95(classification)) {
+    const quotePages=stmQuotePageIndexes95(file,classifications,classification);
+    return {...classification,document_marker95:quotePages.length>0,document_section_hint95:quotePages.length?'page '+(quotePages[0]+1):null};
+  }
+  if (!stmIsAuxiliaryQuoteTag95(classification) || (!/^Surgical guard:/i.test(classification.reasoning || '') && !stmHasAcordSource95(file, classifications))) return classification;
+  const canonical = stmNormTag(tag) === 'gl exposure' ? 'GL Exposure' : 'AL Fleet';
+  const page=stmAuxiliaryMarkerPage95(file,canonical,classifications);
   return {...classification,document_marker95:page!==null,document_section_hint95:page===null?null:'page '+page};
 }
 
@@ -3158,7 +3241,12 @@ function stmApplyClassifierGuards(parsed, file) {
     return true;
   });
 
-  out.classifications = cls.map(c=>stmAuxiliaryMarkerClassification95(c,file));
+  // Reject auxiliary ACORD labels as well as routing. Applications remain
+  // ACORD 125/126/131 labels; a distinct carrier quote can retain its tags.
+  cls = cls.filter(c => !stmIsQuoteClassification95(c) || !stmHasAcordSource95(file,cls) ||
+    (stmIsAuxiliaryQuoteTag95(c) ? stmAuxiliaryMarkerPage95(file,stmNormTag(c.tag||c.type)==='gl exposure'?'GL Exposure':'AL Fleet',cls)!==null :
+      stmQuotePageIndexes95(file,cls,c).length>0));
+  out.classifications = cls.map(c=>stmAuxiliaryMarkerClassification95(c,file,cls));
   return out;
 }
 
@@ -4762,7 +4850,7 @@ function stmPrimaryTagFromClassifications(classifications, fallbackTag) {
 
 function stmSectionClassificationsForDocs(classifications, file) {
   return Array.isArray(classifications)
-    ? classifications.map(cl => file ? stmAuxiliaryMarkerClassification95(cl,file) : cl).map(cl => ({
+    ? classifications.map(cl => file ? stmAuxiliaryMarkerClassification95(cl,file,classifications) : cl).map(cl => ({
         tag: cl.tag || cl.subType || cl.type,
         type: cl.type,
         subType: cl.subType || null,
