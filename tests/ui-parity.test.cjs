@@ -48,6 +48,20 @@ test('intake keeps mutation controls busy even before an extraction operation st
  const c=sandbox(section('function active(){','function issueText()'),{live:{state:{_stmIntakePending:1}},projection:{processing:{status:'intake'}},api:()=>({busy:false})});
  assert.equal(c.active(),true);c.live.state._stmIntakePending=0;c.projection.processing.status='pending';assert.equal(c.active(),false);
 });
+test('parsed intake labels report text extraction without promising completed page preparation',()=>{
+ const c=sandbox(section('function fileState(f){','window.STMDesign={'));
+ for(const file of [{state:'parsed'},{state:'parsed',_pushedToDocsView:false},{state:'parsed',_pushedToDocsView:true}])assert.equal(c.fileState(file),'Text extracted');
+ assert.equal(c.fileState({state:'parsing'}),'Parsing');assert.equal(c.fileState({state:'classified'}),'Classified');assert.equal(c.fileState({state:'classified',needsReview:true}),'Classification needs review');assert.equal(c.fileState({state:'parsed',error:'Example parse failure'}),'Error');assert.equal(c.fileState({state:'needs_manual'}),'Manual text required');assert.equal(c.fileState({state:'ready'}),'Ready');
+});
+test('fresh analysis uses the first-run status and button while interrupted analysis retains recovery labels',()=>{
+ const C=require('../integration-core.js'),raw={activeSubmissionId:'SUB-EXAMPLE',pipelineRun:null,pipelineDone:false,files:[{id:'file-a',state:'parsed',text:'Example source'}],extractions:{}};
+ const c=sandbox(section('function active(){','function fileState(f){')+section('function runLabel(){','const intakeHead=')+section('derived=function(){const raw=live?.state||{}','// Old demos remain unreachable'),{live:{state:raw},projection:{processing:C.processingState(raw),lastOperation:null},api:()=>({busy:false}),AMODS:[],STAGES:[],S:{phase:'loaded',files:raw.files,t:0},R:{platformWindow:{document:{getElementById:()=>null}}}});
+ const stage=c.document.getElementById('stage');stage.innerHTML='<span data-f="run-label"></span>';c.stage=stage;
+ const label=section("  stage.querySelectorAll('[data-f=\"run-label\"]')","  stage.querySelectorAll('[data-f=\"k-files-s\"]')");
+ vm.runInContext(label,c);assert.equal(stage.textContent,'Run pipeline · 1 files');assert.equal(c.derived().ptext,'Ready for analysis');
+ raw.pipelineRun='PIPE-EXAMPLE';c.projection.processing=C.processingState(raw);vm.runInContext(label,c);
+ assert.equal(stage.textContent,'Resume pending processing');assert.equal(c.derived().ptext,'Processing incomplete — resume pending work');
+});
 test('file source labels use actual module routing, including multiple source files',()=>{
  const c=sandbox(section('function srcText(k)','function rosterCounts()'),{M:{cls:{stage:0},loss:{stage:1},gl:{stage:1}},S:{files:[{name:'loss1.pdf',routes:['loss']},{name:'loss2.pdf',routes:['loss','gl']},{name:'waiting.pdf',routes:[]}]}});
  assert.equal(c.srcText('cls'),'2 of 3 files routed');assert.equal(c.srcText('loss'),'loss1.pdf, loss2.pdf');assert.equal(c.srcText('gl'),'loss2.pdf');
@@ -189,4 +203,22 @@ test('focused readonly rating controls receive changed derived values and retain
   c.refresh();assert.equal(selections,1,'unchanged values do not reset selection');
   next.tables.tower[1].fields.attach.value='3,000,000';c.refresh();assert.equal(derived.value,'3,000,000');assert.equal(derived.title,'3,000,000');assert.equal(selections,2);assert.equal(editable.value,'2.');
  }
+});
+
+test('queue gap badges distinguish missing assessment from recorded gaps without inventing missing fields',()=>{
+ const C=require('../integration-core.js');
+ const c=sandbox(section('const gapChip=s=>','/* ---- render'),{esc:s=>String(s).replaceAll('<','&lt;').replaceAll('>','&gt;')});
+ c.record=C.queueRecord({id:'PREMINT',modulesRun:0,missingInfo:[],snapshot:{_stub:true,extractions:{}}});
+ let shown=vm.runInContext('gapChip(record)',c);assert.match(shown,/No extraction yet/);assert.doesNotMatch(shown,/complete|No recorded gaps/i);assert.deepEqual(c.record.missing,[]);
+ c.record=C.queueRecord({id:'SAVED',modulesRun:12,missingInfo:[],snapshot:null});
+ shown=vm.runInContext('gapChip(record)',c);assert.match(shown,/No recorded gaps/);assert.doesNotMatch(shown,/complete|No extraction yet/i);
+ c.record=C.queueRecord({id:'PARTIAL',modulesRun:0,missingInfo:['Broker <name>']});
+ shown=vm.runInContext('gapChip(record)',c);assert.match(shown,/1 missing/);assert.match(shown,/Broker &lt;name&gt;/);assert.doesNotMatch(shown,/No extraction yet/,'retain known missing items even before new outputs');
+});
+
+test('queue figure identifies its running count as local to this tab',()=>{
+ const c=sandbox(section('function renderFigures(){','function renderQueue(first){'),{stats:()=>({total:4,awaiting:4,inProgress:0,avgConf:null,gaps:0,modsRun:0,modsCap:96}),D:{pipelineModules:24,formats:['PDF']}});
+ c.document.body.insertAdjacentHTML('beforeend','<div id="figures"></div>');c.renderFigures();
+ assert.match(c.document.getElementById('figures').textContent,/4 awaiting UW review, 0 running in this tab/);
+ assert.doesNotMatch(c.document.getElementById('figures').textContent,/0 in progress/);
 });

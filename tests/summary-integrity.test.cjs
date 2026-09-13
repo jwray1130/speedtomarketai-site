@@ -42,7 +42,7 @@ function harness(options = {}) {
   vm.runInContext(between(engine, 'function htmlEscapeLoss96(', '// v8.6.98 - archive A11'), ctx);
   vm.runInContext(between(engine, 'function a8HtmlEscape8749(', '// v8.7.23 - after Wave 1'), ctx);
   vm.runInContext(between(core, 'function cleanVisibleExtractionText99(', '// Display missing archived timing'), ctx);
-  vm.runInContext(between(engine, 'async function runModule(', '// v8.7.84 PHASE 6'), ctx);
+  vm.runInContext(between(engine, 'function sourceFleetForRun95(', '// v8.7.84 PHASE 6'), ctx);
   vm.runInContext(between(engine, 'async function verifyStrengthsNumericPass8784(', '// v8.7.90 GL CLASS CODE GROUNDING'), ctx);
   vm.runInContext(between(engine, 'let _glCodeMap8790 = null;', '// v8.7.162 SPEND CIRCUIT BREAKER'), ctx);
   return {ctx, STATE, calls, cacheKeys, cacheWrites, audit};
@@ -51,6 +51,55 @@ const summary = 'Example Contractor operates in Texas. It performs road and brid
 const guideline = 'Section 1.5 Attachment Point Strategy requires a calculation.\nSnow and ice removal contractors require review.\nWaste haulers require review.\nAll bridge contractors require a minimum $5m attachment point.\nThese are carrier reference rules.';
 const plain = value => JSON.parse(JSON.stringify(value));
 const money = n => '$' + n.toLocaleString('en-US', {maximumFractionDigits: 2});
+
+test('coverage status uses scoped explicit source statements, not filenames or declaration headings',()=>{
+  const {ctx}=harness(),mods={excess:{inputsFrom:'file'}};
+  const file=(extra={})=>({id:'quote-a',submissionId:'SUB-A',name:'example.pdf',routedToAll:['excess'],extractMeta:{pageTexts:['Transaction: QUOTE','This quotation does not constitute a binding of coverage.']},...extra});
+  let evidence=plain(ctx.sourceCoverageEvidence95('excess','', [file()],{},mods,'SUB-A'));
+  assert.equal(evidence[0].status,'quoted');assert.equal(evidence[0].fileId,'quote-a');assert.deepEqual(evidence[0].evidence.map(x=>x.page),[1,2]);
+  evidence=plain(ctx.sourceCoverageEvidence95('excess','',[file({name:'BOUND-QUOTE.pdf',extractMeta:{pageTexts:['Declarations: policy number ABC, effective 01/01/2026']}})],{},mods,'SUB-A'));
+  assert.equal(evidence[0].status,'unverified');
+  assert.deepEqual(plain(ctx.sourceCoverageEvidence95('excess','Transaction QUOTE',[file({submissionId:'SUB-OTHER'})],{},mods,'SUB-A')),[]);
+  assert.deepEqual(plain(ctx.sourceCoverageEvidence95('excess','',[file({rejected:true})],{},mods,'SUB-A')),[]);
+  assert.deepEqual(plain(ctx.sourceCoverageEvidence95('excess','',[file({routedToAll:['al_quote']})],{},mods,'SUB-A')),[]);
+  evidence=plain(ctx.sourceCoverageEvidence95('excess','',[file({extractMeta:{pageTexts:['Coverage Status: Bound']}})],{},mods,'SUB-A'));
+  assert.equal(evidence[0].status,'bound');
+  evidence=plain(ctx.sourceCoverageEvidence95('excess','',[file({extractMeta:{pageTexts:['No coverage is bound effective today.']}})],{},mods,'SUB-A'));
+  assert.equal(evidence[0].status,'unverified');
+  evidence=plain(ctx.sourceCoverageEvidence95('excess','',[file({extractMeta:{pageTexts:['Transaction QUOTE','Coverage Status: Bound']}})],{},mods,'SUB-A'));
+  assert.equal(evidence[0].status,'conflicting');
+});
+
+test('quote status reaches synthesis and cache boundaries and incorrect bound wording stays reviewable',async()=>{
+  const source=[{sourceModule:'excess',fileId:'source-a',status:'quoted',evidence:[{page:1,text:'Transaction QUOTE'}]}];
+  const h=harness({extractions:{excess:{text:'Layer 1 - Lead Umbrella',source_coverage_status95:source},gl_quote:{text:'Rejected source',rejected:true,source_coverage_status95:[{status:'bound'}]}},output:'<div class="tower-output"><span class="tower-layer-badge bound-badge">IN-PLACE</span><p>The bound lead umbrella.</p></div>'});
+  h.STATE.edits={tower:{htmlOverride:'<p>My reviewed wording</p>'}};
+  assert.equal(await h.ctx.runModule('tower','System','Source layers','quote source'),true);
+  assert.ok(h.calls[0][0].includes('quotation is not evidence of binding'));assert.ok(h.calls[0][1].includes('SOURCE COVERAGE STATUS EVIDENCE'));assert.ok(h.cacheKeys[0][2].includes('Transaction QUOTE'));
+  assert.deepEqual(plain(h.STATE.extractions.tower.source_coverage_status95),source);assert.equal(h.STATE.extractions.tower.review_required,true);assert.ok(h.STATE.extractions.tower.summary_integrity_warnings95.some(x=>x.startsWith('Coverage status requires review')));assert.equal(h.STATE.edits.tower.htmlOverride,'<p>My reviewed wording</p>');
+  assert.deepEqual(plain(h.ctx.sourceNarrativeReview95('tower','This quote is not bound coverage.',source,{})),[]);
+  assert.deepEqual(plain(h.ctx.sourceNarrativeReview95('tower','<span class="tower-layer-badge proposed-badge">QUOTED</span>',source,{})),[]);
+  assert.deepEqual(plain(h.ctx.sourceNarrativeReview95('tower','The bound lead umbrella.',[{status:'bound'}],{})),[]);
+});
+
+const scenarioSources=()=>({excess:{text:'Layer 1 - Lead Umbrella - Example Carrier\nLimits: Each Occurrence $2,500,000 / Aggregate $2,500,000\nAttachment Point: $750,000\nSchedule of Underlying: GL $750,000'},losses:{text:'Loss record',loss_history_structured:{large_losses:[{incurred:2200000,paid:2200000},{incurred:4000000,paid:4000000}]}}});
+const wrongExhaustion='Strengths of the Account\nThe largest single GL loss at displayed value ($2,200,000) is 293% of the $750,000 attachment and would exhaust the $2,500,000 umbrella layer.';
+test('layer exhaustion review subtracts attachment using known loss figures and does not invent missing evidence',()=>{
+  const {ctx}=harness(),sources=scenarioSources();
+  const warnings=plain(ctx.sourceNarrativeReview95('strengths',wrongExhaustion,[],sources));
+  assert.equal(warnings.length,1);assert.match(warnings[0],/\$1,450,000/);assert.match(warnings[0],/\$3,250,000 ground-up/);
+  assert.deepEqual(plain(ctx.sourceNarrativeReview95('strengths','A $4,000,000 loss would exhaust the $2,500,000 umbrella layer.',[],sources)),[]);
+  assert.deepEqual(plain(ctx.sourceNarrativeReview95('strengths','A $2,200,000 loss does not exhaust the $2,500,000 umbrella layer.',[],sources)),[]);
+  assert.match(ctx.sourceNarrativeReview95('strengths',wrongExhaustion,[],{losses:sources.losses})[0],/could not be matched/);
+  assert.match(ctx.sourceNarrativeReview95('strengths',wrongExhaustion,[],{...sources,excess:{...sources.excess,rejected:true}})[0],/could not be matched/);
+});
+
+test('numeric verifier cannot mark the same incorrect exhaustion claim verified after its rewrite',async()=>{
+  const h=harness({extractions:{...scenarioSources(),tower:{text:'Quoted lead layer'},strengths:{text:'Strengths of the Account\nDraft requires arithmetic verification.'}},output:wrongExhaustion});
+  assert.equal(await h.ctx.verifyStrengthsNumericPass8784('retry'),false);
+  assert.equal(h.STATE.extractions.strengths.verified,false);assert.equal(h.STATE.extractions.strengths.review_required,true);assert.ok(h.STATE.extractions.strengths.summary_integrity_warnings95.some(x=>x.startsWith('Layer arithmetic requires review')));
+  assert.ok(h.calls[0][0].includes('G >= A + L'));assert.ok(h.calls[0][0].includes('hypothetical scenario'));assert.equal(h.STATE.extractions.strengths.text,wrongExhaustion);
+});
 
 function lossFixture({incurred = 118470, rows, editHtml = s => s, editData = () => {}} = {}) {
   rows = rows || [
@@ -94,6 +143,77 @@ test('legacy A8 inputs and empty operations cannot fall back to carrier referenc
   const split = ctx.a8SplitInput8750(input, guideline);
   assert.match(split.summary, /chars omitted/);
   assert.equal(split.summary.includes('candidate guideline'), false);
+});
+
+test('A8 uses direct A2 financial labels and periods without joining separate or unknown source owners', async () => {
+  const a6 = 'Named Insured: Example Builder LLC\nOperations: commercial construction; financials are not summarized.';
+  const a2 = 'Named Insured: Different Installer LLC\nReporting period: 2025 actual\nAnnual Payroll: $420,000\nAnnual Revenue: $2,300,000\nUnresolved owner; 2026 projected Revenue: $3,100,000\nSubcontract Cost: Not stated';
+  const extractions = {'summary-ops': {text:a6}, supplemental: {text:a2, applicantGate:'mismatch_noted_frankenstein_v8737', gateDetails:{proceed:true,mismatchAllowed:true,detectedInsureds:['Different Installer LLC'],submissionInsured:'Example Builder LLC'}}};
+  const h = harness({extractions});
+  assert.deepEqual(plain(h.ctx.MODULES_TEST.guidelines.optionalDeps), ['supplemental']);
+  const input = h.ctx.buildGuidelinesInput8749(a6, guideline, 'normal', extractions);
+  const account = h.ctx.a8SplitInput8750(input, guideline).summary;
+  assert.equal(account,a6);
+  assert.ok(input.includes('=== A2 Supplemental / Application (direct extraction) ===\n\n'+a2+'\n\nEND A2 SUPPLEMENTAL SOURCE'));
+  assert.equal(account.includes('$5,400,000'),false,'no cross-owner or cross-period sum is invented');
+  assert.match(input,/keep unresolved owners or conflicting figures separate/);
+  assert.equal(h.ctx.a8GuidelinesSourceInfo95(extractions),'A6 + A2 + guidelines');
+  assert.equal(await h.ctx.runModule('guidelines','System',input,h.ctx.a8GuidelinesSourceInfo95(extractions),{}),true);
+  assert.ok(h.calls[0][0].includes('Do not attribute another or unresolved insured'));
+  assert.ok(h.cacheKeys[0][2].includes(a2));
+  assert.equal(h.STATE.extractions.guidelines.sourceInfo,'A6 + A2 + guidelines');
+  assert.equal(h.STATE.extractions.guidelines.source_identity_conflicts[0].sourceModule,'supplemental');
+  assert.equal(h.STATE.extractions.guidelines.review_required,true);
+  assert.equal(extractions.supplemental.text,a2,'source remains intact');
+  const foreignActivity = {...extractions,supplemental:{...extractions.supplemental,text:a2+'\nOperations: waste hauling and snow removal.'}};
+  const data = h.ctx.a8BuildDeterministicData8750(h.ctx.buildGuidelinesInput8749(a6,guideline,'normal',foreignActivity),guideline,'');
+  assert.equal(data.triggers.some(t=>t.key==='snow_ice'||t.key==='waste_hauler'),false,'deterministic fallback does not attribute another source owner’s activities to the applicant');
+});
+
+test('A8 omits refused, excluded and applicant-gated records while retaining optional-source absence behavior', () => {
+  const {ctx} = harness();
+  for (const flag of [{rejected:true},{refused:true},{excluded:true},{mode:'gated'},{gateDetails:{proceed:false}},{applicantGate:'mismatch'},{applicant_match:'mismatch'}]) {
+    const sources = {'summary-ops':{text:summary},supplemental:{text:'Forbidden source $987,654',...flag}};
+    const input = ctx.buildGuidelinesInput8749(summary,guideline,'normal',sources);
+    assert.equal(input.includes('Forbidden source'),false,JSON.stringify(flag));
+    assert.equal(ctx.a8SplitInput8750(input,guideline).summary,summary);
+    assert.equal(ctx.a8GuidelinesSourceInfo95(sources),'A6 + guidelines');
+    sources['summary-ops'] = {text:'Rejected summary',...flag};
+    assert.equal(ctx.a8SplitInput8750(ctx.buildGuidelinesInput8749('unsafe fallback',guideline,'normal',sources),guideline).summary,'');
+    assert.equal(ctx.a8GuidelinesSourceInfo95(sources),'guidelines');
+  }
+  assert.equal(ctx.buildGuidelinesInput8749(summary,guideline),ctx.buildGuidelinesInput8749(summary,guideline,'normal',{'summary-ops':{text:summary}}));
+});
+
+test('A2 shares the existing A8 account budget in every mode and supplies scout keywords', () => {
+  const {ctx} = harness();
+  const sources = {'summary-ops':{text:'A6 head. '+'Example operation. '.repeat(6000)+' A6 tail.'},supplemental:{text:'A2 owner: Source Company LLC. Payroll period: 2025. '+'Source detail. '.repeat(6000)+' A2 tail.'}};
+  for (const [mode,limit] of [['normal',24000],['compact',14000],['ultra',8000]]) {
+    const input = ctx.buildGuidelinesInput8749('',guideline,mode,sources);
+    const account = ctx.a8SplitInput8750(input,guideline).summary;
+    const a2Block = /\n\n=== A2 Supplemental[\s\S]*?END A2 SUPPLEMENTAL SOURCE/.exec(input)[0];
+    assert.ok(account.length+a2Block.length<=limit,mode+' combined source chars '+(account.length+a2Block.length));
+    for (const phrase of ['A6 head.','A6 tail.','A2 owner: Source Company LLC.','Payroll period: 2025.','A2 tail.','chars omitted']) assert.ok((account+a2Block).includes(phrase),mode+' '+phrase);
+  }
+  const customGuideline = 'Glassblowing requires a ventilation diagram.\n'+Array.from({length:12},(_,i)=>'Unrelated filler '+i+'.').join('\n');
+  const sources2 = {'summary-ops':{text:'Routine business.'},supplemental:{text:'Company: Example Artisan LLC\nOperations: glassblowing.'}};
+  const without = ctx.buildGuidelinesInput8749('Routine business.',customGuideline);
+  const withA2 = ctx.buildGuidelinesInput8749('Routine business.',customGuideline,'normal',sources2);
+  assert.equal(without.includes('DETERMINISTIC CANDIDATE'),false);
+  const scout = withA2.split('DETERMINISTIC CANDIDATE GUIDELINE EXCERPTS:')[1].split('CARRIER UNDERWRITING GUIDELINE:')[0];
+  assert.ok(scout.includes('Glassblowing requires a ventilation diagram.'));
+});
+
+test('initial and rerun A8 callsites pass the same extraction records and accurate source labels', async () => {
+  const {ctx} = harness({extractions:{'summary-ops':{text:summary},supplemental:{text:'Owner: Example LLC\nAnnual Payroll: $410,000'}}});
+  const calls = [];
+  ctx.runModule = async (...args) => {calls.push(args);return true;};
+  ctx.PROMPTS.guidelines='Guideline prompt';ctx.mid='guidelines';ctx.pipelineContext={};ctx.soText=summary;ctx.wave3Tasks=[];
+  vm.runInContext(between(engine,'    const glInput = buildGuidelinesInput8749(', '    // v8.7.84: exposure sources'),ctx);
+  await Promise.all(ctx.wave3Tasks);
+  await vm.runInContext('(async()=>{let runResult;'+between(engine,'          const glInput8720 = buildGuidelinesInput8749(', '        } else {')+'})()',ctx);
+  assert.equal(calls.length,2);assert.equal(calls[0][2],calls[1][2]);
+  for (const call of calls) {assert.ok(call[2].includes('Annual Payroll: $410,000'));assert.equal(call[3],'A6 + A2 + guidelines');}
 });
 
 test('explicit local negative operations are suppressed while thresholds and later affirmative clauses survive', () => {
@@ -256,7 +376,7 @@ test('runModule carries source-owner context into calls/cache keys and refreshes
   }
   const clean = harness({extractions: {losses: {text: 'Mention of Other B only, no gate metadata'}}});
   assert.equal(await clean.ctx.runModule('exposure', 'System', 'Unchanged source', 'test', {}), true);
-  assert.equal(clean.calls[0][0], 'System' + clean.ctx.sourceLabelInstruction95('exposure'));
+  assert.equal(clean.calls[0][0], 'System' + clean.ctx.sourceLabelInstruction95('exposure') + clean.ctx.sourceCoverageInstruction95('exposure', []));
   assert.equal(clean.calls[0][1], 'Unchanged source');
   assert.equal(clean.STATE.extractions.exposure.review_required, false);
 });
@@ -277,16 +397,34 @@ test('A11 runModule archives the original response and replays reconciliation me
 });
 
 test('A8 input-budget retry retains the recorded source-owner metadata outside operations', async () => {
-  const h = harness({extractions: {'summary-ops': {text: summary, source_identity_conflicts: [{sourceModule: 'losses', submissionInsured: 'Applicant A', detectedInsureds: ['Other B']}] }},
+  const a2 = 'Named Insured: Other B\nReporting period: 2025 actual\nAnnual Payroll: $450,000';
+  const h = harness({extractions: {'summary-ops': {text: summary, source_identity_conflicts: [{sourceModule: 'losses', submissionInsured: 'Applicant A', detectedInsureds: ['Other B']}] },supplemental:{text:a2}},
     respond: n => {
       if (n === 1) throw new Error('413 request too large');
       return {text: 'A useful partial model finding.'};
     }});
-  assert.equal(await h.ctx.runModule('guidelines', 'System', h.ctx.buildGuidelinesInput8749(summary, guideline), 'test', {}), true, JSON.stringify(h.audit));
+  assert.equal(await h.ctx.runModule('guidelines', 'System', h.ctx.buildGuidelinesInput8749(summary, guideline, 'normal', h.STATE.extractions), 'test', {}), true, JSON.stringify(h.audit));
   assert.equal(h.calls.length, 2);
   assert.ok(h.calls[1][1].includes('Other B'));
-  assert.equal(h.ctx.a8SplitInput8750(h.calls[1][1], guideline).summary, summary);
+  const retryAccount = h.ctx.a8SplitInput8750(h.calls[1][1], guideline).summary;
+  assert.equal(retryAccount,summary);assert.ok(h.calls[1][1].includes(a2));
+  assert.equal(retryAccount.includes('SOURCE IDENTITY REVIEW METADATA'),false);
+  assert.equal(retryAccount.includes('DETERMINISTIC CANDIDATE'),false);
   assert.equal(h.STATE.extractions.guidelines.review_required, true);
+});
+
+test('A8 double input-budget failure retains bounded A6 and A2 context for the review-required fallback', async () => {
+  const h = harness({extractions:{'summary-ops':{text:'A6 source. '+ 'Business detail. '.repeat(6000)},supplemental:{text:'Named Insured: Example LLC\n2025 Payroll: $470,000\n'+'Source detail. '.repeat(6000)}},respond:()=>{throw new Error('413 request too large');}});
+  const input=h.ctx.buildGuidelinesInput8749('',guideline,'normal',h.STATE.extractions);
+  assert.equal(await h.ctx.runModule('guidelines','System',input,'A6 + A2 + guidelines',{}),true);
+  assert.equal(h.calls.length,2);
+  for (let i=0;i<2;i++) {
+    const account=h.ctx.a8SplitInput8750(h.calls[i][1],guideline).summary;
+    const a2Block=/\n\n=== A2 Supplemental[\s\S]*?END A2 SUPPLEMENTAL SOURCE/.exec(h.calls[i][1])[0];
+    assert.ok(account.length+a2Block.length<=[24000,8000][i]);assert.match(account,/A6 source/);assert.match(a2Block,/2025 Payroll: \$470,000/);
+  }
+  assert.equal(h.STATE.extractions.guidelines.review_required,true);
+  assert.match(h.STATE.extractions.guidelines.text,/review required/i);
 });
 
 test('Strengths hides an explicit verifier draft only when the complete final section follows', () => {
@@ -302,6 +440,16 @@ test('Strengths hides an explicit verifier draft only when the complete final se
   assert.equal(ctx.cleanVisibleExtractionText99('strengths', preamble), preamble.trim());
   const introductoryFinding = 'Important final source-specific finding.\n\nStrengths of the Account:\nRetain everything.';
   assert.equal(ctx.cleanVisibleExtractionText99('strengths', introductoryFinding), introductoryFinding);
+});
+
+test('Strengths removes the observed verification-notes prefix only at its explicit final heading', () => {
+  const {ctx}=harness();
+  const prefix='Verification notes on the loss/tower sections:\nDraft arithmetic and corrections.\n\n';
+  const final='**Strengths of the Account:**\n\n**Loss History:**\nKeep the complete final findings.';
+  assert.equal(ctx.cleanVisibleExtractionText99('strengths',prefix+final),final);
+  assert.equal(ctx.cleanVisibleExtractionText99('strengths',prefix),prefix.trim());
+  const ordinary='Verification notes from the underwriter:\nRetain these notes.\n\n'+final;
+  assert.equal(ctx.cleanVisibleExtractionText99('strengths',ordinary),ordinary);
 });
 
 const conflictingFleet = 'Fleet Composition:\nMedium: 6 (units 101, 102, 103, 104, 105, 106, 107)\nHeavy (Local): 10 (units 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511)\nTruck Tractors (Local): 15 (units 901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918)\nFleet Composition (corrected counts):\nMedium: 7\nHeavy (Local): 11\nTruck Tractors (Local): 18\nTotal power units: 39';

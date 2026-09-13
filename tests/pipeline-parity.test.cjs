@@ -95,6 +95,18 @@ test('legacy six-file partial archive is pending despite completed flag',()=>{
  const ready=[1,2,3,4].map(n=>savedPdf({id:'pending-'+n}));const classified=[{id:'supp',state:'classified',routedTo:'supplemental'},{id:'acord',state:'classified',classification:'ACORD'}];
  const s=state({files:[...classified,...ready],extractions:{supplemental:{text:'saved output'}}});const p=C.processingState(s,modules);
  assert.equal(p.complete,false);assert.equal(p.pendingFiles.length,4);assert.equal(p.classifiedCount,2);assert.equal(p.routedCount,1);assert.equal(p.status,'pending');assert.equal(s.pipelineDone,true);
+ assert.equal(p.hasRunHistory,true);assert.equal(p.needsRecovery,true);
+});
+
+test('fresh prepared intake is pending first analysis, while saved run provenance keeps recovery available',()=>{
+ const fresh=state({pipelineRun:null,pipelineDone:false,files:Array.from({length:6},(_,i)=>savedPdf({id:'fresh-'+i})),extractions:{}});
+ const p=C.processingState(fresh,modules);assert.equal(p.pendingFiles.length,6);assert.equal(p.complete,false);assert.equal(p.hasRunHistory,false);assert.equal(p.needsRecovery,false);assert.equal(p.sourceMissing.length,0);
+ const interrupted=C.processingState({...fresh,pipelineRun:'PIPE-PRIOR'},modules,{kind:'runPipeline',status:'cancelled'});
+ assert.equal(interrupted.hasOutputs,false);assert.equal(interrupted.hasRunHistory,true);assert.equal(interrupted.needsRecovery,true);
+ const incremental=C.processingState({...fresh,pipelineDone:true,extractions:{supplemental:{text:'Saved prior analysis'}}},modules);
+ assert.equal(incremental.complete,false);assert.equal(incremental.needsRecovery,true,'legacy saved outputs prove prior analysis even when the run ID is absent');
+ const unavailable=C.processingState({...fresh,files:[savedPdf({text:'',extractMeta:{}})]},modules);
+ assert.equal(unavailable.needsRecovery,false);assert.equal(unavailable.status,'attention');assert.equal(unavailable.sourceMissing.length,1);
 });
 
 test('unrouted conditional modules do not force a 24-module rerun',()=>{
@@ -199,12 +211,42 @@ test('cancelling active recovery retains classified source evidence, prior outpu
  assert.equal(h.writes.at(-1).snapshot._stmRunComplete,false);assert.equal(h.writes.at(-1).snapshot.files[0].classification,'losses');assert.equal(h.writes.at(-1).snapshot.edits.supplemental.htmlOverride,'<p>Underwriter edit</p>');
 });
 
-test('native snapshot restore honors explicit completion and clears timing from the previous submission',()=>{
+function restoreNativeSnapshot(snap,run='PIPE-A'){
  const source=fs.readFileSync(path.join(root,'pipeline-core.js'),'utf8');const start=source.indexOf('  // Load target snapshot'),end=source.indexOf('  // Phase 8.5 fix:',start);assert.ok(start>=0&&end>start);
- const hydrate=snap=>{const S=state({pipelineStart:9000,pipelineElapsedSeconds:999,pipelineRunning:true});vm.runInNewContext(source.slice(start,end),{STATE:S,rec:{snapshot:snap,pipelineRun:'PIPE-A'},submissionId:'SUB-A',deepClone:structuredClone});return S;};
+ const S=state({pipelineStart:9000,pipelineElapsedSeconds:999,pipelineRunning:true});vm.runInNewContext(source.slice(start,end),{STATE:S,rec:{snapshot:snap,pipelineRun:run},submissionId:'SUB-A',deepClone:structuredClone});return S;
+}
+test('native snapshot restore honors explicit completion and clears timing from the previous submission',()=>{
+ const hydrate=restoreNativeSnapshot;
  const partial=hydrate({files:[savedPdf()],extractions:{supplemental:{text:'KEEP'}},_stmRunComplete:false,pipelineElapsedSeconds:42.5});
  assert.equal(partial.pipelineDone,false);assert.equal(partial.pipelineRunning,false);assert.equal(partial.pipelineStart,0);assert.equal(partial.pipelineElapsedSeconds,42.5);assert.equal(partial.extractions.supplemental.text,'KEEP');
  const legacy=hydrate({files:[savedPdf()],extractions:{supplemental:{text:'KEEP'}}});assert.equal(legacy.pipelineDone,true);assert.equal(legacy.pipelineElapsedSeconds,null);assert.equal(C.processingState(legacy,modules).complete,false);
+ const filesOnly=hydrate({files:[savedPdf()],extractions:{}},null);assert.equal(filesOnly.pipelineDone,false);assert.equal(C.processingState(filesOnly,modules).needsRecovery,false);
+ const legacyOutput=hydrate({files:[savedPdf()],extractions:{supplemental:{text:'KEEP'}}},null);assert.equal(legacyOutput.pipelineDone,true);assert.equal(C.processingState(legacyOutput,modules).needsRecovery,true);
+});
+
+test('pre-minted stubs and unconfirmed empty archives never restore completed analysis from their run ID',()=>{
+ for(const snap of [{_stub:true,files:[],extractions:{}},{_stub:true,_stmRunComplete:true,files:[],extractions:{}},{_stub:true,files:[],extractions:{losses:{text:'Interim output before final archive'}}},{files:[],extractions:{}}]){
+  const restored=restoreNativeSnapshot({...snap,pipelineRun:'PIPE-PREMINT'});
+  assert.equal(restored.pipelineRun,'PIPE-PREMINT');assert.equal(restored.pipelineDone,false);assert.equal(C.processingState(restored,modules).complete,false);assert.equal(C.pipelineView(restored,modules).complete,false);
+ }
+ const explicit=restoreNativeSnapshot({_stmRunComplete:true,files:[],extractions:{},pipelineRun:'PIPE-FINISHED'});
+ assert.equal(explicit.pipelineDone,true,'an explicit successful completion still supports a run with no applicable output modules');
+ const partial=restoreNativeSnapshot({_stmRunComplete:false,files:[],extractions:{losses:{text:'Saved output'}}});assert.equal(partial.pipelineDone,false);
+});
+
+test('successful native archive replaces its pre-minted stub with a complete restorable snapshot',async()=>{
+ const source=fs.readFileSync(path.join(root,'pipeline-core.js'),'utf8'),start=source.indexOf('async function archiveCurrentSubmission('),end=source.indexOf('\nfunction deepClone(',start);assert.ok(start>=0&&end>start);
+ const stub={id:'SUB-A',pipelineRun:'PIPE-A',status:'QUOTED',snapshot:{_stub:true,files:[],extractions:{},pipelineRun:'PIPE-A'}},S=state({submissions:[stub],files:[savedPdf({state:'classified',classification:'losses',routedTo:'losses'})],extractions:{losses:{text:'Saved analysis',confidence:.8}}}),writes=[];
+ const c={STATE:S,deepClone:structuredClone,slimSnapshotFiles8799:()=>structuredClone(S.files),deriveAccountName:()=> 'Example LLC',deriveBroker:()=>'',deriveEffective:()=>'',deriveRequested:()=>'',computeMissingInfo:()=>[],renderQueueTable(){},updateQueueKpi(){},console,buildSubmissionPayload:(rec,snap)=>({...rec,snapshot:snap}),sbSaveSubmission:async payload=>{writes.push(payload);return{id:payload.id};},__STM_SUBMISSION:{completionForSave:()=>C.processingState(S,modules).complete,lastOperation:()=>({kind:'runPipeline',status:'finished'})}};c.window=c;
+ vm.runInNewContext(source.slice(start,end),c);const result=await c.archiveCurrentSubmission({source:'pipeline-end'});
+ assert.equal(result.cloudSaved,true);assert.equal(S.submissions.length,1);assert.equal(stub.status,'QUOTED');assert.equal(stub.snapshot._stub,undefined);assert.equal(writes[0].snapshot._stub,undefined);assert.equal(writes[0].snapshot._stmRunComplete,true);
+ const restored=restoreNativeSnapshot(writes[0].snapshot);assert.equal(restored.pipelineDone,true);assert.equal(C.processingState(restored,modules).complete,true);assert.equal(restored.files.length,1);assert.equal(restored.extractions.losses.text,'Saved analysis');
+});
+
+test('controller fallback keeps prior-run provenance when the shared contract is unavailable',()=>{
+ const globals={STMIntegration:null,parent:{STMIntegration:null,STM_RUNTIME:{sync(){}}},computePendingClosure8747:()=>({all:['losses'],stale:[],newBatches:[]})};
+ const prior=controllerHarness({state:{pipelineRun:'PIPE-PRIOR',extractions:{}},globals}).api.processing();assert.equal(prior.hasRunHistory,true);assert.equal(prior.needsRecovery,true);assert.equal(prior.complete,false);
+ const fresh=controllerHarness({state:{pipelineRun:null,pipelineDone:false,extractions:{}},globals}).api.processing();assert.equal(fresh.hasRunHistory,false);assert.equal(fresh.needsRecovery,false);
 });
 
 test('native Run wrapper recovers partial output instead of invoking clearing full-run path',async()=>{
@@ -215,6 +257,16 @@ test('native Run recovers a failed prior run with zero outputs but retains the f
  const h=controllerHarness({state:{files:[savedPdf({state:'classified',classification:'losses',routedTo:'losses'})],extractions:{}}});
  await h.sandbox.runPipeline();assert.deepEqual(h.calls,[{kind:'rerun',ids:['losses']}]);assert.equal(h.api.processing().complete,true);
  const fresh=controllerHarness({state:{pipelineRun:null,pipelineDone:false,extractions:{}}});await fresh.sandbox.runPipeline();assert.deepEqual(fresh.calls,[{kind:'full'}]);
+});
+
+test('first analysis and a pre-run confirmation cancellation keep full-run dispatch despite pending closure',async()=>{
+ const h=controllerHarness({state:{pipelineRun:null,pipelineDone:false,extractions:{}},globals:{computePendingClosure8747:()=>({all:['losses'],stale:[],newBatches:[['losses']]})}});
+ let p=h.api.project().processing;assert.equal(p.hasRunHistory,false);assert.equal(p.needsRecovery,false);assert.deepEqual(Array.from(p.pendingModules),['losses']);
+ await h.sandbox.runPipeline();assert.equal(h.api.lastOperation().status,'not-completed');assert.equal(h.S.pipelineRun,null);assert.equal(h.api.processing().needsRecovery,false);
+ await h.sandbox.runPipeline();assert.deepEqual(h.calls,[{kind:'full'},{kind:'full'}],'retry still passes through the native full-run confirmation, not incremental recovery');
+ const failed=controllerHarness({state:{pipelineRun:null,pipelineDone:false,extractions:{}},operation:{kind:'runPipeline',status:'failed'}});
+ p=failed.api.project();assert.equal(p.lastOperation.status,'failed');assert.equal(p.processing.needsRecovery,false);
+ await failed.sandbox.runPipeline();assert.deepEqual(failed.calls,[{kind:'full'}]);
 });
 
 test('missing file-fed section restores selected evidence and uses native rerun',async()=>{
@@ -240,6 +292,9 @@ test('redesigned Run routes a prior zero-output failure to recovery before the n
  const p={STATE:S,__STM_SUBMISSION:{processing:()=>C.processingState(S,modules),resumePending:async()=>calls.push('resume')},runPipeline:async()=>calls.push('full')};
  const context={sessionEpoch:1,platform:p,runStarting:false,requireSession(){},ensureNotRunning(){},saveWorkbenchBeforeLeaving:async()=>{},R:{sync(){},navigate:async()=>calls.push('summary')}};
  await runtimeMethod('run','async website',context)();assert.deepEqual(calls,['resume']);assert.equal(context.runStarting,false);
+ S.pipelineRun=null;S.pipelineDone=false;calls.length=0;
+ assert.equal(C.processingState(S,modules).needsRecovery,false);
+ await runtimeMethod('run','async website',context)();assert.deepEqual(calls,['full']);
 });
 
 test('same-submission intake batches queue through document registration and survive a failed earlier batch',async()=>{

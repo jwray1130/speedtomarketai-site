@@ -19,8 +19,23 @@ function harness(){
  const api=window.docsView,helpers=window.__testDocs;
  const file=(extra={})=>{const f={id:'source',name:'Package.pdf',submissionId:'A',state:'classified',classification:'APPLICATIONS',tag:'Package',classifications:[{tag:'ACORD 125',section_hint:'pages 1-4'},{tag:'ACORD 126',section_hint:'pages 5-120'},{tag:'Loss runs',section_hint:'pages 121-200'}],...extra};window.STATE.files.push(f);return f;};
  const page=(f,n,total=200,extra={})=>helpers.addDoc({name:f.name+' — Page '+n,workbookFileName:f.name,sourceFileId:f.id,submissionId:f.submissionId,pageNumber:n,totalPages:total,type:'pdf',pipelineClassification:f.classification,pipelineTag:'Package',color:'green',...extra});
- return {window,api,helpers,writes,file,page,failWrites:()=>fail=true};
+ return {window,api,helpers,writes,file,page,context,failWrites:()=>fail=true};
 }
+
+test('explicit saved-marker repair uses source page evidence to relocate guard labels and preserve manual pages',async()=>{
+ const h=harness(),engine=fs.readFileSync(path.join(__dirname,'..','pipeline-engine.js'),'utf8');
+ const slice=(a,b)=>engine.slice(engine.indexOf(a),engine.indexOf(b,engine.indexOf(a)));
+ vm.runInContext(slice('function stmClassifierTextBlob(','// DETERMINISTIC DOCUMENT DETECTOR LIBRARY')+'\n'+slice('function stmSectionClassificationsForDocs(','// v8.6.85')+'\nwindow.stmSectionClassificationsForDocs=stmSectionClassificationsForDocs;',h.context);
+ const f=h.file({classifications:[{tag:'Sub Agreement',section_hint:'pages 1-3'},
+  {tag:'GL Exposure',type:'QUOTES_UNDERLYING',section_hint:'entire document',reasoning:'Surgical guard: GL exposure schedule / class-code exposure basis detected.'},
+  {tag:'AL Fleet',type:'QUOTES_UNDERLYING',section_hint:'entire document',reasoning:'Surgical guard: AL fleet / vehicle schedule detected.'}],
+  extractMeta:{pageCount:3,pageTexts:['Subcontract General Liability premium $1,500,000.','Terms continue.','VEHICLE DESCRIPTION YEAR MAKE: Example MODEL: Truck VIN 1TESTABC123456789']}});
+ const pages=[1,2,3].map(n=>h.page(f,n,3));pages[0].pipelineTag='Sub Agreement · GL Exposure · AL Fleet';pages[0].tagged=true;pages[0].color='green';
+ pages[1].pipelineTag='My reviewed page';pages[1].tagged=true;pages[1].relabeledByUser=true;pages[1].color='blue';pages[2].pipelineTag=null;pages[2].tagged=false;pages[2].color=null;
+ const preview=await h.api.design.repairMarkers();assert.equal(preview.changedPages,2);assert.equal(preview.untouchedManualPages,1);assert.equal(h.writes.length,0);
+ await h.api.design.repairMarkers({apply:true,preview});assert.deepEqual(pages.map(d=>d.pipelineTag),['Sub Agreement','My reviewed page','AL Fleet']);assert.equal(pages[1].color,'blue');
+ const again=await h.api.design.repairMarkers();assert.equal(again.changedPages,0);
+});
 
 test('repair preview performs no writes; apply repairs only automatic continuation flags and is idempotent',async()=>{
  const h=harness(),f=h.file(),pages=Array.from({length:200},(_,i)=>h.page(f,i+1));

@@ -7,7 +7,7 @@ const vm = require('node:vm');
 // Run the actual document module and public APIs. Only visual startup/rendering
 // is replaced: no browser, account, remote service, or fixture parser is needed
 // to exercise classification, persistence patches, scope and hydration races.
-function harness() {
+function harness(options={}) {
   const sourcePath = path.join(__dirname, '..', 'pipeline-documents-view.js');
   let source = fs.readFileSync(sourcePath, 'utf8');
   const entry = '\n  init();\n';
@@ -19,6 +19,7 @@ function harness() {
   renderTagsList=()=>window.__renders.push('tags');
   renderCategoryGrid=()=>window.__renders.push('categories');
   updateSubmissionChip=()=>{};
+  updateLoading=()=>{};
   toast=()=>{};
   return;
 `);
@@ -30,8 +31,8 @@ function harness() {
     sbUpdateDocumentPage: async (id, patch) => { writes.push({id, patch: {...patch}}); },
     sb: {auth: {getSession: async () => ({data: {session: {user: {id: 'test-user'}}}})}},
   };
-  const context = vm.createContext({window, console, setTimeout, clearTimeout,
-    document: {addEventListener() {}, getElementById() { return null; }, querySelector() { return null; }, querySelectorAll() { return []; }},
+  const context = vm.createContext({window, console, setTimeout, clearTimeout,pdfjsLib:options.pdfjsLib,
+    document: {addEventListener() {}, getElementById() { return null; }, querySelector() { return null; }, querySelectorAll() { return []; },createElement:options.createElement},
     localStorage: {getItem() { return null; }}, confirm: () => true,
     Blob, URL, Map, Set, Date});
   vm.runInContext(source, context, {filename: sourcePath});
@@ -252,4 +253,45 @@ test('preview revision detects changed same-length content and stays stable for 
   const loaded=h.api.design.revision();
   await h.api.design.load(page.id,true);
   assert.equal(h.api.design.revision(),loaded);
+});
+
+function pdfHarness(sources){
+ const textCalls=[],renders=[],opened=[],cleaned=[];
+ const pdfjsLib={getDocument({data}){
+  const id=new Uint8Array(data)[0],texts=sources[id];assert.ok(texts,'source binary identity');opened.push(id);
+  return {promise:Promise.resolve({numPages:texts.length,async getPage(page){return {
+   getViewport:()=>({width:100,height:150}),render(){renders.push([id,page]);return {promise:Promise.resolve()};},
+   async getTextContent(){textCalls.push([id,page]);return {items:[{str:texts[page-1]}]};},cleanup(){cleaned.push([id,page]);}
+  };},async cleanup(){},async destroy(){}})};
+ }};
+ const h=harness({pdfjsLib,createElement:tag=>{assert.equal(tag,'canvas');return {getContext:()=>({}),toDataURL:()=> 'data:image/jpeg;base64,cHJldmlldw=='};}});
+ const add=(id,meta={},pages)=>{
+  const f=h.file('source-'+id,'Shared filename.pdf');f.state='parsed';f.extractMeta=meta;if(pages!==undefined)f.pageTexts=pages;
+  f._rawFile={name:f.name,size:100,type:'application/pdf',arrayBuffer:async()=>new Uint8Array([id]).buffer};return f;
+ };
+ return {...h,add,textCalls,renders,opened,cleaned};
+}
+
+test('actual document intake reuses complete per-source page text while rendering every preview and preserving source identity',async()=>{
+ const h=pdfHarness({1:['native-a1','native-a2'],2:['native-b1','native-b2'],3:['foreign']});
+ const a=h.add(1,{pageCount:2,pageTexts:['cached-a1','']}),b=h.add(2,{pageCount:2},['cached-b1','cached-b2']),foreign=h.add(3,{pageCount:1,pageTexts:['foreign-cache']});foreign.submissionId='another-submission';
+ await h.api.design.ingestIntake();
+ assert.deepEqual(h.textCalls,[],'do not repeat PDF text extraction');assert.deepEqual(h.renders,[[1,1],[1,2],[2,1],[2,2]]);assert.deepEqual(h.cleaned,h.renders);
+ assert.deepEqual(h.inserts.map(d=>[d.sourceFileId,d.submissionId,d.pageNumber,d.textContent]),[[a.id,'submission-a',1,'cached-a1'],[a.id,'submission-a',2,''],[b.id,'submission-a',1,'cached-b1'],[b.id,'submission-a',2,'cached-b2']]);
+ assert.equal(foreign._pushedToDocsView,undefined);await h.api.design.ingestIntake();assert.deepEqual(h.opened,[1,2],'finished sources remain idempotent despite identical filenames');
+});
+
+test('missing, partial, sparse and malformed cached page arrays fall back to the PDF text without losing pages',async()=>{
+ const sparse=Array(2);sparse[0]='partial';
+ for(const pages of [undefined,[],['partial'],sparse,['cached',null],['cached',{text:'object'}]]){
+  const h=pdfHarness({1:['native1','native2']});h.add(1,{pageCount:2,pageTexts:pages});await h.api.design.ingestIntake();
+  assert.deepEqual(h.textCalls,[[1,1],[1,2]]);assert.deepEqual(h.inserts.map(d=>d.textContent),['native1','native2']);assert.equal(h.renders.length,2);
+ }
+ const h=pdfHarness({1:['native1','native2']});h.add(1,{pageCount:1,pageTexts:['stale-count']});await h.api.design.ingestIntake();
+ assert.deepEqual(h.textCalls,[[1,1],[1,2]],'actual PDF count revalidates inaccurate intake metadata');
+});
+
+test('a complete alternate cache is used when the preferred nested page array is partial',async()=>{
+ const h=pdfHarness({1:['native1','native2']});h.add(1,{pageCount:2,pageTexts:['partial']},['complete1','complete2']);
+ await h.api.design.ingestIntake();assert.deepEqual(h.textCalls,[]);assert.deepEqual(h.inserts.map(d=>d.textContent),['complete1','complete2']);
 });
