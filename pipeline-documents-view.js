@@ -300,7 +300,7 @@ window.initDocumentsView = function() {
     grid.innerHTML = '';
     // Respect the submission scope when computing category counts so the
     // sidebar reflects what the user can actually see.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     CONFIG.categories.forEach(cat => {
@@ -375,7 +375,8 @@ window.initDocumentsView = function() {
     let docs = [...state.docs];
     // Submission scope filter applied first so all subsequent counters
     // (search hit totals, category counts) reflect the scoped set.
-    if (state.submissionFilter && state.submissionFilter !== 'all') {
+    if (state.draftSubmissionMode && window.docsView?.design) { docs=docs.filter(inDesignScope); }
+    else if (state.submissionFilter && state.submissionFilter !== 'all') {
       docs = docs.filter(d => d.submissionId === state.submissionFilter);
     }
     if (state.currentCategory !== 'all') {
@@ -460,10 +461,9 @@ window.initDocumentsView = function() {
   function findNativeWorkbookDoc(doc) {
     if (doc.nativeDataUrl || doc.storagePath) return doc;
     if (!doc.workbookFileName) return null;
-    return state.docs.find(d =>
-      d.workbookFileName === doc.workbookFileName &&
-      (d.nativeDataUrl || d.storagePath)
-    );
+    const matches=state.docs.filter(d => d.workbookFileName===doc.workbookFileName && (d.nativeDataUrl||d.storagePath) && (d.submissionId||null)===(doc.submissionId||null) && (!doc.sourceFileId||d.sourceFileId===doc.sourceFileId));
+    const identities=new Set(matches.map(d=>d.storagePath||d.sourceFileId||d.id));
+    return identities.size===1?matches[0]:null;
   }
 
   async function openNativeFile(doc) {
@@ -1348,6 +1348,7 @@ window.initDocumentsView = function() {
     if (!Array.isArray(storagePaths) || storagePaths.length === 0) return;
     if (!window.sb) return;
     for (const sp of storagePaths) {
+      if(window.__STM_DOC_JOURNAL?.entries().some(e=>e.kind==='insert'&&e.args?.[0]?.storagePath===sp))continue;
       try {
         const { count, error: chkErr } = await window.sb
           .from('document_pages')
@@ -2751,6 +2752,7 @@ window.initDocumentsView = function() {
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
+      sourceFileId:opts.sourceFileId||pctx.fileId||pctx.sourceFileId||null,
       category: opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
@@ -2893,7 +2895,7 @@ window.initDocumentsView = function() {
 
   function updateTagsCount() {
     // Respect submission scope so the count reflects what's visible.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -2906,7 +2908,7 @@ window.initDocumentsView = function() {
     const empty = $id('tagsEmpty');
     // Apply submission scope first so out-of-scope tagged docs don't
     // appear in the sidebar when the user is viewing a single submission.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -3968,7 +3970,7 @@ window.initDocumentsView = function() {
   async function exportTagged() {
     // Respect submission scope — exporting tagged pages while viewing a
     // single submission should only include that submission's tagged docs.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -3984,6 +3986,8 @@ window.initDocumentsView = function() {
       // ensurePdfHighRes per doc. Without this, tagged PDFs that were
       // never previewed export at thumbnail resolution.
       for (const doc of tagged) {
+        if(window.docsView?.design)await window.docsView.design.load(doc.id);
+        if(!doc.textContent&&!doc.thumbnailData&&!doc.highResData)throw new Error('No exportable content for '+doc.displayName);
         if (!first) pdf.addPage();
         first = false;
         if (doc.type === 'pdf') {
@@ -4065,7 +4069,7 @@ window.initDocumentsView = function() {
     // Respect submission scope. "Clear Tagged" while scoped to one
     // submission only un-tags within that submission, leaving other
     // submissions' tagged docs untouched.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -4438,6 +4442,7 @@ window.initDocumentsView = function() {
     opts = opts || {};
     const reason = opts.reason || 'unspecified';
     const submissionId = opts.submissionId || state.activeSubmissionId || null;
+    const startIds=new Set(state.docs.map(d=>d.id));
 
     // Concurrent-fetch guard. If a hydrate is already running, return
     // its promise so callers all wait on the same fetch.
@@ -4530,10 +4535,22 @@ window.initDocumentsView = function() {
       //   - For rows that ARE represented, the local copy wins (uploaded mid-
       //     hydrate, so cloud might not have all fields yet).
       //   - For rows NOT represented locally, push from cloud.
+      const cloudIds=new Set(rows.map(r=>r.id));
+      state.docs=state.docs.filter(d=>!startIds.has(d.id)||(submissionId&&(d.submissionId||null)!==submissionId)||cloudIds.has(d.id)||window.__STM_DOC_JOURNAL?.has(d.id));
       const localById = new Map(state.docs.map(d => [d.id, d]));
 
       rows.forEach(row => {
-        if (localById.has(row.id)) return;  // local copy wins
+        if(localById.has(row.id)){
+          const local=localById.get(row.id);
+          if(!window.__STM_DOC_JOURNAL?.has(row.id)){
+            local.displayName=row.display_name||local.displayName;local.name=local.displayName;
+            local.category=row.category||'all';local.color=row.color||null;local.tagged=!!row.tagged;
+            local.pipelineTag=row.pipeline_tag||null;local.primaryBucket=row.primary_bucket||null;
+            local.pipelineClassification=row.pipeline_classification||local.pipelineClassification||null;local.pipelineRoutedTo=row.pipeline_routed_to||local.pipelineRoutedTo||null;
+            local.relabeledByUser=!!row.relabeled_by_user;
+          }
+          return;
+        }
         // Build a doc shape from the cloud row. Lazy fields are nulled —
         // they re-fetch from storage on demand for OCR/preview/download.
         const doc = {
@@ -5132,6 +5149,13 @@ window.initDocumentsView = function() {
     // Returns the count of docs relabeled.
     relabelDocsForFile: (fileId, patch) => {
       if (!patch || typeof patch !== 'object') return 0;
+      // v9.9.0: the redesigned intake pushes every file into the File Manager at drop time,
+      // so the classifier's type and route must travel on this relabel (July carried them on the insert).
+      const stmSrc = (window.STATE && Array.isArray(window.STATE.files)) ? window.STATE.files.find(x => x && x.id === fileId) : null;
+      const stmClsRaw = stmSrc ? stmSrc.classification : null;
+      const stmType = patch.pipelineClassification || (typeof stmClsRaw === 'string' ? stmClsRaw : (stmClsRaw && typeof stmClsRaw === 'object' ? stmClsRaw.type : null));
+      const stmRoute = (typeof patch.pipelineRoutedTo !== 'undefined') ? (patch.pipelineRoutedTo || null) : ((stmSrc && stmSrc.routedTo) || null);
+      const stmCls = stmType ? { type: String(stmType), route: stmRoute } : null;
       // Find the source file by id to get its name
       const f = (window.STATE && window.STATE.files || []).find(ff => ff.id === fileId);
       if (!f) {
@@ -5143,13 +5167,16 @@ window.initDocumentsView = function() {
       // Match docs by source-file linkage. v8.6.84: PDF split docs are named
       // "BaseName — Page N" (without extension), so match both the full
       // source filename and the extensionless split prefix.
+      const sourceSid = f.submissionId || window.STATE?.activeSubmissionId || null;
+      const sourcePath=f.storagePath||f._storagePath||null;
+      const ambiguous=(window.STATE?.files||[]).filter(ff=>ff.name===fname&&ff.id!==fileId).length>0;
       const matches = state.docs.filter(d =>
-        d.workbookFileName === fname ||
+        (d.submissionId || null) === sourceSid && (sourcePath?d.storagePath===sourcePath:d.sourceFileId?d.sourceFileId===fileId:!ambiguous) && (d.workbookFileName === fname ||
         d.nativeFileName === fname ||
         d.name === fname ||
         d.name === baseName ||
         (d.name && d.name.startsWith(baseName + ' — Page ')) ||
-        (d.name && d.name.startsWith(fname + ' — Page '))
+        (d.name && d.name.startsWith(fname + ' — Page ')))
       );
       if (matches.length === 0) return 0;
       // For combined-PDF page tagging: apply sectionClassifications when
@@ -5179,6 +5206,10 @@ window.initDocumentsView = function() {
         if (typeof patch.primaryBucket !== 'undefined') {
           d.primaryBucket = patch.primaryBucket;
         }
+        if (stmCls) {
+          d.pipelineClassification = stmCls.type;
+          d.pipelineRoutedTo = stmCls.route;
+        }
         if (typeof patch.color !== 'undefined') {
           // Combined docs live in the same bucket/color across all pages, but
           // only section starts receive a chip. Single relabels keep old page-1
@@ -5202,6 +5233,10 @@ window.initDocumentsView = function() {
           }
           if (typeof patch.primaryBucket !== 'undefined') {
             cloudPatch.primary_bucket = patch.primaryBucket;
+          }
+          if (stmCls) {
+            cloudPatch.pipeline_classification = stmCls.type;
+            cloudPatch.pipeline_routed_to = stmCls.route;
           }
           if (typeof patch.color !== 'undefined') {
             cloudPatch.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
@@ -5277,6 +5312,7 @@ window.initDocumentsView = function() {
         // page produced by the processor. Cleared in the finally block so it
         // doesn't leak into a subsequent manual upload session.
         state._pipelineCtx = {
+          sourceFileId:(window.STATE?.files||[]).find(f=>f._rawFile===file)?.id||(ctx&&ctx.fileId)||null,
           category: (ctx && ctx.category) || 'all',
           color: (ctx && ctx.color) || null,
           pipelineClassification: (ctx && ctx.pipelineClassification) || null,
@@ -5416,6 +5452,126 @@ window.initDocumentsView = function() {
       renderTagsList();
       return before - state.docs.length;
     },
+  };
+
+  // v9.4: explicit scoped API for the supplied Index + Viewer. State stays native.
+  const designJournal=()=>window.__STM_DOC_JOURNAL;
+  const designScope=()=>window.STATE?.activeSubmissionId||null;
+  const inDesignScope=d=>{
+    const sid=designScope();if(sid)return d.submissionId===sid;if(d.submissionId)return false;
+    return (window.STATE?.files||[]).some(f=>(d.sourceFileId===f.id||f._stmDocIds?.includes(d.id))||(d.storagePath&&(d.storagePath===f._storagePath||d.storagePath===f.storagePath)));
+  };
+  function designRecord(id){const d=state.docs.find(d=>d.id===id);return d?{...d,pdfData:undefined,highResData:undefined,nativeDataUrl:undefined}:null;}
+  function requireDesignDoc(id){const d=state.docs.find(d=>d.id===id&&inDesignScope(d));if(!d)throw new Error('Document is not in the active submission.');return d;}
+  function designRecovery(){
+    for(const entry of designJournal()?.entries()||[]){
+      if((entry.sid||null)!==designScope())continue;
+      let d=state.docs.find(d=>d.id===entry.id);
+      if(entry.kind==='insert'&&!d){d={...entry.args[0]};state.docs.push(d);}
+      if(!d&&entry.record){d={...entry.record};state.docs.push(d);}
+      if(d&&entry.kind==='patch')applyDesignPatch(d,entry.args[1]);
+    }
+  }
+  function applyDesignPatch(d,patch){
+    const fields={submission_id:'submissionId',display_name:'displayName',category:'category',tagged:'tagged',color:'color',pipeline_tag:'pipelineTag',primary_bucket:'primaryBucket',relabeled_by_user:'relabeledByUser'};
+    for(const [db,key] of Object.entries(fields))if(Object.prototype.hasOwnProperty.call(patch,db))d[key]=patch[db];
+    if(patch.display_name!==undefined)d.name=patch.display_name;
+    if(patch.annotations)state.annotations.store[d.id]=patch.annotations;
+  }
+  function designRefreshDOM(){renderCategoryGrid();renderDocsList();renderTagsList();window.refreshActiveSubmissionDocsCount?.();}
+  async function designPatch(id,patch){
+    const d=requireDesignDoc(id),sid=designScope();
+    if(window.__STM_SUBMISSION?.busy)throw new Error('Wait for the active pipeline operation before changing its source documents.');
+    const allowed=new Set(['display_name','category','tagged','color']);for(const key of Object.keys(patch))if(!allowed.has(key))throw new Error('Unsupported document field.');
+    if('display_name' in patch){patch.display_name=String(patch.display_name).trim().slice(0,250);if(!patch.display_name)throw new Error('Enter a document name.');}
+    if('category' in patch&&!CONFIG.categories.some(c=>c.id===patch.category))throw new Error('Unknown document category.');
+    if('color' in patch&&patch.color!==null&&!CONFIG.tagColors.includes(patch.color))throw new Error('Unknown tag color.');
+    applyDesignPatch(d,patch);designRefreshDOM();
+    await window.sbUpdateDocumentPage(id,patch);
+    if(sid!==designScope())throw new Error('Submission changed while the document was saving.');
+    return true;
+  }
+  async function designLoad(id,force){
+    const d=requireDesignDoc(id),sid=designScope(),owner=window.currentUser?.id;
+    if(force||(!d.textContent&&!d.htmlContent&&!d.thumbnailData)){
+      if(typeof window.sbFetchDocumentPageFull==='function'){
+        const row=await window.sbFetchDocumentPageFull(id);
+        if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Preview request belongs to a previous submission.');
+        if(row){
+          if(row.id&&row.id!==id)throw new Error('Preview response returned a different document.');
+          if(row.extracted_text!==undefined)d.textContent=row.extracted_text||'';
+          if(row.html_content!==undefined)d.htmlContent=sanitizeHtml(row.html_content)||'';
+          if(row.thumbnail_data_url)d.thumbnailData=row.thumbnail_data_url;
+          if(row.annotations&&!designJournal()?.has(id))state.annotations.store[id]=row.annotations;
+        }
+      }
+    }
+    if(d.type==='pdf'&&!d.thumbnailData&&d.storagePath&&typeof pdfjsLib!=='undefined'){await ensurePdfHighRes(d);}
+    if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Preview request belongs to a previous submission.');
+    return true;
+  }
+  function designSafeName(name){return String(name||'document').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/^\.+/,'_').slice(0,240)||'document';}
+  async function designBlob(doc){
+    let filename=designSafeName(doc.workbookFileName||doc.nativeFileName||doc.displayName),blob=null;
+    if(doc.storagePath){
+      try{const url=await window.sbGetDocumentSignedUrl(doc.storagePath,600);
+      if(url){const r=await fetch(url);if(r.ok)blob=await r.blob();}}catch(e){console.warn('Source download unavailable; checking cached content.',e.message);}
+    }
+    if(!blob){const src=findNativeWorkbookDoc(doc);if(src?.nativeDataUrl){const r=await fetch(src.nativeDataUrl);if(r.ok)blob=await r.blob();}}
+    if(blob)return {filename,blob,source:true};
+    if(doc.textContent){filename=filename.replace(/\.[^.]+$/,'')+'.txt';return {filename,blob:new Blob([doc.textContent],{type:'text/plain'}),source:false};}
+    if(doc.thumbnailData){const r=await fetch(doc.thumbnailData);blob=await r.blob();filename=filename.replace(/\.[^.]+$/,'')+(blob.type==='image/jpeg'?'.jpg':'.png');return {filename,blob,source:false};}
+    throw new Error('The source file and cached preview are unavailable for '+doc.displayName+'.');
+  }
+  async function designDownload(ids){
+    const sid=designScope(),owner=window.currentUser?.id,docs=ids.map(requireDesignDoc),groups=new Set(),items=[],used=new Set();
+    for(const d of docs){
+      const group=d.storagePath||d.sourceFileId||d.id;if(groups.has(group))continue;
+      const result=await designBlob(d);if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Submission changed before the download was prepared.');
+      groups.add(group);let name=result.filename,n=1;while(used.has(name.toLowerCase())){const dot=result.filename.lastIndexOf('.'),stem=dot>0?result.filename.slice(0,dot):result.filename,ext=dot>0?result.filename.slice(dot):'';name=stem+' ('+(++n)+')'+ext;}used.add(name.toLowerCase());items.push({...result,filename:name});
+    }
+    if(!items.length)throw new Error('Select a document first.');
+    let blob,filename;
+    if(items.length===1){({blob,filename}=items[0]);}
+    else {if(typeof JSZip==='undefined')throw new Error('The ZIP dependency is unavailable. Reload with your approved dependencies reachable.');const zip=new JSZip();for(const item of items)zip.file(item.filename,item.blob);blob=await zip.generateAsync({type:'blob'});filename='submission-documents.zip';}
+    if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Submission changed before the download was prepared.');
+    const href=URL.createObjectURL(blob),a=document.createElement('a');a.href=href;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+    return {filename,files:items.length,cached:items.filter(i=>!i.source).length};
+  }
+  window.docsView.design={
+    status:()=>designJournal()?.status()||{dirty:false,pending:0,error:''},
+    revision:()=>JSON.stringify([designJournal()?.revision(),state._lastHydratedAt,state._hydrating,state.docs.map(d=>[d.id,d.displayName,d.category,d.color,d.tagged,d.pipelineTag,!!d.thumbnailData,d.textContent?.length])]),
+    record:designRecord,stash:()=>designJournal()?.stash(),flush:()=>designJournal()?.flush()||Promise.resolve({mode:'cloud'}),
+    snapshot(){designRecovery();const docs=state.docs.filter(inDesignScope);return {sid:designScope(),title:state.activeSubmissionTitle,hydrate:window.docsView.getHydrateState(),save:this.status(),categories:CONFIG.categories.map(c=>({id:c.id,name:c.name,n:c.id==='all'?docs.length:docs.filter(d=>d.category===c.id).length})),colors:CONFIG.tagColors,docs:docs.map(d=>({id:d.id,name:d.displayName,sourceName:d.workbookFileName||d.nativeFileName||d.displayName,group:d.storagePath||d.sourceFileId||d.id,type:d.type,category:d.category||'all',color:d.color,tagged:!!d.tagged,tag:d.pipelineTag,classification:d.pipelineClassification||null,route:d.pipelineRoutedTo||null,page:Number(d.pageNumber)||1,pages:Number(d.totalPages)||1,storagePath:d.storagePath||null,annotations:(state.annotations.store[d.id]?.layers||[]).length}))};},
+    page(id){const d=requireDesignDoc(id);return {thumbnail:d.highResData||d.thumbnailData||null,html:d.htmlContent||'',text:d.textContent||'',annotations:(state.annotations.store[id]?.layers||[]).length};},
+    tools(id){const d=requireDesignDoc(id);state.currentCategory='all';state.searchQuery='';state.currentColorFilter='all';state.currentView='thumbnail';renderDocsList();const item=document.querySelector('[data-doc-id="'+CSS.escape(id)+'"]');item?.scrollIntoView({block:'center'});return d.id;},
+    async ingestIntake(){
+      const sid=designScope(),owner=window.currentUser?.id;
+      for(const f of window.STATE.files){
+        if(f.cancelled||f.state==='duplicate'||f.state==='error'||!f._rawFile)continue;
+        const existing=state.docs.filter(d=>(d.submissionId||null)===sid&&(d.sourceFileId===f.id||f._stmDocIds?.includes(d.id)));
+        if(existing.length){f._stmDocIds=existing.map(d=>d.id);continue;}
+        if(f._pushedToDocsView)continue;
+        const ids=await window.docsView.processFileFromPipeline(f._rawFile,{fileId:f.id,submissionId:sid,category:'all',color:null});
+        if(sid!==designScope()||owner!==window.currentUser?.id)throw new Error('Submission changed during document intake.');
+        f._stmDocIds=ids||[];f._pushedToDocsView=true;const first=state.docs.find(d=>f._stmDocIds.includes(d.id));if(first?.storagePath)f._storagePath=first.storagePath;
+      }
+      await this.flush();return this.snapshot();
+    },
+    async adoptFile(f){
+      const sid=designScope();if(!sid||!f._stmDocIds?.length)return;
+      for(const d of state.docs.filter(d=>f._stmDocIds.includes(d.id))){
+        if(d.submissionId&&d.submissionId!==sid)throw new Error('Intake document belongs to a different submission.');
+        if(d.submissionId===sid)continue;d.submissionId=sid;await window.sbUpdateDocumentPage(d.id,{submission_id:sid});
+      }
+      await this.flush();
+    },
+    patch:designPatch,load:designLoad,download:designDownload,
+    async refresh(){await this.flush();await window.docsView.refreshFromCloud({submissionId:designScope(),reason:'redesigned-file-manager-refresh'});designRecovery();return this.snapshot();},
+    async remove(id){const d=requireDesignDoc(id),sid=designScope();if(window.__STM_SUBMISSION?.busy)throw new Error('Wait for the active pipeline operation.');await this.flush();await window.sbDeleteDocumentPage(id,d.storagePath);if(sid!==designScope())throw new Error('Submission changed.');revokeDocBlobUrls([d]);state.docs=state.docs.filter(x=>x.id!==id);state.selectedIds.delete(id);designRefreshDOM();return true;},
+    async clearTags(){const docs=state.docs.filter(inDesignScope);for(const d of docs)if(d.tagged||d.color)await designPatch(d.id,{tagged:false,color:null});return true;},
+    async preview(id){const d=requireDesignDoc(id);await designLoad(id);if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');openPreview(id);return true;},
+    async exportPDF(){if(!window.jspdf?.jsPDF)throw new Error('The PDF export dependency is unavailable.');if(!state.docs.some(d=>inDesignScope(d)&&d.tagged))throw new Error('Tag at least one page before exporting PDF.');await this.flush();if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');return exportTagged();}
   };
 
   // ══════ INIT ══════
@@ -5629,9 +5785,7 @@ function startAnnoEngine() {
         delete _annoPersistTimers[docId];
         const store = state.annotations.store[docId];
         if (!store) return;
-        window.sbUpdateDocumentAnnotations(docId, store).catch(err => {
-          console.warn('persist annotations failed for ' + docId + ':', err);
-        });
+        window.sbUpdateDocumentAnnotations(docId, store).catch(err => console.warn('Annotation changes remain unsynced:', err));
       }, ANNO_DEBOUNCE_MS);
     }
 
