@@ -280,3 +280,35 @@ test('actual fleet source writer refreshes corrected counts while preserving one
   const reload=setup();reload.context.applyALFleetFromActiveSubmission(fleetSource(fleetRoster(initial)+fleetRoster(latest,true)));reload.p6.rememberSource();reload.p6.restore(saved);table=reload.p6.read('SUB-A').tables.al_fleet;
   assert.equal(table[1].fields.units.value,'99');assert.equal(table[2].fields.units.value,'5');assert.equal(reload.p6.owns('al_fleet'),false);
 });
+
+test('Strengths display removes only the bounded verifier draft and preserves raw source/manual edits',()=>{
+  const h=harness();vm.runInContext(read('workbench-rules.js'),h.context);const r=h.window.WorkbenchRules;
+  const prefix='Now let me verify the numbers.\n\nDraft calculations remain in source.\n\n';
+  for(const heading of ['Strengths of the Account:','**Strengths of the Account:**','**Strengths of the Account**:','## Strengths of the Account']){
+    const final=heading+'\n\nFinal supported strength.\nSecond final paragraph.',raw=prefix+final,source={snapshot:{extractions:{strengths:{text:raw}}}};
+    const value=r.resolveField('account_strengths',source).value;
+    assert.ok(value.startsWith('Strengths of the Account'));assert.match(value,/Final supported strength/);assert.match(value,/Second final paragraph/);assert.doesNotMatch(value,/verify the numbers|Draft calculations/);assert.equal(source.snapshot.extractions.strengths.text,raw);
+    const json={snapshot:{extractions:{strengths:{text:JSON.stringify({account_strengths:raw})}}}};
+    assert.doesNotMatch(r.resolveField('account_strengths',json).value,/verify the numbers|Draft calculations/);
+  }
+  const resolve=text=>r.resolveField('account_strengths',{snapshot:{extractions:{strengths:{text}}}}).value;
+  assert.match(resolve(prefix),/Now let me verify the numbers/,'no final boundary preserves original');
+  assert.match(resolve('Source-specific introduction.\n\nStrengths of the Account:\nFinal fact.'),/^Source-specific introduction/);
+  h.document.body.insertAdjacentHTML('beforeend','<textarea id="acctStrengths"></textarea>');vm.runInContext(section('    function stmFieldLocked(el) {','    const STM_EDITS ='),h.context);vm.runInContext(section('        function applyResolvedToElement(',"        setupTextareaAutoScroll('#descOps');"),h.context);
+  const el=h.$('acctStrengths');el.dataset.stmExplicitEdit='1';el.value=prefix+'Manual review.';h.context.applyResolvedToElement(el,'value',resolve(prefix+'Strengths of the Account:\nSource strength.'));assert.equal(el.value,prefix+'Manual review.');el.value='';h.context.applyResolvedToElement(el,'value','Source strength.');assert.equal(el.value,'');
+});
+
+test('Workbench preserves explicit source review metadata without creating conflicts from prose',()=>{
+  const window={location:{search:''}},context=vm.createContext({window,console:{info(){},log(){},warn(){}},URLSearchParams});vm.runInContext(read('workbench-rules.js'),context);const r=window.WorkbenchRules;
+  const conflicts=[{sourceModule:'supplemental',submissionInsured:'Selected Insured LLC',detectedInsureds:['Other Insured LLC'],matchedInsureds:[],sourceInfo:'Other source.pdf'}];
+  const text='Strengths of the Account:\nHistorical mixed prose remains exactly as recorded.';
+  const source={id:'SOURCE-REVIEW',account_name:'Selected Insured LLC',snapshot:{extractions:{strengths:{text,review_required:true,source_identity_conflicts:conflicts}}}};
+  const before=JSON.stringify(source),value=r.resolveField('account_strengths',source);
+  assert.equal(value.review_required,true);assert.equal(value.source_identity_conflicts[0].sourceModule,'supplemental');assert.match(value.value,/Historical mixed prose remains exactly/);
+  value.source_identity_conflicts[0].detectedInsureds.push('Changed response only');assert.equal(JSON.stringify(source),before);
+  const report=r.buildFieldCoverageReport(source),row=report.rows.find(x=>x.field==='account_strengths');assert.equal(row.status,'review');assert.equal(row.review_required,true);assert.equal(row.source_identity_conflicts[0].detectedInsureds.length,1);assert.ok(report.summary.review>=1);assert.equal(report.modules.find(x=>x.module==='strengths').review_required,true);
+  const unrecorded={id:'NO-RECORDED-REVIEW',account_name:'Selected Insured LLC',snapshot:{extractions:{strengths:{text:'Named Insured: Other Insured LLC\nHistorical mixed prose.'}}}};
+  const plain=r.resolveField('account_strengths',unrecorded);assert.equal(plain.review_required,undefined);assert.equal(plain.source_identity_conflicts,undefined,'no new metadata is inferred from names');
+  const structured={snapshot:{extractions:{strengths:{text:JSON.stringify({account_strengths:'Final fact.',review_required:true,source_identity_conflicts:conflicts})}}}};
+  assert.equal(r.resolveField('account_strengths',structured).review_required,true);assert.equal(JSON.stringify(source),before);
+});
