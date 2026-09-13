@@ -1,6 +1,7 @@
 /* v9.8.0: native state adapter. Uses July renderers, orchestration and data-access functions. */
 (function(){'use strict';
  const K=window.STMSubmissionContracts;
+ const C=window.STMIntegration||(()=>{try{return parent.STMIntegration;}catch(_){return null;}})();
  if(!K||!window.STATE)throw new Error('Submission adapter loaded before its dependencies.');
  const original={};const S=window.STATE;
  let ctx=null,revision=0,savedRevision=0,pendingSave=null,debounce=null,saveError='',localError='',saving=false,lastSaved=null,noteSequence=0;
@@ -41,7 +42,7 @@
  function dirty(){context();revision++;saveError='';stash();clearTimeout(debounce);debounce=setTimeout(()=>flush().catch(e=>{R()?.toast(e.message,'error');}),500);notify();}
  function snapshot(){
   const rec=S.submissions.find(r=>r.id===S.activeSubmissionId)||{id:S.activeSubmissionId,account:window.deriveAccountName?.()||'Submission',status:'AWAITING UW REVIEW',createdAt:Date.now(),statusHistory:[]};
-  const snap={...clone(rec.snapshot||{}),files:window.slimSnapshotFiles8799?window.slimSnapshotFiles8799():[],extractions:clone(S.extractions),...K.editState(S),handoff:clone(S.handoff),audit:clone(S.audit),runTotalCost:S.runTotalCost||0,pipelineRun:S.pipelineRun,_stmRunComplete:!!S.pipelineDone,_stmOperation:clone(lastOperation)};
+   const snap={...clone(rec.snapshot||{}),files:window.slimSnapshotFiles8799?window.slimSnapshotFiles8799():[],extractions:clone(S.extractions),...K.editState(S),handoff:clone(S.handoff),audit:clone(S.audit),runTotalCost:S.runTotalCost||0,pipelineRun:S.pipelineRun,pipelineElapsedSeconds:S.pipelineElapsedSeconds??null,_stmRunComplete:completionForSave(),_stmOperation:clone(lastOperation)};
   return {rec,snap};
  }
  async function flush(){
@@ -83,7 +84,71 @@
   const holder=document.createElement('div');holder.innerHTML=window.renderExtractionCard(id);
   return safe(holder.querySelector('.sc-body')?.innerHTML||'');
  }
- function project(){context();return {...K.project(S,window.MODULES||{},nodes),save:status(),operation:operation?{kind:operation.kind,cancelled:operation.cancelled,finishing:!!operation.finishing,started:operation.started}:null,lastOperation:clone(lastOperation),nodes:clone(nodes),handoff:clone(S.handoff),pending:window.computePendingClosure8747?.()||{all:[],stale:[],newBatches:[]},fileCount:S.files.length};}
+ function processing(settled=false){
+  const hasOutputs=Object.keys(S.extractions||{}).length>0,hasRunHistory=!!S.pipelineRun||hasOutputs;
+  const p=C?.processingState(settled?{...S,pipelineRunning:false,_stmIntakePending:0}:S,window.MODULES||{},lastOperation,nodes)||{complete:hasRunHistory&&!!S.pipelineDone,needsRecovery:false,pendingFiles:[],sourceMissing:[],blockedFiles:[],missingModules:[],hasRunHistory,hasOutputs};
+  const pending=window.computePendingClosure8747?.()||{all:[]};p.pendingModules=[...new Set([...p.missingModules,...pending.all])];
+  if(p.pendingModules.length){p.complete=false;p.needsRecovery=!!p.hasRunHistory;if(!['running','intake','attention'].includes(p.status))p.status='pending';}
+  return p;
+ }
+ function completionForSave(){return !S.pipelineRunning&&!operation?.cancelled&&processing(true).complete;}
+ function extractionReviewMessages(ext,id){
+  if(!ext)return [];const messages=[];
+  const stored=Array.isArray(ext.summary_integrity_warnings95)?ext.summary_integrity_warnings95:[];
+  const current=typeof window.summaryIntegrityReview95==='function'?window.summaryIntegrityReview95(id,ext.text):[];
+  messages.push(...[...stored,...(Array.isArray(current)?current:[])].filter(message=>typeof message==='string'&&message.trim()));
+  for(const conflict of Array.isArray(ext.source_identity_conflicts)?ext.source_identity_conflicts:[]){
+   const names=Array.isArray(conflict.detectedInsureds)?conflict.detectedInsureds.filter(n=>typeof n==='string'&&n.trim()):[];if(!names.length)continue;
+   const source=window.MODULES?.[conflict.sourceModule]?.name||conflict.sourceModule||'Source document';
+   messages.push(source+' names '+[...new Set(names)].join(', ')+(typeof conflict.submissionInsured==='string'&&conflict.submissionInsured?' for a submission named '+conflict.submissionInsured:'')+'. Review which information applies to this insured.');
+  }
+  if(typeof ext.loss_integrity_warning95==='string'&&ext.loss_integrity_warning95.trim())messages.push('Loss totals require review: '+ext.loss_integrity_warning95);
+  if(ext.review_required&&!messages.length)messages.push('Pipeline output requires underwriter review.');
+  const loss=ext.loss_headline_reconciliation95;
+  if(loss&&typeof loss.original==='string'&&typeof loss.corrected==='string')messages.push('Pipeline loss summary total reconciled from '+loss.original+' to '+loss.corrected+' using the annual GL and Auto tables.');
+  return [...new Set(messages)];
+ }
+ function project(){context();const view=K.project(S,window.MODULES||{},nodes);for(const card of view.cards)card.reviewMessages=card.note?[]:extractionReviewMessages(S.extractions[card.id],card.id);view.issues=view.cards.filter(card=>!card.note&&(['refused','failed','stale','previous-output','cancelled'].includes(card.status)||card.reviewMessages.some(message=>!message.startsWith('Pipeline loss summary total reconciled')))).length;return {...view,processing:processing(),durationSeconds:C?.archivedDuration(S,lastOperation)??null,save:status(),operation:operation?{kind:operation.kind,cancelled:operation.cancelled,finishing:!!operation.finishing,started:operation.started}:null,lastOperation:clone(lastOperation),nodes:clone(nodes),handoff:clone(S.handoff),pending:window.computePendingClosure8747?.()||{all:[],stale:[],newBatches:[]},fileCount:S.files.length};}
+ function prepareSource(file){
+  if(!S.files.includes(file)||file.cancelled)throw new Error('This source document is no longer in the active submission.');
+  if(file.submissionId&&file.submissionId!==S.activeSubmissionId)throw new Error('Source document belongs to another submission.');
+  const evidence=C?.runtimeFileEvidence(file);if(!evidence?.available)throw new Error('Source text unavailable for '+file.name+'. Restore or re-upload this source before processing.');
+  file.text=evidence.text;if(evidence.pageTexts.length)file.pageTexts=evidence.pageTexts;
+ }
+ function prepareOperation(name,args){
+  if(!C)return;
+  if(name==='runPipeline')S.files.filter(f=>['parsed','ready','classified'].includes(f.state)&&(f.state!=='classified'||C.fileRoutes(f).length)).forEach(prepareSource);
+  if(name==='rerunModules'){
+   const ids=new Set(args[0]||[]);S.files.filter(f=>f.state==='classified'&&C.fileRoutes(f).some(id=>ids.has(id)&&window.MODULES?.[id]?.inputsFrom==='file')).forEach(prepareSource);
+  }
+ }
+ async function resumePending(){
+  if(!C)throw new Error('Pipeline recovery contracts are unavailable. Reload the application.');
+  if(operation)throw new Error('Wait for the active pipeline operation.');
+  const c=context(),before=processing();
+  if(before.blockedFiles.length)throw new Error('Resolve document errors or manual-text requests before processing pending files.');
+  if(before.sourceMissing.length)throw new Error('Restore source text before processing: '+before.sourceMissing.map(f=>f.name).join(', '));
+  return execute('resumePending',async()=>{
+   assertContext(c);const ids=new Set(before.pendingFiles.map(f=>f.id)),files=S.files.filter(f=>ids.has(f.id));
+   files.forEach(f=>{prepareSource(f);f.state='parsed';});
+   if(files.length){
+    await window.incrementalProcess(files);assertNotCancelled();assertContext(c);
+    const unfinished=files.filter(f=>f.state!=='classified');if(unfinished.length){unfinished.forEach(f=>{if(f.state==='parsing')f.state='parsed';});throw new Error('Classification remains incomplete for '+unfinished.map(f=>f.name).join(', ')+'. Retry these pending files.');}
+   }else if(before.missingModules.length){
+    const mids=before.missingModules,matched=S.files.filter(f=>C.fileRoutes(f).some(id=>mids.includes(id)));matched.forEach(prepareSource);
+    if(await window.showIncrementalPreflight8733(matched,mids)){
+     assertNotCancelled();assertContext(c);window.beginSpendPlan8762?.('resume pending sections',mids.length,0);
+     try{await window.rerunModules(mids);}finally{window.endSpendPlan8762?.();}
+     window.markSectionsStale8732?.(mids,'resumed pending sections');
+    }
+   }else if(before.pendingModules.length){await window.confirmRefreshAllPending8747();}
+   assertNotCancelled();assertContext(c);
+   const after=processing();if(!after.pendingFiles.length&&!after.blockedFiles.length)S.pipelineDone=true;
+   window.updateRunButton?.();window.renderSummaryCards?.();
+   if(S.pipelineDone&&S.pipelineRun)await window.archiveCurrentSubmission({source:'resume-pending'});
+   return processing();
+  });
+ }
  function assertNotCancelled(){if(operation?.cancelled){const e=new Error('Operation cancelled by the underwriter.');e.name='AbortError';e.stmCancelled=true;throw e;}}
  function cancel(){if(!operation||operation.finishing)return false;operation.cancelled=true;for(const ctrl of operation.controllers)ctrl.abort();audit('Cancellation requested. Already submitted requests may still be billed.','warn');notify();return true;}
  async function execute(kind,fn){
@@ -114,11 +179,12 @@
  };
  original.classifyFile=window.classifyFile;
  window.classifyFile=async function(file){
+  if(C)prepareSource(file);
   await window.docsView?.design?.adoptFile(file);assertNotCancelled();
   const result=await original.classifyFile.apply(this,arguments);assertNotCancelled();
   if(file._stmDocIds?.length){
    const mapping=window.docsViewMappingFor(result.primary_bucket||result.type,result.tag);
-   window.docsView.relabelDocsForFile(file.id,{pipelineTag:result.tag||result.subType||result.type,primaryBucket:result.primary_bucket||null,pipelineClassification:result.type||null,pipelineRoutedTo:(typeof window.classifierToRoute==='function'?window.classifierToRoute(result.type,result.subType,result.tag):null),color:mapping.color,category:mapping.category,sectionClassifications:window.stmSectionClassificationsForDocs(result.classifications||[]),relabeledByUser:false});
+   window.docsView.relabelDocsForFile(file.id,{pipelineTag:result.tag||result.subType||result.type,primaryBucket:result.primary_bucket||null,pipelineClassification:result.type||null,pipelineRoutedTo:(typeof window.classifierToRoute==='function'?window.classifierToRoute(result.type,result.subType,result.tag):null),color:mapping.color,category:mapping.category,sectionClassifications:window.stmSectionClassificationsForDocs(result.classifications||[],file),relabeledByUser:false});
    await window.docsView.design.flush();
   }
   return result;
@@ -134,7 +200,7 @@
  };
  for(const name of ['runPipeline','incrementalProcess','rerunGuidelines','rerunModules','applyReclassifications']){
   original[name]=window[name];if(typeof original[name]!=='function')continue;
-  window[name]=async function(){const args=arguments;if(operation){assertNotCancelled();return original[name].apply(this,args);}return execute(name,()=>original[name].apply(this,args));};
+   window[name]=async function(){const args=arguments;if(name==='runPipeline'&&!operation&&(processing().hasOutputs||S.pipelineRun)&&processing().needsRecovery)return resumePending();prepareOperation(name,args);if(operation){assertNotCancelled();return original[name].apply(this,args);}return execute(name,()=>original[name].apply(this,args));};
  }
  original.archive=window.archiveCurrentSubmission;
  window.archiveCurrentSubmission=async function(){if(operation?.cancelled)S.pipelineDone=false;const result=await original.archive.apply(this,arguments);if(result?.cloudSaved===false){revision++;saveError='Pipeline snapshot is not synced.';stash();}return result;};
@@ -171,7 +237,7 @@
   finally{handingOff=false;notify();}
  }
  window.confirmSendToAssistant=()=>handoff('assistant');window.confirmReturnToUw=()=>handoff('uw');
- window.__STM_SUBMISSION={context,project,body,change,flush,status,stash,cancel,assertNotCancelled,execute,
+ window.__STM_SUBMISSION={context,project,processing,completionForSave,resumePending,body,change,flush,status,stash,cancel,assertNotCancelled,execute,
   classifications(){const c=context();return {identity:c,types:clone(CLASSIFIER_TYPES),files:S.files.filter(f=>f.needsReview||f.classification==='unknown'||f.state==='needs_manual'||RECLASSIFY_PENDING.has(f.id)).map(f=>({id:f.id,name:f.name,tag:f.tag||f.classification||'',reason:f.reasoning||'',manual:f.state==='needs_manual',pending:clone(RECLASSIFY_PENDING.get(f.id)||null)})),pending:RECLASSIFY_PENDING.size};},
   queueClassification(c,id,tag,limit){assertContext(c);if(operation)throw new Error('Wait for the current pipeline.');if(!S.files.some(f=>f.id===id))throw new Error('File is no longer in this submission.');if(!CLASSIFIER_TYPES.some(t=>t.value===tag))throw new Error('Choose a valid classification.');window.queueReclassify(id,tag);if(limit!==undefined)window.queueReclassifyLimit(id,String(limit));notify();},
   async acceptClassification(c,id){assertContext(c);if(operation)throw new Error('Wait for the current pipeline.');if(!S.files.some(f=>f.id===id))throw new Error('File is no longer in this submission.');window.acceptClassification(id);dirty();await flush();},

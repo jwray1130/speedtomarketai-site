@@ -10,7 +10,7 @@
  const PROFILE=['projIndicator','projAddress','statRepose','isoClass','isoDesc','hazardGrade','exposureAmt','exposureBasis','dramScore','resConstPct','comConstPct','punitveDmg','website'];
  const NARRATIVE=['descOps','guidelineConflicts','expLoss','acctStrengths','pricingRationale'];
  const LABELS=['Summary of operations','Guideline conflicts','Exposure to loss','Strengths of the account','Underwriting narrative / pricing rationale'];
- const SOURCES=['A6','A8','A15','A16','Underwriter'];
+ const SOURCES=['A6','A8','A9','A10','Underwriter'];
  global.STMWorkbenchPhase7={install(ctx){
   const {api,edits,markDirty,mirror,changed,recordHistory,replaceHistory}=ctx;
   const host=global.parent?.STM_RUNTIME,doc=global.document,$=id=>doc.getElementById(id),native=()=>global.__STM_NATIVE_FORMS;

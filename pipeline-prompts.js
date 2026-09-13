@@ -1873,6 +1873,7 @@ Output only the section and bullets below. Do not include source extracts, expla
 
 **Subcontractor Requirements:**
 
+- Contract parties and direction: [expressly named Contractor and Subcontractor, and which party owes the described requirements to which protected parties; if roles cannot be established, state that they require review.]
 - Work performed by subcontractor: [short natural-language scope/trades/project, e.g. Concrete work - bridge abutments, caps, columns, reinforced deck slab, TX46 girder erection, and sealed expansion joints (IH-10 Colorado County, TxDOT), or No Information Provided.]
 - Insurance requirements: [one short line with GL, AL, WC/EL, Umbrella/Excess, Riggers Liability, railroad endorsement, and other stated requirements, e.g. GL $1M/$2M/$2M, AL $1M, WC statutory / EL $1M/$1M/$1M, $5M Umbrella/Excess (riggers liability and CG 24 17 railroad endorsement required if applicable), or No Information Provided.]
 - Sub agreement includes indemnification and hold harmless: [defend/indemnify/hold harmless wording in one short line, or No Information Provided.]
@@ -1881,6 +1882,8 @@ Output only the section and bullets below. Do not include source extracts, expla
 
 Rules:
 - Match the concise bullet style above.
+- Preserve contract direction. Requirements a contractor imposes on the applicant as subcontractor are the applicant's obligations, not proof of controls the applicant imposes on its own subcontractors. Keep named protected parties and any separate downstream flow-down clauses distinct; unresolved roles require review.
+- Read the complete labeled CGL limits clause and the actual Attachment A work-items table, including a table whose caption follows its rows in PDF text order. Preserve each occurrence, general aggregate and products/completed-operations aggregate with its own source amount. Do not omit CGL because another coverage was easier to read, duplicate an EL amount into an unstated third limit, or treat the numbers in this template as source evidence.
 - Keep each bullet short and easy to follow.
 - Include WC/EL, riggers liability, railroad endorsement, and completed-ops duration when the subcontract states them.
 - Do not include Professional Liability unless it is the only applicable insurance detail; otherwise exclude it.
@@ -2800,8 +2803,8 @@ STRUCTURED TOWER DATA - emit this EXACT JSON block last, after the human-readabl
 \`\`\`json
 {
   "tower_role": "lead",
-  "requested_limit": 2000000,
-  "attachment_point": 1000000,
+  "requested_limit": null,
+  "attachment_point": null,
   "underlying_lead_carrier": "[lead carrier name]",
   "underlying_lead_limit": 2000000,
   "underlying_lead_premium": 35019,
@@ -2833,10 +2836,10 @@ Rules for the JSON block:
 - effectiveDate / expirationDate are strings in ISO format "YYYY-MM-DD". Use null when genuinely not stated (do NOT guess or infer from other layers).
 - aggregate is this layer's own aggregate limit if stated on its dec/quote; else null.
 - premium is this layer's own premium if stated; for a quota-share participant, that participant's own premium (each participant object carries its own).
-- statedAttachment (and its mirror attachment_point) is 0 for the lead (attaches at base); for excess, the summed underlying from its Schedule of Underlying.
+- Each tower_documents statedAttachment (and its nested mirror attachment_point) is measured ABOVE PRIMARY: 0 for a lead that schedules only primary GL/AL/EL. Primary occurrence/CSL limits remain in schedule_of_underlying; do not put a primary $1,000,000 limit into the lead's statedAttachment. For higher excess, use the sum of the preceding excess/umbrella layers, excluding primary limits. Distinguish this excess-tower basis from any visible ground-up attachment and label that visible basis explicitly.
 - schedulesPrimary is true ONLY if the Schedule of Underlying lists primary coverages.
 - schedule_of_underlying mirrors this layer's visible Schedule of Underlying line as structured objects (LEAD: primary lines; EXCESS: underlying excess layers as { "line": "EXCESS", "carrier": ..., "limit": ..., "attachment": ... }).
-- Top-level keys describe the PROPOSED program from this submission's perspective: tower_role is "lead" when the lowest quoted layer schedules primary and attaches at base, else "excess"; requested_limit and attachment_point are that layer's own limit and attachment; underlying_lead_* are the lead layer's carrier/limit/premium (the quoted layer itself when it IS the lead).
+- Top-level tower_role describes the supplied policy's position: "lead" when it schedules primary and attaches at the excess-tower base, otherwise "excess". This does NOT establish which layer the broker is asking us to write. Set requested_limit and top-level attachment_point only from an explicit requested-layer instruction; otherwise null. Never copy the supplied lead's own limit into requested_limit. underlying_lead_* describe the supplied lead layer's carrier, own limit, and premium. These role/limit keys also do not establish bound status; a quote remains quoted unless explicit binding evidence is supplied.
 - For quota-share: each participant is its own object; decLimit = that carrier's participation amount; sharedGroupKey = a shared string (e.g. "qs-30M"); sharedCombinedLimit = the full combined layer limit.
 - Never refuse over insured identity (per the rule above). If the routed pages contain no umbrella/excess quote content at all, output one short line stating what the pages contain instead and emit {"tower_documents": []} as the JSON block.
 
@@ -2855,12 +2858,15 @@ INPUT CONTEXT YOU WILL RECEIVE
 1. Supplemental extraction: names the broker's requested Zurich layer structure ("$X xs $Y" language) and any application-stated underlying schedule (UNCONFIRMED application data; see SOURCE AUTHORITY below; never render it as bound layers, primaries, or premiums)
 2. Primary GL extraction (if present) — Starr/other carrier, occurrence/aggregate limits, premium, SIR
 3. Primary AL extraction (if present) — carrier, CSL limit, power unit count, premium
-4. Excess extraction (if present) — any existing excess/umbrella layers already bound (carrier, limits, attachment, premium)
+4. Excess extraction (if present) — carrier excess/umbrella terms (carrier, limits, attachment, premium); the document may be a quote, binder, or policy. Preserve its evidenced coverage status rather than assuming it is bound.
 
 If any input is absent, write "—" for that layer's fields. If the requested Zurich layer exceeds Zurich capacity per the guideline cross-reference, mark it PROPOSED with a note showing the compliant quote (capped at guideline max).
 
 SOURCE AUTHORITY (MANDATORY: determines which input may populate which rows):
-- BOUND / IN-PLACE layers and BOTH primaries populate ONLY from actual carrier quote extractions present in the input (Primary GL, Primary AL, Excess, or other quote blocks). Carrier names, limits, attachments, premiums, SIRs, and AM Best ratings in these rows must come from a quote extraction, never from the supplemental or application.
+- Carrier layers and BOTH primaries populate ONLY from actual carrier document extractions present in the input (Primary GL, Primary AL, Excess, or other carrier blocks). Carrier names, limits, attachments, premiums, SIRs, and AM Best ratings in these rows must come from those source blocks, never from the supplemental or application. A module named "quote" can establish quoted terms; it cannot establish policy issuance or binding.
+- COVERAGE STATUS: use BOUND / IN-PLACE only when explicit binder, issued/in-force policy, or binding-confirmation evidence applies to the same insured, carrier, period and layer. A quote, quotation, proposal, future effective date, premium, or declarations-style layout is not binding evidence. A statement that a quotation does not bind coverage must remain controlling for that quotation. Describe these terms as QUOTED, including the primaries. If status cannot be established, use STATUS UNVERIFIED. Do not infer an in-force policy from an extraction's heading or from a document's presence in the packet.
+- If source-status evidence is supplied separately, keep it scoped to its file, insured, period and layer. Do not transfer a binder from another layer or convert a quote into bound coverage because an earlier generated narrative called it bound. Conflicting same-layer status evidence requires review rather than a silent upgrade.
+- QUOTED and STATUS UNVERIFIED carrier layers use the existing tower-layer proposed CSS class and proposed-badge class, with badge text QUOTED or STATUS UNVERIFIED. These are source terms, not the requested Zurich layer; do not add the Zurich star or count them as proposed Zurich capacity. Use tower-layer bound / IN-PLACE only for supported bound status.
 - The supplemental extraction is authoritative ONLY for the broker's REQUESTED Zurich layer (the ask) and the target tower top. Its underlying schedule is what the application CLAIMS exists; it is unconfirmed and must NEVER appear as an IN-PLACE layer, a primary row, or any premium figure.
 - A position claimed only by the application: omit it, or when tower coherence requires showing the position, render it as an OPEN layer with carrier "Per application, unconfirmed (no quote received)" and "—" for premium. Never IN-PLACE, never with application premiums.
 - When no Primary GL or Primary AL quote extraction is present, that primary shows carrier "—", limits "—", and row-2 "No primary GL quote received" or "No primary AL quote received".
@@ -2878,11 +2884,11 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
     <span class="tower-tag-label">EXCESS TOWER</span>
     <span class="tower-title">[Named Insured] · [Effective Date]</span>
   </div>
-  <div class="tower-total">[$NM bound] · [$NM proposed] · [$NM open]</div>
+  <div class="tower-total">[$NM bound] · [$NM quoted] · [$NM proposed] · [$NM open]</div>
 </div>
 
 <div class="tower-stack">
-  <!-- OPEN layers (unfilled gap above proposed/bound) - use class="tower-layer open" -->
+  <!-- OPEN layers (evidenced unfilled gap; quoted capacity is not bound) - use class="tower-layer open" -->
   <!-- One row per open layer, topmost first -->
   <div class="tower-layer open">
     <div class="tower-layer-row-1">
@@ -2903,7 +2909,18 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
     <div class="tower-layer-row-2">Follow-form · Premium est $[N] · [AM Best rating] · [Guideline note — "Broker requested $25M; capped at $5M per Chapter 6 max capacity" OR "Compliant with all empowerment levels"]</div>
   </div>
 
-  <!-- BOUND / IN-PLACE layers (existing excess already placed) - use class="tower-layer bound" -->
+  <!-- QUOTED carrier terms; for uncertain source status replace QUOTED with STATUS UNVERIFIED -->
+  <!-- This uses existing proposed styling; it is not a requested Zurich layer. -->
+  <div class="tower-layer proposed">
+    <div class="tower-layer-row-1">
+      <span class="tower-layer-badge proposed-badge">QUOTED</span>
+      <span class="tower-layer-carrier">[Carrier Name] · [Layer Label]</span>
+      <span class="tower-layer-limits">Lead $[N]M  ←OR→  $[N]M xs $[Y]M</span>
+    </div>
+    <div class="tower-layer-row-2">[Quoted / Status unverified] · Premium $[N] · [AM Best] · [Source-status evidence or missing confirmation]</div>
+  </div>
+
+  <!-- BOUND / IN-PLACE layers only with explicit same-layer binding evidence -->
   <!-- IMPORTANT: if this is the FIRST layer above primary (the LEAD), use "Lead $NM" format. -->
   <!-- If this is an EXCESS layer above the lead, use "$NM xs $YM" where Y is the lead's limit. -->
   <div class="tower-layer bound">
@@ -2923,7 +2940,7 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
         <span class="tower-layer-carrier">[Carrier]</span>
         <span class="tower-layer-limits">$[X]M / $[Y]M</span>
       </div>
-      <div class="tower-layer-row-2">[Form] · Premium $[N] · SIR $[N]</div>
+      <div class="tower-layer-row-2">[QUOTED / IN-PLACE / STATUS UNVERIFIED] · [Form] · Premium $[N] · SIR $[N]</div>
     </div>
     <div class="tower-primary">
       <div class="tower-layer-row-1">
@@ -2931,7 +2948,7 @@ OUTPUT FORMAT — EMIT THIS EXACT HTML STRUCTURE
         <span class="tower-layer-carrier">[Carrier]</span>
         <span class="tower-layer-limits">$[X]M CSL</span>
       </div>
-      <div class="tower-layer-row-2">[Form] · Premium $[N] · [N] power units</div>
+      <div class="tower-layer-row-2">[QUOTED / IN-PLACE / STATUS UNVERIFIED] · [Form] · Premium $[N] · [N] power units</div>
     </div>
   </div>
 </div>
@@ -2949,15 +2966,15 @@ RULES
 ═══════════════════════════════════════════════════════════════════════
 
 1. Use the EXACT class names: tower-output, tower-top-bar, tower-title-group, tower-tag-label, tower-title, tower-total, tower-stack, tower-layer, open/proposed/bound, tower-layer-row-1, tower-layer-row-2, tower-layer-badge, open-badge/proposed-badge/bound-badge/primary-badge, tower-layer-carrier, tower-layer-limits, tower-primaries-row, tower-primary, tower-notes.
-2. Layer ORDER in tower-stack: OPEN (topmost) → PROPOSED → BOUND → PRIMARIES (bottom). Multiple layers within a class are ordered top-down by attachment point (highest first).
+2. Layer ORDER in tower-stack follows the evidenced position, highest attachment first, with PRIMARIES at the bottom. Status does not change a layer's attachment or turn alternative quotes for the same position into cumulative layers. The HTML examples are conditional templates: emit each source layer once in its supported status, and omit templates with no supporting layer.
 3. Dollar amounts in tower-layer-limits — CRITICAL FORMAT RULES:
    • LEAD layer (the FIRST layer of excess/umbrella above primary GL/AL — the layer that attaches DIRECTLY at primary limits): use "Lead $NM" — e.g., "Lead $5M". NEVER write "Lead $5M" as "$5M xs $1M". The fact that primary is $1M is ALREADY shown in the primaries row beneath; do not re-state it on the Lead.
    • EXCESS layer (any layer ABOVE the lead): use "$NM xs $YM" where Y is the attachment point of THIS layer (i.e., the cumulative limits BELOW it). Example: a $10M layer sitting on a $5M Lead is "$10M xs $5M" — attachment is $5M because that's the Lead limit. NOT "$10M xs $6M" (don't add primary).
    • QUOTA SHARE layer: use "$NM P/O $YM xs $ZM" — N is this carrier's participation, Y is the total layer size, Z is the attachment.
    • Primary GL: "$NM / $YM" (occurrence / aggregate). Primary AL: "$NM CSL".
-   This rule applies whether the layer is OPEN, PROPOSED, or BOUND. The label format is determined by POSITION in the tower, not by status.
+    This rule applies whether the layer is OPEN, PROPOSED, QUOTED, STATUS UNVERIFIED, or BOUND. The label format is determined by POSITION in the tower, not by status.
 4. ★ symbol ONLY on the proposed Zurich layer.
-5. tower-total in top-bar summarizes: bound capacity + proposed capacity + open/unfilled capacity (three numbers).
+5. tower-total in top-bar reports bound capacity, quoted capacity, proposed Zurich capacity, and open/unfilled capacity separately (four numbers). Do not count one layer twice, treat a quote as bound capacity, or add competing same-position quotes together. State any status-unverified amount separately in the notes, without adding it to a confirmed total. A gap or target cannot be inferred when no target was supplied.
 6. Three notes paragraphs are REQUIRED: Ask vs Offer / Tower Completion / Primary Adequacy. Each begins with a bold label.
 7. If the submission is primary-only with no excess requested, emit just the primaries row and a note block explaining "no excess tower proposed at this time."
 8. NEVER use a heading found inside the source document (e.g., "Quote Proposal Page 1") as a layer label. Layer labels come from carrier name + position; if you cannot determine position confidently, write "??? (review)" and explain in the notes.
@@ -2967,10 +2984,10 @@ QUALITY CONTROL (silent — do not output)
 ═══════════════════════════════════════════════════════════════════════
 
 Before returning, verify:
-- Every layer evidenced by a carrier QUOTE extraction is represented; application-only schedule entries appear, if at all, only per SOURCE AUTHORITY (OPEN and unconfirmed), never as IN-PLACE layers or primaries
+- Every source-supported carrier layer is represented with its supported QUOTED, IN-PLACE, or STATUS UNVERIFIED status; application-only schedule entries appear, if at all, only per SOURCE AUTHORITY (OPEN and unconfirmed), never as IN-PLACE layers or primaries
 - Attachment points of adjacent layers line up (no accidental corridors or overlaps unless genuine)
-- The proposed Zurich layer appears exactly once with ★
-- Numeric consistency: bound + proposed + open sums should equal the target tower top
+- A requested Zurich layer appears exactly once with ★ when one is evidenced; do not invent a requested layer
+- Numeric consistency: status totals remain separate. Reconcile any explicitly stated target using the same attachment convention and non-overlapping positions, without double-counting alternatives or presenting quoted capacity as bound coverage
 - All three notes paragraphs are present and begin with a <strong> label
 
 Rewrite internally until checks pass. Do NOT include a visible checklist.`,
@@ -3228,6 +3245,10 @@ SECTION SELECTION: ALWAYS include Established Expertise, Loss History, and Attac
 - Parent Backing / Financial Strength: ONLY if a parent, captive fronting, or third-party financial rating (for example D&B) is stated.
 - Loss History: treat GL and AL separately. State frequency and severity plainly. Give the valuation date if provided. Mark the in-force or most recent policy year as SUBJECT TO DEVELOPMENT. Distinguish closed versus open claims and paid versus incurred. Say "no large losses reported" only when the source supports it. Name any single large loss, its amount, and its status.
 - Attachment Point and Program Structure: REQUIRED. Using the Excess Tower and Loss History blocks, state and compute: (a) the proposed layer and its attachment, including participation and any quota share; (b) the ground-up attachment computed as primary limit plus total underlying excess, shown separately for GL and AL when they differ; (c) the named underlying carriers and layers if provided; (d) DISTANCE-TO-ATTACHMENT math grounded in the loss numbers, using whichever of these the data supports and showing the arithmetic in prose: the largest single loss as a percentage of this layer and of the ground-up attachment; the worst single policy-year aggregate versus the attachment; the average claim severity and the multiple by which one claim would have to exceed it to reach, and to exhaust, the layer. If Excess Tower or Loss History data is absent, write that the attachment position cannot be quantified from the provided documents rather than estimating a number.
+- Preserve the source's QUOTED / IN-PLACE / STATUS UNVERIFIED status for each primary and excess layer. A quote is not an issued policy or bound placement. Do not turn a quoted source layer into the requested Zurich layer, or infer a request when none is stated.
+- SINGLE-LOSS LAYER MATH: for a nonnegative ground-up loss G, an explicitly supported ground-up attachment A, and full layer limit L > 0, the simple limit-only scenario uses min(max(G - A, 0), L) of the layer. The layer begins to be affected only above A and is exhausted only when G >= A + L. Never compare G with L alone to declare exhaustion. A percentage G / A describes distance to attachment, not percentage of the layer used. Keep any carrier participation separate from the full-layer limit.
+- Label comparison of a historical loss with a current, quoted, or proposed tower as a hypothetical scenario. Do not assert actual loss-date primary penetration, exhaustion, payment or coverage unless the applicable loss-date policy limits and coverage evidence support it. Current quoted limits, a loss total and a statement that another carrier contributed to settlement do not establish the historical tower or payment allocation. Annual aggregate loss totals are not one occurrence; compare them descriptively without treating them as single-loss exhaustion.
+- Keep paid, reserve, incurred and total settlement amounts distinct. State which source amount G represents. Do not substitute total settlement for displayed incurred or allocate a settlement across carriers without source evidence. Missing inputs, conflicting layer positions, recoveries or negative balances require review rather than an invented nonnegative loss or zero. Closed status or zero current reserve does not eliminate future development uncertainty.
 - Jurisdictional and Policy Features: ONLY when stated. Statute of repose and its effect on the completed-operations tail, contributory-negligence venue, punitive-damages insurability, and dram shop rating.
 
 QUALITY CONTROL (silent, do not print): every number must trace to an input block. If GL and AL attachments differ, keep them separate and do not conflate. Do not print source extracts, checklists, verification tables, or QC logs.`,
@@ -3240,9 +3261,12 @@ Recompute and check each of these against the source blocks:
 - Ground-up attachment = primary limit + total underlying excess. Verify it is computed separately for GL and AL when their primary limits differ, and that the two are not conflated.
 - The proposed layer, its attachment, participation, and any quota share match the tower.
 - Every named underlying carrier and layer in the draft actually appears in the tower block. Remove any carrier or layer not present in the source.
+- Preserve each layer's QUOTED / IN-PLACE / STATUS UNVERIFIED status. Neither a quote nor a prior generated description proves binding. Remove any unsupported upgrade to bound or issued coverage, and do not invent a requested Zurich layer.
 - Largest single loss as a percentage of this layer and of the ground-up attachment: recompute from the loss figures.
 - Worst single policy-year aggregate versus the attachment: recompute.
 - Average claim severity (total incurred divided by claim count) and the multiple by which one claim would have to exceed it to reach, and to exhaust, the layer: recompute.
+- For one nonnegative ground-up loss G, evidenced ground-up attachment A and full layer limit L > 0, recompute layer use = min(max(G - A, 0), L), with exhaustion only when G >= A + L. G / A is distance to attachment, not layer utilization; G >= L alone does not imply exhaustion. Do not confuse a carrier's quota-share participation with the full layer limit or treat annual aggregate totals as one occurrence.
+- If the loss year differs from the tower period, or the tower is current/quoted/proposed without applicable loss-date evidence, retain only an explicitly hypothetical comparison. Do not assert historical coverage, actual primary penetration, exhaustion or carrier payment allocation from current limits or a total settlement note. Keep paid, incurred and total settlement distinct and identify the amount used in each calculation. Do not convert missing or negative/recovery amounts into an assumed positive ground-up loss or zero.
 - Valuation date, closed versus open, paid versus incurred, and the in-force or most recent year flagged as subject to development: verify against the loss block.
 
 RULES:
