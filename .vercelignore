@@ -2,6 +2,7 @@
 /.git/
 /tests/
 /node_modules/
+/.npm-cache/
 /package.json
 /package-lock.json
 /README.md

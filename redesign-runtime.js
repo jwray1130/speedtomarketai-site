@@ -1,6 +1,6 @@
 /* v9.9.2 - redesigned shell runtime over the July engine frames. */
 (function(){'use strict';
-const C=STMIntegration, F=STMFoundation, esc=C.escape;let gate=new C.SerialGate();
+const C=STMIntegration, F=STMFoundation, esc=C.escape;let gate=new C.SerialGate(),intakeGate=new C.SerialGate();
 let platform=null,workbench=null,pframe=null,wframe=null,authenticated=false,actorId=null;
 let busy=0,opening=false,routeSequence=0,wbGeneration=0,savePromise=null,workbenchWait=null,lastFingerprint='',lastError='',pendingDeepLink=null,wbLoadPromise=null,wbLoadSid=null,statusNotice=null,runStarting=false,wbSourceStamp=null,nativeDialogBorrow=null,documentEditor=null,intakeJobs=0;
 const presentationDialogs=new Set();
@@ -61,7 +61,7 @@ const R=window.STM_RUNTIME={dealType:'New',freshTab:null,
   if(first){renderChrome();if(!pendingDeepLink)R.navigate(state.route||'queue',false).catch(showError);}
   const s=platform.STATE;
   if(documentEditor){const info=platform.docsView?.design?.status(),el=platform.document.querySelector('#stm-document-editor-close [role=status]');if(el)el.textContent=info?.error||info?.localError||(info?.dirty?'Changes pending cloud sync':'Document changes synced');}
-  const fingerprint=JSON.stringify({active:s.activeSubmissionId,draft:s.newSubmissionDraftMode,sub:s.submissions.map(r=>C.queueRecord(r,s.activeSubmissionId)),files:s.files.map(f=>[f.id,f.name,f.state,f.status,f.parsed,f.classification,f.error,f.needsReview,(f.text||'').length]),running:s.pipelineRunning,done:s.pipelineDone,ext:Object.entries(s.extractions).map(([k,x])=>[k,x.text,x.confidence,x.timing,x.cost,x.rejected,x.staleInputs8732]),edits:s.edits,customCards:s.customCards,hiddenCards:s.hiddenCards,summarySave:platform.__STM_SUBMISSION?.status(),docSave:platform.docsView?.design?.status(),operation:platform.__STM_SUBMISSION?.busy,handoff:s.handoff,docs:platform.docsView?.design?.revision(),audit:s.audit.length,cost:s.runTotalCost,hydrating:s._queueHydrating});
+  const fingerprint=JSON.stringify({active:s.activeSubmissionId,draft:s.newSubmissionDraftMode,sub:s.submissions.map(r=>C.queueRecord(r,s.activeSubmissionId)),files:s.files.map(f=>[f.id,f.name,f.state,f.status,f.parsed,f.classification,f.error,f.needsReview,(f.text||'').length]),running:s.pipelineRunning,done:s.pipelineDone,intake:s._stmIntakePending,ext:Object.entries(s.extractions).map(([k,x])=>[k,x.text,x.confidence,x.timing,x.cost,x.rejected,x.staleInputs8732]),edits:s.edits,customCards:s.customCards,hiddenCards:s.hiddenCards,summarySave:platform.__STM_SUBMISSION?.status(),docSave:platform.docsView?.design?.status(),operation:platform.__STM_SUBMISSION?.busy,handoff:s.handoff,docs:platform.docsView?.design?.revision(),audit:s.audit.length,cost:s.runTotalCost,hydrating:s._queueHydrating});
   if(fingerprint!==lastFingerprint||s.pipelineRunning||platform.__STM_SUBMISSION?.busy){lastFingerprint=fingerprint;for(const id of ['queue','sub-pipe','sub-sum','sub-docs']){const f=frames[id];try{f?.contentWindow?.STMDesign?.refresh();}catch(e){showError(e);}}updateChrome();}R.syncDealType();
   if(pendingDeepLink&&!s._queueHydrating&&!opening){const deep=pendingDeepLink;pendingDeepLink=null;R.open(deep.id,deep.route,false).catch(async e=>{showError(e);if(authenticated){await R.navigate('queue',false);replaceCurrentLocation();}});}
  },
@@ -117,10 +117,16 @@ const R=window.STM_RUNTIME={dealType:'New',freshTab:null,
  deleteSubmission(id){const epoch=sessionEpoch;return gate.run(async()=>{requireSession(epoch);ensureNotRunning();const rec=platform.STATE.submissions.find(s=>s.id===id);if(!rec)return;if(!confirm('Delete '+(rec.account||id)+' and its associated submission records? This uses the existing permanent-deletion workflow.'))return;opening=true;try{
   const wasActive=id===R.activeId;if(wasActive){await saveWorkbenchBeforeLeaving();await saveActiveSnapshot();requireSession(epoch);}await platform.deleteSubmission(id,true);requireSession(epoch);if(platform.STATE.submissions.some(s=>s.id===id))throw new Error('Deletion was not confirmed. The submission remains open.');if(wasActive){disposeWorkbench();await platform.startNewSubmission();requireSession(epoch);destroyDesignFrames();platform.docsView?.setDraftSubmissionContext('New submission');}R.sync();await R.navigate('queue');replaceCurrentLocation();
  }finally{if(epoch===sessionEpoch)opening=false;}});},
- async addFiles(list){const epoch=sessionEpoch,p=platform;requireSession(epoch);ensureNotRunning();if(opening)throw new Error("Wait for the submission to finish opening.");if(!list?.length)return;intakeJobs++;try{await saveWorkbenchBeforeLeaving();requireSession(epoch);await p.handleFiles(list);requireSession(epoch);await p.docsView?.design?.ingestIntake();requireSession(epoch);}finally{if(epoch===sessionEpoch){intakeJobs--;R.sync();}}},
+ async addFiles(list){
+  const epoch=sessionEpoch,p=platform,sid=R.activeId,batch=Array.from(list||[]);requireSession(epoch);ensureNotRunning(intakeJobs>0);
+  if(!batch.length)return;intakeJobs++;p.STATE._stmIntakePending=intakeJobs;R.sync();
+  const assertIntake=()=>{requireSession(epoch);if(p!==platform||sid!==R.activeId)throw new Error('Queued documents belong to the previous submission. Add them to the intended submission again.');};
+  try{return await intakeGate.run(async()=>{assertIntake();await saveWorkbenchBeforeLeaving();assertIntake();await p.handleFiles(batch);assertIntake();await p.docsView?.design?.ingestIntake();assertIntake();});}
+  finally{if(epoch===sessionEpoch){intakeJobs--;p.STATE._stmIntakePending=intakeJobs;R.sync();}}
+ },
  openManualPaste(id){requireAuth();ensureNotRunning();platform.openManualPasteModal(id);},
  removeFile(id){requireAuth();ensureNotRunning();platform.removeFile(id);R.sync();},
- async run(){const epoch=sessionEpoch,p=platform;requireSession(epoch);ensureNotRunning();if(platform.STATE.pipelineDone){await R.navigate('sub-sum');return;}runStarting=true;try{await saveWorkbenchBeforeLeaving();requireSession(epoch);await p.runPipeline();requireSession(epoch);R.sync();}finally{if(epoch===sessionEpoch)runStarting=false;}},
+ async run(){const epoch=sessionEpoch,p=platform;requireSession(epoch);ensureNotRunning();const processing=p.__STM_SUBMISSION.processing();if(processing.complete){await R.navigate('sub-sum');return;}runStarting=true;try{await saveWorkbenchBeforeLeaving();requireSession(epoch);if((processing.hasOutputs||p.STATE.pipelineRun)&&processing.needsRecovery)await p.__STM_SUBMISSION.resumePending();else await p.runPipeline();requireSession(epoch);R.sync();}finally{if(epoch===sessionEpoch)runStarting=false;}},
  async website(mode,name,place,url){const epoch=sessionEpoch,p=platform;requireSession(epoch);ensureNotRunning();if(opening)throw new Error("Wait for the submission to finish opening.");intakeJobs++;try{await saveWorkbenchBeforeLeaving();requireSession(epoch);const d=p.document;const set=(id,v)=>{const e=d.getElementById(id);if(e)e.value=v||'';};set('webNameInput',name);set('webZipInput',place);set('webUrlInput',url);
   const result=mode==='url'?await p.scrapeWebsiteFromUrl():await p.findAndScrapeWebsite();requireSession(epoch);R.sync();return result;}finally{if(epoch===sessionEpoch){intakeJobs--;R.sync();}}
  },
@@ -157,13 +163,13 @@ function replaceCurrentLocation(){try{history.replaceState(null,'',routeUrl(stat
 function resetSessionHost(){
  sessionEpoch++;routeSequence++;authenticated=false;actorId=null;pendingDeepLink=null;
  // A retired request must neither block the next owner nor unlock their active work.
- gate=new C.SerialGate();savePromise=null;opening=false;runStarting=false;intakeJobs=0;busy=0;setBusy(false);
+ gate=new C.SerialGate();intakeGate=new C.SerialGate();savePromise=null;opening=false;runStarting=false;intakeJobs=0;busy=0;setBusy(false);
  try{workbench?.__STM_WB?.stash?.();platform?.__STM_SUBMISSION?.retire();platform?.docsView?.design?.stash();}catch(_){}
  disposeWorkbench();destroyDesignFrames();R.closeActions();lastFingerprint='';statusNotice=null;nativeDialogBorrow=null;documentEditor=null;
  const old=pframe;platform=null;for(const key of Object.keys(frames))if(frames[key]===old)delete frames[key];old?.remove();
  presentationDialogs.clear();R.workbenchDialog=false;state.route='queue';pframe=createHost('platform');frames['native-platform']=pframe;renderChrome();replaceCurrentLocation();showAuth();
 }
-function ensureNotRunning(){if(platform?.__STM_SETTINGS_WRITE)throw new Error('Wait for configuration saving to finish.');if(R.workbenchDialog||presentationDialogs.size)throw new Error('Save or cancel the open dialog first.');if(nativeDialogBorrow)throw new Error('Finish the active dialog before changing submissions.');if(documentEditor)throw new Error('Save and close the document editor before changing submissions.');if(opening)throw new Error('Wait for the current submission transition to finish.');if(runStarting||intakeJobs||platform?.STATE?.pipelineRunning||platform?.__STM_SUBMISSION?.busy)throw new Error('Finish the active file intake or pipeline before changing submissions.');}
+function ensureNotRunning(allowQueuedIntake=false){if(platform?.__STM_SETTINGS_WRITE)throw new Error('Wait for configuration saving to finish.');if(R.workbenchDialog||presentationDialogs.size)throw new Error('Save or cancel the open dialog first.');if(nativeDialogBorrow)throw new Error('Finish the active dialog before changing submissions.');if(documentEditor)throw new Error('Save and close the document editor before changing submissions.');if(opening)throw new Error('Wait for the current submission transition to finish.');if(runStarting||(!allowQueuedIntake&&intakeJobs)||platform?.STATE?.pipelineRunning||(!allowQueuedIntake&&platform?.__STM_SUBMISSION?.busy))throw new Error('Finish the active file intake or pipeline before changing submissions.');}
 function routeUrl(id){const u=new URL(location.href);u.hash=C.ROUTES[id][2];if(R.activeId)u.searchParams.set('submission',R.activeId);else u.searchParams.delete('submission');return u.pathname+u.search+u.hash;}
 function status(message,kind){if(['saved','error','dirty'].includes(kind))statusNotice={message,kind,sid:R.activeId};const el=document.getElementById('stm-save-state');if(el){el.textContent=message;el.title=message;el.dataset.kind=kind||'';}}
 function setBusy(on,message,epoch=sessionEpoch){if(epoch!==sessionEpoch)return;busy=Math.max(0,busy+(on?1:-1));const el=document.getElementById('loading');el.classList.toggle('on',busy>0);if(message)el.textContent=message;document.body.dataset.busy=busy?'true':'false';}
@@ -188,7 +194,7 @@ function createHost(kind){const f=document.createElement('iframe');setTimeout(()
 function disposeWorkbench(){R.dealType='New';R.freshTab=null;R.workbenchDialog=false;wbGeneration++;if(workbenchWait){workbenchWait.reject(new Error('Workbench load was superseded by another submission.'));}workbench=null;workbenchWait=null;wbLoadPromise=null;wbLoadSid=null;wbSourceStamp=null;if(wframe)wframe.remove();wframe=null;for(const key of Object.keys(frames))if(key.startsWith('wb-')||key==='native-workbench'){frames[key]?.remove();delete frames[key];}}
 function destroyDesignFrames(){for(const id of ['queue','sub-pipe','sub-sum','sub-docs']){frames[id]?.remove();delete frames[id];}}
 async function ensureWorkbench(){
- const epoch=sessionEpoch,sid=R.activeId,stamp=JSON.stringify([sid,platform.STATE.extractions,platform.STATE.edits,platform.STATE.customCards,platform.STATE.hiddenCards]);
+ const epoch=sessionEpoch,sid=R.activeId,stamp=JSON.stringify([sid,platform.STATE.extractions,platform.STATE.edits,platform.STATE.customCards,platform.STATE.hiddenCards,C.fileEvidenceRevision(platform.STATE.files)]);
  if(wbLoadPromise&&wbLoadSid===sid)return wbLoadPromise;
  if(workbench?.__STM_WB?.submissionId===sid&&wbSourceStamp===stamp)return workbench;
  if(workbench?.__STM_WB?.submissionId===sid){
@@ -215,7 +221,7 @@ async function saveActiveSnapshot(){
  const p=platform,sid=R.activeId,epoch=sessionEpoch,w=workbench;if(!sid){await p.flushEditsNow?.();await p.docsView?.design?.flush();return;}
  await p.flushEditsNow?.();await p.docsView?.design?.flush();requireSession(epoch);if(sid!==R.activeId||p!==platform)throw new Error('Submission changed before its snapshot could be saved.');
  const rec=p.STATE.submissions.find(r=>r.id===sid)||{id:sid,account:p.deriveAccountName?.()||'Incomplete submission',status:'AWAITING UW REVIEW',createdAt:Date.now(),statusHistory:[]};
- const snapshot={...C.clone(rec.snapshot||{}),files:typeof p.slimSnapshotFiles8799==='function'?p.slimSnapshotFiles8799():[],extractions:C.clone(p.STATE.extractions),edits:C.clone(p.STATE.edits),customCards:C.clone(p.STATE.customCards),hiddenCards:C.clone(p.STATE.hiddenCards),handoff:C.clone(p.STATE.handoff),audit:C.clone(p.STATE.audit),runTotalCost:p.STATE.runTotalCost||0,pipelineRun:p.STATE.pipelineRun,_stmRunComplete:!!p.STATE.pipelineDone};
+ const snapshot={...C.clone(rec.snapshot||{}),files:typeof p.slimSnapshotFiles8799==='function'?p.slimSnapshotFiles8799():[],extractions:C.clone(p.STATE.extractions),edits:C.clone(p.STATE.edits),customCards:C.clone(p.STATE.customCards),hiddenCards:C.clone(p.STATE.hiddenCards),handoff:C.clone(p.STATE.handoff),audit:C.clone(p.STATE.audit),runTotalCost:p.STATE.runTotalCost||0,pipelineRun:p.STATE.pipelineRun,pipelineElapsedSeconds:p.STATE.pipelineElapsedSeconds??null,_stmRunComplete:p.__STM_SUBMISSION.completionForSave()};
  const nameField=w?.__STM_WB?.submissionId===sid?w.document.getElementById('dealName'):null;
  const updated=(nameField?.getAttribute('data-user-set')==='1'&&nameField.value.trim())?{...rec,account:nameField.value.trim()}:rec;
  const payload=p.buildSubmissionPayload(updated,snapshot);const written=await p.sbSaveSubmission(payload);if(!written)throw new Error('Submission save was rejected or the record was deleted.');requireSession(epoch);

@@ -22,7 +22,7 @@
     // Keep the live coordinator even after an iframe is detached: window.parent
     // may no longer point at the original shell once the frame is removed.
     const runtime = global.parent?.STM_RUNTIME || null;
-    let savedTables = Object.create(null), mutating = false, sourceAL = null, sequence = 0;
+    let savedTables = Object.create(null), savedCells = Object.create(null), mutating = false, sourceAL = null, sequence = 0;
     function newKey() {
       if (typeof global.crypto?.randomUUID === 'function') return 'r'+global.crypto.randomUUID();
       const bytes = new Uint32Array(4);
@@ -38,7 +38,49 @@
     }
     function element(row, kind, field) { return row?.querySelector('['+specs[kind].attr+'="'+field+'"]'); }
     function allowed(kind, field) { return specs[kind]?.fields.includes(field); }
-    function locked(kind) { return own(savedTables,kind) || edits.dirtyTables.has(kind); }
+    function locked(kind) { return own(savedTables,kind) || (edits.dirtyTables.has(kind) && !own(savedCells,kind)); }
+    function sourceRows(kind,fresh=false) {
+      const seen=new Map();
+      return assignKeys(kind).map((row,index)=>{
+        let base;
+        if(kind==='gl_exposure')base=JSON.stringify(['class',...['code','state','zip'].map(f=>String(element(row,kind,f)?.value||'').trim().toLowerCase())]);
+        else if(kind==='primary')base='coverage:'+String(element(row,kind,'coverage')?.value||'').trim().toLowerCase();
+        else if(kind==='tower')base=row.classList.contains('is-internal-layer')?'internal':'underlying:'+index;
+        else base=kind+':'+index; // Native vehicle categories and high-excess bands are fixed slots.
+        const occurrence=seen.get(base)||0;seen.set(base,occurrence+1);
+        if(fresh||!row.dataset.stmRatingSource)row.dataset.stmRatingSource=base+'#'+occurrence;
+        return row;
+      });
+    }
+    function rememberCell(kind,row,field) {
+      const list=savedCells[kind]||(savedCells[kind]=[]),source=row.dataset.stmRatingSource;
+      const value=api.serializeElement(element(row,kind,field));
+      const prior=list.find(x=>x.source===source&&x.field===field);
+      if(prior)prior.value=value;else list.push({source,field,value});
+    }
+    function reapplyCells(kind,fresh=false) {
+      if(locked(kind))return;
+      const current=sourceRows(kind,fresh);
+      if(fresh&&kind==='al_fleet')sourceAL=snapshotTable(kind);
+      if(fresh)for(const row of current)for(const field of specs[kind].fields){const el=element(row,kind,field);if(el){delete el.dataset.userSet;delete el.dataset.stmExplicitEdit;if(kind==='gl_exposure'&&field==='desc')el.dataset.autoDesc='1';}}
+      const changedCodes=new Set();
+      for(const saved of savedCells[kind]||[]){
+        const row=current.find(r=>r.dataset.stmRatingSource===saved.source),el=element(row,kind,saved.field);
+        if(!el)continue; // Retain unmatched edits in the save; never attach them to a different risk.
+        if(el.type==='checkbox')el.checked=saved.value.c;else el.value=String(saved.value.v??'');
+        el.dataset.userSet='1';el.dataset.stmExplicitEdit='1';
+        if(kind==='gl_exposure'&&saved.field==='desc')el.dataset.autoDesc='0';
+        if(kind==='gl_exposure'&&saved.field==='code')changedCodes.add(el);
+        if(kind==='gl_exposure'&&['code','exposures','base','rateP','rateG'].includes(saved.field)){
+          if(saved.field!=='rateG')delete row.dataset.quotePremP;
+          if(saved.field!=='rateP')delete row.dataset.quotePremG;
+        }
+      }
+      // Run July's class-code lookup for an edited code after restoring all
+      // explicit cells, so inferred description/basis update without replacing
+      // a separately edited description or basis.
+      for(const el of changedCodes)el.dispatchEvent(new Event('change',{bubbles:true}));
+    }
     function assertOwner(sid) {
       if (api.restoreError) throw new Error(api.restoreError);
       if (sid == null && !api.submissionId && global.currentUser) { const r0 = runtime; if (r0 && (r0.workbenchWindow !== global || r0.activeId)) throw new Error('Stale rating action rejected. Reopen the submission.'); return; }
@@ -59,13 +101,13 @@
     }
     function capture() {
       for(const kind of Object.keys(specs)) if(locked(kind)) savedTables[kind]=snapshotTable(kind);
-      if(Object.keys(savedTables).length) {
-        const data={v:1,tables:savedTables};
+      if(Object.keys(savedTables).length||Object.keys(savedCells).length) {
+        const data={v:1,tables:savedTables,cells:savedCells};
         const prev=edits.map.__phase6;
         if(!prev || JSON.stringify(prev.data)!==JSON.stringify(data)) edits.map.__phase6={data:clone(data),t:Date.now()};
       }
     }
-    function touch(kind) { edits.dirtyTables.add(kind); savedTables[kind]=snapshotTable(kind); }
+    function touch(kind) { edits.dirtyTables.add(kind); savedTables[kind]=snapshotTable(kind); delete savedCells[kind]; }
     function finish() { capture(); changed(); mirror(); }
     function batch(fn, kinds=[]) {
       const gl=global.__stmBatchGlRater87104, ir=global.__stmBatchInternalRater87104;
@@ -101,6 +143,25 @@
           internal:row.classList.contains('is-internal-layer'),rated:!cfg.rated||index<cfg.rated};
       });
     }
+    function hasRatingInputs(tables) {
+      // Input presence only: loaded workbook defaults and its minimum premium
+      // do not establish account evidence. This does not certify sufficient
+      // underwriting inputs or change any native rating calculation.
+      const numeric = value => {
+        const s=String(value??'').trim().replace(/[$,\s]/g,'');
+        if(!s||!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s))return null;
+        const n=Number(s);return Number.isFinite(n)?n:null;
+      };
+      const value=(row,key)=>numeric(row.fields[key]?.value);
+      // An explicitly stated zero is evidence; an untouched blank is not.
+      const primary=tables.primary.some(row=>value(row,'ulPrem')!==null||value(row,'manualPrem')!==null);
+      // The native internal rater consumes current comparison fleet rows 0–13.
+      // Rates may legitimately come from its defaults once units are supplied.
+      const fleet=tables.auto.slice(0,14).some(row=>value(row,'units')>0);
+      const applied=numeric($('nonAdmittedPremium')?.value)>0;
+      const highApplied=tables.highex.slice(0,14).some(row=>row.fields.active?.value===true&&value(row,'applied')>0);
+      return primary||fleet||applied||highApplied;
+    }
     function locate(key) {
       const p=String(key).split('|');
       if(p.length===2&&p[0]==='s'&&scalarIds.includes(p[1]))return {el:$(p[1]),kind:null,field:p[1]};
@@ -125,6 +186,19 @@
       if(!saved)return true;
       const fail=()=>{throw new Error('Saved rating structure is invalid. No rating edits were applied. Keep the recovery data and reopen a valid version.');};
       const s=saved.data;if(!object(s)||s.v!==1||!object(s.tables))fail();
+      if(s.cells!==undefined&&!object(s.cells))fail();
+      for(const [kind,list]of Object.entries(s.cells||{})){
+        if(!own(specs,kind)||!Array.isArray(list)||list.length>8000)fail();
+        const seen=new Set();
+        for(const c of list){
+          if(!object(c)||typeof c.source!=='string'||c.source.length>100000||!allowed(kind,c.field)||!object(c.value))fail();
+          const key=JSON.stringify([c.source,c.field]);if(seen.has(key))fail();seen.add(key);
+          if(c.field==='active'){if(typeof c.value.c!=='boolean')fail();}
+          else if(!own(c.value,'v')||!['string','number'].includes(typeof c.value.v)||String(c.value.v).length>100000||typeof c.value.v==='number'&&!Number.isFinite(c.value.v))fail();
+          if(c.field==='base'&&!['1000','100','1','payroll'].includes(String(c.value.v)))fail();
+          if(c.field==='admit'&&!['Non-Admitted','Admitted'].includes(String(c.value.v)))fail();
+        }
+      }
       const keys=new Set();
       for(const [kind,list] of Object.entries(s.tables)){
         if(!own(specs,kind)||!Array.isArray(list)||list.length>1000)fail();
@@ -160,26 +234,29 @@
       ensureEngine();edits.dirtyTables.add(kind);
     }
     const bridge={
-      ready:true,specs,owns:locked,capture,validate,
-      hasSavedTable(saved,kind){return !!saved?.data?.tables&&own(saved.data.tables,kind);},
-      rememberSource(){ensureEngine();if(!locked('al_fleet'))sourceAL=snapshotTable('al_fleet');},
+      ready:true,specs,owns:locked,capture,validate,reapplyCells,
+      recordElement(el){for(const kind of Object.keys(specs)){if(!$(specs[kind].id)?.contains(el))continue;const field=el.getAttribute(specs[kind].attr);if(!allowed(kind,field))return false;const row=sourceRows(kind).find(r=>r.contains(el));if(!row)return false;el.dataset.stmExplicitEdit='1';if(!locked(kind)){rememberCell(kind,row,field);reapplyCells(kind);}capture();return true;}return false;},
+      hasSavedTable(saved,kind){return !!saved?.data&&(own(saved.data.tables||{},kind)||own(saved.data.cells||{},kind));},
+      rememberSource(){ensureEngine();for(const kind of Object.keys(specs))sourceRows(kind);if(!locked('al_fleet')&&!sourceAL)sourceAL=snapshotTable('al_fleet');},
       restore(saved){
-        if(saved){validate(saved);savedTables=clone(saved.data.tables);batch(()=>{for(const [kind,list]of Object.entries(savedTables))restoreTable(kind,list);},Object.keys(savedTables));}
+        if(saved){validate(saved);savedTables=clone(saved.data.tables);savedCells=clone(saved.data.cells||{});batch(()=>{for(const [kind,list]of Object.entries(savedTables))restoreTable(kind,list);for(const kind of Object.keys(savedCells))reapplyCells(kind);},[...Object.keys(savedTables),...Object.keys(savedCells)]);}
         // Upgrade pre-Phase-6 saved table formats without losing their semantics.
-        for(const kind of Object.keys(specs))if(edits.dirtyTables.has(kind)&&!own(savedTables,kind))savedTables[kind]=snapshotTable(kind);
+        for(const kind of Object.keys(specs))if(edits.dirtyTables.has(kind)&&!own(savedTables,kind)&&!own(savedCells,kind))savedTables[kind]=snapshotTable(kind);
         ensureEngine();capture();
       },
       read(sid){assertOwner(sid);ensureEngine();const t={};for(const kind of Object.keys(specs))t[kind]=readTable(kind);
         const text={};['totalPremOps','totalProducts','totalPremium','autoTotalPremium','autoUnitsTotal','autoRenewalTotal','autoExpUnitsTotal','autoFleetChangeTotal','autoExpiringTotal','autoChangeTotal','autoChangePct'].forEach(id=>text[id]=$(id)?.textContent.trim()||'');
         const outputs={};['rsLayerPremium','rsQsPct','rsTotalLayerPrem','rsZurichPremium','rsPerMillion'].forEach(id=>outputs[id]=$(id)?.value||'');
-        const engine=global.__STM_NATIVE_RATING?.inspect()||{ready:false,bands:[],highVisible:false};
+        const engine={...(global.__STM_NATIVE_RATING?.inspect()||{ready:false,bands:[],highVisible:false}),hasRatingInputs:hasRatingInputs(t)};
         const ground=Array.from($('groundUpTbl').querySelectorAll('tbody tr[data-ground-top]')).map(row=>({top:Number(row.dataset.groundTop),cells:Array.from(row.cells).map(c=>c.textContent.trim()),inLayer:row.classList.contains('is-in-layer'),backfilled:row.classList.contains('is-backfilled'),auto:engine.bands.find(b=>b.top===Number(row.dataset.groundTop))?.autoDisplay||'$0'}));
         return {id:sid,revision:api.revision,dirty:api.dirty,fields:Object.fromEntries(scalarIds.map(id=>[id,describe($(id),'s|'+id,id)])),tables:t,text,outputs,engine,ground,owned:Object.keys(specs).filter(locked)};
       },
       set(sid,key,value,final=true){assertOwner(sid);ensureEngine();const {el,row,kind,field}=locate(key);
         if(kind==='highex'&&field==='active'&&value&&rows(kind).indexOf(row)>=14)throw new Error('The July engine prices only the first 14 high-excess rows. Remove an unused earlier row before activating this one.');
         const groups=kind?[kind]:field==='hazardGradeSelect'?['primary']:[];
-        batch(()=>{setValue(el,value,final);if(kind)touch(kind);if(field==='hazardGradeSelect'&&final)touch('primary');},groups);
+        const broad=kind&&locked(kind);
+        if(kind&&!broad){sourceRows(kind);savedCells[kind]||=[];}
+        batch(()=>{setValue(el,value,final);if(kind){if(broad)touch(kind);else {rememberCell(kind,row,field);reapplyCells(kind);}}if(field==='hazardGradeSelect'&&final){sourceRows('primary');if(locked('primary'))touch('primary');else for(const r of rows('primary'))rememberCell('primary',r,'dilFactor');}},groups);
         finish();return describe(el,key,field);
       },
       action(sid,action,data={}){assertOwner(sid);ensureEngine();if(mutating)throw new Error('A rating action is already in progress.');mutating=true;

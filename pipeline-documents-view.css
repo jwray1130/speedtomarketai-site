@@ -112,7 +112,7 @@ body.docs-fullwidth {
   /* TYPE */
   --text: #fafafa;
   --text-secondary: #a0a0a8;
-  --text-tertiary: #62646c;
+  --text-tertiary: #9799a3;
 
   /* CHROME — deeper background for sidebars to create elevation hierarchy */
   --sidebar-bg: #07070a;
@@ -384,7 +384,7 @@ html.no-transitions #docs-view-root *, html.no-transitions #docs-view-root *::be
 
 #docs-view-root .topbar-search .search-input::placeholder {
   color: var(--text-tertiary);
-  opacity: 0.7;
+  opacity: 1;
 }
 
 #docs-view-root .topbar-search .search-clear {

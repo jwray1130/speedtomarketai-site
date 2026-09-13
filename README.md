@@ -1,28 +1,31 @@
 # Speed to Market AI
 
-This repository serves the existing public homepage and the native Phase 7 application.
+The public homepage is served at `/`. The redesigned application is served at `/platform` and `/workbench?submission=<id>`.
 
-- `/` retains the current marketing homepage.
-- `/platform` opens Queue, Pipeline, Summary, Documents and Administration.
-- `/workbench?submission=<id>` opens the underwriting workbench for an authorized submission.
+The redesigned pages use `redesign-runtime.js`, `integration-core.js` and the phase adapters to connect their controls to the existing Pipeline and Workbench engines. The engine pages run in internal frames. `platform.html` and `workbench.html` contain the same embedded design templates and must remain identical. Authentication and production saves use the existing services; the deployed application contains no test sign-in or simulated model transport.
 
-The application runs directly in the selected design. There is no hidden old application frame or runtime bridge. The application uses the existing Supabase project and deployed services; the shipped runtime contains no test sign-in, mocked cloud transport, or simulated AI provider.
+## Parity repair
 
-## Preview and release status
+This repair preserves the redesigned layout while restoring reliable classification state, file routing, source evidence transfer, relevant-page markers, confidence formatting and Workbench field updates. Manual field edits remain authoritative. Existing automatic over-tagging can be reviewed in **Documents → Document tools → Review automatic page markers** before applying the displayed changes.
 
-The source application release passed 347 browser check groups with simulated cloud/authentication/AI transport and real controls, parsers, OCR and exports. The extracted release rebuilt byte-for-byte. This repository preserves 289 application files exactly from that tested release, including the vendor manifest and its 236 assets.
+Summary integrity checks preserve source output and expose conflicts for review. They cannot guarantee the correctness of a new model response. Missing source values remain unknown. Rating formulas and underwriting decisions are not replaced by this repair.
 
-Three deployment files differ from the standalone application package: the existing homepage replaces its root redirect; `vercel.json` scopes the application's enforcing Content Security Policy separately from the existing homepage policy; `.vercelignore` excludes repository material while retaining bundled vendor licenses. `.gitattributes` prevents newline conversion from changing tested file hashes.
+## Verification
 
-The homepage retains its existing report-only CSP. Platform, Workbench and vendor assets receive the candidate's exact enforcing CSP. Other common security headers remain site-wide. Browser tests of the standalone application do not certify a Vercel deployment or live backend security.
+The regression suite runs production functions with local fixtures and stubbed cloud/model boundaries. It covers classification recovery, concurrency, document identity and persistence, field mapping, edit ownership, loss arithmetic, source isolation and embedded page rendering.
 
-Use a separate preview deployment for the remaining live sign-in, save/reopen, database/storage permission and AI-service checks. Do not treat this branch as production certification. The production homepage and customer submission data have not been changed by preparing this branch.
+With Node.js 22 or later:
+
+```sh
+cd tests
+npm ci --ignore-scripts
+npm test
+```
+
+Browser verification also uses the actual Workbench engine, phase adapters and redesigned templates with local source fixtures. Local checks do not certify production authentication, Supabase permissions, live AI/OCR services, exports, or a fresh end-to-end document run. Validate these on an authenticated preview before production promotion.
 
 ## Deployment
 
-This is a static site: deploy the repository root with its `vercel.json`, using the existing GitHub/Vercel project settings. No application build or npm install is required. Preserve the existing production-branch assignment. Verify preview headers, asset hashes, authentication redirects and representative workflows before promotion.
+This is a static site. Deploy the repository root with `vercel.json` and the existing GitHub/Vercel project settings. The application needs no npm build step. `tests/` and its dependencies are excluded from deployment. Preserve the existing production branch until the repair preview has been verified.
 
-Source release archive: `STM_v10_Phase7_Release_Candidate.zip`.
-SHA-256: `4b3dde34a6c41e177f3a83052db841d0f2b09529c632fea1c275e68938937f9f`.
-
-See `RELEASE_NOTES.md` for the change and validation boundary.
+Earlier release notes describe a different source release; they are historical context and are not certification of this redesigned repair.

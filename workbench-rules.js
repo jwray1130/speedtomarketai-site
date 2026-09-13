@@ -934,7 +934,7 @@
     quota_share_max_limit: 10_000_000, // QS never exceeds $10M either
     lead_carrier: 'Steadfast',         // our default lead paper
     tria_default_pct: 1.00,            // 1% TRIA
-    tria_default_status: 'Accepted',
+    tria_default_status: '',          // an election must be stated or entered manually
     min_earned_default_pct: 25,        // 25% MEP
     adj_flat_default: 'Flat'
   };
@@ -1003,7 +1003,7 @@
     // — a captured fragment, not a broker name. Phase 5.0's structural
     // validity check now rejects that Tier 0 value automatically, but
     // we ALSO prefer better Tier 2 sources when they exist.
-    broker_company:      ['summary-ops', 'supplemental', 'submission.broker'],
+    broker_company:      ['quote-files:broker', 'gl_quote:json', 'gl_quote', 'summary-ops', 'supplemental', 'submission.broker'],
     broker_type:         ['hardcoded:Wholesale'],
     broker_region:       ['hardcoded:South East'],
 
@@ -1023,8 +1023,8 @@
                           'supplemental:json', 'supplemental', 'summary-ops'],
     controlling_address: ['gl_quote:json', 'gl_quote',
                           'supplemental:json', 'supplemental', 'summary-ops'],
-    broker_name:         ['summary-ops', 'supplemental'],
-    broker_address:      ['summary-ops', 'supplemental'],
+    broker_name:         ['quote-files:broker', 'gl_quote:json', 'summary-ops', 'supplemental'],
+    broker_address:      ['quote-files:broker', 'gl_quote:json', 'gl_quote', 'summary-ops', 'supplemental'],
     layer_type:          [],    // Phase 11 classifier — placeholder
 
     // ─── Phase 4 — Primary GL Coverage ───
@@ -1283,7 +1283,8 @@
   function normalizeResolvedValue8716(fieldName, resolved) {
     if (!resolved || resolved.value == null) return resolved;
     if (isNarrativeField8716(fieldName)) {
-      const cleaned = cleanNarrativeText8716(resolved.value);
+      const value = /^(?:account_strengths|strengths_of_account)$/.test(fieldName) ? strengthsTextForWorkbench(resolved.value) : resolved.value;
+      const cleaned = cleanNarrativeText8716(value);
       return Object.assign({}, resolved, { value: cleaned });
     }
     if (LIMIT_UNIT_FIELDS_8727.indexOf(fieldName) > -1) {
@@ -1399,9 +1400,14 @@
     }
     for (const descriptor of chain) {
       const resolved = tryDescriptor(descriptor, submission, fieldName);
+      if (resolved?.blocked) return null;
       if (resolved !== null && resolved.value !== null
           && resolved.value !== undefined && resolved.value !== '') {
-        return normalizeResolvedValue8716(fieldName, resolved);
+        const value = normalizeResolvedValue8716(fieldName, resolved);
+        const moduleKey = String(value.source || '').split(':')[0];
+        const extractions = submission?.snapshot?.extractions || submission?.extractions || {};
+        const review = sourceReviewMetadata95(extractions[moduleKey]);
+        return review.review_required ? {...value,...review} : value;
       }
     }
 
@@ -1420,8 +1426,73 @@
     return null;
   }
 
+  function sourceReviewMetadata95(record) {
+    if (!record || typeof record !== 'object') return {review_required:false,source_identity_conflicts:[]};
+    const structured = typeof record.text === 'string' ? parseJsonBlock(record.text) : null;
+    const conflicts = [],seen = new Set();
+    for (const source of [record,structured]) {
+      if (!Array.isArray(source?.source_identity_conflicts)) continue;
+      for (const item of source.source_identity_conflicts) {
+        if (!item || typeof item !== 'object' || !Array.isArray(item.detectedInsureds)) continue;
+        const names = item.detectedInsureds.filter(x => typeof x === 'string' && x.trim());
+        if (!names.length) continue;
+        const copy = {sourceModule:typeof item.sourceModule === 'string'?item.sourceModule:'',submissionInsured:typeof item.submissionInsured === 'string'?item.submissionInsured:null,detectedInsureds:names.slice()};
+        if (Array.isArray(item.matchedInsureds)) copy.matchedInsureds = item.matchedInsureds.filter(x => typeof x === 'string');
+        if (typeof item.sourceInfo === 'string') copy.sourceInfo = item.sourceInfo;
+        const key = JSON.stringify(copy);if (!seen.has(key)) { seen.add(key);conflicts.push(copy); }
+      }
+    }
+    // Read explicit saved metadata only. Historical prose and inferred names
+    // never generate a new identity conflict or change the narrative here.
+    return {review_required:record.review_required === true || structured?.review_required === true || conflicts.length > 0,source_identity_conflicts:conflicts};
+  }
+
+  function resolveQuoteBroker95(submission, fieldName) {
+    if (!/^broker_(?:company|name|address)$/.test(fieldName) || !submission?.account_name) return null;
+    const candidates=[];
+    const clean=value=>String(value||'').replace(/<[^>]*>/g,'').replace(/&amp;/gi,'&').replace(/\*\*/g,'').trim();
+    for(const file of submission.snapshot?.files||[]){
+      if(!file||(file.submissionId&&file.submissionId!==submission.id))continue;
+      const metadata=[file.name,file.classification,file.primaryTag,file.subType,...(file.routedToAll||[]),file.routedTo,...(file.classifications||[]).map(c=>[c.type,c.tag,c.subType].join(' '))].join(' ');
+      if(!/quote|underlying|excess|umbrella/i.test(metadata))continue;
+      const pages=file.extractMeta?.pageTexts||[],raw=pages.map(p=>typeof p==='string'?p:p?.text||p?.content||p?.pageText||'').join('\n\n');
+      // The native PDF extractor joins text items with spaces. Recover only
+      // explicit printed field boundaries; never guess from a brand mention.
+      const labelled=raw.replace(/(?:^|\s)(Named\s+Insured|Insured\s+Name|Applicant\s+Name|Mailing\s+Address|Broker(?:age)?(?:\s+(?:Firm|Company|Name|Address|Number))?|Producer(?:\s+(?:Firm|Company|Name|Address|Number))?|Agency|Transaction|Quote\s+Number|Account\s+Number|Policy\s+Period|Effective\s+Date|Business\s+Entity)\s*:/gi,'\n$1:');
+      // A labelled quote insured must agree. Do not infer ownership from
+      // brokerage names, address-shaped prose or the permissive test gate.
+      const insureds=Array.from(labelled.matchAll(/(?:^|\n)\s*(?:Named\s+Insured|Insured\s+Name|Applicant\s+Name)\s*:\s*([^\n]+)/gi)).map(m=>clean(m[1]).split(/\s{2,}(?:Mailing|Address|Policy)\b/i)[0]);
+      if(!insureds.length||insureds.some(name=>applicantsMatch(name,submission.account_name)!==true))continue;
+      const lines=labelled.split(/\r?\n/).map(clean);
+      for(let i=0;i<lines.length;i++){
+        const match=/^(Broker(?:age)?(?:\s+(?:Firm|Company|Name|Address))?|Producer(?:\s+(?:Firm|Company|Name|Address))?|Agency)\s*:\s*(.*)$/i.exec(lines[i]);
+        if(!match)continue;
+        const label=match[1],block=clean(match[2]||lines[i+1]),next=i+(match[2]?1:2);
+        const inline=/^(.*?)\s+(\d{1,6}\s+[A-Za-z0-9].*?\b[A-Z]{2}\s+\d{5}(?:-\d{4})?)(?:\s+[\d(). -]+)?$/i.exec(block);
+        const value=inline?inline[1]:block;
+        if(!value||isSentinelValue(value)||!looksStructurallyValid(value))continue;
+        const firmLabel=/firm|company|brokerage|agency/i.test(label),firmValue=/\b(?:agency|brokerage|insurance\s+(?:services|brokers)|llc|llp|inc\.?|ltd\.?|corp\.?|company)\b/i.test(value);
+        let resolved=null;
+        if(fieldName==='broker_company'&&!/address/i.test(label)&&(firmLabel||firmValue))resolved=value;
+        if(fieldName==='broker_name'&&/name/i.test(label)&&!firmValue)resolved=value;
+        if(fieldName==='broker_address'){
+          const start=/address/i.test(label)?i+(match[2]?0:1):firmLabel||firmValue?next:-1;
+          const street=start===i?value:lines[start],city=lines[start+1];
+          if(start>=0&&/^\d{1,6}\s+[A-Za-z0-9]/.test(street||'')&&/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i.test(city||''))resolved=street+', '+city;
+          if(inline&&(firmLabel||firmValue))resolved=inline[2];
+        }
+        if(resolved)candidates.push({value:resolved,file:file.name});
+      }
+    }
+    const unique=new Map();for(const candidate of candidates){const key=candidate.value.toLowerCase().replace(/[.,]/g,'').replace(/\s+/g,' ').trim();if(!unique.has(key))unique.set(key,candidate);}
+    if(unique.size>1)return {value:null,blocked:true,reason:'conflicting_explicit_quote_broker_values'};
+    if(unique.size!==1)return null;
+    const candidate=[...unique.values()][0];return {value:candidate.value,source:'quote-files:broker:'+candidate.file,tier:2,confidence:0.94,reason:'explicit_broker_block_on_matching_insured_quote'};
+  }
+
   function tryDescriptor(descriptor, submission, fieldName) {
     if (typeof descriptor !== 'string') return null;
+    if (descriptor === 'quote-files:broker') return resolveQuoteBroker95(submission,fieldName);
 
     // FIX-PHASE-5.0-STRUCTURAL-VALIDITY-2026-05-14
     // Helper: validate a Tier 0 resolved value before returning it.
@@ -1530,6 +1601,7 @@
     // a breadcrumb the File Manager can surface, then proceed to fill
     // from normal source priority. Nothing is blocked or blanked.
     const applicantCheck = checkApplicantMatch(submission, moduleKey, moduleRec);
+    if (/^broker_(?:company|name|address)$/.test(fieldName) && applicantCheck === false) return null;
     if (applicantCheck === false) {
       try {
         const sid = (submission && (submission.id || submission.submission_id)) || '?';
@@ -1567,6 +1639,14 @@
     const extractionConf = (typeof moduleRec.confidence === 'number')
       ? moduleRec.confidence
       : 1.0;
+
+    // A8's structured text can be only an engine status while its prose or
+    // structured conflicts contain the actual analysis. Resolve the display
+    // field once, without allowing that status to outrank useful content.
+    if (moduleKey === 'guidelines' && fieldName === 'guideline_conflicts_text') {
+      const value = guidelineTextForWorkbench(moduleRec.text);
+      return value ? { value, source: 'guidelines:display', tier: 2, confidence: extractionConf } : null;
+    }
 
     if (tierHint === 'json') {
       const obj = parseJsonBlock(moduleRec.text);
@@ -1610,6 +1690,7 @@
     // (classcode markdown, tower HTML/JSON, prose narratives) and should
     // not be treated as one generic label soup.
     const adapted = moduleSpecificFieldAdapter(moduleKey, moduleRec.text, fieldName, submission);
+    if (adapted?.blocked && /^fleet_/.test(fieldName)) return adapted;
     if (adapted && adapted.value != null && adapted.value !== '') {
       let val = adapted.value;
       if (DATE_FIELDS.has(fieldName)) val = normalizeDateString(val);
@@ -1863,6 +1944,58 @@
     const cap = maxChars || 20000;
     if (t.length > cap) t = t.slice(0, cap).replace(/\s+\S*$/, '') + '…';
     return t;
+  }
+
+  function strengthsTextForWorkbench(raw) {
+    const text = String(raw || '');
+    // Same narrow display boundary as Summary: preserve everything unless
+    // this exact verifier preamble has an explicit final Strengths section.
+    if (!/^\s*(?:Now\s+)?let me verify the numbers[.!]/i.test(text)) return text;
+    const final = /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+|\*\*)?Strengths of the Account:?(?:\*\*)?:?[ \t]*(?:\r?\n|$)/i.exec(text);
+    return final ? text.slice(final.index).trimStart() : text;
+  }
+
+  function guidelineTextForWorkbench(raw) {
+    if (typeof raw !== 'string' || !raw.trim()) return '';
+    // Older output has two-backtick JSON fences. Normalize only those fences
+    // for parsing and remove both spellings from the user-facing narrative.
+    const normalized = raw.replace(/^([ \t]*)``(json[^\n]*)$/gm, '$1```$2')
+      .replace(/^([ \t]*)``[ \t]*$/gm, '$1```');
+    const obj = parseJsonBlock(normalized);
+    const isStatus = value => /^A8 deterministic engine QC output\.?\s*(?:Review required before binding\.?)?$/i.test(String(value || '').trim());
+    const text = obj && lookupJsonField(obj, 'guideline_conflicts_text');
+    if (typeof text === 'string' && text.trim() && !isStatus(text)) {
+      return narrativeToWorkbenchText(text, 100000);
+    }
+    let prose = normalized.replace(/^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```[ \t]*$/gm, '').trim();
+    // A bare JSON response is data, not prose. Never show its keys verbatim.
+    if (/^[\[{]/.test(prose)) {
+      try { JSON.parse(prose); prose = ''; } catch (_) { /* preserve ordinary prose */ }
+    }
+    if (prose && !isStatus(prose)) {
+      let display = narrativeToWorkbenchText(prose, 100000);
+      if (obj?.review_required === true && !/review required/i.test(display)) display += '\n\nReview required before binding.';
+      return display;
+    }
+    const exact = (node,key,depth=0) => {
+      if (!node || typeof node !== 'object' || depth > 8) return undefined;
+      if (Object.prototype.hasOwnProperty.call(node,key)) return node[key];
+      for (const value of Object.values(node)) { const found=exact(value,key,depth+1); if(found!==undefined)return found; }
+    };
+    const conflicts = exact(obj, 'guideline_conflicts');
+    const cleanItems = exact(obj, 'clean_items');
+    const reviewRequired = exact(obj, 'review_required');
+    const blocks = (Array.isArray(conflicts) ? conflicts : []).filter(item => item && typeof item === 'object').map(item => [
+      ['Operational detail', item.operational_detail], ['States', item.states],
+      ['Severity', item.severity], ['Guideline', item.guideline_conflict], ['Explanation', item.explanation]
+    ].filter(([,value]) => typeof value === 'string' && value.trim())
+      .map(([label,value]) => label + ': ' + narrativeToWorkbenchText(value, 100000)).join('\n')).filter(Boolean);
+    if (Array.isArray(cleanItems) && cleanItems.some(x => typeof x === 'string' && x.trim())) {
+      blocks.push('Clean items:\n' + cleanItems.filter(x => typeof x === 'string' && x.trim()).map(x => '• ' + x).join('\n'));
+    }
+    if (reviewRequired === true) blocks.push('Review required before binding.');
+    if (!blocks.length && Array.isArray(conflicts) && !conflicts.length && reviewRequired === false) blocks.push('No guideline conflicts were listed in the source output.');
+    return blocks.join('\n\n');
   }
 
   function normalizeMoneyForDisplay(v) {
@@ -2424,6 +2557,41 @@
     return total ? counts : null;
   }
 
+  function correctedFleetRoster95(clean) {
+    const labels = {
+      privatepassenger:'fleet_private_passenger',light:'fleet_light',medium:'fleet_medium',
+      heavylocal:'fleet_heavy_local',heavyotherthanlocal:'fleet_heavy_other',
+      extraheavylocal:'fleet_extra_heavy_local',extraheavyintermediate:'fleet_extra_heavy_intermediate',extraheavylonghaul:'fleet_extra_heavy_long',
+      trucktractorlocal:'fleet_truck_tractors_local',trucktractorintermediate:'fleet_truck_tractors_intermediate',trucktractorlonghaul:'fleet_truck_tractors_long'
+    };
+    const heading = /(?:^|\n)\s*(Corrected\s+Fleet\s+Composition(?:\s*\(\s*counts?\s*\))?|Fleet\s+Composition(?:\s*\(\s*corrected\s+counts?\s*\))?)\s*:?\s*\n/gi;
+    const hits = Array.from(String(clean || '').matchAll(heading));
+    if (!hits.length) return null;
+    const rosters = hits.map((hit, index) => {
+      const text = clean.slice(hit.index + hit[0].length, hits[index + 1]?.index ?? clean.length);
+      const counts = {},corrected = /corrected/i.test(hit[1]);let invalid = false,total = null;
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const match = /^\s*[-*]?\s*([^:]+?)\s*:\s*(\d[\d,]*)(?:\s|$|\()/i.exec(line);
+        if (!match) break;
+        const label = match[1].toLowerCase().replace(/tractors/g,'tractor').replace(/[^a-z]/g,''),value = Number(match[2].replace(/,/g,''));
+        if (/^total(?:power)?units$/.test(label)) { total = value; break; }
+        const field = labels[label];if (!field) break;
+        if (Object.prototype.hasOwnProperty.call(counts,field) && counts[field] !== value) invalid = true;
+        counts[field] = value;
+      }
+      const complete = Object.values(labels).every(field => Object.prototype.hasOwnProperty.call(counts,field));
+      if (total != null && Object.values(counts).reduce((a,b)=>a+b,0) !== total) invalid = true;
+      return {counts,corrected,complete:complete&&!invalid};
+    });
+    const corrections = rosters.filter(x => x.corrected);
+    if (corrections.some(x => !x.complete)) return {blocked:true,reason:'incomplete_or_inconsistent_corrected_fleet_roster'};
+    const candidates = corrections.length ? corrections : rosters.filter(x => x.complete);
+    const signature = x => JSON.stringify(Object.values(labels).map(field=>x.counts[field]));
+    if (new Set(candidates.map(signature)).size > 1) return {blocked:true,reason:'conflicting_fleet_rosters_without_unique_correction'};
+    return corrections.length ? {counts:corrections[0].counts} : null;
+  }
+
   function parseFleetCounts86(clean) {
     return countByClassCodes86(clean) || countByScheduleRows86(clean) || countByNarrativeFleet86(clean);
   }
@@ -2929,6 +3097,16 @@
       if (supVal) return hit(supVal, 0.84, 'supplemental_acord_schedule');
     }
     if (moduleKey === 'al_quote' || moduleKey === 'supplemental') {
+      if (/^fleet_/.test(fieldName)) {
+        // Only an explicitly labeled complete correction supersedes a roster.
+        // Use this module's text, not concatenated unrelated source documents.
+        const corrected = correctedFleetRoster95(clean);
+        if (corrected?.blocked) return {value:null,blocked:true,reason:corrected.reason};
+        if (corrected?.counts) {
+          const aliases = FLEET_FIELD_ALIASES_86[fieldName] || [fieldName];
+          if (aliases.every(f => Object.prototype.hasOwnProperty.call(corrected.counts,f))) return hit(String(aliases.reduce((n,f)=>n+corrected.counts[f],0)),0.96,'explicit_corrected_fleet_roster');
+        }
+      }
       const fleetVal = parseFleetCount85(cleanPlusFleet, fieldName);
       if (fleetVal != null) return hit(fleetVal, 0.88, moduleKey + '_fleet_code_or_schedule_count');
     }
@@ -3071,7 +3249,7 @@
 
     // Narrative modules — return clean text, bounded for UI textareas.
     if (fieldName === 'exposure_to_loss' && moduleKey === 'exposure') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'exposure_narrative_full_v8783');
-    if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_v8783');
+    if (fieldName === 'account_strengths' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(strengthsTextForWorkbench(raw), 20000), 0.90, 'strengths_narrative_full_v8783');
     // v8.7.125: the UW-tab Guideline Conflicts textarea (#guidelineConflicts)
     // reads guideline_conflicts_text; firstReasonableParagraph kept only the
     // first paragraph of the multi-section A8 analysis. Route the _text field
@@ -3081,7 +3259,7 @@
     if (fieldName === 'guideline_conflicts_text' && moduleKey === 'guidelines') return hit(narrativeToWorkbenchText(raw, 20000), 0.88, 'guidelines_narrative_full_v8125');
     if (fieldName === 'guideline_conflicts' && moduleKey === 'guidelines') return hit(firstReasonableParagraph(clean, 2500), 0.88, 'guidelines_narrative');
     if (fieldName === 'summary_operations' && moduleKey === 'summary-ops') return hit(firstReasonableParagraph(clean, 2200), 0.88, 'summary_ops_narrative');
-    if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(raw, 20000), 0.90, 'strengths_narrative_full_alias_v8122');  // v8.7.122: alias carries the same full narrative as account_strengths
+    if (fieldName === 'strengths_of_account' && moduleKey === 'strengths') return hit(narrativeToWorkbenchText(strengthsTextForWorkbench(raw), 20000), 0.90, 'strengths_narrative_full_alias_v8122');  // v8.7.122: alias carries the same full narrative as account_strengths
     if (fieldName === 'description_operations' && (moduleKey === 'summary-ops' || moduleKey === 'supplemental' || moduleKey === 'website')) {
       // v8.7.119: the v8.7.109 supplemental clean-output format opens with a
       // Company Overview label cluster; the true operations narrative is the
@@ -3170,7 +3348,7 @@
         } else {
           r = resolveField(field, submission);
         }
-        const status = r && r.value ? (ltDecision && field === 'layer_type' && ltDecision.conflict ? 'review' : 'resolved') : 'missing';
+        const status = r && r.value ? (r.review_required || ltDecision && field === 'layer_type' && ltDecision.conflict ? 'review' : 'resolved') : 'missing';
         if (status === 'resolved') resolved++;
         else if (status === 'review') review++;
         else missing++;
@@ -3180,7 +3358,9 @@
           source: r ? r.source : '',
           tier: r ? r.tier : '',
           confidence: r && r.confidence != null ? Number(r.confidence).toFixed(3) : '',
-          reason: r && r.reason ? r.reason : (status === 'missing' ? 'No authoritative source parsed' : '')
+          reason: [r && r.reason ? r.reason : (status === 'missing' ? 'No authoritative source parsed' : ''),r?.review_required?'Source output records review required.':'',r?.source_identity_conflicts?.length?'Source output records an insured identity conflict.':''].filter(Boolean).join(' '),
+          review_required:!!r?.review_required,
+          source_identity_conflicts:r?.source_identity_conflicts || []
         });
       }
     }
@@ -3194,7 +3374,7 @@
         const stated = extractNamedInsured(txt);
         applicant = stated ? applicantVerdict(stated, submission && submission.account_name) : 'not_found';
       } catch (e) { applicant = 'error'; }
-      return { module: k, hasText: !!txt, chars: txt.length, hasJson: !!json, applicant };
+      return { module: k, hasText: !!txt, chars: txt.length, hasJson: !!json, applicant, ...sourceReviewMetadata95(rec) };
     });
     return { summary: { resolved, review, missing, total: resolved + review + missing }, rows, modules, layerDecision: ltDecision };
   }
@@ -3781,6 +3961,76 @@
       anyUncertain,
       totalTowerLimit: top
     };
+  }
+
+  // TRIA is an election on a particular underlying policy, never evidence
+  // that the proposed carrier layer has accepted or declined terrorism.
+  function resolveUnderlyingTriaElection(submission, layer) {
+    const cleanCarrier = value => String(value || '').replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const money = value => { const m = String(value ?? '').replace(/,/g, '').match(/\$?\s*(\d+(?:\.\d+)?)\s*(million|mm|m)?/i); return m ? Number(m[1]) * (m[2] ? 1000000 : 1) : null; };
+    const carrier = cleanCarrier(layer && layer.carrier);
+    if (!carrier) return null;
+    const election = value => {
+      const s = String(value || '').replace(/[*_]/g, '').trim();
+      // An offer, quoted price, condition, or missing election is not acceptance.
+      if (/\b(?:if|unless|whether|may|optional|not\s+stated|not\s+provided|no\s+information)\b/i.test(s)) return null;
+      if (/\bnot\s+(?:declined|rejected|waived)\b/i.test(s)) return null;
+      if (/\b(?:not\s+(?:(?:yet|been)\s+)?(?:elected|selected|purchased|accepted)|declined|rejected|waived)\b/i.test(s)) return 'Declined';
+      return /\b(?:elected|selected|purchased|accepted)\b/i.test(s) ? 'Accepted' : null;
+    };
+    const proseElection = text => {
+      const statuses = new Set();
+      // Restrict interpretation to sentences actually naming TRIA/terrorism.
+      for (const sentence of String(text || '').split(/[\n;]|\.(?:\s|$)/)) {
+        if (!/\bTRIA\b|\bterrorism\b/i.test(sentence)) continue;
+        const value = election(sentence); if (value) statuses.add(value);
+      }
+      return statuses.size === 1 ? Array.from(statuses)[0] : null;
+    };
+    const ex = submission?.snapshot?.extractions || submission?.extractions || {};
+    const candidates = [];
+    const excluded = record => !!record && (record.excluded === true || record.rejected === true || record.refused === true || /^(?:excluded|rejected|refused)$/i.test(record.status || record.outcome || ''));
+    const wrongInsured = name => !isInsuredNotStated(name) && (!submission?.account_name || applicantVerdict(name, submission.account_name) === 'mismatch');
+    for (const key of ['excess', 'tower']) {
+      const record = ex[key],text = record?.text;
+      if (excluded(record) || typeof text !== 'string' || /\bNo matching (?:underlying excess policies|[^\n]*) found for this insured\b/i.test(text)) continue;
+      const plain = text.replace(/\*\*/g, '').replace(/```[\s\S]*?```/g, '');
+      const parts = plain.split(/(?:^|\n)\s*(?:[-#]\s*)?Layer\s+\d+\s*[:\-–—]/i);
+      if (wrongInsured(extractNamedInsured(parts[0]))) continue;
+      const obj = parseJsonBlock(text);
+      const visit = (node, depth = 0) => {
+        if (!node || typeof node !== 'object' || depth > 8) return;
+        if (Array.isArray(node)) { node.forEach(x => visit(x, depth + 1)); return; }
+        if (excluded(node) || wrongInsured(node.named_insured || node.insured_name || node.account_name || node.applicant_name)) return;
+        const owner = node.carrier || node.insurer || node.insurance_company;
+        if (owner) {
+          const values = ['tria_status', 'tria_election', 'terrorism_status', 'terrorism_election'].map(k => election(node[k])).filter(Boolean);
+          if (node.tria && typeof node.tria === 'object') values.push(election(node.tria.status || node.tria.election));
+          const status = new Set(values.filter(Boolean));
+          const value = status.size === 1 ? Array.from(status)[0] : status.size ? null : proseElection(node.terms_conditions || node.terms || '');
+          if (value || status.size) candidates.push({carrier:cleanCarrier(owner),limit:money(node.decLimit ?? node.limit ?? node.layer_limit),value,source:key+':policy'});
+        }
+        Object.values(node).forEach(value => visit(value, depth + 1));
+      };
+      visit(obj);
+      const blocks = parts.slice(1);
+      for (const block of blocks) {
+        const body = block.split(/(?:^|\n)\s*Tower\s+Summary\s*:/i)[0];
+        if (wrongInsured(extractNamedInsured(body))) continue;
+        const owner = body.match(/(?:^|\n)\s*[-*]?\s*Carrier\s*:\s*([^\n]+)/i)?.[1];
+        if (!owner) continue;
+        const limit = body.match(/(?:^|\n)\s*(?:Layer\s+)?Limits?\s*:\s*(?:Each\s+Occurrence\s*)?([^\n]+)/i)?.[1];
+        candidates.push({carrier:cleanCarrier(owner),limit:money(limit),value:proseElection(body),source:key+':layer'});
+      }
+    }
+    let matches = candidates.filter(x => x.carrier === carrier);
+    const limit = money(layer.limit);
+    if (limit != null) matches = matches.filter(x => x.limit == null || x.limit === limit);
+    // Multiple policies for the same carrier require an unambiguous election;
+    // an unknown candidate also prevents borrowing another policy's choice.
+    if (!matches.length || matches.some(x => !x.value)) return null;
+    const values = new Set(matches.map(x => x.value));
+    return values.size === 1 ? {value:matches[0].value,source:matches[0].source,tier:2,confidence:1} : null;
   }
 
   function parseExcessTower(text, accountName) {
@@ -4959,6 +5209,7 @@
     LABEL_PATTERNS,
     resolveField,
     buildFieldCoverageReport,
+    sourceReviewMetadata95,
     moduleSpecificFieldAdapter,
     GL_CLASS_CODE_TABLE,
     GL_CLASS_CODE_EXTENSIONS,
@@ -4979,6 +5230,7 @@
     applicantVerdict,
     isInsuredNotStated,
     parseExcessTower,
+    resolveUnderlyingTriaElection,
     assembleTower,
     assembleTowerWithRelabels,
     applyTowerRelabel,
