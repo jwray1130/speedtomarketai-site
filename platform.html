@@ -986,7 +986,7 @@ b, strong { font-weight:600; }
 <body>
 <div id="chrome"></div>
 <div id="frames"></div>
-<div id="loading"><span>Loading</span></div>
+<div id="loading" role="status" aria-hidden="true"><span>Loading</span></div>
 <div class="toasts" id="toasts"></div>
 <script id="page-queue" type="text/plain"><!DOCTYPE html>
 
@@ -1289,13 +1289,13 @@ function rows(){
 }
 const statusPill=s=>`<span class="status-wrap"><button class="status-pill s-${SKEY[s.status]}" data-act="status" data-id="${s.id}"><span class="dot"></span><span>${SLABEL[s.status]}</span><span class="car"></span></button>
   <div class="status-menu">${STATUSES.map(t=>`<button data-act="setstatus" data-id="${s.id}" data-status="${t}" class="${t===s.status?'cur':''}"><span class="dot ${SKEY[t]}"></span>${SLABEL[t]}</button>`).join('')}</div></span>`;
-const gapChip=s=>s.missing.length?`<span class="gap"><span>${s.missing.length} missing</span><span class="tip"><b>Missing from extraction</b><ul>${s.missing.map(m=>`<li>${esc(m)}</li>`).join('')}</ul></span></span>`:`<span class="gap none">${I.check} complete</span>`;
+const gapChip=s=>s.missing.length?`<span class="gap"><span>${s.missing.length} missing</span><span class="tip"><b>Missing from extraction</b><ul>${s.missing.map(m=>`<li>${esc(m)}</li>`).join('')}</ul></span></span>`:`<span class="gap ${s.modules>0?'none':''}">${s.modules>0?'No recorded gaps':'No extraction yet'}</span>`;
 
 /* ---- render ----------------------------------------------------------- */
 function renderFigures(){
   const S=stats();
   document.getElementById('figures').innerHTML=`
-    <div><b data-count="${S.total}">${S.total}</b><span>in flight</span><small>${S.awaiting} awaiting UW review, ${S.inProgress} in progress</small></div>
+    <div><b data-count="${S.total}">${S.total}</b><span>in flight</span><small>${S.awaiting} awaiting UW review, ${S.inProgress} running in this tab</small></div>
     <div><b>${S.avgConf==null?'—':'<span data-count="'+S.avgConf+'">'+S.avgConf+'</span>%'}</b><span>average confidence</span><small>across the queue</small></div>
     <div><b data-count="${S.gaps}">${S.gaps}</b><span>open gaps</span><small>missing items to close</small></div>
     <div><b data-count="${S.modsRun}">${S.modsRun}</b><span>of ${S.modsCap} modules run</span><small>${D.pipelineModules} pipeline modules, ${D.formats.length}+ formats, live queue</small></div>`;
@@ -2110,7 +2110,7 @@ let live=null,projection=null,lastLayout='',lastRing='';const api=()=>R.platform
 function active(){return !!(live?.state.pipelineRunning||api()?.busy||Number(live?.state._stmIntakePending)>0||projection?.processing?.status==='intake');}
 function issueText(){const p=projection?.processing;if(p?.sourceMissing?.length)return 'Source text unavailable for '+p.sourceMissing.length+' files — review intake';if(p?.blockedFiles?.length)return p.blockedFiles.length+' files need attention';if(p?.needsRecovery)return 'Processing incomplete — resume pending work';const last=projection?.lastOperation;return last?.status==='cancelled'?'Cancelled - partial outputs retained':last?.status==='failed'?'Operation failed - review outputs':(projection?.issues||last?.issues)?'Finished with '+Math.max(projection?.issues||0,last?.issues||0)+' outputs requiring review':last?.status==='not-completed'?'Not completed - review intake':null;}
 
-function fileState(f){if(f.state==='error'||f.error)return 'Error';if(f.state==='needs_manual')return 'Manual text required';if(f.state==='parsing')return 'Parsing';if(f.state==='duplicate')return 'Duplicate';if(f.state==='classified')return f.needsReview?'Classification needs review':'Classified';if(f.state==='parsed'||f.state==='ready')return 'Ready';if(f.status)return String(f.status);if(f.text||f.textDropped||f.classification)return 'Ready';return 'Parsing';}
+function fileState(f){if(f.state==='error'||f.error)return 'Error';if(f.state==='needs_manual')return 'Manual text required';if(f.state==='parsing')return 'Parsing';if(f.state==='duplicate')return 'Duplicate';if(f.state==='classified')return f.needsReview?'Classification needs review':'Classified';if(f.state==='parsed')return 'Text extracted';if(f.state==='ready')return 'Ready';if(f.status)return String(f.status);if(f.text||f.textDropped||f.classification)return 'Ready';return 'Parsing';}
 window.STMDesign={
  fileFooterHTML(){const p=projection?.processing;return p?'<span>'+p.classifiedCount+' / '+p.intakeCount+' classified</span><span>'+p.routedCount+' routed</span>':'';},
  filesHTML(){return (live?.state.files||[]).map(f=>'<div class="file" data-file-id="'+esc(f.id)+'"> <span class="ft">'+esc((f.name||'').split('.').pop().toUpperCase().slice(0,6))+'</span><span class="fn">'+esc(f.name)+'<small>'+esc(fileState(f))+'</small></span>'+(f.state==='needs_manual'?'<button class="btn btn-primary" data-act="paste-file" data-id="'+esc(f.id)+'" '+(active()?'disabled':'')+'>Paste text</button>':'')+'<button class="btn btn-ghost" data-act="remove-file" data-id="'+esc(f.id)+'" title="Remove from intake" '+(active()?'disabled':'')+'>Remove</button></div>').join('');},
@@ -2148,7 +2148,7 @@ window.STMDesign={
 
  }
 };
-derived=function(){const raw=live?.state||{},done=AMODS.filter(m=>st(m.key)==='done'),running=AMODS.filter(m=>st(m.key)==='running'),skipped=AMODS.filter(m=>st(m.key)==='skipped');const conf=done.map(m=>S.mods[m.key].conf).filter(n=>Number.isFinite(n));const stageCounts=STAGES.map(s=>{const ms=byStage(s.n);return {n:s.n,total:ms.length,done:ms.filter(m=>st(m.key)==='done').length,running:ms.filter(m=>st(m.key)==='running').length,skipped:ms.filter(m=>st(m.key)==='skipped').length};});const pct=Math.max(0,Math.min(100,parseFloat(R.platformWindow.document.getElementById('progFill')?.style.width)||0));const actual=R.platformWindow.document.getElementById('pipeStatus')?.textContent?.trim();return {done:done.length,running:running.length,skipped:skipped.length,avg:conf.length?Math.round(conf.reduce((a,b)=>a+b,0)/conf.length):null,cost:Number(raw.runTotalCost)||0,stageCounts,pct:projection?.processing?.complete?100:pct,ptext:active()?(projection?.processing?.status==='intake'&&!projection?.operation?'Preparing documents':projection?.operation?.finishing?'Saving pipeline results':projection?.operation?.cancelled?'Cancelling - waiting for active requests':actual||'Pipeline operation active'):(issueText()||(projection?.processing?.complete?'Run finished - review outputs':raw.files?.length?'Ready for processing':'Awaiting documents')),elapsed:S.t};};
+derived=function(){const raw=live?.state||{},done=AMODS.filter(m=>st(m.key)==='done'),running=AMODS.filter(m=>st(m.key)==='running'),skipped=AMODS.filter(m=>st(m.key)==='skipped');const conf=done.map(m=>S.mods[m.key].conf).filter(n=>Number.isFinite(n));const stageCounts=STAGES.map(s=>{const ms=byStage(s.n);return {n:s.n,total:ms.length,done:ms.filter(m=>st(m.key)==='done').length,running:ms.filter(m=>st(m.key)==='running').length,skipped:ms.filter(m=>st(m.key)==='skipped').length};});const pct=Math.max(0,Math.min(100,parseFloat(R.platformWindow.document.getElementById('progFill')?.style.width)||0));const actual=R.platformWindow.document.getElementById('pipeStatus')?.textContent?.trim();return {done:done.length,running:running.length,skipped:skipped.length,avg:conf.length?Math.round(conf.reduce((a,b)=>a+b,0)/conf.length):null,cost:Number(raw.runTotalCost)||0,stageCounts,pct:projection?.processing?.complete?100:pct,ptext:active()?(projection?.processing?.status==='intake'&&!projection?.operation?'Preparing documents':projection?.operation?.finishing?'Saving pipeline results':projection?.operation?.cancelled?'Cancelling - waiting for active requests':actual||'Pipeline operation active'):(issueText()||(projection?.processing?.complete?'Run finished - review outputs':raw.files?.length?'Ready for analysis':'Awaiting documents')),elapsed:S.t};};
 // Old demos remain unreachable and are replaced at their entry points too.
 fullRefresh=()=>window.STMDesign.refresh(true);loadFiles=()=>filePicker.click();runPipeline=()=>run(R.run());resetRun=()=>run(R.newSubmission());applyPlan=()=>{throw new Error('Simulation is not part of the live interface.');};
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act;if(['roster','rfilter','ring','webtab'].includes(a))return;e.preventDefault();e.stopImmediatePropagation();

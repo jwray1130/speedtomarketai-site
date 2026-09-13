@@ -2048,6 +2048,13 @@ window.initDocumentsView = function() {
     }
   }
 
+  function completePdfPageTexts(pages, total) {
+    if (!Array.isArray(pages) || !pages.length || (total != null && pages.length !== total)) return null;
+    // Empty strings are valid textless pages. Sparse/invalid entries are not
+    // a complete extraction and must use the existing PDF text fallback.
+    return Array.from(pages).every(text => typeof text === 'string') ? pages : null;
+  }
+
   async function processPDF(file, category) {
     const buf = await file.arrayBuffer();
     let pdf = null;
@@ -2062,9 +2069,7 @@ window.initDocumentsView = function() {
       // by-page in the render loop below. For a 70-page PDF this skips ~25-30s
       // of duplicated CPU work — text extraction was happening twice.
       const pctx = state._pipelineCtx || {};
-      const preExtractedPageTexts = (Array.isArray(pctx.pageTexts) && pctx.pageTexts.length === total)
-        ? pctx.pageTexts
-        : null;
+      const preExtractedPageTexts = completePdfPageTexts(pctx.pageTexts, total);
       // PHASE 9 FIX (per GPT external audit round 5): manually-pasted
       // text for scanned PDFs flows through ctx.manualText. Used as
       // fallback for page 1 when preExtractedPageTexts isn't populated
@@ -2700,7 +2705,7 @@ window.initDocumentsView = function() {
     const pageNum = Number(opts.pageNumber) || 1;
     const sections = Array.isArray(opts.sectionClassifications) ? opts.sectionClassifications
       : Array.isArray(pctx && pctx.sectionClassifications) ? pctx.sectionClassifications : [];
-    const ranges = sections.filter(Boolean).map(section => ({
+    const ranges = sections.filter(section=>section && section.document_marker95 !== false).map(section => ({
       section, range: _parsePageRangeForChip(section.section_hint, opts.totalPages)
     })).filter(entry => entry.range);
     if (ranges.length) {
@@ -2709,11 +2714,20 @@ window.initDocumentsView = function() {
       const labels = ranges.filter(entry => entry.range[0] === pageNum)
         .map(entry => String(entry.section.tag || entry.section.subType || entry.section.type || '').trim())
         .filter(Boolean);
-      return [...new Set(labels)].join(' · ') || null;
+      const unique = new Map();
+      labels.forEach(label=>{const key=label.replace(/\s+/g,' ').toLowerCase();if(!unique.has(key)) unique.set(key,label);});
+      return [...unique.values()].join(' · ') || null;
     }
     // Unknown page hints cannot justify marking every page. Retain a single
     // file-level marker until the classifier supplies usable section ranges.
-    return pageNum === 1 ? opts.pipelineTag || (pctx && pctx.pipelineTag) || null : null;
+    if (sections.length && sections.every(section=>section?.document_marker95 === false)) return null;
+    let fallback = opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
+    const suppressed = new Set(sections.filter(section=>section?.document_marker95===false).map(section=>String(section.tag || section.subType || section.type || '').trim().toLowerCase()));
+    if (fallback && String(fallback).split(' · ').some(label=>suppressed.has(label.trim().toLowerCase()))) {
+      const primary=sections.find(section=>section && section.document_marker95!==false);
+      fallback=primary && (primary.tag || primary.subType || primary.type) || null;
+    }
+    return pageNum === 1 ? fallback : null;
   }
   function _hasPipelineClassification(opts, pctx) {
     return !!(opts.pipelineTag || opts.pipelineClassification || opts.sectionClassifications?.length ||
@@ -5476,8 +5490,8 @@ window.initDocumentsView = function() {
       matches.forEach(d=>covered.add(d.id));
       const tag=file.tag||file.primaryTag||file.subType||classification;
       const mapping=typeof window.docsViewMappingFor==='function'?window.docsViewMappingFor(file.primary_bucket||classification,tag):null;
-      let sections=Array.isArray(file.classifications)?file.classifications.map(c=>({tag:c.tag||c.subType||c.type,type:c.type,subType:c.subType,section_hint:c.section_hint})):[];
-      if(!sections.some(c=>_parsePageRangeForChip(c.section_hint,Math.max(...matches.map(d=>Number(d.totalPages)||1))))){
+      let sections=typeof window.stmSectionClassificationsForDocs==='function' ? window.stmSectionClassificationsForDocs(file.classifications||[],file) : Array.isArray(file.classifications)?file.classifications.map(c=>({tag:c.tag||c.subType||c.type,type:c.type,subType:c.subType,section_hint:c.section_hint,document_marker95:c.document_marker95})):[];
+      if(!sections.some(c=>c.document_marker95===false) && !sections.some(c=>_parsePageRangeForChip(c.section_hint,Math.max(...matches.map(d=>Number(d.totalPages)||1))))){
         // Older snapshots sometimes retain only the page chips, not the
         // classifier's section ranges. Those saved labels still identify
         // relevant pages; preserve them while removing continuation colors.
@@ -5584,6 +5598,7 @@ window.initDocumentsView = function() {
       const sid=designScope(),owner=window.currentUser?.id;
       for(const f of window.STATE.files){
         if(f.cancelled||f.state==='duplicate'||f.state==='error'||!f._rawFile)continue;
+        if(f.submissionId&&String(f.submissionId)!==String(sid))continue;
         let existing=_sourceFileDocs(f);
         if(!existing.length&&f._pushedToDocsView&&sid){
           // A restored flag is not proof of local page presence. Check the
@@ -5593,7 +5608,11 @@ window.initDocumentsView = function() {
           existing=_sourceFileDocs(f);
         }
         if(existing.length){f._stmDocIds=existing.map(d=>d.id);f._pushedToDocsView=true;continue;}
-        const ids=await window.docsView.processFileFromPipeline(f._rawFile,{fileId:f.id,submissionId:sid,category:'all',color:null});
+        const count=Number(f.extractMeta?.pageCount),expected=Number.isInteger(count)&&count>0?count:null;
+        // Reuse only this source's complete extraction; the PDF's actual page
+        // count is checked again by processPDF before skipping text extraction.
+        const pageTexts=[f.extractMeta?.pageTexts,f.pageTexts].map(pages=>completePdfPageTexts(pages,expected)).find(Boolean)||null;
+        const ids=await window.docsView.processFileFromPipeline(f._rawFile,{fileId:f.id,submissionId:sid,category:'all',color:null,pageTexts});
         if(sid!==designScope()||owner!==window.currentUser?.id)throw new Error('Submission changed during document intake.');
         f._stmDocIds=ids||[];f._pushedToDocsView=true;const first=state.docs.find(d=>f._stmDocIds.includes(d.id));if(first?.storagePath)f._storagePath=first.storagePath;
       }

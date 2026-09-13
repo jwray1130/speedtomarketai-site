@@ -1644,6 +1644,9 @@ async function extractText(file, metadata, onProgress) {
     let pdf;
     try {
       pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      // Preserve optional coordinate evidence for short supplemental forms.
+      // The legacy flat text and pageTexts below remain byte-for-byte intact.
+      const layout95 = window.STMSourceLayout?.createDocument(pdf.numPages, 'PDF.js ' + (pdfjsLib.version || 'unknown'));
       // Extract every page's text in parallel via Promise.all. PDF.js's worker
       // (loaded in app.html line 29) decompresses page content streams off the
       // main thread, so multiple page extractions can genuinely overlap. A
@@ -1684,6 +1687,11 @@ async function extractText(file, metadata, onProgress) {
           const page = await pdf.getPage(n);
           try {
             const content = await page.getTextContent();
+            let layoutPage95 = null;
+            if (layout95?.eligible) {
+              try { layoutPage95 = window.STMSourceLayout.capturePage(n, content, page.getViewport({ scale: 1 })); }
+              catch (_) { layoutPage95 = { page:n, rows:[], issues:['coordinate_capture_failed'] }; }
+            }
             // v8.7.108: checkbox tick capture. Only for small documents (supp
             // apps are short; 70-page ACORD packets skip this entirely so
             // ingest speed and worker memory stay exactly at v8.7.107 levels).
@@ -1700,7 +1708,7 @@ async function extractText(file, metadata, onProgress) {
                 }
               } catch (e8708) { marks8708 = null; }
             }
-            return { n, items: content.items, marks8708 };
+            return { n, items: content.items, marks8708, layoutPage95 };
           } finally {
             // Release page-level caches as soon as we're done with the page.
             // Without this, PDF.js holds the rendered operator list, font
@@ -1713,9 +1721,10 @@ async function extractText(file, metadata, onProgress) {
         const failed = settled.find(r => r.status === 'rejected');
         if (failed) throw failed.reason;
         for (const r of settled) {
-          const { n, items, marks8708 } = r.value;
+          const { n, items, marks8708, layoutPage95 } = r.value;
           totalItems += items.length;
           pageTexts[n - 1] = items.map(it => it.str).join(' ');
+          if (layoutPage95) window.STMSourceLayout.addPage(layout95, layoutPage95);
           if (marks8708 && marks8708.length) {
             (meta.checkboxMarks8708 = meta.checkboxMarks8708 || []).push(
               ...marks8708.map(m => ({ page: n, value: m.value, label: m.label }))
@@ -1739,6 +1748,7 @@ async function extractText(file, metadata, onProgress) {
       meta.kind = 'pdf';
       meta.pageCount = pdf.numPages;
       meta.pageTexts = pageTexts;
+      if (layout95?.eligible) meta.layoutEvidenceV1 = layout95;
       // v8.7.108: cross-page ordering for captured checkbox marks (within-page
       // order is already top-to-bottom from the detector; sort is stable).
       if (meta.checkboxMarks8708) meta.checkboxMarks8708.sort((a, b) => a.page - b.page);
@@ -3785,7 +3795,9 @@ async function rehydrateSubmission(submissionId) {
   STATE.audit         = (snap.audit || []).slice();
   STATE.runTotalCost  = snap.runTotalCost || 0;
   STATE.pipelineRun   = snap.pipelineRun || rec.pipelineRun;
-  STATE.pipelineDone  = snap._stmRunComplete !== false;
+  // A pre-minted record proves identity, not completed analysis. Older archives
+  // without a completion flag need actual outputs; a PIPE ID alone is insufficient.
+  STATE.pipelineDone  = snap._stub !== true && snap._stmRunComplete !== false && !!(Object.keys(STATE.extractions).length || (snap._stmRunComplete === true && STATE.pipelineRun));
   STATE.pipelineStart = 0;
   STATE.pipelineElapsedSeconds = typeof snap.pipelineElapsedSeconds === 'number' && Number.isFinite(snap.pipelineElapsedSeconds) && snap.pipelineElapsedSeconds >= 0 ? snap.pipelineElapsedSeconds : null;
   STATE.pipelineRunning = false;
@@ -4985,6 +4997,17 @@ async function exportAudit() {
 // ============================================================================
 // EXCEL PACK EXPORT — real .xlsx with per-module tabs + summary + audit
 // ============================================================================
+function extractionModels95(ext) {
+  return Array.from(new Set([ext?.usage?.model, ext?.verify_usage?.model]
+    .filter(value => typeof value === 'string' && value.trim()).map(value => value.trim())));
+}
+function exportModels95(extractions) {
+  const records = Object.values(extractions || {});
+  const models = Array.from(new Set(records.flatMap(extractionModels95)));
+  const missing = records.filter(ext => extractionModels95(ext).length === 0).length;
+  return models.length ? models.join(', ') + (missing ? ' (some module provenance not recorded)' : '') : 'Not recorded';
+}
+
 function exportExcel() {
   if (!staleGuard8733('Export Excel Pack')) return;  // v8.7.133
   if (Object.keys(STATE.extractions).length === 0) {
@@ -5006,7 +5029,7 @@ function exportExcel() {
     ['Pipeline Run', STATE.pipelineRun || '—'],
     ['Generated', now.toISOString()],
     ['Provider', 'ANTHROPIC'],
-    ['Model', STATE.api.model],
+    ['Recorded module models', exportModels95(STATE.extractions)],
     ['Prompts Version', 'v2.4'],
     ['Files Ingested', STATE.files.length],
     ['Modules Completed', Object.keys(STATE.extractions).length + ' / ' + Object.keys(MODULES).length],
@@ -5060,6 +5083,7 @@ function exportExcel() {
       ['Timing', Number(ext.timing || 0).toFixed(1) + 's'],
       ['Source', ext.sourceInfo || '—'],
       ['Mode', ext.mode],
+      ['Recorded models', extractionModels95(ext).join(', ') || 'Not recorded'],
       ['Edited', isEdited ? 'YES · ' + new Date(STATE.edits[mid].editedAt).toISOString() : 'no'],
       ['Generated', now.toISOString()],
       [],
@@ -5176,7 +5200,7 @@ function exportMarkdown() {
   md += '**Pipeline Run:** ' + (STATE.pipelineRun || '—') + '\n';
   md += '**Generated:** ' + new Date().toISOString() + '\n';
   md += '**Provider:** ' + ('ANTHROPIC') + '\n';
-  md += '**Model:** ' + (STATE.api.model) + '\n';
+  md += '**Recorded module models:** ' + exportModels95(STATE.extractions) + '\n';
   md += '**Prompts Version:** v2.4\n';
   md += '**Files Ingested:** ' + STATE.files.length + '\n';
   md += '**Modules Completed:** ' + Object.keys(STATE.extractions).length + ' / ' + Object.keys(MODULES).length + '\n';
@@ -5197,6 +5221,7 @@ function exportMarkdown() {
     md += 'Timing: ' + extractionTimingLabel95(ext) + ' · ';
     md += 'Source: ' + (ext.sourceInfo || '—') + ' · ';
     md += 'Mode: ' + ext.mode;
+    md += ' · Recorded models: ' + (extractionModels95(ext).join(', ') || 'Not recorded');
     if (isEdited) md += ' · Edited: ' + new Date(STATE.edits[mid].editedAt).toISOString();
     md += '_\n\n';
     // v8.7.121: exports are user-facing; route through the visible cleaner so

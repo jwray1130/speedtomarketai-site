@@ -1414,6 +1414,7 @@
 <div class="toast-wrap" id="toastWrap"></div>
 
 <!-- Phase 8 step 7: core runtime. Defines window.STATE, window.sb, window.ACTIVE_GUIDELINE, plus all inline-handler functions. Must load BEFORE supabase-data.js / admin-views.js / scraper.js / pipeline.js (which depend on these globals). -->
+<script src="source-layout-evidence.js?v=9.9.9"></script>
 <script src="pipeline-core.js?v=9.9.9"></script>
 <!-- Phase 8 step 3: Supabase data-access helpers. Must load AFTER the inline init script above (which creates window.sb) and BEFORE any inline JS that uses sb* helpers. -->
 <script src="pipeline-supabase-data.js?v=9.9.9"></script>
@@ -1422,6 +1423,7 @@
 <!-- Phase 8 step 5: Website-scraping subsystem (BFS crawler, sitemap discovery, Jina fallback). Must load AFTER the inline init script (which defines llmProxyFetch). -->
 <script src="pipeline-scraper.js?v=9.9.9"></script>
 <!-- Phase 8 step 6: Pipeline subsystem (DAG, classifier, orchestrator, module fan-out). Must load AFTER prompts.js (uses PROMPTS), supabase-data.js (uses sb*), admin-views.js, scraper.js, and the inline init (uses llmProxyFetch, logAudit, etc). -->
+<script src="fleet-source.js?v=9.9.9"></script>
 <script src="pipeline-engine.js?v=9.9.9"></script>
 <!-- Documents view (Speed File Manager — native port). Module exports
      window.initDocumentsView() which app.js invokes once at boot. Must load

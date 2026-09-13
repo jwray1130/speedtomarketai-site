@@ -65,11 +65,15 @@ function processingState(s,modules={},lastOperation=null,nodes={}){
  // Current routed evidence requires an extraction regardless of historical node state.
  const missingModules=[...new Set(files.filter(classified).flatMap(fileRoutes))].filter(id=>modules[id]?.inputsFrom==='file'&&!Object.prototype.hasOwnProperty.call(s.extractions||{},id));
  const hasOutputs=Object.keys(s.extractions||{}).length>0;
+ // A parsed upload is pending first analysis, not an interrupted run. Use the
+ // same persisted provenance as Run dispatch; an early cost-confirmation cancel
+ // has no run ID and must still take the full-run confirmation path next time.
+ const hasRunHistory=!!s.pipelineRun||hasOutputs;
  const sourceMissing=pendingFiles.filter(f=>!f.available);
- const needsRecovery=!!(pendingFiles.length||missingModules.length||(!s.pipelineDone&&hasOutputs));
- const complete=!!s.pipelineDone&&!pendingFiles.length&&!missingModules.length&&!blockedFiles.length&&!running&&!ingesting;
+ const needsRecovery=hasRunHistory&&!!(pendingFiles.length||missingModules.length||(!s.pipelineDone&&hasOutputs));
+ const complete=hasRunHistory&&!!s.pipelineDone&&!pendingFiles.length&&!missingModules.length&&!blockedFiles.length&&!running&&!ingesting;
  const status=running?'running':ingesting?'intake':blockedFiles.length||sourceMissing.length?'attention':pendingFiles.length||missingModules.length?'pending':!s.pipelineDone&&lastOperation?.status==='cancelled'?'cancelled':!s.pipelineDone&&lastOperation?.status==='failed'?'failed':complete?'finished':hasOutputs?'partial':'not-started';
- return {status,complete,needsRecovery,hasOutputs,pendingFiles,sourceMissing,blockedFiles,missingModules,intakeCount:files.length,classifiedCount:files.filter(classified).length,routedCount:files.filter(f=>classified(f)&&fileRoutes(f).length).length};
+ return {status,complete,needsRecovery,hasRunHistory,hasOutputs,pendingFiles,sourceMissing,blockedFiles,missingModules,intakeCount:files.length,classifiedCount:files.filter(classified).length,routedCount:files.filter(f=>classified(f)&&fileRoutes(f).length).length};
 }
 function archivedDuration(s,lastOperation){
  const value=s.pipelineElapsedSeconds;if(value!=null&&value!==''&&Number.isFinite(Number(value))&&Number(value)>=0)return Number(value);

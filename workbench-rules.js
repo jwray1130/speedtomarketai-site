@@ -1388,6 +1388,18 @@
   }
 
   function resolveField(fieldName, submission) {
+    if (/^fleet_/.test(fieldName) && root.STMFleetSource) {
+      const roster = root.STMFleetSource.fromSubmission(submission,{strict:applicantGateModeWr8737()==='strict'});
+      if (roster?.blocked) return null;
+      if (roster?.complete) {
+        const aliases = FLEET_FIELD_ALIASES_86[fieldName] || [fieldName];
+        if (aliases.every(field=>Object.prototype.hasOwnProperty.call(roster.counts,field))) {
+          const record = submission?.snapshot?.extractions?.al_quote || submission?.extractions?.al_quote;
+          return {value:String(aliases.reduce((sum,field)=>sum+roster.counts[field],0)),source:'al_quote:source_roster',tier:1,confidence:1,
+            reason:'complete_original_quote_vehicle_roster',sourceFileId:roster.sourceFileId,sourceFileName:roster.sourceFileName,sourcePages:roster.pages.slice(),...sourceReviewMetadata95(record)};
+        }
+      }
+    }
     // v8.7.16: expose the layer decision through the normal resolver path
     // so audits and UI consumers don't get null while the visible select is set.
     if (fieldName === 'layer_type') {
@@ -4334,13 +4346,28 @@
       ? parsed.tower_documents : [];
     // Normalize to the assembleTower input contract, dropping nothing —
     // assembleTower itself handles nulls / classification / ????.
-    const docs = list.map((d, i) => ({
+    const docs = list.map((d, i) => {
+      // Tower attachments are measured above primary. Some A14 responses
+      // repeat the primary occurrence/CSL in a lead's attachment field instead.
+      // Rebase only when the explicit lead name and complete primary-only
+      // schedule agree; higher, mixed, or unverified schedules stay untouched.
+      const schedule = Array.isArray(d.schedule_of_underlying) ? d.schedule_of_underlying : [];
+      const primaryLine = row => /^(?:GL|CGL|AL|AUTO|EL|WC|GENERAL LIABILITY|COMMERCIAL GENERAL LIABILITY|AUTO LIABILITY|BUSINESS AUTO|EMPLOYERS LIABILITY|EMPLOYER'S LIABILITY|WORKERS COMPENSATION)$/i.test(String(row?.line || '').trim());
+      const stated = _num(d.statedAttachment);
+      const primaryAmounts = schedule.flatMap(row => [row?.each_occurrence, row?.csl, row?.each_accident]).map(_num).filter(n => n > 0);
+      const primaryBase = d.schedulesPrimary === true
+        && /^\s*(?:Layer\s+\d+\s*[-:–—]\s*)?Lead\s+(?:Umbrella|Excess)\b/i.test(String(d.name || ''))
+        && schedule.length > 0 && schedule.every(primaryLine)
+        && stated > 0 && primaryAmounts.includes(stated);
+      return {
       id:                  (d.id != null ? String(d.id) : ('tower-doc-' + i)),
       name:                (d.name != null ? String(d.name) : ('Layer ' + (i + 1))),
       sourceDocName:       d.sourceDocName != null ? String(d.sourceDocName) : null,
       carrier:             d.carrier != null ? String(d.carrier) : null,
       decLimit:            d.decLimit,
-      statedAttachment:    d.statedAttachment,
+      statedAttachment:    primaryBase ? 0 : d.statedAttachment,
+      groundUpAttachment:  primaryBase ? stated : null,
+      attachmentBasis:     primaryBase ? 'primary_schedule_rebased_to_excess_tower' : null,
       schedulesPrimary:    !!d.schedulesPrimary,
       sharedGroupKey:      d.sharedGroupKey != null ? String(d.sharedGroupKey) : null,
       sharedCombinedLimit: d.sharedCombinedLimit != null ? d.sharedCombinedLimit : null,
@@ -4353,7 +4380,8 @@
       expirationDate:      d.expirationDate != null ? String(d.expirationDate) : null,
       aggregate:           d.aggregate != null ? d.aggregate : null,
       premium:             d.premium != null ? d.premium : null
-    }));
+      };
+    });
     return { blocked: false, reason: 'parsed', docs: docs };
   }
 

@@ -266,7 +266,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const APP_EVENTS = [];
+    let historyHydrationDepth = 0;
     function recordHistory(action, detail = '') {
+        // Native change handlers also fire while source data and saved values
+        // are being applied. Those are not new underwriter actions.
+        if (historyHydrationDepth || STM_EDITS.restoring) return;
         APP_EVENTS.unshift({ id: 'ev-' + (window.crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)), at: new Date().toISOString(), action: String(action || 'Action'), detail: String(detail || ''), actor: window.currentUser?.display_name || window.currentUser?.email || 'User', userId: window.currentUser?.id || null });
         if (APP_EVENTS.length > 75) APP_EVENTS.pop();
         renderHistoryLog();
@@ -1067,6 +1071,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const yieldToBrowser8783 = () => new Promise(r => setTimeout(r, 0));
 
         async function applyFullPhasePipeline(data) {
+            historyHydrationDepth++;
+            try {
             if (!window.WorkbenchRules
                 || typeof window.WorkbenchRules.resolveField !== 'function') {
                 console.warn('[workbench] applyFullPhasePipeline: WorkbenchRules not loaded; skipping');
@@ -1236,6 +1242,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await yieldToBrowser8783();
             renderFieldCoverageReport(data);
             applySubjectivityIntelligenceFromActiveSubmission(data);
+            } finally { historyHydrationDepth--; }
         }
         // Exposed as a diagnostic hook only. The production path calls
         // applyFullPhasePipeline(data) directly from loadSubmissionFromUrl().
@@ -4119,9 +4126,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (role8745 != null && String(role8745).toLowerCase() === 'lead') weAreLead8745 = true;
             } catch (_) { /* role probe is best-effort */ }
             try {
-                if (!weAreLead8745 && typeof rules8745.detectLeadQuotePosition8709 === 'function') {
+                if (typeof rules8745.detectLeadQuotePosition8709 === 'function') {
                     const pos8745 = rules8745.detectLeadQuotePosition8709(submission, towerInfo8745);
-                    if (pos8745 && pos8745.requestedLead && !pos8745.underlyingLead) weAreLead8745 = true;
+                    // A14 describes the supplied policy's role. Its "lead"
+                    // value does not make our requested layer the lead when
+                    // source evidence places that policy beneath us.
+                    if (pos8745?.underlyingLead) weAreLead8745 = false;
+                    else if (pos8745?.requestedLead) weAreLead8745 = true;
                 }
             } catch (_) { /* detector is best-effort */ }
             // Precedence: physically assembled underlying layers always win,
@@ -8257,14 +8268,17 @@ document.addEventListener('DOMContentLoaded', () => {
             window.workbenchActiveSubmission=data;
             document.getElementById('dealNum').textContent=window.stmWorkbenchDealNumber(data.id);
             const notice=document.getElementById('workbenchLoadStatus');if(notice){notice.textContent='Loading submission...';notice.style.display='block';}
-            await window.__stmApplyPhasePipeline(data);
-            window.__STM_WB_PHASE6?.rememberSource();
-            window.__STM_WB_PHASE7?.rememberSource();
-            await restoreWorkbenchEdits8760(data);
-            integrationLocalKey=stmLocalKey();
-            try{integrationDirty=localStorage.getItem(stmLocalKey()+':pending')==='1';}catch(_){integrationDirty=false;}
-            if(notice){notice.textContent='';notice.style.display='none';}
-            return {id:data.id,fields:window.workbenchFieldCoverageReport||null};
+            historyHydrationDepth++;
+            try {
+                await window.__stmApplyPhasePipeline(data);
+                window.__STM_WB_PHASE6?.rememberSource();
+                window.__STM_WB_PHASE7?.rememberSource();
+                await restoreWorkbenchEdits8760(data);
+                integrationLocalKey=stmLocalKey();
+                try{integrationDirty=localStorage.getItem(stmLocalKey()+':pending')==='1';}catch(_){integrationDirty=false;}
+                if(notice){notice.textContent='';notice.style.display='none';}
+                return {id:data.id,fields:window.workbenchFieldCoverageReport||null};
+            } finally { historyHydrationDepth--; }
         },
         async save(){
             if(STM_EDITS.restoreError)throw new Error(STM_EDITS.restoreError);

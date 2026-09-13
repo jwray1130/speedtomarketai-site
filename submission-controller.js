@@ -85,9 +85,10 @@
   return safe(holder.querySelector('.sc-body')?.innerHTML||'');
  }
  function processing(settled=false){
-  const p=C?.processingState(settled?{...S,pipelineRunning:false,_stmIntakePending:0}:S,window.MODULES||{},lastOperation,nodes)||{complete:!!S.pipelineDone,needsRecovery:false,pendingFiles:[],sourceMissing:[],blockedFiles:[],missingModules:[],hasOutputs:Object.keys(S.extractions||{}).length>0};
+  const hasOutputs=Object.keys(S.extractions||{}).length>0,hasRunHistory=!!S.pipelineRun||hasOutputs;
+  const p=C?.processingState(settled?{...S,pipelineRunning:false,_stmIntakePending:0}:S,window.MODULES||{},lastOperation,nodes)||{complete:hasRunHistory&&!!S.pipelineDone,needsRecovery:false,pendingFiles:[],sourceMissing:[],blockedFiles:[],missingModules:[],hasRunHistory,hasOutputs};
   const pending=window.computePendingClosure8747?.()||{all:[]};p.pendingModules=[...new Set([...p.missingModules,...pending.all])];
-  if(p.pendingModules.length){p.complete=false;p.needsRecovery=true;if(!['running','intake','attention'].includes(p.status))p.status='pending';}
+  if(p.pendingModules.length){p.complete=false;p.needsRecovery=!!p.hasRunHistory;if(!['running','intake','attention'].includes(p.status))p.status='pending';}
   return p;
  }
  function completionForSave(){return !S.pipelineRunning&&!operation?.cancelled&&processing(true).complete;}
@@ -183,7 +184,7 @@
   const result=await original.classifyFile.apply(this,arguments);assertNotCancelled();
   if(file._stmDocIds?.length){
    const mapping=window.docsViewMappingFor(result.primary_bucket||result.type,result.tag);
-   window.docsView.relabelDocsForFile(file.id,{pipelineTag:result.tag||result.subType||result.type,primaryBucket:result.primary_bucket||null,pipelineClassification:result.type||null,pipelineRoutedTo:(typeof window.classifierToRoute==='function'?window.classifierToRoute(result.type,result.subType,result.tag):null),color:mapping.color,category:mapping.category,sectionClassifications:window.stmSectionClassificationsForDocs(result.classifications||[]),relabeledByUser:false});
+   window.docsView.relabelDocsForFile(file.id,{pipelineTag:result.tag||result.subType||result.type,primaryBucket:result.primary_bucket||null,pipelineClassification:result.type||null,pipelineRoutedTo:(typeof window.classifierToRoute==='function'?window.classifierToRoute(result.type,result.subType,result.tag):null),color:mapping.color,category:mapping.category,sectionClassifications:window.stmSectionClassificationsForDocs(result.classifications||[],file),relabeledByUser:false});
    await window.docsView.design.flush();
   }
   return result;
