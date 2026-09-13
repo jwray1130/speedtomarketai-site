@@ -88,3 +88,105 @@ test('empty internal rating displays unavailable derived premiums while retainin
  model.engine.hasRatingInputs=true;assert.equal(c.ratingDisplayValue('outputs.rsZurichPremium'),'$1,500');
  model.engine.hasRatingInputs=false;c.route='wb-al';assert.equal(c.ratingDisplayValue('outputs.rsZurichPremium'),'$1,500','other raters retain their independent display');
 });
+
+function glRenderers(model){
+ const starts=Array.from(html.matchAll(/  function ratingNumber\(value\)\{/g),m=>m.index);
+ assert.equal(starts.length,3,'check GL, AL and Internal Rater embedded copies');
+ return starts.map(start=>{
+  const helpers=html.slice(start,html.indexOf('  const value=ratingDisplayValue;',start));
+  const stats=html.indexOf('  function stats(){',start);
+  const numberStart=html.lastIndexOf('  const num=',start);
+  const numbers=html.slice(numberStart,html.indexOf('  const icon=',numberStart));
+  return sandbox(numbers+helpers+html.slice(stats,html.indexOf('  function fig(',stats)),{model:structuredClone(model),route:'wb-gl'});
+ });
+}
+function glModel(rows,text={totalPremium:'$150',totalPremOps:'$100',totalProducts:'$50'}){
+ return {tables:{gl_exposure:rows,al_fleet:[],primary:[],tower:[]},text,engine:{ready:true},dirty:false};
+}
+function glRow(exposure,premP='$100',premG='$50',totalRate='1.500'){
+ return {fields:{exposures:{value:exposure}},outputs:{premP,premG,totalRate}};
+}
+
+test('GL renderers show unknown row and total outputs as Not rated without changing source values',()=>{
+ const model=glModel([glRow('100,000','Not stated','$50','Not rated')],{totalPremium:'Not rated',totalPremOps:'Not stated',totalProducts:'$50'});
+ for(const c of glRenderers(model)){
+  const before=JSON.stringify(c.model);c.stats();
+  assert.equal(c.model.display.glTotal,'Not rated');assert.equal(c.model.display.glBlended,'Not rated');assert.equal(c.model.display.glRated,'0 of 1 classes rated');
+  assert.equal(c.model.display.glParts,'Not rated · $50');
+  assert.equal(c.ratingDisplayValue('tables.gl_exposure.0.outputs.premP'),'Not rated');assert.equal(c.ratingDisplayValue('tables.gl_exposure.0.outputs.totalRate'),'Not rated');assert.equal(c.ratingDisplayValue('text.totalPremOps'),'Not rated');
+  assert.equal(c.ratingDisplayValue('tables.gl_exposure.0.outputs.premG'),'$50');
+  const {display,...unchanged}=c.model;assert.equal(JSON.stringify(unchanged),before,'presentation must preserve the native outputs');
+ }
+});
+
+test('GL rated counts require complete numeric row outputs and positive exposure; partial schedules have no blended rate',()=>{
+ const model=glModel([glRow('100,000'),glRow('200,000','Not stated','$0','Not rated'),glRow('0','$0','$0','0.000'),glRow('50,000','$0','$0','0.000')]);
+ for(const c of glRenderers(model)){
+  c.stats();assert.equal(c.model.display.glRated,'2 of 4 classes rated');assert.equal(c.model.display.glTotal,'Not rated');assert.equal(c.model.display.glBlended,'Not rated');
+  assert.equal(c.ratingDisplayValue('tables.gl_exposure.3.outputs.premP'),'$0','explicit zero stays numeric');
+  c.model.tables.gl_exposure[1]=glRow('200,000','$0','$0','0.000');c.stats();
+  assert.equal(c.model.display.glRated,'3 of 4 classes rated');assert.equal(c.model.display.glTotal,'$150');assert.equal(c.model.display.glBlended,'0.429');
+ }
+});
+
+test('GL missing totals never turn into zero rates, while an explicitly zero rated schedule remains zero',()=>{
+ const model=glModel([glRow('100,000','$0','$0','0.000')],{totalPremium:'$0',totalPremOps:'$0',totalProducts:'$0'});
+ for(const c of glRenderers(model)){
+  c.stats();assert.equal(c.model.display.glRated,'1 of 1 classes rated');assert.equal(c.model.display.glTotal,'$0');assert.equal(c.model.display.glBlended,'0.000');
+  for(const value of ['',null,'—','Not stated','Not rated','Pending 0']){
+   c.model.text.totalPremium=value;c.stats();assert.equal(c.model.display.glTotal,'Not rated');assert.equal(c.model.display.glBlended,'Not rated');assert.equal(c.ratingDisplayValue('text.totalPremium'),'Not rated');
+  }
+  c.model=glModel([glRow('0','$0','$0','0.000')],{totalPremium:'$0',totalPremOps:'$0',totalProducts:'$0'});c.stats();
+  assert.equal(c.model.display.glRated,'0 of 1 classes rated');assert.equal(c.model.display.glBlended,'Not rated');
+ }
+});
+
+test('each GL renderer places recorded source review notices on the affected row and escapes the reason',()=>{
+ const starts=Array.from(html.matchAll(/  function glSourceReview\(row\)\{/g),m=>m.index);assert.equal(starts.length,3);
+ for(const start of starts){
+  const rows=[{...glRow('100,000'),key:'reviewed',review:true,sourceReview:'Recorded mismatch: <name> "quoted"'}, {...glRow('100,000'),key:'clear',review:false}];
+  const escStart=html.lastIndexOf('  const esc=',start),esc=html.slice(escStart,html.indexOf('  const num=',escStart));
+  const c=sandbox(esc+html.slice(start,html.indexOf('  function alHalf(',start)),{model:{tables:{gl_exposure:rows},display:{}},num:Number,tabs:()=>'',figs:()=>'',fig:()=>'',cell:()=>'<input>',output:()=>'',button:()=>'',text:()=>'',icon:()=>'',foot:()=>''});
+  const output=c.glView(),document=parseHTML(output).document;
+  assert.equal(document.querySelectorAll('small').length,1);assert.equal(document.querySelector('[data-rating-row="reviewed"] small').textContent,'Source review required');assert.equal(document.querySelector('[data-rating-row="clear"] small'),null);
+  assert.equal(document.querySelector('small').title,rows[0].sourceReview);assert.doesNotMatch(output,/<name>/);assert.match(output,/&lt;name&gt;/);
+  rows[0].review=false;rows[0].sourceReview='';assert.equal(parseHTML(c.glView()).document.querySelector('small'),null,'no warning inferred from unflagged output');
+ }
+});
+
+function focusedRatingRenderers(){
+ const starts=Array.from(html.matchAll(/  function paintDerivedFields\(\)\{/g),m=>m.index);assert.equal(starts.length,3);
+ return starts.map(start=>{
+  const {document}=parseHTML('<html><body><div id="stage"><input type="text" data-rating-field="r|tower|target|limit" value="2."><input type="text" data-rating-field="r|tower|target|attach" readonly value="1,000,000"><input type="text" data-rating-field="r|highex|high|attach" readonly value="1,000,000"><input type="text" data-rating-field="missing" readonly value="Retain"><span data-rating-output="tables.tower.1.outputs.internalPrem">$7,500</span></div></body></html>');
+  const stage=document.getElementById('stage'),editable=stage.querySelector('[data-rating-field="r|tower|target|limit"]'),derived=stage.querySelector('[data-rating-field="r|tower|target|attach"]'),high=stage.querySelector('[data-rating-field="r|highex|high|attach"]');
+  let focused=editable;Object.defineProperty(document,'activeElement',{configurable:true,get:()=>focused});
+  editable.selectionStart=2;editable.selectionEnd=2;editable.selectionDirection='none';
+  const field=(key,value,readonly=false)=>({key,value,readonly});
+  const next={fields:{},tables:{tower:[{key:'underlying',fields:{attach:field('r|tower|underlying|attach','0',true)},outputs:{}},{key:'target',fields:{limit:field('r|tower|target|limit','2,000,000'),attach:field('r|tower|target|attach','2,000,000',true)},outputs:{internalPrem:'$12,500'}}],highex:[{key:'high',fields:{attach:{...field('r|highex|high|attach','$2,000,000',true),money:true}}}]}};
+  const w={__STM_WB_PHASE6:{}},R={activeId:'S',workbenchWindow:w,route:'wb-internal'};
+  const displayStart=html.lastIndexOf('  const displayValue=',start),displayCode=html.slice(displayStart,html.indexOf('  function input(',displayStart));
+  const c=sandbox(displayCode+html.slice(start,html.indexOf('  function commit(',start)),{document,stage,R,route:'wb-internal',bound:null,owner:null,model:null,signature:'old',service:()=>({read:()=>next}),stats(){},report(e){throw e;},internalView(){throw Error('focused refresh must not replace DOM');},scrollTo(){throw Error('focused refresh must not scroll');},scrollY:0});
+  c.value=path=>path.split('.').reduce((o,k)=>o?.[k],c.model);
+  return {c,document,stage,editable,derived,high,next,focus:el=>{focused=el;}};
+ });
+}
+
+test('focused rating refresh updates readonly tower and high-excess attachments without replacing editable input or cursor',()=>{
+ for(const {c,document,stage,editable,derived,high}of focusedRatingRenderers()){
+  const children=Array.from(stage.children);c.refresh();
+  assert.equal(derived.value,'2,000,000');assert.equal(derived.title,'2,000,000');assert.equal(high.value,'2,000,000','same formatting as full render');
+  assert.equal(stage.querySelector('[data-rating-output]').textContent,'$12,500');
+  assert.equal(editable.value,'2.','retain unfinished user input');assert.equal(document.activeElement,editable);assert.equal(editable.selectionStart,2);assert.equal(editable.selectionEnd,2);
+  assert.deepEqual(Array.from(stage.children),children,'in-place synchronization preserves every node');assert.equal(stage.querySelector('[data-rating-field="missing"]').value,'Retain','unknown field identity must not bind by row index');
+ }
+});
+
+test('focused readonly rating controls receive changed derived values and retain focus and text selection',()=>{
+ for(const {c,document,derived,editable,focus,next}of focusedRatingRenderers()){
+  focus(derived);derived.selectionStart=1;derived.selectionEnd=4;derived.selectionDirection='forward';let selections=0;
+  derived.setSelectionRange=(start,end,direction)=>{selections++;derived.selectionStart=start;derived.selectionEnd=end;derived.selectionDirection=direction;};
+  c.refresh();assert.equal(derived.value,'2,000,000');assert.equal(document.activeElement,derived);assert.equal(derived.selectionStart,1);assert.equal(derived.selectionEnd,4);assert.equal(derived.selectionDirection,'forward');assert.equal(selections,1);
+  c.refresh();assert.equal(selections,1,'unchanged values do not reset selection');
+  next.tables.tower[1].fields.attach.value='3,000,000';c.refresh();assert.equal(derived.value,'3,000,000');assert.equal(derived.title,'3,000,000');assert.equal(selections,2);assert.equal(editable.value,'2.');
+ }
+});

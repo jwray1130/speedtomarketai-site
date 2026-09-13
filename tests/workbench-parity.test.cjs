@@ -16,7 +16,7 @@ function section(start,end) {
 
 // DOM only: public adapters and the actual July source parsers/writers execute
 // unchanged. Network/cloud, PDF extraction and visual startup are not simulated.
-function harness() {
+function harness(realGlSource=false) {
   const dom=parseHTML('<html><body></body></html>'),document=dom.document;
   const window={document,Event:dom.window.Event,HTMLSelectElement:dom.window.HTMLSelectElement,HTMLElement:dom.window.HTMLElement};
   Object.defineProperties(window.HTMLSelectElement.prototype,{
@@ -63,14 +63,122 @@ function harness() {
   vm.runInContext(section('        function parseLossTables85(', '        // v8.7.20: public no-cost rebind hook'),context);
   vm.runInContext(section('        function applyGLExposureRaterFromActiveSubmission(', '        // v8.6.87 — section population hardening'),context);
   const tbody=$('classTerritoryTable').querySelector('tbody');
-  Object.assign(context,{parseGLClassRows89:s=>s.classes||[],stateZipFromSubmission89:()=>({state:'TX',zip:'77001'}),normalizeBasisForSelect:()=> '1000',unlockGlRaterRows94(){},syncUnderwritingRiskProfileFromGlRater8702(){},parseNumber:v=>Number(String(v||'').replace(/[^0-9.-]/g,''))||0,fmt:{money:v=>'$'+Math.round(v).toLocaleString('en-US')},tbody,totPremOpsEl:$('totalPremOps'),totProductsEl:$('totalProducts'),totalDisplayEl:$('totalPremium')});
+  Object.assign(context,{parseGLClassRows89:s=>s.classes||[],glSourceReview89:()=>'',stateZipFromSubmission89:()=>({state:'TX',zip:'77001'}),normalizeBasisForSelect:()=> '1000',unlockGlRaterRows94(){},syncUnderwritingRiskProfileFromGlRater8702(){},parseNumber:v=>Number(String(v||'').replace(/[^0-9.-]/g,''))||0,fmt:{money:v=>'$'+Math.round(v).toLocaleString('en-US')},tbody,totPremOpsEl:$('totalPremOps'),totProductsEl:$('totalProducts'),totalDisplayEl:$('totalPremium')});
   window.WorkbenchRules={resolveField(){return null;}};
+  if(realGlSource){
+    vm.runInContext(read('workbench-rules.js'),context);
+    vm.runInContext(section('        function normalizeBasisForSelect(', '        function normalizeExposureBasisOption('),context);
+    vm.runInContext(section('        const _csft89Memo =', '        // v8.6.87 — section population hardening'),context);
+    vm.runInContext(section('        function r85(', '        function parseLossTables85('),context);
+  }
   vm.runInContext(section('            function recalcGLRater() {','            window.__stmRecalcGLRater87104 ='),context);
   window.__stmRecalcGLRater87104=context.recalcGLRater;
   return {window,document,$,api,edits,p5,p6,context,year,large,ratingRow,fillLoss:context.applyLossHistoryFromActiveSubmission,fillGL:context.applyGLExposureRaterFromActiveSubmission};
 }
 function losses(paid=100,claims=2){return {id:'SUB-A',snapshot:{extractions:{losses:{text:JSON.stringify({policy_years:[{policy_year:'25-26',gl_claims:claims,gl_paid:paid,gl_reserve:20,gl_incurred:paid+20,al_claims:1,al_paid:9,al_reserve:0,al_incurred:9},{policy_year:'24-25',gl_claims:3,gl_paid:200,gl_reserve:30,gl_incurred:230}],large_losses:[{lob:'GL',dol:'01/02/2025',incurred:120,paid:100,description:'Claim A',status:'Open'}]})}}}};}
 const glClasses=exposure=>({classes:[{code:'11111',desc:'One',exposure,base:'1000',rateP:'2',rateG:'1',quotePremP:'700',quotePremG:'100'},{code:'22222',desc:'Two',exposure:2000,base:'1000',rateP:'3',rateG:'0'}]});
+const glSchedule=(rows,flatten=false)=>('COMMERCIAL GENERAL LIABILITY\nRATE PREM/ PROD/COMP\nCLASSIFICATION CODE# PREMIUM BASIS BASIS OPS OPS\n'+rows.join('\n')+'\nRATE BASIS: 1 - SALES PER $1,000\nADDITIONAL COVERAGES\nOther coverage $99,999').replace(flatten?/\n/g:/$^/g,' ');
+const glSource=(text,extra={})=>({id:'SUB-A',home_state:'TX',snapshot:{files:[{id:'QUOTE-A',name:'Quote.pdf',submissionId:'SUB-A',routedToAll:['gl_quote'],extractMeta:{pageTexts:[{page:4,text}]},...extra}]}});
+
+test('actual flattened PDF-style class schedule carries arbitrary exposure and printed premiums into native calculation',()=>{
+  for(const flattened of [false,true]){
+    const h=harness(true),sub=glSource(glSchedule(['Hardware Stores 13716 2,345,000 (001) $1,234 $2,345','Feed Dealers 12583 75,000 (001) $0 $45'],flattened));
+    const parsed=h.context.parseGLClassRows89(sub);assert.equal(parsed.length,2);assert.equal(parsed[0].sourcePage,4);assert.equal(parsed[1].quotePremP,0);
+    h.fillGL(sub);const rows=h.p6.read('SUB-A').tables.gl_exposure;
+    assert.equal(rows[0].fields.exposures.value,'2,345,000');assert.equal(rows[1].fields.exposures.value,'75,000');assert.equal(rows[1].fields.rateP.value,'0');
+    assert.equal(h.$('totalPremium').textContent,'$3,624');assert.equal(h.$('totalPremOps').textContent,'$1,234');assert.equal(h.$('totalProducts').textContent,'$2,390');
+  }
+});
+
+test('missing or ambiguous class premiums never borrow another row/page/file amount or retain stale rates',()=>{
+  const h=harness(true),complete=glSchedule(['Hardware Stores 13716 2,345,000 (001) $1,234 $2,345']);h.fillGL(glSource(complete));
+  for(const row of ['Hardware Stores 13716 2,345,000 (001) $99','Hardware Stores 13716 2,345,000 (001) $99 $88 $77','Hardware Stores 13716 2,345,000 (001)']){
+    const sub=glSource(glSchedule([row]));sub.snapshot.files[0].extractMeta.pageTexts.push({page:5,text:'$1,234 $2,345'});sub.snapshot.files.push({name:'Other Quote.pdf',routedToAll:['gl_quote'],extractMeta:{pageTexts:['$1,234 $2,345']}});
+    h.fillGL(sub);const result=h.p6.read('SUB-A').tables.gl_exposure[0];assert.equal(result.fields.rateP.value,'');assert.equal(result.fields.rateG.value,'');assert.equal(result.outputs.premP,'Not stated');assert.equal(result.outputs.premG,'Not stated');assert.equal(result.review,true);assert.equal(h.$('totalPremium').textContent,'Not rated');
+  }
+  const noHeading=glSource('COMMERCIAL GENERAL LIABILITY\nHardware Stores 13716 2,345,000 (001) $1,234 $2,345');assert.equal(h.context.parseGLClassRows89(noHeading).length,0);
+  const unrelated=glSource('Property value 7,654,000\nReference 13716\nVehicle value 3,210,000');assert.equal(h.context.parseGLClassRows89(unrelated).length,0);
+});
+
+test('GL source eligibility honors snapshot gates, explicit file scope and current evidence without a stale memo',()=>{
+  const h=harness(true),text=glSchedule(['Hardware Stores 13716 2,345,000 (001) $12 $34']);
+  for(const metadata of [{submissionId:'SUB-B'},{cancelled:true},{state:'duplicate'},{state:'error'},{routedToAll:['al_quote']}])assert.equal(h.context.parseGLClassRows89(glSource(text,metadata)).length,0);
+  for(const record of [{rejected:true},{refused:true},{excluded:true},{gateDetails:{proceed:false}}]){const s=glSource(text);s.snapshot.extractions={gl_quote:record};assert.equal(h.context.parseGLClassRows89(s).length,0);}
+  const strict=glSource(text);strict.snapshot.extractions={gl_quote:{applicantGate:'mismatch',text:JSON.stringify({class_codes:[{code:'13716',premium_basis:999000,rate_basis:'001',prem_ops_premium:90,prod_comp_premium:10}]})}};
+  h.window.STM_APPLICANT_GATE_MODE='strict';assert.equal(h.context.parseGLClassRows89(strict).length,0);
+  h.fillGL(strict);assert.match(h.$('classTerritoryTable').dataset.glSourceReview,/applicant mismatch/);
+  h.window.STM_APPLICANT_GATE_MODE='off';assert.equal(h.context.parseGLClassRows89(strict)[0].quotePremP,90);
+  assert.match(h.context.parseGLClassRows89(strict)[0].sourceReview,/applicant mismatch/);
+  const review=glSource(text);review.snapshot.extractions={gl_quote:{text:JSON.stringify({review_required:true,source_identity_conflicts:[{sourceModule:'gl_quote',detectedInsureds:['Other Example'],submissionInsured:'Current Example'}]})}};h.fillGL(review);assert.match(h.$('classTerritoryTable').dataset.glSourceReview,/identity conflict/);
+  const fresh=glSource(text);assert.equal(h.context.parseGLClassRows89(fresh)[0].quotePremP,12);fresh.snapshot.files[0].extractMeta.pageTexts[0].text=text.replace('$12','$56');assert.equal(h.context.parseGLClassRows89(fresh)[0].quotePremP,56);
+});
+
+test('conflicting class schedules remain unrated while structured A12 remains authoritative, including zero',()=>{
+  const h=harness(true),text=glSchedule(['Hardware Stores 13716 2,345,000 (001) $12 $34']),sub=glSource(text);
+  sub.snapshot.files.push({...clone(sub.snapshot.files[0]),id:'QUOTE-B',extractMeta:{pageTexts:[text.replace('$12','$99')]}});
+  sub.snapshot.files.push({...clone(sub.snapshot.files[0]),id:'QUOTE-C'});
+  h.fillGL(sub);assert.equal(h.$('totalPremium').textContent,'Not rated');assert.match(h.context.parseGLClassRows89(sub)[0].reviewReason,/Conflicting/);
+  sub.snapshot.extractions={gl_quote:{text:JSON.stringify({class_codes:[{code:'13716',premium_basis:80000,rate_basis:'001',prem_ops_premium:0,prod_comp_premium:70}]})}};
+  h.fillGL(sub);const rows=h.p6.read('SUB-A').tables.gl_exposure;assert.equal(rows[0].fields.exposures.value,'80,000');assert.equal(rows[0].fields.rateP.value,'0');assert.equal(rows[0].outputs.premP,'$0');assert.equal(h.$('totalPremium').textContent,'$70');
+});
+
+test('raw column fallback requires exact alignment and numbered descriptions cannot shift premium cells',()=>{
+  const h=harness(true),column=glSource('COMMERCIAL GENERAL LIABILITY\nCLASSIFICATION\nCODE#\nPREMIUM BASIS\nPREM/OPS\nPROD/COMP OPS\nHardware Stores\nFeed Dealers\n13716\n12583\n1,234,000\n54,000\n(001)\n(001)\n$12\n$34\n$56\n$78\nRATE BASIS: 1 - SALES PER $1,000');
+  const rows=h.context.parseGLClassRows89(column);assert.equal(rows.length,2);assert.ok(rows.every(r=>r.quotePremP===''&&r.quotePremG===''));
+  const odd=glSource(glSchedule(['Hardware Stores 13716 2,345,000 (001) $12 $34','Feed Dealer Location 2 12583 75,000 (001) $56 $78'],true));
+  const parsed=h.context.parseGLClassRows89(odd);assert.equal(parsed.length,2);assert.equal(parsed[0].quotePremP,'');assert.equal(parsed[1].quotePremP,56);
+  const bad=clone(column);bad.snapshot.files[0].extractMeta.pageTexts[0].text=column.snapshot.files[0].extractMeta.pageTexts[0].text.replace('54,000\n','');assert.equal(h.context.parseGLClassRows89(bad).length,0);
+});
+
+test('actual raw class feed preserves manual cells and explicit clears through new source and saved reload',()=>{
+  const h=harness(true),first=glSource(glSchedule(['Hardware Stores 13716 2,000,000 (001) $1,000 $2,000']));h.fillGL(first);
+  let row=h.p6.read('SUB-A').tables.gl_exposure[0];h.p6.set('SUB-A',row.fields.rateP.key,'3');const saved=clone(h.edits.map.__phase6);
+  const later=glSource(glSchedule(['Hardware Stores 13716 3,000,000 (001) $1,100 $2,500']));h.fillGL(later);row=h.p6.read('SUB-A').tables.gl_exposure[0];assert.equal(row.fields.rateP.value,'3');assert.equal(row.fields.exposures.value,'3,000,000');assert.equal(h.$('totalPremium').textContent,'$11,500');
+  const reopened=harness(true);reopened.fillGL(later);reopened.p6.restore(saved);assert.equal(reopened.$('totalPremium').textContent,'$11,500');
+  row=reopened.p6.read('SUB-A').tables.gl_exposure[0];reopened.p6.set('SUB-A',row.fields.rateP.key,'');const cleared=clone(reopened.edits.map.__phase6);reopened.fillGL(first);assert.equal(reopened.$('totalPremium').textContent,'Not rated');
+  const again=harness(true);again.fillGL(later);again.p6.restore(cleared);assert.equal(again.p6.read('SUB-A').tables.gl_exposure[0].fields.rateP.value,'');assert.equal(again.$('totalPremium').textContent,'Not rated');
+});
+
+test('manual whole-table GL ownership retains values but refreshes current extraction review evidence',()=>{
+  const h=harness(true),sub=glSource(glSchedule(['Hardware Stores 13716 2,000,000 (001) $1,000 $2,000']));h.fillGL(sub);h.p6.action('SUB-A','gl_exposure:add',{});
+  assert.equal(h.p6.owns('gl_exposure'),true);const before=h.p6.read('SUB-A').tables.gl_exposure[0].fields.exposures.value;
+  sub.snapshot.extractions={gl_quote:{applicantGate:'mismatch'}};h.fillGL(sub);let row=h.p6.read('SUB-A').tables.gl_exposure[0];assert.equal(row.fields.exposures.value,before);assert.match(row.sourceReview,/applicant mismatch/);
+  sub.snapshot.extractions={gl_quote:{text:JSON.stringify({review_required:true})}};h.fillGL(sub);row=h.p6.read('SUB-A').tables.gl_exposure[0];assert.match(row.sourceReview,/requires review/);assert.doesNotMatch(row.sourceReview,/mismatch/);
+  sub.snapshot.extractions={};h.fillGL(sub);assert.equal(h.p6.read('SUB-A').tables.gl_exposure[0].sourceReview,'');
+});
+
+test('partial structured GL fills only absent premiums from an exact eligible raw match without adding classes',()=>{
+  const h=harness(true),sub=glSource(glSchedule(['Hardware Stores 13716 2,345,000 (001) $12 $34','Feed Dealers 12583 75,000 (001) $56 $78'],true));
+  const structured={code:'13716',premium_basis:2345000,rate_basis:'001',prem_ops_premium:0};sub.snapshot.extractions={gl_quote:{text:JSON.stringify({class_codes:[structured]})}};
+  let rows=h.context.parseGLClassRows89(sub);assert.equal(rows.length,1);assert.equal(rows[0].quotePremP,0);assert.equal(rows[0].quotePremG,34);assert.equal(rows[0].premiumSourceG.page,4);assert.equal(rows[0].premiumSourceP,undefined);
+  h.fillGL(sub);assert.equal(h.$('totalPremium').textContent,'$34');
+  for(const change of [{code:'13716oops'},{code:'13716 / 12583'},{premium_basis:2345001},{premium_basis:2345000.25},{premium_basis:'2345000oops'},{rate_basis:'payroll'},{rate_basis:''},{rate_basis:'unknown'},{rate_basis:'N/A'},{rate_basis:'bogus'},{prod_comp_premium:'unknown'},{prod_comp_rate:'invalid'}]){
+    const other=clone(sub);other.snapshot.extractions.gl_quote.text=JSON.stringify({class_codes:[{...structured,...change}]});rows=h.context.parseGLClassRows89(other);assert.equal(rows.length,1);assert.equal(rows[0].quotePremG,'');assert.equal(rows[0].premiumSourceG,undefined);
+  }
+  const explicit=clone(sub);explicit.snapshot.extractions.gl_quote.text=JSON.stringify({class_codes:[{...structured,prod_comp_rate:0.5}]});rows=h.context.parseGLClassRows89(explicit);assert.equal(rows[0].rateG,'0.5');assert.equal(rows[0].quotePremG,'');
+  const conflicts=clone(sub);conflicts.snapshot.files.push({...clone(sub.snapshot.files[0]),id:'OTHER',extractMeta:{pageTexts:[glSchedule(['Hardware Stores 13716 2,345,000 (001) $12 $99'])]}});rows=h.context.parseGLClassRows89(conflicts);assert.equal(rows[0].quotePremP,0);assert.equal(rows[0].quotePremG,'');assert.match(rows[0].reviewReason,/Conflicting/);
+});
+
+test('underlying lead summary resolves its occurrence limit before package primary GL without inventing our target',()=>{
+  const h=harness(true),primary='DECLARATIONS: COMMERCIAL GENERAL LIABILITY\nEach Occurrence Limit $1,000,000',umbrella='DECLARATIONS: COMMERCIAL LIABILITY UMBRELLA COVERAGE INFORMATION\nEach Occurrence Limit (Liability Coverage) $3,000,000\nSCHEDULE OF UNDERLYING INSURANCE\nGeneral Liability Each Occurrence Limit $1,000,000';
+  const sub={id:'SUB-A',snapshot:{extractions:{excess:{text:'Underlying Excess Program Tower\nLayer 1 - Lead Umbrella - Example Carrier\nLimits: Each Occurrence $3,000,000 / Aggregate $3,000,000\nSchedule of Underlying: GL $1,000,000 / Auto $1,000,000\nPremium: $12,345'}},files:[{name:'Package.pdf',submissionId:'SUB-A',routedToAll:['gl_quote','excess'],extractMeta:{pageTexts:[primary,umbrella]}}]}};
+  assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',sub).value,'3,000,000');assert.equal(h.window.WorkbenchRules.resolveField('requested_limit',sub),null);
+  const structured=clone(sub);structured.snapshot.extractions.excess.text+='\n```json\n'+JSON.stringify({underlying_lead_limit:4000000})+'\n```';assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',structured).value,4000000);
+  const raw=clone(sub);raw.snapshot.extractions.excess.text='No module limit supplied.';assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',raw).value,'3,000,000');
+  for(const pages of [[primary],[primary,'SCHEDULE OF UNDERLYING INSURANCE\nEach Occurrence Limit $1,000,000']]){const onlyPrimary=clone(raw);onlyPrimary.snapshot.files[0].extractMeta.pageTexts=pages;assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',onlyPrimary),null);}
+  const foreign=clone(raw);foreign.snapshot.files[0].submissionId='SUB-B';assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',foreign),null);
+  const conflicting=clone(raw);conflicting.snapshot.files[0].extractMeta.pageTexts.push(umbrella.replace('$3,000,000','$5,000,000'));assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',conflicting),null);
+});
+
+test('underlying lead fallback excludes rejected and hypothetical/nonlead sources without borrowing later layer amounts',()=>{
+  const h=harness(true),make=text=>({id:'SUB-A',snapshot:{extractions:{excess:{text}},files:[]}});
+  for(const text of ['Layer 2 - Second Excess - Example Carrier\nLimits: Each Occurrence $5,000,000','Layer 2 - Second Excess\nEXCESS LIABILITY COVERAGE\nEach Occurrence Limit $5,000,000','Layer 2 - Second Excess\n$5M xs $3M','Ask vs Offer\nA typical Lead $5M could be added.','Layer 1 - Lead Umbrella\nLimits not stated\nLayer 2 - Second Excess\nLimits: Each Occurrence $5,000,000'])assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',make(text)),null);
+  const text='Layer 1 - Lead Umbrella - Example Carrier\nLimits: Each Occurrence $3,000,000';
+  assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',make(text+'\nLayer 2 - Second Excess\nLimits: $5M xs $3M')).value,'3,000,000');
+  for(const flags of [{rejected:true},{refused:true},{excluded:true},{gateDetails:{proceed:false}}]){const sub=make(text);Object.assign(sub.snapshot.extractions.excess,flags);assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',sub),null);}
+  const mismatch=make(text);mismatch.snapshot.extractions.excess.applicantGate='mismatch';h.window.STM_APPLICANT_GATE_MODE='strict';assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',mismatch),null);h.window.STM_APPLICANT_GATE_MODE='off';assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',mismatch).value,'3,000,000');
+  const refused=make('No matching underlying excess policies found for this insured.\n'+text);assert.equal(h.window.WorkbenchRules.resolveField('underlying_lead_limit',refused),null);
+});
 
 test('loaded submission identity uses July convention, with distinct known IDs',()=>{
   const window={};vm.runInNewContext(app,{window,console:{log(){}},document:{addEventListener(){}}});

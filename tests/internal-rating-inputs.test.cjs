@@ -38,7 +38,7 @@ function harness(){
  const high=Array.from({length:15},()=>row('highex',{active:false,applied:'',admit:'Non-Admitted'}));
  const set=(tr,kind,k,v)=>{const el=tr.querySelector(`[${bridge.specs[kind].attr}="${k}"]`);if(k==='active')el.checked=v;else el.value=String(v);};
  $('clearSheetBtn').onclick=()=>{set(primary,'primary','ulPrem','');set(primary,'primary','manualPrem','');};
- return {bridge,api,edits,engine,$,primary,tower,fleet,al,high,set,read:()=>bridge.read('S')};
+ return {bridge,api,edits,engine,$,primary,tower,fleet,al,high,set,row,read:()=>bridge.read('S')};
 }
 
 test('default rows, layer limits and carrier premiums do not turn an empty worksheet into rated evidence',()=>{
@@ -78,4 +78,37 @@ test('source removal, explicit clear and native empty reset recompute presence w
  h.bridge.set('S',key,'3000');h.bridge.action('S','internal:clear');assert.equal(h.read().engine.hasRatingInputs,false);
  assert.equal(h.bridge.owns('primary'),true,'saved ownership alone must not count as inputs');
  h.set(h.primary,'primary','ulPrem','Not stated');assert.equal(h.read().engine.hasRatingInputs,false);
+});
+
+test('GL quoted status recognizes explicitly stated zero premiums without counting blank or invalid metadata',()=>{
+ const h=harness(),row=h.row('gl_exposure',{code:'54321',exposures:'100000',base:'1000'});
+ assert.equal(h.read().tables.gl_exposure[0].quoted,false);
+ for(const value of ['', ' ', 'Not stated', 'Infinity', '0x10', '-1']){
+  row.dataset.quotePremP=value;assert.equal(h.read().tables.gl_exposure[0].quoted,false,value);
+ }
+ for(const value of ['0','0.00','125.50']){
+  row.dataset.quotePremP=value;assert.equal(h.read().tables.gl_exposure[0].quoted,true,value);
+ }
+ delete row.dataset.quotePremP;row.dataset.quotePremG='0';assert.equal(h.read().tables.gl_exposure[0].quoted,true);
+});
+
+test('GL source review relays only recorded schedule or row metadata independently of rating availability',()=>{
+ const h=harness(),row=h.row('gl_exposure',{code:'54321',desc:'Unrelated-looking name',exposures:'100000',base:'1000'}),table=h.$('classTerritoryTable');
+ row.insertAdjacentHTML('beforeend','<td data-out="totalRate">0.000</td><td data-out="premP">$0</td><td data-out="premG">$0</td>');
+ assert.equal(h.read().tables.gl_exposure[0].review,false);
+ table.dataset.glSourceReview='Recorded applicant mismatch.';row.dataset.glSourceReview='Review source schedule.';
+ let shown=h.read().tables.gl_exposure[0];assert.equal(shown.review,true);assert.equal(shown.sourceReview,'Recorded applicant mismatch. Review source schedule.');assert.equal(shown.outputs.premP,'$0');
+ delete row.dataset.glSourceReview;assert.equal(h.read().tables.gl_exposure[0].sourceReview,'Recorded applicant mismatch.');
+ delete table.dataset.glSourceReview;shown=h.read().tables.gl_exposure[0];assert.equal(shown.review,false);assert.equal(shown.sourceReview,'','no review inferred from description');
+ row.classList.add('class-code-review-required');assert.equal(h.read().tables.gl_exposure[0].review,true,'existing reference review remains visible');
+});
+
+test('GL row source review and zero quoted premiums survive saved-table restoration, including older optional metadata',()=>{
+ const h=harness(),row=h.row('gl_exposure',{code:'54321',exposures:'100000',base:'1000'});
+ row.dataset.quotePremP='0';row.dataset.glSourceReview='Source premium columns require review.';
+ h.edits.dirtyTables.add('gl_exposure');h.bridge.capture();const saved=JSON.parse(JSON.stringify(h.edits.map.__phase6));
+ assert.equal(saved.data.tables.gl_exposure[0].meta.sourceReview,row.dataset.glSourceReview);
+ const r=harness();r.row('gl_exposure',{base:'1000'});r.$('classTerritoryTable').dataset.glSourceReview='Current extraction has a recorded mismatch.';r.bridge.restore(saved);
+ const restored=r.read().tables.gl_exposure[0];assert.equal(restored.quoted,true);assert.equal(restored.review,true);assert.match(restored.sourceReview,/Source premium columns require review/);assert.match(restored.sourceReview,/Current extraction has a recorded mismatch/);
+ delete saved.data.tables.gl_exposure[0].meta.sourceReview;assert.equal(r.bridge.validate(saved),true,'older snapshots remain valid');
 });
