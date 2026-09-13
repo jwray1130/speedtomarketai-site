@@ -6,7 +6,7 @@
 // browser whether a deploy actually rolled out (cached old build vs. new
 // build serve identically except for behavior). Bumping this string is a
 // hard requirement on every code change going forward.
-window.STM_BUILD = 'v9.9.9-brand-click-2026-09-11';
+window.STM_BUILD = 'v8.7.167-a3-attachment-cache-contract-2026-07-09';
 console.log('[STM BUILD]', window.STM_BUILD);
 window.debugBuildInfo = function() {
   return {
@@ -144,7 +144,7 @@ async function sendMagicLink() {
     email,
     options: {
       shouldCreateUser: false,
-      emailRedirectTo: window.location.origin + window.location.pathname.replace(/engine-(platform|workbench)(\.html)?$/, 'platform$2')
+      emailRedirectTo: window.location.origin + window.location.pathname
     }
   });
   if (error) { console.warn('[auth] magic-link request did not complete:', error.message || error); }
@@ -342,7 +342,6 @@ async function llmProxyFetch(body, extraHeaders) {
   let refreshedAuthAfter401 = false;
 
   while (attempt < maxAttempts) {
-    window.__STM_SUBMISSION?.assertNotCancelled();
     const startedAt = Date.now();
     let res = null;
     let bodyText = '';
@@ -353,9 +352,7 @@ async function llmProxyFetch(body, extraHeaders) {
 
     // Per-attempt timeout via AbortController. Without this, a hung proxy
     // could pin a single attempt forever and we'd never get to retry.
-    window.__STM_SUBMISSION?.assertNotCancelled();
     const abortCtrl = new AbortController();
-    const releaseCancel = window.__STM_SUBMISSION?.registerAbort(abortCtrl);
     const timeoutId = setTimeout(() => abortCtrl.abort(), LLM_PROXY_RETRY_CONFIG.perAttemptTimeout);
 
     try {
@@ -373,9 +370,7 @@ async function llmProxyFetch(body, extraHeaders) {
       status = 0;
     } finally {
       clearTimeout(timeoutId);
-      releaseCancel?.();
     }
-    window.__STM_SUBMISSION?.assertNotCancelled();
 
     const latencyMs = Date.now() - startedAt;
 
@@ -869,8 +864,29 @@ function loadGuidelineFromStorage() {
 }
 
 async function saveGuidelineOverride(text) {
-  try { await window.__STM_ADMIN_CONFIG.commit({...STATE.api,forceGlobal:!!STATE.api.forceGlobal,guideline:text||''});toast(text?'Guideline updated':'Guideline reset to default');return true; }
-  catch (e) {toast('Guideline not saved: '+(e.message||e),'error');return false;}
+  const clearing = !text || text.length < 100;
+  if (clearing) {
+    ACTIVE_GUIDELINE = DEFAULT_GUIDELINE;
+  } else {
+    ACTIVE_GUIDELINE = text;
+  }
+  // Persist to Supabase. Now awaited so the success toast reflects actual
+  // cloud state. Previously fire-and-forget with optimistic toast — admin
+  // could change the guideline, refresh, and find the change wasn't saved.
+  let cloudOk = true;
+  if (typeof sbSaveSettings === 'function') {
+    try {
+      await sbSaveSettings({ carrier_guideline: clearing ? null : text });
+    } catch (e) {
+      cloudOk = false;
+      console.warn('Guideline save failed', e);
+      toast('Guideline save failed · ' + (e.message || 'network'), 'error');
+    }
+  }
+  logAudit('Admin', 'Carrier guideline updated · ' + (text ? text.length.toLocaleString() + ' chars' : 'reset to default'), 'user');
+  if (cloudOk) {
+    toast('Guideline ' + (text ? 'updated' : 'reset to Zurich default'));
+  }
 }
 
 function getActiveGuideline() {
@@ -1278,10 +1294,53 @@ function closeSettings() {
 }
 
 async function saveSettings() {
-  try {
-    await window.__STM_ADMIN_CONFIG.commit({model:document.getElementById('apiModel').value,maxTokens:Number(document.getElementById('apiMaxTokens').value),forceGlobal:!!document.getElementById('forceGlobalModel').checked,guideline:document.getElementById('carrierGuideline').value});
-    closeSettings(); toast('Settings saved'); return true;
-  } catch (e) { toast('Settings not saved: '+(e.message||e),'error'); return false; }
+  const model = document.getElementById('apiModel').value;
+  const maxTokens = parseInt(document.getElementById('apiMaxTokens').value) || 4096;
+  // Round 5 fix #1: read forceGlobal checkbox state. When true, callLLM in
+  // pipeline.js routes every LLM call through this model regardless of the
+  // per-module preference. Defaults to false (existing per-module routing).
+  const forceGlobal = !!document.getElementById('forceGlobalModel')?.checked;
+  STATE.api = { model, maxTokens, forceGlobal };
+
+  // FIX #4 — AWAIT THE CLOUD SAVE BEFORE TOASTING SUCCESS
+  // Previously this used .catch() on the promise without awaiting. The
+  // success toast fired immediately even if the cloud save was still in
+  // flight — or, worse, was about to fail. User saw "Settings saved" and
+  // closed the modal, then the failure logged silently to the console.
+  // Now we await the save and only toast success if it actually succeeded.
+  // Failures still update local STATE.api so the user gets the in-memory
+  // change for this session.
+  let cloudSaveOk = true;
+  if (typeof sbSaveSettings === 'function') {
+    try {
+      await sbSaveSettings({ default_model: model, max_tokens: maxTokens, force_global_model: forceGlobal });
+    } catch (e) {
+      cloudSaveOk = false;
+      console.warn('Model/token settings save failed', e);
+    }
+  }
+
+  // Save guideline override if present. Awaited so the "Settings saved"
+  // toast at the end reflects actual persistence of both model AND guideline.
+  const ta = document.getElementById('carrierGuideline');
+  if (ta) {
+    const val = ta.value.trim();
+    if (val.length === 0) {
+      await saveGuidelineOverride('');
+    } else if (val.length < 100) {
+      toast('Guideline too short (min 100 chars) · kept existing', 'warn');
+    } else if (val !== ACTIVE_GUIDELINE) {
+      await saveGuidelineOverride(val);
+    }
+  }
+
+  updateApiPillUI();
+  closeSettings();
+  if (cloudSaveOk) {
+    toast('Settings saved');
+  } else {
+    toast('Settings saved locally · cloud save failed (kept in-memory for this session)', 'warn');
+  }
 }
 
 async function resetGuidelineToDefault() {
@@ -3520,9 +3579,7 @@ async function archiveCurrentSubmission(opts) {
     handoff:        deepClone(STATE.handoff),
     audit:          STATE.audit.slice(),            // shallow is fine, events are flat
     runTotalCost:   STATE.runTotalCost || 0,
-    pipelineRun:    STATE.pipelineRun,
-    _stmRunComplete: !!STATE.pipelineDone,
-    _stmOperation: window.__STM_SUBMISSION?.lastOperation?.()||null
+    pipelineRun:    STATE.pipelineRun
   };
   // Upsert — look for an existing record by pipelineRun
   let rec = STATE.submissions.find(s => s.pipelineRun === STATE.pipelineRun);
@@ -3728,9 +3785,7 @@ async function rehydrateSubmission(submissionId) {
         handoff:        deepClone(STATE.handoff),
         audit:          STATE.audit.slice(),
         runTotalCost:   STATE.runTotalCost || 0,
-        pipelineRun:    STATE.pipelineRun,
-    _stmRunComplete: !!STATE.pipelineDone,
-    _stmOperation: window.__STM_SUBMISSION?.lastOperation?.()||null
+        pipelineRun:    STATE.pipelineRun
       };
       activeRec.lastModifiedAt = Date.now();
       // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
@@ -4409,13 +4464,7 @@ function flashCardFeedback(targetId, sentiment) {
 //   Tab 1 — Summary: counts by module / sentiment / reason
 //   Tab 2 — All Events: every feedback record, ordered newest-first
 //   Tab 3+ — one tab per module that received feedback, with the output snapshots
-async function exportFeedback(options = {}) {
-  const exportOwner = window.currentUser?.id;
-  const exportRole = window.currentUser?.role;
-  const assertExportOwner = () => {
-    if (!exportOwner || window.currentUser?.id !== exportOwner || (exportRole === 'admin' && window.currentUser?.role !== 'admin')) throw new Error('Session changed during feedback export. No file was created.');
-  };
-  assertExportOwner();
+async function exportFeedback() {
   if (typeof XLSX === 'undefined') {
     toast('SheetJS not loaded', 'error');
     return;
@@ -4460,17 +4509,14 @@ async function exportFeedback(options = {}) {
       });
     }
   } catch (err) {
-    if (options.requireCloud) throw new Error('Cloud feedback could not be read. No export was created: ' + (err.message || err));
     console.warn('Feedback export: Supabase read failed, falling back to in-memory', err);
     events = STATE.feedback || [];
   }
-  assertExportOwner();
   // If nothing came back from either source, fall back to in-memory
-  if (!options.requireCloud && events.length === 0 && (STATE.feedback || []).length > 0) {
+  if (events.length === 0 && (STATE.feedback || []).length > 0) {
     events = STATE.feedback;
   }
   if (events.length === 0) {
-    if (options.requireCloud) throw new Error('No cloud feedback events are available to export.');
     toast('No feedback events yet', 'warn');
     return;
   }
@@ -4571,7 +4617,6 @@ async function exportFeedback(options = {}) {
   });
 
   const filename = 'stm_feedback_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.xlsx';
-  assertExportOwner();
   XLSX.writeFile(wb, filename);
   logAudit('Feedback', 'Exported ' + events.length + ' events · ' + filename, '—');
   toast('Feedback exported · ' + events.length + ' events · ' + filename);
@@ -4911,11 +4956,6 @@ async function auditExportSnapshotRows8751() {
 // audit ring rows, and admin/cloud rows when present. If none exist, it still
 // downloads diagnostic state instead of stranding the user with a toast.
 async function exportAudit() {
-  const exportOwner = window.currentUser?.id, exportRole = window.currentUser?.role;
-  const assertExportOwner = () => {
-    if (!exportOwner || window.currentUser?.id !== exportOwner || (exportRole === 'admin' && window.currentUser?.role !== 'admin')) throw new Error('Session changed during audit export. No file was created.');
-  };
-  assertExportOwner();
   const isAdmin = !!(window.currentUser && window.currentUser.role === 'admin');
   const rows = [];
   const seen = new Set();
@@ -4924,7 +4964,6 @@ async function exportAudit() {
   auditExportAddRows8751(rows, seen, sessionRows, isAdmin ? 'session_state_admin' : 'session_state');
 
   const snapshotRows = await auditExportSnapshotRows8751();
-  assertExportOwner();
   auditExportAddRows8751(rows, seen, snapshotRows, 'active_submission_snapshot');
 
   const ringRows = auditReadLocal8750();
@@ -5188,7 +5227,7 @@ function exportMarkdown() {
     const isEdited = STATE.edits[mid] && STATE.edits[mid].htmlOverride;
     md += '## ' + m.code + ' — ' + m.name + (isEdited ? ' (edited)' : '') + '\n\n';
     md += '_Confidence: ' + Math.round(ext.confidence * 100) + '% · ';
-    md += 'Timing: ' + extractionTimingLabel95(ext) + ' · ';
+    md += 'Timing: ' + ext.timing.toFixed(1) + 's · ';
     md += 'Source: ' + (ext.sourceInfo || '—') + ' · ';
     md += 'Mode: ' + ext.mode;
     if (isEdited) md += ' · Edited: ' + new Date(STATE.edits[mid].editedAt).toISOString();
@@ -5660,14 +5699,6 @@ function cleanVisibleExtractionText99(mid, text) {
   return t.trim();
 }
 
-// Display missing archived timing without fabricating duration or blocking hydration.
-function extractionTimingLabel95(ext) {
-  const value = ext && ext.timing;
-  if (value == null || value === '') return 'Not reported';
-  const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds.toFixed(1) + 's' : 'Not reported';
-}
-
 function renderExtractionCard(mid) {
   const m = MODULES[mid];
   const ext = STATE.extractions[mid];
@@ -5683,7 +5714,7 @@ function renderExtractionCard(mid) {
     : '';
 
   const edit = STATE.edits[mid];
-  const isEdited = !!(edit && Object.prototype.hasOwnProperty.call(edit, 'htmlOverride'));
+  const isEdited = !!(edit && edit.htmlOverride);
   // Losses, Tower, and Discrepancy modules emit raw HTML (purpose-built containers)
   // — detect and inject directly, bypassing markdown pipeline which would escape all tags.
   // FIX-2026-06-09: detection moved from a start-anchored regex to
@@ -5749,7 +5780,7 @@ function renderExtractionCard(mid) {
             ${sourceText ? `<span class="sc-source" title="${escapeHtml(ext.sourceInfo || '')}">${sourceText}</span>` : '<span>&nbsp;</span>'}
           </div>
           <div class="sc-card-head-bottom-right">
-            <span>${extractionTimingLabel95(ext)}</span>
+            <span>${ext.timing.toFixed(1)}s</span>
             <span>·</span>
             ${modeBadge}
             <span>·</span>
@@ -6390,7 +6421,7 @@ function addCustomCard() {
 // Helper: get the "effective" text for a module (edited plain text or original)
 function getEffectiveText(mid) {
   const edit = STATE.edits[mid];
-  if (edit && Object.prototype.hasOwnProperty.call(edit, 'htmlOverride')) {
+  if (edit && edit.htmlOverride) {
     // Convert edited HTML back to plain text for exports
     const tmp = document.createElement('div');
     tmp.innerHTML = edit.htmlOverride;
@@ -6900,9 +6931,7 @@ async function startNewSubmission() {
         handoff:        deepClone(STATE.handoff),
         audit:          STATE.audit.slice(),
         runTotalCost:   STATE.runTotalCost || 0,
-        pipelineRun:    STATE.pipelineRun,
-    _stmRunComplete: !!STATE.pipelineDone,
-    _stmOperation: window.__STM_SUBMISSION?.lastOperation?.()||null
+        pipelineRun:    STATE.pipelineRun
       };
       activeRec.lastModifiedAt = Date.now();
       // Phase 7 step 3: replace the broken-shape batch saveSubmissions() with
@@ -7304,25 +7333,3 @@ try {
     if (!document.hidden) setTimeout(() => normalizePlatformShell8705('visibility'), 0);
   });
 } catch (e) {}
-
-// Phase 7: acknowledged, single-row native settings transaction. No new schema.
-window.__STM_ADMIN_CONFIG = (() => {
-  let pending=false;
-  // v9.9.3: Settings are the signed-in user's own user_settings row, as in July; only the Admin page read stays administrator-only.
-  function owner(adminOnly){const u=window.currentUser;if(!u)throw new Error('Sign in to change settings.');if(adminOnly&&u.role!=='admin')throw new Error('Administrator access required.');const r=parent.STM_RUNTIME;if(r&&(r.platformWindow!==window||r.user?.id!==u.id||(adminOnly&&r.user?.role!=='admin')))throw new Error(adminOnly?'Stale administrator session.':'Session changed. Reopen settings for the current account.');return u.id;}
-  function models(){return Array.from(document.querySelector('#apiModel')?.options||[]).map(o=>({value:o.value,label:o.textContent}));}
-  function read(){owner(true);return {api:{...STATE.api},guideline:getActiveGuideline(),custom:ACTIVE_GUIDELINE!==DEFAULT_GUIDELINE,defaultGuideline:DEFAULT_GUIDELINE,models:models(),pending};}
-  function current(){return {api:{...STATE.api},guideline:getActiveGuideline(),custom:ACTIVE_GUIDELINE!==DEFAULT_GUIDELINE,defaultGuideline:DEFAULT_GUIDELINE,models:models(),pending};}
-  async function commit(data){const id=owner(false);if(pending)throw new Error('A configuration save is already running.');if(STATE.pipelineRunning||window.__STM_SUBMISSION?.busy)throw new Error('Finish the active pipeline before changing configuration.');
-    const models=current().models.map(o=>o.value),tokens=Number(data.maxTokens),guide=String(data.guideline??'').trim();
-    if(!models.includes(data.model)||!Number.isInteger(tokens)||tokens<512||tokens>16384||typeof data.forceGlobal!=='boolean')throw new Error('Choose a supported model, 512-16,384 integer tokens, and a valid routing selection.');
-    if(guide&&guide.length<100)throw new Error('The guideline must contain at least 100 characters, or be empty to use the default.');
-    if(guide.length>2000000)throw new Error('The guideline exceeds the supported text size.');
-    pending=true;window.__STM_SETTINGS_WRITE=id;
-    try{await sbSaveSettings({user_id:id,default_model:data.model,max_tokens:tokens,force_global_model:data.forceGlobal,carrier_guideline:guide||null});
-      if(owner(false)!==id)throw new Error('Session changed while saving. Reopen configuration for the current account.');
-      STATE.api={model:data.model,maxTokens:tokens,forceGlobal:data.forceGlobal};ACTIVE_GUIDELINE=guide||DEFAULT_GUIDELINE;updateApiPillUI();logAudit(window.currentUser?.role==='admin'?'Admin':'Settings','Model and guideline settings saved for current user','user');return current();
-    }finally{pending=false;if(window.__STM_SETTINGS_WRITE===id)window.__STM_SETTINGS_WRITE=null;}
-  }
-  return {read,commit};
-})();
