@@ -300,7 +300,7 @@ window.initDocumentsView = function() {
     grid.innerHTML = '';
     // Respect the submission scope when computing category counts so the
     // sidebar reflects what the user can actually see.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     CONFIG.categories.forEach(cat => {
@@ -375,7 +375,8 @@ window.initDocumentsView = function() {
     let docs = [...state.docs];
     // Submission scope filter applied first so all subsequent counters
     // (search hit totals, category counts) reflect the scoped set.
-    if (state.submissionFilter && state.submissionFilter !== 'all') {
+    if (state.draftSubmissionMode && window.docsView?.design) { docs=docs.filter(inDesignScope); }
+    else if (state.submissionFilter && state.submissionFilter !== 'all') {
       docs = docs.filter(d => d.submissionId === state.submissionFilter);
     }
     if (state.currentCategory !== 'all') {
@@ -460,10 +461,9 @@ window.initDocumentsView = function() {
   function findNativeWorkbookDoc(doc) {
     if (doc.nativeDataUrl || doc.storagePath) return doc;
     if (!doc.workbookFileName) return null;
-    return state.docs.find(d =>
-      d.workbookFileName === doc.workbookFileName &&
-      (d.nativeDataUrl || d.storagePath)
-    );
+    const matches=state.docs.filter(d => d.workbookFileName===doc.workbookFileName && (d.nativeDataUrl||d.storagePath) && (d.submissionId||null)===(doc.submissionId||null) && (!doc.sourceFileId||d.sourceFileId===doc.sourceFileId));
+    const identities=new Set(matches.map(d=>d.storagePath||d.sourceFileId||d.id));
+    return identities.size===1?matches[0]:null;
   }
 
   async function openNativeFile(doc) {
@@ -1348,6 +1348,7 @@ window.initDocumentsView = function() {
     if (!Array.isArray(storagePaths) || storagePaths.length === 0) return;
     if (!window.sb) return;
     for (const sp of storagePaths) {
+      if(window.__STM_DOC_JOURNAL?.entries().some(e=>e.kind==='insert'&&e.args?.[0]?.storagePath===sp))continue;
       try {
         const { count, error: chkErr } = await window.sb
           .from('document_pages')
@@ -2047,6 +2048,13 @@ window.initDocumentsView = function() {
     }
   }
 
+  function completePdfPageTexts(pages, total) {
+    if (!Array.isArray(pages) || !pages.length || (total != null && pages.length !== total)) return null;
+    // Empty strings are valid textless pages. Sparse/invalid entries are not
+    // a complete extraction and must use the existing PDF text fallback.
+    return Array.from(pages).every(text => typeof text === 'string') ? pages : null;
+  }
+
   async function processPDF(file, category) {
     const buf = await file.arrayBuffer();
     let pdf = null;
@@ -2061,9 +2069,7 @@ window.initDocumentsView = function() {
       // by-page in the render loop below. For a 70-page PDF this skips ~25-30s
       // of duplicated CPU work — text extraction was happening twice.
       const pctx = state._pipelineCtx || {};
-      const preExtractedPageTexts = (Array.isArray(pctx.pageTexts) && pctx.pageTexts.length === total)
-        ? pctx.pageTexts
-        : null;
+      const preExtractedPageTexts = completePdfPageTexts(pctx.pageTexts, total);
       // PHASE 9 FIX (per GPT external audit round 5): manually-pasted
       // text for scanned PDFs flows through ctx.manualText. Used as
       // fallback for page 1 when preExtractedPageTexts isn't populated
@@ -2687,38 +2693,61 @@ window.initDocumentsView = function() {
   function _parsePageRangeForChip(hint, totalPages) {
     if (!hint || typeof hint !== 'string') return null;
     const h = hint.toLowerCase().trim();
-    if (h === 'entire document' || h === 'all pages' || h === 'all') {
-      return [1, totalPages || 1];
-    }
-    const m = h.match(/(?:pages?|p\.?)\s*(\d+)\s*(?:[-–—\sto]+\s*(\d+))?/);
+    const total = Math.max(1, Number(totalPages) || 1);
+    if (h === 'entire document' || h === 'all pages' || h === 'all') return [1, total];
+    const m = h.match(/(?:pages?|p\.?)\s*(\d+)\s*(?:(?:[-–—]|to)\s*(\d+))?/);
     if (!m) return null;
-    const start = parseInt(m[1], 10);
-    const end = m[2] ? parseInt(m[2], 10) : start;
-    return [start, end];
+    const start = Number(m[1]), end = m[2] ? Number(m[2]) : start;
+    if (start < 1 || start > total || end < start) return null;
+    return [start, Math.min(end, total)];
   }
   function _resolvePerPageTag(opts, pctx) {
-    const pageNum = opts.pageNumber || 1;
-    // v8.6.7: prefer pctx.sectionClassifications (pipeline-driven path),
-    // fall back to opts.sectionClassifications (direct caller path).
-    // Either source yields the same shape: array of {tag, section_hint, ...}.
-    const sections =
-      (pctx && Array.isArray(pctx.sectionClassifications) && pctx.sectionClassifications) ||
-      (opts && Array.isArray(opts.sectionClassifications) && opts.sectionClassifications) ||
-      null;
-    if (Array.isArray(sections) && sections.length > 0) {
-      // Find a section whose range STARTS at this page
-      for (const s of sections) {
-        const range = _parsePageRangeForChip(s.section_hint, opts.totalPages);
-        if (range && range[0] === pageNum) {
-          return s.tag || null;
-        }
-      }
-      // No section starts at this exact page → no chip
-      return null;
+    const pageNum = Number(opts.pageNumber) || 1;
+    const sections = Array.isArray(opts.sectionClassifications) ? opts.sectionClassifications
+      : Array.isArray(pctx && pctx.sectionClassifications) ? pctx.sectionClassifications : [];
+    const ranges = sections.filter(section=>section && section.document_marker95 !== false).map(section => ({
+      section, range: _parsePageRangeForChip(section.section_hint, opts.totalPages)
+    })).filter(entry => entry.range);
+    if (ranges.length) {
+      // A page is one document row/export target, even when two labels begin
+      // on it. Keep both distinct labels without duplicating the page marker.
+      const labels = ranges.filter(entry => entry.range[0] === pageNum)
+        .map(entry => String(entry.section.tag || entry.section.subType || entry.section.type || '').trim())
+        .filter(Boolean);
+      const unique = new Map();
+      labels.forEach(label=>{const key=label.replace(/\s+/g,' ').toLowerCase();if(!unique.has(key)) unique.set(key,label);});
+      return [...unique.values()].join(' · ') || null;
     }
-    // Legacy single-classification path: chip on page 1 only
-    if (pageNum === 1) return opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
-    return null;
+    // Unknown page hints cannot justify marking every page. Retain a single
+    // file-level marker until the classifier supplies usable section ranges.
+    if (sections.length && sections.every(section=>section?.document_marker95 === false)) return null;
+    let fallback = opts.pipelineTag || (pctx && pctx.pipelineTag) || null;
+    const suppressed = new Set(sections.filter(section=>section?.document_marker95===false).map(section=>String(section.tag || section.subType || section.type || '').trim().toLowerCase()));
+    if (fallback && String(fallback).split(' · ').some(label=>suppressed.has(label.trim().toLowerCase()))) {
+      const primary=sections.find(section=>section && section.document_marker95!==false);
+      fallback=primary && (primary.tag || primary.subType || primary.type) || null;
+    }
+    return pageNum === 1 ? fallback : null;
+  }
+  function _hasPipelineClassification(opts, pctx) {
+    return !!(opts.pipelineTag || opts.pipelineClassification || opts.sectionClassifications?.length ||
+      pctx.pipelineTag || pctx.pipelineClassification || pctx.sectionClassifications?.length);
+  }
+  function _sourceFileDocs(file) {
+    const sourceSid = file.submissionId || window.STATE?.activeSubmissionId || null;
+    const sourcePath = file.storagePath || file._storagePath || null;
+    const fname = file.name || '', baseName = fname.replace(/\.[^.]+$/, '');
+    const ambiguous = (window.STATE?.files || []).some(other => other.id !== file.id && other.name === fname);
+    return state.docs.filter(doc => {
+      if ((doc.submissionId || null) !== sourceSid) return false;
+      if (doc.sourceFileId) return doc.sourceFileId === file.id;
+      if (sourcePath && doc.storagePath) return doc.storagePath === sourcePath;
+      if (file._stmDocIds?.includes(doc.id)) return true;
+      if (ambiguous) return false;
+      return doc.workbookFileName === fname || doc.nativeFileName === fname ||
+        doc.name === fname || doc.name === baseName ||
+        (doc.name && (doc.name.startsWith(baseName + ' — Page ') || doc.name.startsWith(fname + ' — Page ')));
+    });
   }
 
   function addDoc(opts) {
@@ -2740,6 +2769,10 @@ window.initDocumentsView = function() {
     // gated on pageNumber === 1.
     const resolvedPipelineTag = _resolvePerPageTag(opts, pctx);
     const isSectionStart = !!resolvedPipelineTag;
+    const automaticMarker = !opts.relabeledByUser && _hasPipelineClassification(opts, pctx);
+    const pageColor = automaticMarker
+      ? (isSectionStart ? (opts.color || pctx.color || null) : null)
+      : (opts.color || null);
     // Cap display_name at 250 chars. Most filenames are <50 chars; some
     // generated names like 'Long Doc — Page 47' grow but still fit. A
     // pathologically long name (10K chars from a renamed export) would
@@ -2751,6 +2784,7 @@ window.initDocumentsView = function() {
       name: safeName,
       displayName: safeName,
       type: opts.type || 'unknown',
+      sourceFileId:opts.sourceFileId||pctx.fileId||pctx.sourceFileId||null,
       category: opts.category || pctx.category || 'all',
       thumbnailData: opts.thumbnailData || null,
       highResData: opts.highResData || null,
@@ -2822,8 +2856,8 @@ window.initDocumentsView = function() {
       // still reflects "number of distinct sections" not "total pages."
       // Manual uploads (no pctx) keep legacy behavior — opts.color
       // paints whatever page the caller specifies.
-      color: opts.color || (pctx.color && isSectionStart ? pctx.color : null) || null,
-      tagged: !!(opts.color || (pctx.color && isSectionStart)),
+      color: pageColor,
+      tagged: !!pageColor,
       uploadDate: formatDate(new Date()),
       addedAt: now,
       ocrText: null,
@@ -2856,6 +2890,8 @@ window.initDocumentsView = function() {
    // / non-Supabase deploys). Every mutation goes through here to keep call
    // sites uncluttered.
   function _persist(docId, patch) {
+    const doc = state.docs.find(item => item.id === docId);
+    if (doc) doc._localRevision = (doc._localRevision || 0) + 1;
     if (typeof window.sbUpdateDocumentPage === 'function') {
       window.sbUpdateDocumentPage(docId, patch).catch(err => {
         console.warn('persist patch failed for ' + docId + ':', err);
@@ -2867,9 +2903,10 @@ window.initDocumentsView = function() {
     const doc = state.docs.find(d => d.id === docId);
     if (!doc) return;
     doc.tagged = !doc.tagged;
+    doc.relabeledByUser = true;
     renderDocsList();
     renderTagsList();
-    _persist(docId, { tagged: doc.tagged });
+    _persist(docId, { tagged: doc.tagged, relabeled_by_user: true });
   }
 
   function setColor(docId, color) {
@@ -2877,23 +2914,25 @@ window.initDocumentsView = function() {
     if (!doc) return;
     doc.color = color;
     if (color && !doc.tagged) doc.tagged = true;
+    doc.relabeledByUser = true;
     renderDocsList();
     renderTagsList();
-    _persist(docId, { color: doc.color, tagged: doc.tagged });
+    _persist(docId, { color: doc.color, tagged: doc.tagged, relabeled_by_user: true });
   }
 
   function clearColor(docId) {
     const doc = state.docs.find(d => d.id === docId);
     if (!doc) return;
     doc.color = null;
+    doc.relabeledByUser = true;
     renderDocsList();
     renderTagsList();
-    _persist(docId, { color: null });
+    _persist(docId, { color: null, relabeled_by_user: true });
   }
 
   function updateTagsCount() {
     // Respect submission scope so the count reflects what's visible.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -2906,7 +2945,7 @@ window.initDocumentsView = function() {
     const empty = $id('tagsEmpty');
     // Apply submission scope first so out-of-scope tagged docs don't
     // appear in the sidebar when the user is viewing a single submission.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -2931,7 +2970,8 @@ window.initDocumentsView = function() {
   function isDefaultGeneratedDocName8753(doc) {
     const name = String((doc && doc.displayName) || '').trim();
     if (!name) return true;
-    const candidates = [doc && doc.nativeFileName, doc && doc.workbookFileName, doc && doc.name]
+    const candidates = [doc && doc.nativeFileName, doc && doc.workbookFileName,
+      doc && !doc.relabeledByUser && doc.name]
       .filter(Boolean)
       .map(v => String(v).trim());
     for (const raw of candidates) {
@@ -2946,7 +2986,7 @@ window.initDocumentsView = function() {
   function manualTaggedDisplayName8753(doc) {
     const name = String((doc && doc.displayName) || '').trim();
     if (!name) return '';
-    if (doc && doc.relabeledByUser) return name;
+    if (doc && doc.relabeledByUser && !isDefaultGeneratedDocName8753(doc)) return name;
     // Backward-compat for documents renamed before v8.7.53, when rename
     // saved display_name but did not yet persist relabeled_by_user. Only
     // treat it as a manual label when there is no classifier chip and the
@@ -3125,7 +3165,7 @@ window.initDocumentsView = function() {
     if (act === 'tag') {
       ids.forEach(id => {
         const d = state.docs.find(x => x.id === id);
-        if (d) { d.tagged = true; _persist(id, { tagged: true }); }
+        if (d) { d.tagged = true; d.relabeledByUser = true; _persist(id, { tagged: true, relabeled_by_user: true }); }
       });
       toast('Tagged', ids.length + ' documents', 'success');
     } else if (act.startsWith('color-')) {
@@ -3135,7 +3175,8 @@ window.initDocumentsView = function() {
         if (d) {
           d.color = color;
           if (!d.tagged) d.tagged = true;
-          _persist(id, { color, tagged: true });
+          d.relabeledByUser = true;
+          _persist(id, { color, tagged: true, relabeled_by_user: true });
         }
       });
       toast('Colored', ids.length + ' · ' + CONFIG.tagColorLabels[color], 'success');
@@ -3968,7 +4009,7 @@ window.initDocumentsView = function() {
   async function exportTagged() {
     // Respect submission scope — exporting tagged pages while viewing a
     // single submission should only include that submission's tagged docs.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
@@ -3984,6 +4025,8 @@ window.initDocumentsView = function() {
       // ensurePdfHighRes per doc. Without this, tagged PDFs that were
       // never previewed export at thumbnail resolution.
       for (const doc of tagged) {
+        if(window.docsView?.design)await window.docsView.design.load(doc.id);
+        if(!doc.textContent&&!doc.thumbnailData&&!doc.highResData)throw new Error('No exportable content for '+doc.displayName);
         if (!first) pdf.addPage();
         first = false;
         if (doc.type === 'pdf') {
@@ -4065,15 +4108,15 @@ window.initDocumentsView = function() {
     // Respect submission scope. "Clear Tagged" while scoped to one
     // submission only un-tags within that submission, leaving other
     // submissions' tagged docs untouched.
-    const inScope = state.submissionFilter === 'all'
+    const inScope = state.draftSubmissionMode ? state.docs.filter(inDesignScope) : state.submissionFilter === 'all'
       ? state.docs
       : state.docs.filter(d => d.submissionId === state.submissionFilter);
     const tagged = inScope.filter(d => d.tagged);
     if (tagged.length === 0) { toast('No tags', '', 'info'); return; }
     if (!confirm('Remove tags from ' + tagged.length + ' document' + (tagged.length !== 1 ? 's' : '') + '?')) return;
     tagged.forEach(d => {
-      d.tagged = false; d.color = null;
-      _persist(d.id, { tagged: false, color: null });
+      d.tagged = false; d.color = null; d.relabeledByUser = true;
+      _persist(d.id, { tagged: false, color: null, relabeled_by_user: true });
     });
     renderDocsList(); renderTagsList();
     toast('Tags cleared', tagged.length + ' documents', 'success');
@@ -4438,10 +4481,17 @@ window.initDocumentsView = function() {
     opts = opts || {};
     const reason = opts.reason || 'unspecified';
     const submissionId = opts.submissionId || state.activeSubmissionId || null;
+    const startIds=new Set(state.docs.map(d=>d.id));
+    const startRevisions=new Map(state.docs.map(d=>[d.id,d._localRevision||0]));
 
     // Concurrent-fetch guard. If a hydrate is already running, return
     // its promise so callers all wait on the same fetch.
-    if (_hydrateInFlight) return _hydrateInFlight;
+    if (_hydrateInFlight) {
+      await _hydrateInFlight;
+      // A fetch for a previous submission cannot satisfy the current one.
+      if (state._lastHydrateSubmissionId === submissionId) return;
+      return hydrateFromCloud(opts);
+    }
 
     if (typeof window.sbFetchDocumentPages !== 'function') {
       console.warn('[docs] hydrate skipped — sbFetchDocumentPages unavailable', { reason });
@@ -4530,10 +4580,23 @@ window.initDocumentsView = function() {
       //   - For rows that ARE represented, the local copy wins (uploaded mid-
       //     hydrate, so cloud might not have all fields yet).
       //   - For rows NOT represented locally, push from cloud.
+      const cloudIds=new Set(rows.map(r=>r.id));
+      const hasLocalChange=d=>!startIds.has(d.id)||(d._localRevision||0)!==startRevisions.get(d.id)||state._pendingInserts?.has(d.id)||window.__STM_DOC_JOURNAL?.has(d.id);
+      state.docs=state.docs.filter(d=>hasLocalChange(d)||(submissionId&&(d.submissionId||null)!==submissionId)||cloudIds.has(d.id));
       const localById = new Map(state.docs.map(d => [d.id, d]));
 
       rows.forEach(row => {
-        if (localById.has(row.id)) return;  // local copy wins
+        if(localById.has(row.id)){
+          const local=localById.get(row.id);
+          if(!hasLocalChange(local)){
+            local.displayName=row.display_name||local.displayName;local.name=local.displayName;
+            local.category=row.category||'all';local.color=row.color||null;local.tagged=!!row.tagged;
+            local.pipelineTag=row.pipeline_tag||null;local.primaryBucket=row.primary_bucket||null;
+            local.pipelineClassification=row.pipeline_classification||local.pipelineClassification||null;local.pipelineRoutedTo=row.pipeline_routed_to||local.pipelineRoutedTo||null;
+            local.relabeledByUser=!!row.relabeled_by_user;
+          }
+          return;
+        }
         // Build a doc shape from the cloud row. Lazy fields are nulled —
         // they re-fetch from storage on demand for OCR/preview/download.
         const doc = {
@@ -4602,6 +4665,7 @@ window.initDocumentsView = function() {
       // documents yet" instead of staying stuck on "Loading…".
       state._hydratedOnce = true;
       state._lastHydratedAt = Date.now();
+      state._lastHydrateSubmissionId = submissionId;
       state._lastHydrateError = null;
       state._hydrating = false;
 
@@ -5130,101 +5194,66 @@ window.initDocumentsView = function() {
     // and pushes per-doc updates to Supabase if available.
     //
     // Returns the count of docs relabeled.
-    relabelDocsForFile: (fileId, patch) => {
+    relabelDocsForFile: (fileId, patch, options) => {
       if (!patch || typeof patch !== 'object') return 0;
-      // Find the source file by id to get its name
-      const f = (window.STATE && window.STATE.files || []).find(ff => ff.id === fileId);
-      if (!f) {
-        console.warn('relabelDocsForFile: source file not found for id', fileId);
-        return 0;
-      }
-      const fname = f.name || '';
-      const baseName = fname.replace(/\.[^.]+$/, '');
-      // Match docs by source-file linkage. v8.6.84: PDF split docs are named
-      // "BaseName — Page N" (without extension), so match both the full
-      // source filename and the extensionless split prefix.
-      const matches = state.docs.filter(d =>
-        d.workbookFileName === fname ||
-        d.nativeFileName === fname ||
-        d.name === fname ||
-        d.name === baseName ||
-        (d.name && d.name.startsWith(baseName + ' — Page ')) ||
-        (d.name && d.name.startsWith(fname + ' — Page '))
-      );
-      if (matches.length === 0) return 0;
-      // For combined-PDF page tagging: apply sectionClassifications when
-      // supplied so existing cloud rows are upgraded from stale generic chips
-      // (e.g., Excess T&C) to page-accurate chips (GL Quote, AL Fleet, Lead $2M).
+      const source = (window.STATE?.files || []).find(file => file.id === fileId);
+      if (!source) return 0;
+      const matches = _sourceFileDocs(source);
+      if (!matches.length) return 0;
+      const own = key => Object.prototype.hasOwnProperty.call(patch, key);
+      const rawType = patch.pipelineClassification || source.classification;
+      const classification = typeof rawType === 'string' ? rawType : rawType?.type;
+      const route = own('pipelineRoutedTo') ? patch.pipelineRoutedTo : source.routedTo;
       const sections = Array.isArray(patch.sectionClassifications) ? patch.sectionClassifications : null;
+      const changesMarker = !!sections || own('pipelineTag') || own('color') || own('primaryBucket');
+      // Manual file reclassification historically supplied just bucket/tag.
+      // Resolve its category and color with the same engine map as ingestion.
+      const mapping = own('primaryBucket') && typeof window.docsViewMappingFor === 'function'
+        ? window.docsViewMappingFor(patch.primaryBucket, patch.pipelineTag) : null;
+      const color = own('color') ? patch.color : mapping ? mapping.color
+        : (matches.find(doc => doc.color)?.color || null);
+      const category = own('category') ? patch.category : mapping?.category;
+      const tag = own('pipelineTag') ? patch.pipelineTag
+        : source.tag || matches.find(doc => doc.pipelineTag)?.pipelineTag || classification || null;
+      const fields = { pipelineTag: 'pipeline_tag', primaryBucket: 'primary_bucket',
+        pipelineClassification: 'pipeline_classification', pipelineRoutedTo: 'pipeline_routed_to',
+        color: 'color', tagged: 'tagged', category: 'category', relabeledByUser: 'relabeled_by_user' };
       let count = 0;
-      matches.forEach(d => {
-        const pageNum = d.pageNumber || 1;
-        const totalPages = d.totalPages || matches.length || 1;
-        let sectionTag;
-        if (sections && sections.length) {
-          for (const sec of sections) {
-            const range = _parsePageRangeForChip(sec.section_hint, totalPages);
-            if (range && range[0] === pageNum) {
-              sectionTag = sec.tag || null;
-              break;
-            }
-          }
+      const planned = [];
+      for (const doc of matches) {
+        // Automatic reruns must preserve explicit manual marks, removals,
+        // names and categories. A deliberate file reclassification can replace them.
+        if (doc.relabeledByUser && patch.relabeledByUser !== true) continue;
+        const next = {};
+        if (changesMarker) {
+          next.pipelineTag = _resolvePerPageTag({pageNumber: doc.pageNumber,
+            totalPages: doc.totalPages || matches.length, pipelineTag: tag,
+            sectionClassifications: sections}, {});
+          next.color = next.pipelineTag ? color : null;
+          next.tagged = !!next.color;
         }
-        const isFirst = pageNum === 1;
-        if (sections && sections.length) {
-          d.pipelineTag = sectionTag || null;
-        } else if (typeof patch.pipelineTag !== 'undefined') {
-          d.pipelineTag = isFirst ? patch.pipelineTag : null;
+        if (!options?.markersOnly) {
+          if (own('primaryBucket')) next.primaryBucket = patch.primaryBucket;
+          if (classification) next.pipelineClassification = String(classification);
+          if (classification || own('pipelineRoutedTo')) next.pipelineRoutedTo = route || null;
+          if (category !== undefined) next.category = category;
+          if (own('relabeledByUser')) next.relabeledByUser = !!patch.relabeledByUser;
         }
-        if (typeof patch.primaryBucket !== 'undefined') {
-          d.primaryBucket = patch.primaryBucket;
+        const cloudPatch = {};
+        for (const [key, value] of Object.entries(next)) {
+          if (doc[key] === value) continue;
+          if (!options?.preview) doc[key] = value;
+          cloudPatch[fields[key]] = value;
         }
-        if (typeof patch.color !== 'undefined') {
-          // Combined docs live in the same bucket/color across all pages, but
-          // only section starts receive a chip. Single relabels keep old page-1
-          // color behavior.
-          d.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
-          d.tagged = !!d.color;
-        }
-        if (typeof patch.category !== 'undefined') {
-          d.category = patch.category;
-        }
-        if (typeof patch.relabeledByUser !== 'undefined') {
-          d.relabeledByUser = !!patch.relabeledByUser;
-        }
-        // Persist to cloud if available
-        if (typeof window.sbUpdateDocumentPage === 'function') {
-          const cloudPatch = {};
-          if (sections && sections.length) {
-            cloudPatch.pipeline_tag = sectionTag || null;
-          } else if (typeof patch.pipelineTag !== 'undefined') {
-            cloudPatch.pipeline_tag = isFirst ? patch.pipelineTag : null;
-          }
-          if (typeof patch.primaryBucket !== 'undefined') {
-            cloudPatch.primary_bucket = patch.primaryBucket;
-          }
-          if (typeof patch.color !== 'undefined') {
-            cloudPatch.color = (sections && sections.length) ? patch.color : (isFirst ? patch.color : null);
-            cloudPatch.tagged = !!cloudPatch.color;
-          }
-          if (typeof patch.category !== 'undefined') {
-            cloudPatch.category = patch.category;
-          }
-          if (typeof patch.relabeledByUser !== 'undefined') {
-            cloudPatch.relabeled_by_user = !!patch.relabeledByUser;
-          }
-          if (Object.keys(cloudPatch).length > 0) {
-            window.sbUpdateDocumentPage(d.id, cloudPatch).catch(e =>
-              console.warn('relabelDocsForFile cloud sync failed for', d.id, e.message));
-          }
-        }
+        if (!Object.keys(cloudPatch).length) continue;
         count++;
-      });
-      // Re-render so chips and Tagged Pages reflect the change
-      renderDocsList();
-      renderTagsList();
-      renderCategoryGrid();
-      return count;
+        if (options?.preview) planned.push({id:doc.id, patch:cloudPatch});
+        else _persist(doc.id, cloudPatch);
+      }
+      // A repeated cached classification must not rewrite hundreds of rows
+      // or recreate their DOM when no persisted value actually changed.
+      if (count && !options?.preview) { renderDocsList(); renderTagsList(); renderCategoryGrid(); }
+      return options?.preview ? planned : count;
     },
     // Pipeline-driven full-fidelity ingestion. Unlike addDocFromPipeline
     // (metadata-only push, no thumbnails or storage), this takes the raw
@@ -5277,6 +5306,7 @@ window.initDocumentsView = function() {
         // page produced by the processor. Cleared in the finally block so it
         // doesn't leak into a subsequent manual upload session.
         state._pipelineCtx = {
+          sourceFileId:(window.STATE?.files||[]).find(f=>f._rawFile===file)?.id||(ctx&&ctx.fileId)||null,
           category: (ctx && ctx.category) || 'all',
           color: (ctx && ctx.color) || null,
           pipelineClassification: (ctx && ctx.pipelineClassification) || null,
@@ -5416,6 +5446,192 @@ window.initDocumentsView = function() {
       renderTagsList();
       return before - state.docs.length;
     },
+  };
+
+  // v9.4: explicit scoped API for the supplied Index + Viewer. State stays native.
+  const designJournal=()=>window.__STM_DOC_JOURNAL;
+  const designScope=()=>window.STATE?.activeSubmissionId||null;
+  const inDesignScope=d=>{
+    const sid=designScope();if(sid)return d.submissionId===sid;if(d.submissionId)return false;
+    return (window.STATE?.files||[]).some(f=>(d.sourceFileId===f.id||f._stmDocIds?.includes(d.id))||(d.storagePath&&(d.storagePath===f._storagePath||d.storagePath===f.storagePath)));
+  };
+  function designRecord(id){const d=state.docs.find(d=>d.id===id);return d?{...d,pdfData:undefined,highResData:undefined,nativeDataUrl:undefined}:null;}
+  function requireDesignDoc(id){const d=state.docs.find(d=>d.id===id&&inDesignScope(d));if(!d)throw new Error('Document is not in the active submission.');return d;}
+  function designRecovery(){
+    for(const entry of designJournal()?.entries()||[]){
+      if((entry.sid||null)!==designScope())continue;
+      let d=state.docs.find(d=>d.id===entry.id);
+      if(entry.kind==='insert'&&!d){d={...entry.args[0]};state.docs.push(d);}
+      if(!d&&entry.record){d={...entry.record};state.docs.push(d);}
+      if(d&&entry.kind==='patch')applyDesignPatch(d,entry.args[1]);
+    }
+  }
+  function applyDesignPatch(d,patch){
+    const fields={submission_id:'submissionId',display_name:'displayName',category:'category',tagged:'tagged',color:'color',pipeline_tag:'pipelineTag',primary_bucket:'primaryBucket',relabeled_by_user:'relabeledByUser'};
+    for(const [db,key] of Object.entries(fields))if(Object.prototype.hasOwnProperty.call(patch,db))d[key]=patch[db];
+    if(patch.display_name!==undefined)d.name=patch.display_name;
+    if(patch.annotations)state.annotations.store[d.id]=patch.annotations;
+  }
+  function designRefreshDOM(){renderCategoryGrid();renderDocsList();renderTagsList();window.refreshActiveSubmissionDocsCount?.();}
+  function designMarkerRepairPlan(){
+    const sid=designScope(),owner=window.currentUser?.id;
+    if(!sid||!owner)throw new Error('Open a saved submission before repairing its automatic page markers.');
+    if(window.__STM_SUBMISSION?.busy||window.STATE?.pipelineRunning||window.STATE?._stmIntakePending)throw new Error('Wait for document intake and pipeline processing to finish.');
+    const hydrate=window.docsView.getHydrateState();
+    if(hydrate.hydrating)throw new Error('Wait for saved documents to finish loading.');
+    if(hydrate.lastError)throw new Error('Refresh saved documents successfully before repairing their markers.');
+    designRecovery();
+    const docs=state.docs.filter(inDesignScope),manual=docs.filter(d=>d.relabeledByUser),covered=new Set(),files=[],jobs=[],allChanges=[];
+    const sources=(window.STATE?.files||[]).filter(f=>f&&!f.cancelled&&f.state!=='duplicate'&&(!f.submissionId||f.submissionId===sid));
+    for(const file of sources){
+      const classification=typeof file.classification==='string'?file.classification:file.classification?.type||file.classification?.primary_type;
+      if(!classification||['unknown','unclassified'].includes(classification.toLowerCase()))continue;
+      const matches=_sourceFileDocs(file).filter(inDesignScope);if(!matches.length)continue;
+      matches.forEach(d=>covered.add(d.id));
+      const tag=file.tag||file.primaryTag||file.subType||classification;
+      const mapping=typeof window.docsViewMappingFor==='function'?window.docsViewMappingFor(file.primary_bucket||classification,tag):null;
+      let sections=typeof window.stmSectionClassificationsForDocs==='function' ? window.stmSectionClassificationsForDocs(file.classifications||[],file) : Array.isArray(file.classifications)?file.classifications.map(c=>({tag:c.tag||c.subType||c.type,type:c.type,subType:c.subType,section_hint:c.section_hint,document_marker95:c.document_marker95})):[];
+      if(!sections.some(c=>c.document_marker95===false) && !sections.some(c=>_parsePageRangeForChip(c.section_hint,Math.max(...matches.map(d=>Number(d.totalPages)||1))))){
+        // Older snapshots sometimes retain only the page chips, not the
+        // classifier's section ranges. Those saved labels still identify
+        // relevant pages; preserve them while removing continuation colors.
+        sections=matches.filter(d=>!d.relabeledByUser&&d.pipelineTag).map(d=>({tag:d.pipelineTag,section_hint:'page '+(Number(d.pageNumber)||1)}));
+      }
+      const patch={pipelineTag:tag,color:mapping?.color??matches.find(d=>!d.relabeledByUser&&d.color)?.color??null,
+        sectionClassifications:sections};
+      const changes=window.docsView.relabelDocsForFile(file.id,patch,{preview:true,markersOnly:true});
+      if(!Array.isArray(changes))continue;
+      files.push({id:file.id,name:file.name,changedPages:changes.length});
+      jobs.push({fileId:file.id,patch});allChanges.push(...changes);
+    }
+    const changesById=new Map(allChanges.map(change=>[change.id,change.patch]));
+    const preview={sid,owner,revision:JSON.stringify([sid,owner,sources.map(f=>[f.id,f.name,f.classification,f.primaryTag,f.subType,f.tag,f.primary_bucket,f.classifications,f.storagePath,f._storagePath,f._stmDocIds]),docs.map(d=>[d.id,d.sourceFileId,d.storagePath,d.workbookFileName,d.nativeFileName,d.name,d.pageNumber,d.totalPages,d.pipelineTag,d.tagged,d.color,d.relabeledByUser]),allChanges]),
+      changedPages:changesById.size,untouchedManualPages:manual.length,skippedPages:docs.filter(d=>!d.relabeledByUser&&!covered.has(d.id)).length,
+      files,taggedBefore:docs.filter(d=>d.tagged).length,taggedAfter:docs.filter(d=>Object.prototype.hasOwnProperty.call(changesById.get(d.id)||{},'tagged')?changesById.get(d.id).tagged:d.tagged).length};
+    return {preview,jobs};
+  }
+  async function designRepairMarkers(options={}){
+    let plan=designMarkerRepairPlan();if(!options.apply)return plan.preview;
+    const accepted=options.preview;
+    if(!accepted||accepted.revision!==plan.preview.revision||accepted.sid!==plan.preview.sid||accepted.owner!==plan.preview.owner)throw new Error('Documents changed since the repair preview. Review a fresh preview before applying.');
+    const journal=designJournal();if(typeof journal?.flush!=='function')throw new Error('Document saving is unavailable. Reload before repairing markers.');
+    await journal.flush();plan=designMarkerRepairPlan();
+    if(accepted.revision!==plan.preview.revision)throw new Error('Documents changed while preparing the repair. Review a fresh preview.');
+    let appliedPages=0;
+    for(const job of plan.jobs)appliedPages+=window.docsView.relabelDocsForFile(job.fileId,job.patch,{markersOnly:true});
+    // Relabel writes enter the same recoverable journal as manual edits.
+    // Never report success until every changed page has been acknowledged.
+    await journal.flush();
+    if(plan.preview.sid!==designScope()||plan.preview.owner!==window.currentUser?.id)throw new Error('Submission changed while markers were saving. Reopen the original submission to verify its repair.');
+    return {...plan.preview,appliedPages,saved:true};
+  }
+  async function designPatch(id,patch){
+    const d=requireDesignDoc(id),sid=designScope();
+    if(window.__STM_SUBMISSION?.busy)throw new Error('Wait for the active pipeline operation before changing its source documents.');
+    const allowed=new Set(['display_name','category','tagged','color']);for(const key of Object.keys(patch))if(!allowed.has(key))throw new Error('Unsupported document field.');
+    if('display_name' in patch){patch.display_name=String(patch.display_name).trim().slice(0,250);if(!patch.display_name)throw new Error('Enter a document name.');}
+    if('category' in patch&&!CONFIG.categories.some(c=>c.id===patch.category))throw new Error('Unknown document category.');
+    if('color' in patch&&patch.color!==null&&!CONFIG.tagColors.includes(patch.color))throw new Error('Unknown tag color.');
+    patch={...patch,relabeled_by_user:true};
+    applyDesignPatch(d,patch);d._localRevision=(d._localRevision||0)+1;designRefreshDOM();
+    await window.sbUpdateDocumentPage(id,patch);
+    if(sid!==designScope())throw new Error('Submission changed while the document was saving.');
+    return true;
+  }
+  async function designLoad(id,force){
+    const d=requireDesignDoc(id),sid=designScope(),owner=window.currentUser?.id;
+    const before=[d.textContent,d.htmlContent,d.thumbnailData,d.highResData];
+    if(force||(!d.textContent&&!d.htmlContent&&!d.thumbnailData)){
+      if(typeof window.sbFetchDocumentPageFull==='function'){
+        const row=await window.sbFetchDocumentPageFull(id);
+        if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Preview request belongs to a previous submission.');
+        if(row){
+          if(row.id&&row.id!==id)throw new Error('Preview response returned a different document.');
+          if(row.extracted_text!==undefined)d.textContent=row.extracted_text||'';
+          if(row.html_content!==undefined)d.htmlContent=sanitizeHtml(row.html_content)||'';
+          if(row.thumbnail_data_url)d.thumbnailData=row.thumbnail_data_url;
+          if(row.annotations&&!designJournal()?.has(id))state.annotations.store[id]=row.annotations;
+        }
+      }
+    }
+    if(d.type==='pdf'&&!d.thumbnailData&&d.storagePath&&typeof pdfjsLib!=='undefined'){await ensurePdfHighRes(d);}
+    if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Preview request belongs to a previous submission.');
+    if(before.some((value,i)=>value!==[d.textContent,d.htmlContent,d.thumbnailData,d.highResData][i]))d._previewRevision=(d._previewRevision||0)+1;
+    return true;
+  }
+  function designSafeName(name){return String(name||'document').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/^\.+/,'_').slice(0,240)||'document';}
+  async function designBlob(doc){
+    let filename=designSafeName(doc.workbookFileName||doc.nativeFileName||doc.displayName),blob=null;
+    if(doc.storagePath){
+      try{const url=await window.sbGetDocumentSignedUrl(doc.storagePath,600);
+      if(url){const r=await fetch(url);if(r.ok)blob=await r.blob();}}catch(e){console.warn('Source download unavailable; checking cached content.',e.message);}
+    }
+    if(!blob){const src=findNativeWorkbookDoc(doc);if(src?.nativeDataUrl){const r=await fetch(src.nativeDataUrl);if(r.ok)blob=await r.blob();}}
+    if(blob)return {filename,blob,source:true};
+    if(doc.textContent){filename=filename.replace(/\.[^.]+$/,'')+'.txt';return {filename,blob:new Blob([doc.textContent],{type:'text/plain'}),source:false};}
+    if(doc.thumbnailData){const r=await fetch(doc.thumbnailData);blob=await r.blob();filename=filename.replace(/\.[^.]+$/,'')+(blob.type==='image/jpeg'?'.jpg':'.png');return {filename,blob,source:false};}
+    throw new Error('The source file and cached preview are unavailable for '+doc.displayName+'.');
+  }
+  async function designDownload(ids){
+    const sid=designScope(),owner=window.currentUser?.id,docs=ids.map(requireDesignDoc),groups=new Set(),items=[],used=new Set();
+    for(const d of docs){
+      const group=d.storagePath||d.sourceFileId||d.id;if(groups.has(group))continue;
+      const result=await designBlob(d);if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Submission changed before the download was prepared.');
+      groups.add(group);let name=result.filename,n=1;while(used.has(name.toLowerCase())){const dot=result.filename.lastIndexOf('.'),stem=dot>0?result.filename.slice(0,dot):result.filename,ext=dot>0?result.filename.slice(dot):'';name=stem+' ('+(++n)+')'+ext;}used.add(name.toLowerCase());items.push({...result,filename:name});
+    }
+    if(!items.length)throw new Error('Select a document first.');
+    let blob,filename;
+    if(items.length===1){({blob,filename}=items[0]);}
+    else {if(typeof JSZip==='undefined')throw new Error('The ZIP dependency is unavailable. Reload with your approved dependencies reachable.');const zip=new JSZip();for(const item of items)zip.file(item.filename,item.blob);blob=await zip.generateAsync({type:'blob'});filename='submission-documents.zip';}
+    if(sid!==designScope()||window.currentUser?.id!==owner)throw new Error('Submission changed before the download was prepared.');
+    const href=URL.createObjectURL(blob),a=document.createElement('a');a.href=href;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+    return {filename,files:items.length,cached:items.filter(i=>!i.source).length};
+  }
+  window.docsView.design={
+    status:()=>designJournal()?.status()||{dirty:false,pending:0,error:''},
+    revision:()=>JSON.stringify([designScope(),state.docs.filter(inDesignScope).map(d=>[d.id,d.displayName,d.category,d.color,d.tagged,d.pipelineTag,d.relabeledByUser,d.pipelineClassification,d.pipelineRoutedTo,d.pageNumber,d.totalPages,!!d.thumbnailData,d.textContent?.length,d._previewRevision||0,state.annotations.store[d.id]?.layers?.length||0])]),
+    record:designRecord,stash:()=>designJournal()?.stash(),flush:()=>designJournal()?.flush()||Promise.resolve({mode:'cloud'}),
+    snapshot(){designRecovery();const docs=state.docs.filter(inDesignScope);return {sid:designScope(),title:state.activeSubmissionTitle,hydrate:window.docsView.getHydrateState(),save:this.status(),categories:CONFIG.categories.map(c=>({id:c.id,name:c.name,n:c.id==='all'?docs.length:docs.filter(d=>d.category===c.id).length})),colors:CONFIG.tagColors,docs:docs.map(d=>({id:d.id,name:d.displayName,sourceName:d.workbookFileName||d.nativeFileName||d.displayName,group:d.storagePath||d.sourceFileId||d.id,type:d.type,category:d.category||'all',color:d.color,tagged:!!d.tagged,tag:d.pipelineTag,relabeledByUser:!!d.relabeledByUser,classification:d.pipelineClassification||null,route:d.pipelineRoutedTo||null,page:Number(d.pageNumber)||1,pages:Number(d.totalPages)||1,storagePath:d.storagePath||null,annotations:(state.annotations.store[d.id]?.layers||[]).length}))};},
+    page(id){const d=requireDesignDoc(id);return {thumbnail:d.highResData||d.thumbnailData||null,html:d.htmlContent||'',text:d.textContent||'',annotations:(state.annotations.store[id]?.layers||[]).length};},
+    tools(id){const d=requireDesignDoc(id);state.currentCategory='all';state.searchQuery='';state.currentColorFilter='all';state.currentView='thumbnail';renderDocsList();const item=document.querySelector('[data-doc-id="'+CSS.escape(id)+'"]');item?.scrollIntoView({block:'center'});return d.id;},
+    async ingestIntake(){
+      const sid=designScope(),owner=window.currentUser?.id;
+      for(const f of window.STATE.files){
+        if(f.cancelled||f.state==='duplicate'||f.state==='error'||!f._rawFile)continue;
+        if(f.submissionId&&String(f.submissionId)!==String(sid))continue;
+        let existing=_sourceFileDocs(f);
+        if(!existing.length&&f._pushedToDocsView&&sid){
+          // A restored flag is not proof of local page presence. Check the
+          // cloud before re-ingesting, so a lazy reopen cannot duplicate it.
+          await window.docsView.refreshFromCloud({submissionId:sid,reason:'reconcile-intake'});
+          if(sid!==designScope()||owner!==window.currentUser?.id)throw new Error('Submission changed during document reconciliation.');
+          existing=_sourceFileDocs(f);
+        }
+        if(existing.length){f._stmDocIds=existing.map(d=>d.id);f._pushedToDocsView=true;continue;}
+        const count=Number(f.extractMeta?.pageCount),expected=Number.isInteger(count)&&count>0?count:null;
+        // Reuse only this source's complete extraction; the PDF's actual page
+        // count is checked again by processPDF before skipping text extraction.
+        const pageTexts=[f.extractMeta?.pageTexts,f.pageTexts].map(pages=>completePdfPageTexts(pages,expected)).find(Boolean)||null;
+        const ids=await window.docsView.processFileFromPipeline(f._rawFile,{fileId:f.id,submissionId:sid,category:'all',color:null,pageTexts});
+        if(sid!==designScope()||owner!==window.currentUser?.id)throw new Error('Submission changed during document intake.');
+        f._stmDocIds=ids||[];f._pushedToDocsView=true;const first=state.docs.find(d=>f._stmDocIds.includes(d.id));if(first?.storagePath)f._storagePath=first.storagePath;
+      }
+      await this.flush();return this.snapshot();
+    },
+    async adoptFile(f){
+      const sid=designScope();if(!sid||!f._stmDocIds?.length)return;
+      for(const d of state.docs.filter(d=>f._stmDocIds.includes(d.id))){
+        if(d.submissionId&&d.submissionId!==sid)throw new Error('Intake document belongs to a different submission.');
+        if(d.submissionId===sid)continue;d.submissionId=sid;await window.sbUpdateDocumentPage(d.id,{submission_id:sid});
+      }
+      await this.flush();
+    },
+    patch:designPatch,load:designLoad,download:designDownload,repairMarkers:designRepairMarkers,
+    async refresh(){await this.flush();await window.docsView.refreshFromCloud({submissionId:designScope(),reason:'redesigned-file-manager-refresh'});designRecovery();return this.snapshot();},
+    async remove(id){const d=requireDesignDoc(id),sid=designScope();if(window.__STM_SUBMISSION?.busy)throw new Error('Wait for the active pipeline operation.');await this.flush();await window.sbDeleteDocumentPage(id,d.storagePath);if(sid!==designScope())throw new Error('Submission changed.');revokeDocBlobUrls([d]);state.docs=state.docs.filter(x=>x.id!==id);state.selectedIds.delete(id);designRefreshDOM();return true;},
+    async clearTags(){const docs=state.docs.filter(inDesignScope);for(const d of docs)if(d.tagged||d.color)await designPatch(d.id,{tagged:false,color:null});return true;},
+    async preview(id){const d=requireDesignDoc(id);await designLoad(id);if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');openPreview(id);return true;},
+    async exportPDF(){if(!window.jspdf?.jsPDF)throw new Error('The PDF export dependency is unavailable.');if(!state.docs.some(d=>inDesignScope(d)&&d.tagged))throw new Error('Tag at least one page before exporting PDF.');await this.flush();if(designScope())setSubmissionContext(designScope(),state.activeSubmissionTitle);else setDraftSubmissionContext('New submission');return exportTagged();}
   };
 
   // ══════ INIT ══════
@@ -5629,9 +5845,7 @@ function startAnnoEngine() {
         delete _annoPersistTimers[docId];
         const store = state.annotations.store[docId];
         if (!store) return;
-        window.sbUpdateDocumentAnnotations(docId, store).catch(err => {
-          console.warn('persist annotations failed for ' + docId + ':', err);
-        });
+        window.sbUpdateDocumentAnnotations(docId, store).catch(err => console.warn('Annotation changes remain unsynced:', err));
       }, ANNO_DEBOUNCE_MS);
     }
 

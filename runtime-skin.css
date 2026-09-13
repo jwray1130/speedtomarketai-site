@@ -88,7 +88,7 @@ body.stm-native-overlay #docs-view-root .modal-overlay.visible,body.stm-native-o
 
 body.stm-native-overlay #docs-view-root .modal-backdrop.visible,body.stm-native-overlay #docs-view-root .modal-backdrop.visible *{visibility:visible!important;}
 
-body.stm-document-editor #stm-document-editor-close{display:flex;align-items:center;gap:14px;padding:14px 22px;position:sticky;top:0;z-index:1800;background:var(--panel,#fff);border-bottom:1px solid var(--line,#ddd)}
+body.stm-document-editor #stm-document-editor-close{display:flex;align-items:center;gap:14px;padding:14px 22px;position:sticky;top:0;z-index:1800;background:var(--surface,#fff);color:var(--text,#16253c);border-bottom:1px solid var(--line,#ddd)}
 body.stm-document-editor #stm-document-editor-close [role=status]{max-width:35%;color:#b42318;font-size:12px}
 body.stm-document-editor #stm-document-editor-close button{margin-left:auto}
 body.stm-document-editor #docs-view-root{display:block!important}
@@ -97,5 +97,5 @@ body.stm-document-editor .left-pane,body.stm-document-editor .right-pane,body.st
 
 body.stm-document-editor #docs-view-root #submissionChipClear{display:none!important}
 /* The retained annotation workspace is a scoped editor, not a second shell. */
-body.stm-document-editor #stm-document-editor-close{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:2147483647!important;min-height:66px!important;box-sizing:border-box;background:var(--panel,#fff)!important}
+body.stm-document-editor #stm-document-editor-close{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:2147483647!important;min-height:66px!important;box-sizing:border-box;background:var(--surface,#fff)!important}
 body.stm-document-editor #docs-view-root{top:66px!important;height:calc(100dvh - 66px)!important;z-index:1000!important}

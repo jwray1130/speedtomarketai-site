@@ -2,9 +2,11 @@
 /.git/
 /tests/
 /node_modules/
+/.npm-cache/
 /package.json
 /package-lock.json
 /README.md
 /RELEASE_NOTES.md
+/download
 /supabase/
 /.github/
